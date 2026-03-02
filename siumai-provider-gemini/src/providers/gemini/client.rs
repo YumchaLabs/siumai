@@ -782,6 +782,9 @@ mod tests {
     fn gemini_client_from_config_builds_http_client() {
         let cfg = GeminiConfig::new("test-key").with_model("gemini-2.0-flash-exp".to_string());
         let client = GeminiClient::from_config(cfg).expect("from_config ok");
-        assert_eq!(client.provider_id(), std::borrow::Cow::Borrowed("google"));
+        let llm: &dyn LlmClient = &client;
+        assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("gemini"));
+        assert!(llm.as_chat_capability().is_some());
+        assert!(llm.capabilities().chat);
     }
 }

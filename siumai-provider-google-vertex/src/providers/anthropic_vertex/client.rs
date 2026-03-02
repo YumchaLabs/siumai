@@ -390,3 +390,25 @@ impl crate::client::LlmClient for VertexAnthropicClient {
         Some(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vertex_anthropic_llmclient_exposes_chat_capability() {
+        let cfg = VertexAnthropicConfig {
+            base_url: "https://example.invalid".to_string(),
+            model: "claude-3-5-sonnet-20241022".to_string(),
+            http_config: crate::types::HttpConfig::default(),
+        };
+        let client = VertexAnthropicClient::new(cfg, reqwest::Client::new());
+        let llm: &dyn crate::client::LlmClient = &client;
+        assert_eq!(
+            llm.provider_id(),
+            std::borrow::Cow::Borrowed("anthropic-vertex")
+        );
+        assert!(llm.as_chat_capability().is_some());
+        assert!(llm.capabilities().chat);
+    }
+}

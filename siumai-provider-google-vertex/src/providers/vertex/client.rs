@@ -440,3 +440,26 @@ impl LlmClient for GoogleVertexClient {
         Some(self)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn google_vertex_llmclient_exposes_expected_capabilities() {
+        let cfg = GoogleVertexConfig {
+            base_url: "https://example.invalid".to_string(),
+            model: "imagen-3.0-generate-002".to_string(),
+            api_key: None,
+            http_config: crate::types::HttpConfig::default(),
+            http_transport: None,
+            token_provider: None,
+        };
+        let client = GoogleVertexClient::from_config(cfg).expect("from_config ok");
+        let llm: &dyn crate::client::LlmClient = &client;
+        assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("vertex"));
+        assert!(llm.as_chat_capability().is_some());
+        assert!(llm.as_image_generation_capability().is_some());
+        assert!(llm.as_embedding_capability().is_some());
+    }
+}

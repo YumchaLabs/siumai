@@ -811,6 +811,16 @@ mod tests {
     }
 
     #[test]
+    fn openai_llmclient_exposes_chat_capability() {
+        let cfg = OpenAiConfig::new("test-key").with_model("gpt-4o-mini");
+        let client = OpenAiClient::from_config(cfg).expect("from_config ok");
+        let llm: &dyn LlmClient = &client;
+        assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("openai"));
+        assert!(llm.as_chat_capability().is_some());
+        assert!(llm.capabilities().chat);
+    }
+
+    #[test]
     fn test_openai_client_with_specific_params() {
         let config = OpenAiConfig::new("test-key")
             .with_organization("org-123")

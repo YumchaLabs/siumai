@@ -811,6 +811,16 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_llmclient_exposes_chat_capability() {
+        let cfg = AnthropicConfig::new("test-key").with_model("claude-3-5-haiku-20241022");
+        let client = AnthropicClient::from_config(cfg).expect("from_config ok");
+        let llm: &dyn LlmClient = &client;
+        assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("anthropic"));
+        assert!(llm.as_chat_capability().is_some());
+        assert!(llm.capabilities().chat);
+    }
+
+    #[test]
     fn test_anthropic_client_with_specific_params() {
         let client = AnthropicClient::new(
             "test-key".to_string(),
