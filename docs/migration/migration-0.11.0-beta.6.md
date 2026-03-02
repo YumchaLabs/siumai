@@ -22,6 +22,8 @@ model-family APIs.
   - `siumai::transcription::transcribe`
 - Legacy method-style entry points are treated as compatibility surface:
   - explicit module: `siumai::compat`
+- If you hold a unified handle like `Arc<dyn LlmClient>` (e.g. from the registry), you can still
+  call `client.chat_request(req).await?` as a convenience.
 
 - OpenAI-compatible vendors (DeepSeek/OpenRouter/Moonshot/etc.) now have a config-first shortcut:
   - `siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(...)`
@@ -139,10 +141,88 @@ use siumai::compat::*;
 Compatibility note: the `siumai::compat` module is intended to be temporary.
 Planned removal target is **no earlier than `0.12.0`**.
 
+## 4) New per-call options (timeouts/headers/tools/telemetry)
+
+In `0.11.0-beta.6`, each model family exposes a small `*Options` struct.
+This started as "retry-only" in earlier drafts, but now includes **per-call HTTP overrides**
+and (for text) tool/telemetry overrides.
+
+### 4.1 Per-call timeout and headers
+
+All families support:
+
+- `timeout`: sets a per-request timeout (applied at the HTTP layer, including streaming requests)
+- `headers`: merges extra headers into the request (per call)
+
+Example (text):
+
+```rust,ignore
+use siumai::prelude::unified::*;
+use std::time::Duration;
+
+let req = ChatRequest::new(vec![user!("hi")]);
+let resp = text::generate(
+    &client,
+    req,
+    text::GenerateOptions {
+        timeout: Some(Duration::from_secs(30)),
+        headers: [("x-trace-id".to_string(), "abc".to_string())]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    },
+)
+.await?;
+```
+
+### 4.2 Text: tools and tool choice per call
+
+Text options also support:
+
+- `tools`: append tools for this call
+- `tool_choice`: override tool choice for this call
+
+If you already set tools on the `ChatRequest`, options-level tools are appended.
+
+### 4.3 Text: telemetry override per call
+
+Text options also support:
+
+- `telemetry`: set `ChatRequest.telemetry` (runtime-only; not serialized)
+
+This is useful when you want to override tracing/metrics sampling or attach per-request tags.
+
+## 5) Config-driven wiring for interceptors/middlewares
+
+Config-first constructors now support wiring interceptors and model middlewares directly from
+`*_Config` types (runtime-only; not serialized).
+
+This lets you keep construction simple while still enabling cross-cutting concerns like:
+
+- request/response logging
+- custom auth headers
+- model parameter normalization
+- policy enforcement
+
+Example (OpenAI):
+
+```rust,ignore
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
+use std::sync::Arc;
+
+let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+    .with_model("gpt-4o-mini")
+    .with_http_interceptors(vec![/* Arc<dyn HttpInterceptor> */])
+    .with_model_middlewares(vec![/* Arc<dyn LanguageModelMiddleware> */]);
+
+let client = OpenAiClient::from_config(cfg)?;
+```
+
 ## Checklist
 
 - Keep construction code unchanged.
 - Prefer `siumai::text::*` for chat-style inference.
+- Use family `*Options` for per-call timeout/headers (and text tooling/telemetry) instead of ad-hoc request mutation.
 - If you reference method-style APIs in docs/examples, migrate them to the family functions.
 
 ## Notes on examples in this repository

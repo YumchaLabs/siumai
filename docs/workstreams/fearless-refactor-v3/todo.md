@@ -47,9 +47,12 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
   - [x] `rerank::rerank`
   - [x] `speech::synthesize`
   - [x] `transcription::transcribe`
-- [ ] Expose a small options struct per family (timeouts/retry/tooling/telemetry) (post-beta.6)
-  - [x] Retry-only options for each family (first cut)
 - [x] Provide a compatibility facade (`siumai::compat::*`) to keep older examples building temporarily
+- [x] Expose a small options struct per family (timeouts/retry/tooling/telemetry)
+  - [x] Retry-only options for each family (first cut)
+  - [x] Per-request HTTP overrides: `timeout`, `headers`
+  - [x] Text tooling surface: `tools`, `tool_choice`
+  - [x] Telemetry override per request (text)
 
 ## 4) Tools: unify definition + execution (without new crates)
 
@@ -88,7 +91,7 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
   - [x] `GoogleVertexClient`
   - [x] `VertexAnthropicClient`
 - [x] Ensure constructors build HTTP client/transport from `*_Config` + `HttpConfig`
-- [ ] Add config-driven wiring for interceptors/middlewares (post-beta.6)
+- [x] Add config-driven wiring for interceptors/middlewares
 - [x] Fix provider `LlmClient` wiring regressions (e.g. `VertexAnthropicClient` must expose `as_chat_capability` and correct `provider_id`)
 - [x] Update key docs/examples to use config-first construction
 - [x] Keep builder path as compat-only and document removal target
