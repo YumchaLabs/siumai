@@ -293,6 +293,9 @@ impl OpenAiCompatibleClient {
         // Validate configuration
         config.validate()?;
 
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
         // Validate model with adapter
         if !config.model.is_empty() {
             config.adapter.validate_model(&config.model)?;
@@ -305,8 +308,8 @@ impl OpenAiCompatibleClient {
             config,
             http_client,
             retry_options: None,
-            http_interceptors: Vec::new(),
-            model_middlewares: Vec::new(),
+            http_interceptors,
+            model_middlewares,
         })
     }
 

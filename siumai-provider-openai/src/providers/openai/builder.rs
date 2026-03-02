@@ -513,6 +513,8 @@ impl OpenAiBuilder {
             provider_options_map,
             http_config: self.core.http_config.clone(),
             http_transport: self.core.http_transport.clone(),
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         };
 
         // Model is carried solely via common_params.model now

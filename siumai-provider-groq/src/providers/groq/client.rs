@@ -34,6 +34,9 @@ impl GroqClient {
     pub async fn from_config(config: super::GroqConfig) -> Result<Self, LlmError> {
         config.validate()?;
 
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
         let provider = get_provider_config("groq").ok_or_else(|| {
             LlmError::ConfigurationError("OpenAI-compatible provider config not found: groq".into())
         })?;
@@ -48,7 +51,9 @@ impl GroqClient {
         )
         .with_http_config(config.http_config.clone())
         .with_common_params(config.common_params.clone())
-        .with_model(&config.common_params.model);
+        .with_model(&config.common_params.model)
+        .with_http_interceptors(http_interceptors)
+        .with_model_middlewares(model_middlewares);
 
         let inner = OpenAiCompatibleClient::from_config(openai_cfg).await?;
         Ok(Self::new(inner))

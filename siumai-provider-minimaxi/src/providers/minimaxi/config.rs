@@ -3,6 +3,8 @@
 //! Configuration structures for MiniMaxi API client.
 
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -22,6 +24,12 @@ pub struct MinimaxiConfig {
     /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
     #[serde(skip)]
     pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    /// Optional HTTP interceptors applied to all requests built from this config.
+    #[serde(skip)]
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares applied before provider mapping (chat only).
+    #[serde(skip)]
+    pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl std::fmt::Debug for MinimaxiConfig {
@@ -57,6 +65,8 @@ impl MinimaxiConfig {
             },
             http_config: HttpConfig::default(),
             http_transport: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -84,6 +94,21 @@ impl MinimaxiConfig {
         transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
     ) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    /// Install HTTP interceptors for requests created by clients built from this config.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install model-level middlewares for chat requests created by clients built from this config.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 
@@ -122,6 +147,8 @@ impl Default for MinimaxiConfig {
             },
             http_config: HttpConfig::default(),
             http_transport: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 }

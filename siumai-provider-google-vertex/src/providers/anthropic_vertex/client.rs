@@ -20,11 +20,25 @@ use crate::traits::{ChatCapability, ModelListingCapability};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
 
 /// Minimal config for Vertex Anthropic client (delegate to SiumaiBuilder for common params)
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct VertexAnthropicConfig {
     pub base_url: String,
     pub model: String,
     pub http_config: crate::types::HttpConfig,
+    /// Optional HTTP interceptors applied to all requests built from this config.
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares applied before provider mapping (chat only).
+    pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+}
+
+impl std::fmt::Debug for VertexAnthropicConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VertexAnthropicConfig")
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("http_config", &self.http_config)
+            .finish()
+    }
 }
 
 #[derive(Clone)]
@@ -53,9 +67,14 @@ impl VertexAnthropicClient {
             ));
         }
 
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
         let http_client =
             crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
-        Ok(Self::new(config, http_client))
+        Ok(Self::new(config, http_client)
+            .with_http_interceptors(http_interceptors)
+            .with_model_middlewares(model_middlewares))
     }
 
     pub fn new(config: VertexAnthropicConfig, http_client: HttpClient) -> Self {

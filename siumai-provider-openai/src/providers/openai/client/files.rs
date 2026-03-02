@@ -19,6 +19,8 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
             http_transport: self.http_transport.clone(),
+            http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -43,6 +45,8 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
             http_transport: self.http_transport.clone(),
+            http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -64,6 +68,8 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
             http_transport: self.http_transport.clone(),
+            http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -88,6 +94,8 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
             http_transport: self.http_transport.clone(),
+            http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,
@@ -109,6 +117,8 @@ impl crate::traits::FileManagementCapability for OpenAiClient {
             provider_options_map: self.default_provider_options_map.clone(),
             http_config: self.http_config.clone(),
             http_transport: self.http_transport.clone(),
+            http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
         };
         let files = OpenAiFiles::new(
             cfg,

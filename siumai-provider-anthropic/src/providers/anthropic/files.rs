@@ -111,6 +111,11 @@ impl AnthropicFiles {
             let purpose = purpose.clone();
 
             async move {
+                let per_request_http_config = headers.as_ref().map(|h| {
+                    let mut cfg = crate::types::HttpConfig::empty();
+                    cfg.headers = h.clone();
+                    cfg
+                });
                 let res = execute_multipart_request(
                     &http_config,
                     &url,
@@ -132,7 +137,7 @@ impl AnthropicFiles {
 
                         Ok(form)
                     },
-                    headers.as_ref(),
+                    per_request_http_config.as_ref(),
                 )
                 .await?;
 
@@ -164,7 +169,13 @@ impl AnthropicFiles {
             let url = url.to_string();
             let headers = per_request_headers.clone();
             async move {
-                let res = execute_get_request(&http_config, &url, headers.as_ref()).await?;
+                let per_request_http_config = headers.as_ref().map(|h| {
+                    let mut cfg = crate::types::HttpConfig::empty();
+                    cfg.headers = h.clone();
+                    cfg
+                });
+                let res = execute_get_request(&http_config, &url, per_request_http_config.as_ref())
+                    .await?;
                 serde_json::from_value(res.json).map_err(|e| {
                     LlmError::ParseError(format!(
                         "Failed to parse Anthropic list files response: {e}"
@@ -191,7 +202,13 @@ impl AnthropicFiles {
             let url = url.clone();
             let headers = per_request_headers.clone();
             async move {
-                let res = execute_get_request(&http_config, &url, headers.as_ref()).await?;
+                let per_request_http_config = headers.as_ref().map(|h| {
+                    let mut cfg = crate::types::HttpConfig::empty();
+                    cfg.headers = h.clone();
+                    cfg
+                });
+                let res = execute_get_request(&http_config, &url, per_request_http_config.as_ref())
+                    .await?;
                 serde_json::from_value(res.json).map_err(|e| {
                     LlmError::ParseError(format!(
                         "Failed to parse Anthropic retrieve file response: {e}"
@@ -218,7 +235,14 @@ impl AnthropicFiles {
             let url = url.clone();
             let headers = per_request_headers.clone();
             async move {
-                let res = execute_delete_request(&http_config, &url, headers.as_ref()).await?;
+                let per_request_http_config = headers.as_ref().map(|h| {
+                    let mut cfg = crate::types::HttpConfig::empty();
+                    cfg.headers = h.clone();
+                    cfg
+                });
+                let res =
+                    execute_delete_request(&http_config, &url, per_request_http_config.as_ref())
+                        .await?;
                 serde_json::from_value(res.json).map_err(|e| {
                     LlmError::ParseError(format!(
                         "Failed to parse Anthropic delete file response: {e}"
@@ -244,7 +268,14 @@ impl AnthropicFiles {
             let http_config = http_config.clone();
             let url = url.clone();
             let headers = per_request_headers.clone();
-            async move { execute_get_binary(&http_config, &url, headers.as_ref()).await }
+            async move {
+                let per_request_http_config = headers.as_ref().map(|h| {
+                    let mut cfg = crate::types::HttpConfig::empty();
+                    cfg.headers = h.clone();
+                    cfg
+                });
+                execute_get_binary(&http_config, &url, per_request_http_config.as_ref()).await
+            }
         };
 
         crate::retry_api::maybe_retry(self.retry_options.clone(), call).await

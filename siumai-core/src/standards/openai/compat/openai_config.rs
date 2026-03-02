@@ -4,7 +4,9 @@
 
 use super::adapter::ProviderAdapter;
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
 use std::sync::Arc;
 
@@ -29,6 +31,10 @@ pub struct OpenAiCompatibleConfig {
     pub custom_headers: reqwest::header::HeaderMap,
     /// Provider adapter for handling specifics
     pub adapter: Arc<dyn ProviderAdapter>,
+    /// Optional HTTP interceptors applied to all requests built from this config.
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares applied before provider mapping (chat only).
+    pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl std::fmt::Debug for OpenAiCompatibleConfig {
@@ -69,6 +75,8 @@ impl OpenAiCompatibleConfig {
             http_transport: None,
             custom_headers: reqwest::header::HeaderMap::new(),
             adapter,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -94,6 +102,21 @@ impl OpenAiCompatibleConfig {
     /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    /// Install HTTP interceptors for requests created by clients built from this config.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install model-level middlewares for chat requests created by clients built from this config.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 

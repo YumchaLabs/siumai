@@ -76,6 +76,11 @@ impl OpenAiClient {
         if self.http_config.stream_disable_compression {
             per_request_headers.insert("accept-encoding".to_string(), "identity".to_string());
         }
+        let mut per_request_http_config = request
+            .http_config
+            .clone()
+            .unwrap_or_else(crate::types::HttpConfig::empty);
+        per_request_http_config.headers = per_request_headers;
         let config = wiring.config(spec.clone());
 
         let resp =
@@ -83,7 +88,7 @@ impl OpenAiClient {
                 &config,
                 &url,
                 json,
-                Some(&per_request_headers),
+                Some(&per_request_http_config),
                 http_ctx.clone(),
             )
             .await?;

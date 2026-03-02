@@ -13,6 +13,7 @@ use crate::core::ProviderSpec;
 use crate::error::LlmError;
 use crate::execution::executors::image::{ImageExecutor, ImageExecutorBuilder};
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
@@ -43,6 +44,10 @@ pub struct GoogleVertexConfig {
     /// Optional Bearer token provider (e.g., ADC). When present, an `Authorization` header
     /// will be injected automatically if one is not already set.
     pub token_provider: Option<Arc<dyn TokenProvider>>,
+    /// Optional HTTP interceptors applied to all requests built from this config.
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares applied before provider mapping (chat only).
+    pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl std::fmt::Debug for GoogleVertexConfig {
@@ -70,6 +75,7 @@ pub struct GoogleVertexClient {
     config: GoogleVertexConfig,
     common_params: crate::types::CommonParams,
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     retry_options: Option<RetryOptions>,
 }
 
@@ -87,9 +93,14 @@ impl GoogleVertexClient {
             ));
         }
 
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
         let http_client =
             crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
-        Ok(Self::new(config, http_client))
+        Ok(Self::new(config, http_client)
+            .with_interceptors(http_interceptors)
+            .with_model_middlewares(model_middlewares))
     }
 
     pub fn new(config: GoogleVertexConfig, http_client: HttpClient) -> Self {
@@ -102,6 +113,7 @@ impl GoogleVertexClient {
             config,
             common_params,
             http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
             retry_options: None,
         }
     }
@@ -117,6 +129,14 @@ impl GoogleVertexClient {
 
     pub fn with_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 
@@ -303,7 +323,8 @@ impl ChatCapability for GoogleVertexClient {
             .with_context(ctx)
             .with_transformer_bundle(bundle)
             .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
-            .with_interceptors(self.http_interceptors.clone());
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
 
         if let Some(retry) = self.retry_options.clone() {
             exec = exec.with_retry_options(retry);
@@ -342,7 +363,8 @@ impl ChatCapability for GoogleVertexClient {
             .with_context(ctx)
             .with_transformer_bundle(bundle)
             .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
-            .with_interceptors(self.http_interceptors.clone());
+            .with_interceptors(self.http_interceptors.clone())
+            .with_middlewares(self.model_middlewares.clone());
 
         if let Some(retry) = self.retry_options.clone() {
             exec = exec.with_retry_options(retry);

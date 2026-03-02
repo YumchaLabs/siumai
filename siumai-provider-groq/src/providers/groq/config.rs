@@ -3,12 +3,15 @@
 //! Configuration structures and validation for the Groq provider.
 
 use secrecy::SecretString;
+use std::sync::Arc;
 
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
 
 /// `Groq` Configuration
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct GroqConfig {
     /// API key for authentication (securely stored)
     pub api_key: SecretString,
@@ -18,6 +21,26 @@ pub struct GroqConfig {
     pub common_params: CommonParams,
     /// HTTP configuration
     pub http_config: HttpConfig,
+    /// Optional HTTP interceptors applied to all requests built from this config.
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares applied before provider mapping (chat only).
+    pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+}
+
+impl std::fmt::Debug for GroqConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        use secrecy::ExposeSecret;
+        let mut ds = f.debug_struct("GroqConfig");
+        ds.field("base_url", &self.base_url)
+            .field("common_params", &self.common_params)
+            .field("http_config", &self.http_config);
+
+        if !self.api_key.expose_secret().is_empty() {
+            ds.field("has_api_key", &true);
+        }
+
+        ds.finish()
+    }
 }
 
 impl GroqConfig {
@@ -31,6 +54,8 @@ impl GroqConfig {
             base_url: Self::DEFAULT_BASE_URL.to_string(),
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -73,6 +98,21 @@ impl GroqConfig {
     /// Set the seed
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.common_params.seed = Some(seed);
+        self
+    }
+
+    /// Install HTTP interceptors for requests created by clients built from this config.
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install model-level middlewares for chat requests created by clients built from this config.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
         self
     }
 

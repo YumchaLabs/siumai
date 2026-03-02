@@ -254,7 +254,6 @@ impl FileManagementCapability for MinimaxiFiles {
         let cfg = self.build_http_config();
         let url = format!("{}/v1/files/upload", self.base_url());
 
-        let per_request_headers = request.http_config.as_ref().map(|hc| &hc.headers);
         let purpose = request.purpose.clone();
         let filename = request.filename.clone();
         let mime_type = request
@@ -277,7 +276,7 @@ impl FileManagementCapability for MinimaxiFiles {
                     .text("purpose", purpose.clone())
                     .part("file", part))
             },
-            per_request_headers,
+            request.http_config.as_ref(),
         )
         .await?;
 
@@ -306,12 +305,9 @@ impl FileManagementCapability for MinimaxiFiles {
             urlencoding::encode(&purpose)
         );
 
-        let per_request_headers = query
-            .as_ref()
-            .and_then(|q| q.http_config.as_ref())
-            .map(|hc| &hc.headers);
+        let per_request_http_config = query.as_ref().and_then(|q| q.http_config.as_ref());
 
-        let res = execute_get_request(&cfg, &url, per_request_headers).await?;
+        let res = execute_get_request(&cfg, &url, per_request_http_config).await?;
         check_base_resp("minimaxi", &res.json)?;
 
         let files = res

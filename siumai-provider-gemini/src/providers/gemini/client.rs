@@ -109,14 +109,25 @@ impl GeminiClient {
         config: GeminiConfig,
         http_client: HttpClient,
     ) -> Result<Self, LlmError> {
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
         // Build capability implementations with provided client
-        let chat_capability =
-            GeminiChatCapability::new(config.clone(), http_client.clone(), Vec::new());
+        let chat_capability = GeminiChatCapability::new(
+            config.clone(),
+            http_client.clone(),
+            http_interceptors.clone(),
+        )
+        .with_middlewares(model_middlewares.clone());
 
         let models_capability = GeminiModels::new(config.clone(), http_client.clone());
 
-        let files_capability =
-            GeminiFiles::new(config.clone(), http_client.clone(), Vec::new(), None);
+        let files_capability = GeminiFiles::new(
+            config.clone(),
+            http_client.clone(),
+            http_interceptors.clone(),
+            None,
+        );
 
         // Use common parameters from config (already contains model, temperature, max_tokens, top_p, stop_sequences)
         let mut common_params = config.common_params.clone();
@@ -153,8 +164,8 @@ impl GeminiClient {
             tracing_config: None,
             _tracing_guard: None,
             retry_options: None,
-            http_interceptors: Vec::new(),
-            model_middlewares: Vec::new(),
+            http_interceptors,
+            model_middlewares,
         })
     }
 

@@ -3,6 +3,8 @@
 //! Configuration structures and builders for Ollama provider.
 
 use crate::error::LlmError;
+use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
 use std::sync::Arc;
 
@@ -23,6 +25,10 @@ pub struct OllamaConfig {
     pub ollama_params: OllamaParams,
     /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
     pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    /// Optional HTTP interceptors applied to all requests built from this config.
+    pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Optional model-level middlewares applied before provider mapping (chat only).
+    pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl std::fmt::Debug for OllamaConfig {
@@ -44,6 +50,8 @@ impl Default for OllamaConfig {
             http_config: HttpConfig::default(),
             ollama_params: OllamaParams::default(),
             http_transport: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 }
@@ -87,6 +95,8 @@ pub struct OllamaConfigBuilder {
     http_config: Option<HttpConfig>,
     ollama_params: Option<OllamaParams>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    http_interceptors: Option<Vec<Arc<dyn HttpInterceptor>>>,
+    model_middlewares: Option<Vec<Arc<dyn LanguageModelMiddleware>>>,
 }
 
 impl std::fmt::Debug for OllamaConfigBuilder {
@@ -253,6 +263,18 @@ impl OllamaConfigBuilder {
         self
     }
 
+    /// Install HTTP interceptors for requests created by clients built from this config.
+    pub fn http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = Some(interceptors);
+        self
+    }
+
+    /// Install model-level middlewares for chat requests created by clients built from this config.
+    pub fn model_middlewares(mut self, middlewares: Vec<Arc<dyn LanguageModelMiddleware>>) -> Self {
+        self.model_middlewares = Some(middlewares);
+        self
+    }
+
     /// Build the configuration
     pub fn build(self) -> Result<OllamaConfig, LlmError> {
         let mut common_params = self.common_params.unwrap_or_default();
@@ -271,6 +293,8 @@ impl OllamaConfigBuilder {
             http_config: self.http_config.unwrap_or_default(),
             ollama_params: self.ollama_params.unwrap_or_default(),
             http_transport: self.http_transport,
+            http_interceptors: self.http_interceptors.unwrap_or_default(),
+            model_middlewares: self.model_middlewares.unwrap_or_default(),
         };
 
         config.validate()?;

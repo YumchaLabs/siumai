@@ -77,9 +77,13 @@ impl AzureOpenAiClient {
     /// This is the recommended construction style for new code that does not want to
     /// depend on the unified builder surface.
     pub fn from_config(config: AzureOpenAiConfig) -> Result<Self, LlmError> {
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
         let http_client =
             crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
-        Self::new(config, http_client)
+        Ok(Self::new(config, http_client)?
+            .with_http_interceptors(http_interceptors)
+            .with_model_middlewares(model_middlewares))
     }
 
     pub fn with_retry_options(mut self, opts: Option<RetryOptions>) -> Self {

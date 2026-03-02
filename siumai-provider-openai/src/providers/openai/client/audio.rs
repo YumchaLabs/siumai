@@ -171,9 +171,9 @@ impl AudioCapability for OpenAiClient {
         let base = config.provider_context.base_url.trim_end_matches('/');
         let url = format!("{base}/audio/translations");
 
-        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
         let res =
-            execute_multipart_bytes_request(&config, &url, build_form, per_request_headers).await?;
+            execute_multipart_bytes_request(&config, &url, build_form, req.http_config.as_ref())
+                .await?;
 
         let mut metadata = std::collections::HashMap::new();
 

@@ -80,6 +80,9 @@ impl MinimaxiClient {
     pub fn from_config(config: MinimaxiConfig) -> Result<Self, LlmError> {
         config.validate()?;
 
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
         let http_client =
             crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
 
@@ -89,6 +92,10 @@ impl MinimaxiClient {
         if let Some(transport) = client.config.http_transport.clone() {
             client = client.with_http_transport(transport);
         }
+
+        client = client
+            .with_interceptors(http_interceptors)
+            .with_model_middlewares(model_middlewares);
 
         Ok(client)
     }
