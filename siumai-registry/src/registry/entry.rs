@@ -702,6 +702,7 @@ impl ChatCapability for LanguageModelHandle {
                 if let Some(t) = tools {
                     req = req.with_tools(t);
                 }
+                req.common_params.model = model_id.clone();
 
                 if !this.middlewares.is_empty() {
                     req = crate::execution::middleware::language_model::apply_transform_chain(
@@ -713,6 +714,60 @@ impl ChatCapability for LanguageModelHandle {
                 chat.chat_stream_request_with_cancel(req).await
             }),
         )
+    }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let model_id = if !self.middlewares.is_empty() {
+            crate::execution::middleware::language_model::apply_model_id_override(
+                &self.middlewares,
+                &self.model_id,
+            )
+        } else {
+            self.model_id.clone()
+        };
+
+        let client = self.get_or_create_client(&model_id).await?;
+        let chat = client.as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support chat".to_string())
+        })?;
+
+        let mut req = request.with_streaming(false);
+        req.common_params.model = model_id.clone();
+        if !self.middlewares.is_empty() {
+            req = crate::execution::middleware::language_model::apply_transform_chain(
+                &self.middlewares,
+                req,
+            );
+        }
+
+        chat.chat_request(req).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        let model_id = if !self.middlewares.is_empty() {
+            crate::execution::middleware::language_model::apply_model_id_override(
+                &self.middlewares,
+                &self.model_id,
+            )
+        } else {
+            self.model_id.clone()
+        };
+
+        let client = self.get_or_create_client(&model_id).await?;
+        let chat = client.as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support chat".to_string())
+        })?;
+
+        let mut req = request.with_streaming(true);
+        req.common_params.model = model_id.clone();
+        if !self.middlewares.is_empty() {
+            req = crate::execution::middleware::language_model::apply_transform_chain(
+                &self.middlewares,
+                req,
+            );
+        }
+
+        chat.chat_stream_request(req).await
     }
 
     async fn chat_stream_request_with_cancel(
@@ -737,6 +792,7 @@ impl ChatCapability for LanguageModelHandle {
                 })?;
 
                 let mut req = request.with_streaming(true);
+                req.common_params.model = model_id.clone();
                 if !this.middlewares.is_empty() {
                     req = crate::execution::middleware::language_model::apply_transform_chain(
                         &this.middlewares,

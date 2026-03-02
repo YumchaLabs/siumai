@@ -176,6 +176,141 @@ async fn language_model_handle_builds_client() {
 }
 
 #[tokio::test]
+async fn language_model_handle_preserves_chat_request_fields() {
+    let _g = reg_test_guard();
+
+    #[derive(Clone)]
+    struct CapturingClient(std::sync::Arc<std::sync::Mutex<Option<ChatRequest>>>);
+
+    #[async_trait::async_trait]
+    impl ChatCapability for CapturingClient {
+        async fn chat_with_tools(
+            &self,
+            _messages: Vec<crate::types::ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<crate::types::ChatResponse, LlmError> {
+            Err(LlmError::UnsupportedOperation("use chat_request".into()))
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: Vec<crate::types::ChatMessage>,
+            _tools: Option<Vec<crate::types::Tool>>,
+        ) -> Result<crate::streaming::ChatStream, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "use chat_stream_request".into(),
+            ))
+        }
+
+        async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+            *self.0.lock().unwrap() = Some(request);
+            Ok(ChatResponse::new(crate::types::MessageContent::Text(
+                "ok".to_string(),
+            )))
+        }
+
+        async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+            *self.0.lock().unwrap() = Some(request);
+            let end = ChatResponse::new(crate::types::MessageContent::Text("ok".to_string()));
+            let events = vec![Ok(crate::types::ChatStreamEvent::StreamEnd {
+                response: end,
+            })];
+            Ok(Box::pin(futures::stream::iter(events)))
+        }
+    }
+
+    impl LlmClient for CapturingClient {
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("cap")
+        }
+
+        fn supported_models(&self) -> Vec<String> {
+            vec!["bound-model".into()]
+        }
+
+        fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+            crate::traits::ProviderCapabilities::new().with_chat()
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn clone_box(&self) -> Box<dyn LlmClient> {
+            Box::new(self.clone())
+        }
+
+        fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+            Some(self)
+        }
+    }
+
+    struct CaptureFactory {
+        seen: std::sync::Arc<std::sync::Mutex<Option<ChatRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ProviderFactory for CaptureFactory {
+        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Ok(Arc::new(CapturingClient(self.seen.clone())))
+        }
+
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("cap")
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_chat()
+        }
+    }
+
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let mut providers = HashMap::new();
+    providers.insert(
+        "cap".to_string(),
+        Arc::new(CaptureFactory { seen: seen.clone() }) as Arc<dyn ProviderFactory>,
+    );
+    let reg = create_provider_registry(providers, None);
+    let handle = reg.language_model("cap:bound-model").unwrap();
+
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("hi").build())
+        .temperature(0.7)
+        .max_tokens(123)
+        .build()
+        .with_provider_option(
+            "openai",
+            serde_json::json!({ "responsesApi": { "enabled": true } }),
+        );
+
+    let _ = handle.chat_request(request.clone()).await.unwrap();
+
+    let captured = seen.lock().unwrap().clone().unwrap();
+    assert_eq!(
+        captured.common_params.temperature,
+        request.common_params.temperature
+    );
+    assert_eq!(
+        captured.common_params.max_tokens,
+        request.common_params.max_tokens
+    );
+    assert_eq!(
+        captured.provider_options_map.get("openai"),
+        request.provider_options_map.get("openai")
+    );
+    assert_eq!(captured.common_params.model, "bound-model");
+    assert!(!captured.stream);
+
+    let _ = handle
+        .chat_stream_request(ChatRequest::new(vec![ChatMessage::user("hi").build()]))
+        .await
+        .unwrap();
+    let captured = seen.lock().unwrap().clone().unwrap();
+    assert!(captured.stream);
+    assert_eq!(captured.common_params.model, "bound-model");
+}
+
+#[tokio::test]
 async fn reranking_model_handle_builds_and_calls() {
     let _g = reg_test_guard();
 
