@@ -1,6 +1,6 @@
 # Fearless Refactor V3 — TODO
 
-Last updated: 2026-03-01
+Last updated: 2026-03-02
 
 This TODO list is intentionally written as a sequence of “mergeable chunks”.
 
@@ -98,3 +98,5 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
 - [ ] Update docs and examples to the new recommended surface
   - [x] Add `siumai::compat` as an explicit legacy surface
   - [x] Migrate README + key examples to family APIs
+  - [x] Migrate `examples/02-core-api/*` to registry construction
+  - [x] Migrate `examples/07-applications/*` to registry construction

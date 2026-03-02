@@ -1,6 +1,6 @@
 # Fearless Refactor V3 — Milestones
 
-Last updated: 2026-03-01
+Last updated: 2026-03-02
 
 This workstream is tracked by milestones with explicit acceptance criteria.
 
@@ -79,7 +79,7 @@ Acceptance criteria:
 - Examples/docs updated to new recommended APIs.
 - Release notes prepared (breaking changes clearly listed).
 
-Status: ⬜ planned
+Status: 🟨 in progress
 
 ## V3-M8 — Config-first construction (beta.6)
 
