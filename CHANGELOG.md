@@ -4,17 +4,22 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [Unreleased]
 
+
+## [0.11.0-beta.6] - 2026-03-02
+
 ### Highlights
 
 - Fearless Refactor V3: add Rust-first model-family APIs (`siumai::{text,embedding,image,rerank,speech,transcription}`) and keep method-style APIs behind an explicit compatibility module (`siumai::compat`).
-- Orchestrator now routes internal calls through `siumai::text::*` to decouple from chat-centric traits.
+- Orchestrator routes internal calls through `siumai::text::*` (family API) to decouple from chat-centric traits.
+- Construction guidance flips: prefer registry + config-first provider clients; builder-style entry points remain as compatibility conveniences.
 
 ### Added
 
 - Model-family V3 traits in `siumai-core` (text/embedding/image/rerank/speech/transcription).
 - Family API modules in the `siumai` facade: `siumai::{text,embedding,image,rerank,speech,transcription}`.
-- Tool runtime surface that binds schema + execution (`siumai::tooling`) and can be used by `siumai-extras` orchestrator.
+- Tool runtime surface that binds schema + execution (`siumai::tooling`) for orchestrator/tool-loop workflows.
 - Explicit compatibility module: `siumai::compat`.
+- Orchestrator tool-loop contract tests (no network) in `siumai-extras`.
 
 ### Changed
 

@@ -79,7 +79,12 @@ Acceptance criteria:
 - Examples/docs updated to new recommended APIs.
 - Release notes prepared (breaking changes clearly listed).
 
-Status: 🟨 in progress
+Notes:
+
+- `Siumai::builder()` is explicitly deprecated (compat-only) and a single builder-based example is retained for comparison.
+- `siumai-extras` includes a no-network tool-loop contract suite to reduce refactor regressions.
+
+Status: ✅ done
 
 ## V3-M8 — Config-first construction (beta.6)
 

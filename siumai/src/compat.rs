@@ -15,6 +15,17 @@
 //!
 //! Builder-style construction (`Siumai::builder()` / `Provider::<provider>()`) remains available
 //! as a compatibility convenience.
+//!
+//! ## Time-bounded compatibility promise
+//!
+//! The `siumai::compat` module is intended to be **temporary**.
+//!
+//! Planned removal target: **no earlier than `0.12.0`**.
+//!
+//! Until then, new code should prefer:
+//!
+//! - `siumai::prelude::unified::registry::global().language_model("provider:model")?`
+//! - config-first provider clients (`*Client::from_config(...)`)
 
 /// Legacy unified interface entry type.
 pub use crate::provider::Siumai;

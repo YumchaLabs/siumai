@@ -17,7 +17,9 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
   - `rerank::rerank`
   - `speech::synthesize`
   - `transcription::transcribe`
-- [ ] Choose result type naming conventions (`*Result`, `*Output`, etc.)
+- [x] Choose result type naming conventions (`*Result`, `*Output`, etc.)
+  - Convention: `*Response` for outputs, `*Stream` for streams, `*Options` for call options.
+  - Note: where a spec type already exists (e.g. `ChatResponse`), we keep it.
 - [x] Choose construction story (beta.6):
   - config-first constructors on provider clients (recommended)
   - builder-style as compat only (time-bounded)
@@ -38,14 +40,14 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
 
 ## 3) Add the new recommended public surface in `siumai`
 
-- [ ] Add function-style entry points:
+- [x] Add function-style entry points:
   - [x] `text::generate`, `text::stream`, `text::stream_with_cancel`
   - [x] `embedding::embed`, `embedding::embed_many`
   - [x] `image::generate`
   - [x] `rerank::rerank`
   - [x] `speech::synthesize`
   - [x] `transcription::transcribe`
-- [ ] Expose a small options struct per family (timeouts/retry/tooling/telemetry)
+- [ ] Expose a small options struct per family (timeouts/retry/tooling/telemetry) (post-beta.6)
   - [x] Retry-only options for each family (first cut)
 - [x] Provide a compatibility facade (`siumai::compat::*`) to keep older examples building temporarily
 
@@ -55,7 +57,7 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
   - JSON schema as data (already in spec)
   - async execute hook (runtime)
 - [x] Provide a typed tool wrapper (optional) for apps that want it
-- [ ] Provide bridging adapters from:
+- [x] Provide bridging adapters from:
   - current `Tool` + `ToolResolver` pattern
   - provider-defined/hosted tool patterns
 
@@ -67,15 +69,15 @@ This TODO list is intentionally written as a sequence of “mergeable chunks”.
 
 ## 6) Provider-by-provider migration
 
-- [ ] Migrate OpenAI providers first (highest usage surface)
-- [ ] Migrate Anthropic + Gemini next
-- [ ] Migrate remaining providers as time allows
+- [x] Migrate OpenAI providers first (highest usage surface)
+- [x] Migrate Anthropic + Gemini next
+- [x] Migrate remaining providers as time allows
 
 ## 6.5) Construction ergonomics (remove global builder dependency)
 
 Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
 
-- [ ] Add `from_config(...)` (or equivalent) constructor for core providers:
+- [x] Add `from_config(...)` (or equivalent) constructor for core providers:
   - [x] `OpenAiClient`
   - [x] `AnthropicClient`
   - [x] `GeminiClient`
@@ -85,17 +87,18 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
   - [x] `MinimaxiClient`
   - [x] `GoogleVertexClient`
   - [x] `VertexAnthropicClient`
-- [ ] Ensure constructors build HTTP client/interceptors/middlewares from `*_Config` + `HttpConfig`
+- [x] Ensure constructors build HTTP client/transport from `*_Config` + `HttpConfig`
+- [ ] Add config-driven wiring for interceptors/middlewares (post-beta.6)
 - [x] Fix provider `LlmClient` wiring regressions (e.g. `VertexAnthropicClient` must expose `as_chat_capability` and correct `provider_id`)
 - [x] Update key docs/examples to use config-first construction
-- [ ] Keep builder path under `compat` (document removal target)
+- [x] Keep builder path as compat-only and document removal target
 - [x] Add a config-first shortcut for OpenAI-compatible vendors (built-in registry)
 
 ## 7) Cleanup and deprecation
 
-- [ ] Move application-flavored helpers out of core traits (keep them in extras/compat)
+- [x] Move application-flavored helpers out of core traits (keep them in extras/compat)
 - [x] Deprecate `Siumai::builder()` as the recommended entry (keep as convenience for provider construction)
-- [ ] Update docs and examples to the new recommended surface
+- [x] Update docs and examples to the new recommended surface
   - [x] Add `siumai::compat` as an explicit legacy surface
   - [x] Migrate README + key examples to family APIs
   - [x] Migrate `examples/02-core-api/*` to registry construction

@@ -136,6 +136,9 @@ For explicitness (and to prepare for future deprecation), you can switch your im
 use siumai::compat::*;
 ```
 
+Compatibility note: the `siumai::compat` module is intended to be temporary.
+Planned removal target is **no earlier than `0.12.0`**.
+
 ## Checklist
 
 - Keep construction code unchanged.
