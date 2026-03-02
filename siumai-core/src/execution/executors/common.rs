@@ -88,13 +88,13 @@ pub async fn execute_bytes_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: HttpBody,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpBytesResult, LlmError> {
     crate::execution::executors::http_request::execute_bytes_request(
         config,
         url,
         body,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -108,7 +108,7 @@ pub async fn execute_multipart_bytes_request<F>(
     config: &HttpExecutionConfig,
     url: &str,
     build_form: F,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpBytesResult, LlmError>
 where
     F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
@@ -117,7 +117,7 @@ where
         config,
         url,
         build_form,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -184,14 +184,14 @@ pub async fn execute_json_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: HttpBody,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
     crate::execution::executors::http_request::execute_json_request(
         config,
         url,
         body,
-        per_request_headers,
+        per_request_http_config,
         stream,
     )
     .await
@@ -202,13 +202,13 @@ pub async fn execute_json_request_streaming_response(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<reqwest::Response, LlmError> {
     crate::execution::executors::http_request::execute_json_request_streaming_response(
         config,
         url,
         body,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -219,14 +219,14 @@ pub async fn execute_json_request_streaming_response_with_ctx(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     ctx: crate::execution::http::interceptor::HttpRequestContext,
 ) -> Result<reqwest::Response, LlmError> {
     crate::execution::executors::http_request::execute_json_request_streaming_response_with_ctx(
         config,
         url,
         body,
-        per_request_headers,
+        per_request_http_config,
         ctx,
     )
     .await
@@ -237,7 +237,7 @@ pub async fn execute_multipart_request_streaming_response<F>(
     config: &HttpExecutionConfig,
     url: &str,
     build_form: F,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<reqwest::Response, LlmError>
 where
     F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
@@ -246,7 +246,7 @@ where
         config,
         url,
         build_form,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -257,7 +257,7 @@ pub async fn execute_multipart_request_streaming_response_with_ctx<F>(
     config: &HttpExecutionConfig,
     url: &str,
     build_form: F,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     ctx: crate::execution::http::interceptor::HttpRequestContext,
 ) -> Result<reqwest::Response, LlmError>
 where
@@ -267,7 +267,7 @@ where
         config,
         url,
         build_form,
-        per_request_headers,
+        per_request_http_config,
         ctx,
     )
     .await
@@ -280,14 +280,14 @@ pub async fn execute_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: HttpBody,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
     crate::execution::executors::http_request::execute_request(
         config,
         url,
         body,
-        per_request_headers,
+        per_request_http_config,
         stream,
     )
     .await
@@ -312,7 +312,7 @@ pub async fn execute_multipart_request<F>(
     config: &HttpExecutionConfig,
     url: &str,
     build_form: F,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError>
 where
     F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
@@ -321,7 +321,7 @@ where
         config,
         url,
         build_form,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -379,10 +379,14 @@ where
 pub async fn execute_get_request(
     config: &HttpExecutionConfig,
     url: &str,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
-    crate::execution::executors::http_request::execute_get_request(config, url, per_request_headers)
-        .await
+    crate::execution::executors::http_request::execute_get_request(
+        config,
+        url,
+        per_request_http_config,
+    )
+    .await
 }
 
 /// Execute a DELETE request with unified HTTP handling.
@@ -426,12 +430,12 @@ pub async fn execute_get_request(
 pub async fn execute_delete_request(
     config: &HttpExecutionConfig,
     url: &str,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
     crate::execution::executors::http_request::execute_delete_request(
         config,
         url,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -441,13 +445,13 @@ pub async fn execute_delete_json_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
     crate::execution::executors::http_request::execute_delete_json_request(
         config,
         url,
         body,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -457,13 +461,13 @@ pub async fn execute_patch_json_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
     crate::execution::executors::http_request::execute_patch_json_request(
         config,
         url,
         body,
-        per_request_headers,
+        per_request_http_config,
     )
     .await
 }
@@ -518,8 +522,12 @@ pub struct HttpBinaryResult {
 pub async fn execute_get_binary(
     config: &HttpExecutionConfig,
     url: &str,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpBinaryResult, LlmError> {
-    crate::execution::executors::http_request::execute_get_binary(config, url, per_request_headers)
-        .await
+    crate::execution::executors::http_request::execute_get_binary(
+        config,
+        url,
+        per_request_http_config,
+    )
+    .await
 }

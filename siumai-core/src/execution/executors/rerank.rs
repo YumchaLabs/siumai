@@ -182,7 +182,7 @@ impl RerankExecutor for HttpRerankExecutor {
                     &config,
                     &url,
                     crate::execution::executors::common::HttpBody::Json(body),
-                    None,
+                    req.http_config.as_ref(),
                     false,
                 )
                 .await?;

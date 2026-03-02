@@ -191,12 +191,11 @@ impl ImageExecutor for HttpImageExecutor {
                 };
 
                 // 5. Execute request using common HTTP layer
-                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
                 let result = crate::execution::executors::common::execute_json_request(
                     &config,
                     &url,
                     crate::execution::executors::common::HttpBody::Json(body),
-                    per_request_headers,
+                    req.http_config.as_ref(),
                     false, // stream = false
                 )
                 .await?;
@@ -251,7 +250,6 @@ impl ImageExecutor for HttpImageExecutor {
         };
 
         // 3. Transform request and execute based on body type
-        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
         let body = self.request_transformer.transform_image_edit(&req)?;
         let warnings = self
             .provider_spec
@@ -263,7 +261,7 @@ impl ImageExecutor for HttpImageExecutor {
                     &config,
                     &url,
                     crate::execution::executors::common::HttpBody::Json(json),
-                    per_request_headers,
+                    req.http_config.as_ref(),
                     false, // stream = false
                 )
                 .await?
@@ -284,7 +282,7 @@ impl ImageExecutor for HttpImageExecutor {
                                 )),
                             })
                     },
-                    per_request_headers,
+                    req.http_config.as_ref(),
                 )
                 .await?
             }
@@ -330,7 +328,6 @@ impl ImageExecutor for HttpImageExecutor {
         };
 
         // 3. Transform request and execute based on body type
-        let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
         let body = self.request_transformer.transform_image_variation(&req)?;
         let warnings = self
             .provider_spec
@@ -342,7 +339,7 @@ impl ImageExecutor for HttpImageExecutor {
                     &config,
                     &url,
                     crate::execution::executors::common::HttpBody::Json(json),
-                    per_request_headers,
+                    req.http_config.as_ref(),
                     false, // stream = false
                 )
                 .await?
@@ -363,7 +360,7 @@ impl ImageExecutor for HttpImageExecutor {
                                 )),
                             })
                     },
-                    per_request_headers,
+                    req.http_config.as_ref(),
                 )
                 .await?
             }

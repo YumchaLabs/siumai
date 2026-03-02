@@ -23,7 +23,7 @@ pub async fn execute_json_request_streaming_response(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<reqwest::Response, LlmError> {
     let ctx = HttpRequestContext {
         request_id: crate::execution::http::interceptor::generate_request_id(),
@@ -31,8 +31,14 @@ pub async fn execute_json_request_streaming_response(
         url: url.to_string(),
         stream: true,
     };
-    execute_json_request_streaming_response_with_ctx(config, url, body, per_request_headers, ctx)
-        .await
+    execute_json_request_streaming_response_with_ctx(
+        config,
+        url,
+        body,
+        per_request_http_config,
+        ctx,
+    )
+    .await
 }
 
 /// JSON request that returns the raw `reqwest::Response` for streaming consumption,
@@ -41,7 +47,7 @@ pub async fn execute_json_request_streaming_response_with_ctx(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     ctx: HttpRequestContext,
 ) -> Result<reqwest::Response, LlmError> {
     // 1. Build base headers from provider spec
@@ -50,10 +56,10 @@ pub async fn execute_json_request_streaming_response_with_ctx(
         .build_headers(&config.provider_context)?;
 
     // 2. Merge per-request headers if provided
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(base_headers.clone(), req_headers)
+            .merge_request_headers(base_headers.clone(), &req_http.headers)
     } else {
         base_headers.clone()
     };
@@ -64,6 +70,11 @@ pub async fn execute_json_request_streaming_response_with_ctx(
         .post(url)
         .headers(effective_headers.clone())
         .json(&body);
+    if let Some(req_http) = per_request_http_config
+        && let Some(timeout) = req_http.timeout
+    {
+        rb = rb.timeout(timeout);
+    }
     #[cfg(test)]
     {
         rb = rb.header("x-retry-attempt", "0");
@@ -93,20 +104,26 @@ pub async fn execute_json_request_streaming_response_with_ctx(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
             let body_for_retry = body.clone();
             let builder = move |headers: HeaderMap| {
-                config
+                let mut rb = config
                     .http_client
                     .post(url)
                     .headers(headers)
-                    .json(&body_for_retry)
+                    .json(&body_for_retry);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
+                rb
             };
             resp = rebuild_headers_and_retry_once(
                 builder,
@@ -145,7 +162,7 @@ pub async fn execute_multipart_request_streaming_response_with_ctx<F>(
     config: &HttpExecutionConfig,
     url: &str,
     build_form: F,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     ctx: HttpRequestContext,
 ) -> Result<reqwest::Response, LlmError>
 where
@@ -157,10 +174,10 @@ where
         .build_headers(&config.provider_context)?;
 
     // 2. Merge per-request headers if provided
-    let mut effective_headers = if let Some(req_headers) = per_request_headers {
+    let mut effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(base_headers.clone(), req_headers)
+            .merge_request_headers(base_headers.clone(), &req_http.headers)
     } else {
         base_headers.clone()
     };
@@ -174,6 +191,11 @@ where
         .post(url)
         .headers(effective_headers.clone())
         .multipart(form);
+    if let Some(req_http) = per_request_http_config
+        && let Some(timeout) = req_http.timeout
+    {
+        rb = rb.timeout(timeout);
+    }
     #[cfg(test)]
     {
         rb = rb.header("x-retry-attempt", "0");
@@ -210,10 +232,10 @@ where
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let mut retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let mut retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
@@ -226,6 +248,7 @@ where
                 &ctx,
                 retry_effective_headers.clone(),
                 build_form,
+                per_request_http_config.and_then(|hc| hc.timeout),
             )
             .await?;
         }
@@ -265,7 +288,7 @@ pub async fn execute_multipart_request_streaming_response<F>(
     config: &HttpExecutionConfig,
     url: &str,
     build_form: F,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<reqwest::Response, LlmError>
 where
     F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
@@ -280,7 +303,7 @@ where
         config,
         url,
         build_form,
-        per_request_headers,
+        per_request_http_config,
         ctx,
     )
     .await

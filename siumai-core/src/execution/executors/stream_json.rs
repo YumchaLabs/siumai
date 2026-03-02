@@ -23,7 +23,7 @@ pub async fn execute_json_stream_request_with_headers<C>(
     body: serde_json::Value,
     interceptors: &[Arc<dyn HttpInterceptor>],
     retry_options: Option<RetryOptions>,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     json_converter: C,
     disable_compression: bool,
     _transport: Option<Arc<dyn HttpTransport>>,
@@ -32,11 +32,11 @@ where
     C: crate::streaming::JsonEventConverter + Clone + 'static,
 {
     // Merge request headers
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         if let Some(spec) = provider_spec {
-            spec.merge_request_headers(headers_base.clone(), req_headers)
+            spec.merge_request_headers(headers_base.clone(), &req_http.headers)
         } else {
-            crate::execution::http::headers::merge_headers(headers_base.clone(), req_headers)
+            crate::execution::http::headers::merge_headers(headers_base.clone(), &req_http.headers)
         }
     } else {
         headers_base.clone()
@@ -54,6 +54,11 @@ where
         .post(url)
         .headers(effective_headers.clone())
         .json(&body);
+    if let Some(req_http) = per_request_http_config
+        && let Some(timeout) = req_http.timeout
+    {
+        rb = rb.timeout(timeout);
+    }
     if disable_compression {
         rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
     }
@@ -80,6 +85,11 @@ where
             }
             let builder = |headers: HeaderMap| {
                 let mut b = http_client.post(url).headers(headers).json(&body);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    b = b.timeout(timeout);
+                }
                 if disable_compression {
                     b = b.header(reqwest::header::ACCEPT_ENCODING, "identity");
                 }

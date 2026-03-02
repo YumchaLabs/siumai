@@ -13,7 +13,7 @@ use reqwest::header::HeaderMap;
 pub async fn execute_get_request(
     config: &HttpExecutionConfig,
     url: &str,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build headers via ProviderSpec
     let headers = config
@@ -21,10 +21,10 @@ pub async fn execute_get_request(
         .build_headers(&config.provider_context)?;
 
     // 2. Merge per-request headers
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(headers, req_headers)
+            .merge_request_headers(headers, &req_http.headers)
     } else {
         headers
     };
@@ -36,6 +36,11 @@ pub async fn execute_get_request(
             .http_client
             .get(url)
             .headers(effective_headers.clone());
+        if let Some(req_http) = per_request_http_config
+            && let Some(timeout) = req_http.timeout
+        {
+            b = b.timeout(timeout);
+        }
         #[cfg(test)]
         {
             b = b.header("x-retry-attempt", "0");
@@ -80,14 +85,22 @@ pub async fn execute_get_request(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
-            let builder = |headers: HeaderMap| config.http_client.get(url).headers(headers);
+            let builder = |headers: HeaderMap| {
+                let mut rb = config.http_client.get(url).headers(headers);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
+                rb
+            };
             resp = rebuild_headers_and_retry_once(
                 builder,
                 &config.interceptors,
@@ -143,16 +156,16 @@ pub async fn execute_get_request(
 pub async fn execute_delete_request(
     config: &HttpExecutionConfig,
     url: &str,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers
     let headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(headers, req_headers)
+            .merge_request_headers(headers, &req_http.headers)
     } else {
         headers
     };
@@ -163,6 +176,11 @@ pub async fn execute_delete_request(
             .http_client
             .delete(url)
             .headers(effective_headers.clone());
+        if let Some(req_http) = per_request_http_config
+            && let Some(timeout) = req_http.timeout
+        {
+            b = b.timeout(timeout);
+        }
         #[cfg(test)]
         {
             b = b.header("x-retry-attempt", "0");
@@ -201,14 +219,22 @@ pub async fn execute_delete_request(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
-            let builder = |headers: HeaderMap| config.http_client.delete(url).headers(headers);
+            let builder = |headers: HeaderMap| {
+                let mut rb = config.http_client.delete(url).headers(headers);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
+                rb
+            };
             resp = rebuild_headers_and_retry_once(
                 builder,
                 &config.interceptors,
@@ -268,7 +294,7 @@ pub async fn execute_delete_json_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers
     let base_headers = config
@@ -276,10 +302,10 @@ pub async fn execute_delete_json_request(
         .build_headers(&config.provider_context)?;
 
     // 2. Merge per-request headers
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(base_headers.clone(), req_headers)
+            .merge_request_headers(base_headers.clone(), &req_http.headers)
     } else {
         base_headers.clone()
     };
@@ -291,6 +317,11 @@ pub async fn execute_delete_json_request(
         .delete(url)
         .headers(effective_headers.clone())
         .json(&body);
+    if let Some(req_http) = per_request_http_config
+        && let Some(timeout) = req_http.timeout
+    {
+        rb = rb.timeout(timeout);
+    }
     #[cfg(test)]
     {
         rb = rb.header("x-retry-attempt", "0");
@@ -326,20 +357,26 @@ pub async fn execute_delete_json_request(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
             let body_for_retry = body.clone();
             let builder = move |headers: HeaderMap| {
-                config
+                let mut rb = config
                     .http_client
                     .delete(url)
                     .headers(headers)
-                    .json(&body_for_retry)
+                    .json(&body_for_retry);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
+                rb
             };
             resp = rebuild_headers_and_retry_once(
                 builder,
@@ -403,7 +440,7 @@ pub async fn execute_patch_json_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: serde_json::Value,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers
     let base_headers = config
@@ -411,10 +448,10 @@ pub async fn execute_patch_json_request(
         .build_headers(&config.provider_context)?;
 
     // 2. Merge per-request headers
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(base_headers.clone(), req_headers)
+            .merge_request_headers(base_headers.clone(), &req_http.headers)
     } else {
         base_headers.clone()
     };
@@ -426,6 +463,11 @@ pub async fn execute_patch_json_request(
         .patch(url)
         .headers(effective_headers.clone())
         .json(&body);
+    if let Some(req_http) = per_request_http_config
+        && let Some(timeout) = req_http.timeout
+    {
+        rb = rb.timeout(timeout);
+    }
     #[cfg(test)]
     {
         rb = rb.header("x-retry-attempt", "0");
@@ -461,20 +503,26 @@ pub async fn execute_patch_json_request(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
             let body_for_retry = body.clone();
             let builder = move |headers: HeaderMap| {
-                config
+                let mut rb = config
                     .http_client
                     .patch(url)
                     .headers(headers)
-                    .json(&body_for_retry)
+                    .json(&body_for_retry);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
+                rb
             };
             resp = rebuild_headers_and_retry_once(
                 builder,
@@ -534,16 +582,16 @@ pub async fn execute_patch_json_request(
 pub async fn execute_get_binary(
     config: &HttpExecutionConfig,
     url: &str,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpBinaryResult, LlmError> {
     // 1. Build base headers
     let headers = config
         .provider_spec
         .build_headers(&config.provider_context)?;
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(headers, req_headers)
+            .merge_request_headers(headers, &req_http.headers)
     } else {
         headers
     };
@@ -554,6 +602,11 @@ pub async fn execute_get_binary(
             .http_client
             .get(url)
             .headers(effective_headers.clone());
+        if let Some(req_http) = per_request_http_config
+            && let Some(timeout) = req_http.timeout
+        {
+            b = b.timeout(timeout);
+        }
         #[cfg(test)]
         {
             b = b.header("x-retry-attempt", "0");
@@ -595,14 +648,22 @@ pub async fn execute_get_binary(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
-            let builder = |headers: HeaderMap| config.http_client.get(url).headers(headers);
+            let builder = |headers: HeaderMap| {
+                let mut rb = config.http_client.get(url).headers(headers);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
+                rb
+            };
             resp = rebuild_headers_and_retry_once(
                 builder,
                 &config.interceptors,

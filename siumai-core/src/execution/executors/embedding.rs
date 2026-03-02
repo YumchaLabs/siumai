@@ -68,12 +68,11 @@ impl EmbeddingExecutor for HttpEmbeddingExecutor {
                 };
 
                 // 5. Execute request using common HTTP layer
-                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
                 let result = crate::execution::executors::common::execute_json_request(
                     &config,
                     &url,
                     crate::execution::executors::common::HttpBody::Json(body),
-                    per_request_headers,
+                    req.http_config.as_ref(),
                     false, // stream = false for embedding
                 )
                 .await?;

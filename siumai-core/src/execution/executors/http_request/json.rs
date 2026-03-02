@@ -86,11 +86,17 @@ pub async fn execute_json_request_with_headers(
         retry_options,
     };
 
+    let per_request_http_config = per_request_headers.map(|h| {
+        let mut cfg = crate::types::HttpConfig::empty();
+        cfg.headers = h.clone();
+        cfg
+    });
+
     execute_json_request(
         &config,
         url,
         HttpBody::Json(body),
-        per_request_headers,
+        per_request_http_config.as_ref(),
         stream,
     )
     .await
@@ -101,10 +107,10 @@ pub async fn execute_json_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: HttpBody,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
-    execute_request(config, url, body, per_request_headers, stream).await
+    execute_request(config, url, body, per_request_http_config, stream).await
 }
 
 /// JSON request (core implementation). For multipart, use `execute_multipart_request`.
@@ -112,7 +118,7 @@ pub async fn execute_request(
     config: &HttpExecutionConfig,
     url: &str,
     body: HttpBody,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
     stream: bool,
 ) -> Result<HttpExecutionResult, LlmError> {
     // 1. Build base headers from provider spec
@@ -121,10 +127,10 @@ pub async fn execute_request(
         .build_headers(&config.provider_context)?;
 
     // 2. Merge per-request headers if provided
-    let effective_headers = if let Some(req_headers) = per_request_headers {
+    let effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(base_headers.clone(), req_headers)
+            .merge_request_headers(base_headers.clone(), &req_http.headers)
     } else {
         base_headers.clone()
     };
@@ -134,6 +140,12 @@ pub async fn execute_request(
         .http_client
         .post(url)
         .headers(effective_headers.clone());
+
+    if let Some(req_http) = per_request_http_config
+        && let Some(timeout) = req_http.timeout
+    {
+        rb = rb.timeout(timeout);
+    }
 
     // Apply body to request builder
     let json_body = match &body {
@@ -189,10 +201,10 @@ pub async fn execute_request(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
@@ -202,6 +214,11 @@ pub async fn execute_request(
                 .post(url)
                 .headers(retry_effective_headers.clone())
                 .json(&json_body);
+            if let Some(req_http) = per_request_http_config
+                && let Some(timeout) = req_http.timeout
+            {
+                rb_retry = rb_retry.timeout(timeout);
+            }
             #[cfg(test)]
             {
                 rb_retry = rb_retry.header("x-retry-attempt", "1");
@@ -283,10 +300,10 @@ pub async fn execute_request(
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
@@ -295,7 +312,13 @@ pub async fn execute_request(
                     HttpBody::Json(j) => j,
                     HttpBody::Multipart(_) => unreachable!("multipart not used in JSON retry"),
                 };
-                config.http_client.post(url).headers(headers).json(json)
+                let mut rb = config.http_client.post(url).headers(headers).json(json);
+                if let Some(req_http) = per_request_http_config
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
+                rb
             };
             resp = rebuild_headers_and_retry_once(
                 builder,

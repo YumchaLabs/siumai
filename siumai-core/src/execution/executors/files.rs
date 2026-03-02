@@ -165,7 +165,6 @@ impl FilesExecutor for HttpFilesExecutor {
                     retry_options: retry_options_for_http.clone(),
                 };
 
-                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
                 let body = transformer.build_upload_body(&req)?;
 
                 let result = match body {
@@ -178,7 +177,7 @@ impl FilesExecutor for HttpFilesExecutor {
                             &config,
                             &url,
                             crate::execution::executors::common::HttpBody::Json(json),
-                            per_request_headers,
+                            req.http_config.as_ref(),
                             false,
                         )
                         .await?
@@ -199,7 +198,7 @@ impl FilesExecutor for HttpFilesExecutor {
                                     },
                                 )
                             },
-                            per_request_headers,
+                            req.http_config.as_ref(),
                         )
                         .await?
                     }
@@ -263,15 +262,12 @@ impl FilesExecutor for HttpFilesExecutor {
                     retry_options: retry_options_for_http.clone(),
                 };
 
-                let per_request_headers = query
-                    .as_ref()
-                    .and_then(|q| q.http_config.as_ref())
-                    .map(|hc| &hc.headers);
+                let per_request_http_config = query.as_ref().and_then(|q| q.http_config.as_ref());
 
                 let result = crate::execution::executors::http_request::execute_get_request(
                     &config,
                     &url,
-                    per_request_headers,
+                    per_request_http_config,
                 )
                 .await?;
 

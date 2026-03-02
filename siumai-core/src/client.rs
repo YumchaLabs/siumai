@@ -306,6 +306,26 @@ impl ChatCapability for ClientWrapper {
     }
 }
 
+impl dyn LlmClient {
+    /// Convenience: execute a full chat request via the unified client.
+    ///
+    /// This is an ergonomic wrapper around `as_chat_capability()` to keep call sites simple.
+    pub async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let chat = self.as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Chat capability is not supported".to_string())
+        })?;
+        chat.chat_request(request).await
+    }
+
+    /// Convenience: execute a full streaming chat request via the unified client.
+    pub async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        let chat = self.as_chat_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Chat capability is not supported".to_string())
+        })?;
+        chat.chat_stream_request(request).await
+    }
+}
+
 // UnifiedLlmClient has been removed as it was redundant with ClientWrapper.
 //
 // Use these alternatives instead:

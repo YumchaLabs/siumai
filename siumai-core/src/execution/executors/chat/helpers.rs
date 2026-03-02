@@ -52,6 +52,40 @@ pub(super) fn build_effective_chat_request_headers(
     if out.is_empty() { None } else { Some(out) }
 }
 
+pub(super) fn build_effective_chat_request_http_config(
+    provider_spec: &Arc<dyn crate::core::ProviderSpec>,
+    provider_context: &crate::core::ProviderContext,
+    stream: bool,
+    req_in: &crate::types::ChatRequest,
+) -> Option<crate::types::HttpConfig> {
+    let headers =
+        build_effective_chat_request_headers(provider_spec, provider_context, stream, req_in);
+
+    let user_http = req_in.http_config.as_ref();
+    let has_timeout = user_http.and_then(|hc| hc.timeout).is_some();
+    let has_user_agent = user_http.and_then(|hc| hc.user_agent.as_ref()).is_some();
+    let has_proxy = user_http.and_then(|hc| hc.proxy.as_ref()).is_some();
+
+    if headers.is_none() && !has_timeout && !has_user_agent && !has_proxy {
+        return None;
+    }
+
+    let mut out = crate::types::HttpConfig::empty();
+    if let Some(h) = headers {
+        out.headers = h;
+    }
+
+    if let Some(hc) = user_http {
+        out.timeout = hc.timeout;
+        out.connect_timeout = hc.connect_timeout;
+        out.proxy = hc.proxy.clone();
+        out.user_agent = hc.user_agent.clone();
+        out.stream_disable_compression = hc.stream_disable_compression;
+    }
+
+    Some(out)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn create_sse_stream_with_middlewares(
     provider_id: String,
@@ -97,7 +131,7 @@ pub(super) async fn create_sse_stream_with_middlewares(
         transformed,
         &interceptors,
         retry_options,
-        build_effective_chat_request_headers(&provider_spec, &provider_context, true, &req_in),
+        build_effective_chat_request_http_config(&provider_spec, &provider_context, true, &req_in),
         intercepting,
         disable_compression,
         transport,
@@ -126,9 +160,8 @@ pub(super) async fn create_json_stream_with_middlewares(
         req: req_in.clone(),
         convert: json_conv.clone(),
     };
-    let owned =
-        build_effective_chat_request_headers(&provider_spec, &provider_context, true, &req_in);
-    let per_req_headers = owned.as_ref();
+    let per_request_http_config =
+        build_effective_chat_request_http_config(&provider_spec, &provider_context, true, &req_in);
     crate::execution::executors::stream_json::execute_json_stream_request_with_headers(
         &http,
         &provider_id,
@@ -138,7 +171,7 @@ pub(super) async fn create_json_stream_with_middlewares(
         transformed,
         &interceptors,
         None,
-        per_req_headers,
+        per_request_http_config.as_ref(),
         mw,
         disable_compression,
         transport,

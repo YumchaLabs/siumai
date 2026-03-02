@@ -119,6 +119,7 @@ pub(crate) async fn rebuild_headers_and_retry_once_multipart<F>(
     ctx: &HttpRequestContext,
     effective_headers: HeaderMap,
     build_form: F,
+    per_request_timeout: Option<std::time::Duration>,
 ) -> Result<reqwest::Response, LlmError>
 where
     F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
@@ -128,6 +129,9 @@ where
         .post(url)
         .headers(effective_headers.clone())
         .multipart(form);
+    if let Some(timeout) = per_request_timeout {
+        rb_retry = rb_retry.timeout(timeout);
+    }
     #[cfg(test)]
     {
         rb_retry = rb_retry.header("x-retry-attempt", "1");

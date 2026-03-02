@@ -24,7 +24,7 @@ pub async fn execute_sse_stream_request_with_headers<C>(
     body: serde_json::Value,
     interceptors: &[Arc<dyn HttpInterceptor>],
     retry_options: Option<RetryOptions>,
-    per_request_headers: Option<std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<crate::types::HttpConfig>,
     converter: C,
     disable_compression: bool,
     transport: Option<Arc<dyn HttpTransport>>,
@@ -66,11 +66,15 @@ where
             let interceptors = interceptors.to_vec();
             let ctx = ctx.clone();
             move || -> Result<HttpTransportRequest, LlmError> {
-                let effective_headers = if let Some(req_headers) = per_request_headers.clone() {
+                let req_http = per_request_http_config.clone();
+                let effective_headers = if let Some(req_http) = req_http.as_ref() {
                     if let Some(spec) = provider_spec {
-                        spec.merge_request_headers(base.clone(), &req_headers)
+                        spec.merge_request_headers(base.clone(), &req_http.headers)
                     } else {
-                        crate::execution::http::headers::merge_headers(base.clone(), &req_headers)
+                        crate::execution::http::headers::merge_headers(
+                            base.clone(),
+                            &req_http.headers,
+                        )
                     }
                 } else {
                     base.clone()
@@ -83,6 +87,11 @@ where
                     .header(reqwest::header::CACHE_CONTROL, "no-cache")
                     .header(reqwest::header::CONNECTION, "keep-alive")
                     .json(&body_owned);
+                if let Some(req_http) = req_http
+                    && let Some(timeout) = req_http.timeout
+                {
+                    rb = rb.timeout(timeout);
+                }
                 if disable_compression {
                     rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
                 }
@@ -183,11 +192,12 @@ where
         let interceptors = interceptors.to_vec();
         let ctx = ctx.clone();
         move || -> Result<reqwest::RequestBuilder, LlmError> {
-            let effective_headers = if let Some(req_headers) = per_request_headers.clone() {
+            let req_http = per_request_http_config.clone();
+            let effective_headers = if let Some(req_http) = req_http.as_ref() {
                 if let Some(spec) = provider_spec {
-                    spec.merge_request_headers(base.clone(), &req_headers)
+                    spec.merge_request_headers(base.clone(), &req_http.headers)
                 } else {
-                    crate::execution::http::headers::merge_headers(base.clone(), &req_headers)
+                    crate::execution::http::headers::merge_headers(base.clone(), &req_http.headers)
                 }
             } else {
                 base.clone()
@@ -199,6 +209,11 @@ where
                 .header(reqwest::header::CACHE_CONTROL, "no-cache")
                 .header(reqwest::header::CONNECTION, "keep-alive")
                 .json(&body_owned);
+            if let Some(req_http) = req_http
+                && let Some(timeout) = req_http.timeout
+            {
+                rb = rb.timeout(timeout);
+            }
             if disable_compression {
                 rb = rb.header(reqwest::header::ACCEPT_ENCODING, "identity");
             }

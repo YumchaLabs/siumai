@@ -13,7 +13,7 @@ pub async fn execute_multipart_request<F>(
     config: &HttpExecutionConfig,
     url: &str,
     build_form: F,
-    per_request_headers: Option<&std::collections::HashMap<String, String>>,
+    per_request_http_config: Option<&crate::types::HttpConfig>,
 ) -> Result<HttpExecutionResult, LlmError>
 where
     F: Fn() -> Result<reqwest::multipart::Form, LlmError>,
@@ -24,10 +24,10 @@ where
         .build_headers(&config.provider_context)?;
 
     // 2. Merge per-request headers if provided
-    let mut effective_headers = if let Some(req_headers) = per_request_headers {
+    let mut effective_headers = if let Some(req_http) = per_request_http_config {
         config
             .provider_spec
-            .merge_request_headers(base_headers.clone(), req_headers)
+            .merge_request_headers(base_headers.clone(), &req_http.headers)
     } else {
         base_headers.clone()
     };
@@ -41,6 +41,11 @@ where
         .post(url)
         .headers(effective_headers.clone())
         .multipart(form);
+    if let Some(req_http) = per_request_http_config
+        && let Some(timeout) = req_http.timeout
+    {
+        rb = rb.timeout(timeout);
+    }
     #[cfg(test)]
     {
         rb = rb.header("x-retry-attempt", "0");
@@ -80,10 +85,10 @@ where
             let retry_headers = config
                 .provider_spec
                 .build_headers(&config.provider_context)?;
-            let retry_effective_headers = if let Some(req_headers) = per_request_headers {
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
                 config
                     .provider_spec
-                    .merge_request_headers(retry_headers, req_headers)
+                    .merge_request_headers(retry_headers, &req_http.headers)
             } else {
                 retry_headers
             };
@@ -94,6 +99,7 @@ where
                 &ctx,
                 retry_effective_headers.clone(),
                 build_form,
+                per_request_http_config.and_then(|hc| hc.timeout),
             )
             .await?;
         }

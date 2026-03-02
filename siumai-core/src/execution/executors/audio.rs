@@ -176,7 +176,6 @@ impl AudioExecutor for HttpAudioExecutor {
                     retry_options: retry_options_for_http.clone(),
                 };
 
-                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
                 let body = transformer.build_tts_body(&req)?;
 
                 let raw_bytes = match body {
@@ -189,7 +188,7 @@ impl AudioExecutor for HttpAudioExecutor {
                             &config,
                             &url,
                             crate::execution::executors::common::HttpBody::Json(json),
-                            per_request_headers,
+                            req.http_config.as_ref(),
                         )
                         .await?;
                         result.bytes
@@ -211,7 +210,7 @@ impl AudioExecutor for HttpAudioExecutor {
                                 &config,
                                 &url,
                                 build_form,
-                                per_request_headers,
+                                req.http_config.as_ref(),
                             )
                             .await?;
                         result.bytes
@@ -310,7 +309,6 @@ impl AudioExecutor for HttpAudioExecutor {
                     retry_options: retry_options_for_http.clone(),
                 };
 
-                let per_request_headers = req.http_config.as_ref().map(|hc| &hc.headers);
                 let body = transformer.build_stt_body(&req)?;
 
                 let result = match body {
@@ -323,7 +321,7 @@ impl AudioExecutor for HttpAudioExecutor {
                             &config,
                             &url,
                             crate::execution::executors::common::HttpBody::Json(json),
-                            per_request_headers,
+                            req.http_config.as_ref(),
                             false,
                         )
                         .await?
@@ -340,7 +338,7 @@ impl AudioExecutor for HttpAudioExecutor {
                                     "Expected multipart form for STT".into(),
                                 )),
                             },
-                            per_request_headers,
+                            req.http_config.as_ref(),
                         )
                         .await?
                     }
