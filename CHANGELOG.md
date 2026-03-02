@@ -18,7 +18,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
-- Documentation/examples now prefer calling family APIs for inference (e.g. `text::generate`) while keeping builder/registry construction unchanged.
+- Documentation/examples now prefer registry + config-first construction (builders remain available as compatibility conveniences) and prefer calling family APIs for inference (e.g. `text::generate`).
 
 ## [0.11.0-beta.5] - 2026-01-15
 
@@ -44,7 +44,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - Prefer: `use siumai::prelude::unified::*;`
   - For non-unified extension capabilities: `use siumai::extensions::*;` + `use siumai::extensions::types::*;`
 - `LlmBuilder` is no longer re-exported from `siumai::prelude::unified::*` (breaking).
-  - Prefer `Siumai::builder()` (unified) or `Provider::<provider>()` / `siumai::provider_ext::<provider>::*` (provider-specific).
+  - Prefer `registry::global()` for new code, or use builder-style construction via `Siumai::builder()` (unified) / `Provider::<provider>()` / `siumai::provider_ext::<provider>::*` (provider-specific).
 - Provider-specific capability traits were removed from the core surface (e.g. `traits::{OpenAiCapability, AnthropicCapability, GeminiCapability, ...}`).
   - Use `siumai::prelude::unified::*` for the stable surface, and `siumai::prelude::extensions::*` / `siumai::provider_ext::<provider>` for opt-in provider-specific features.
 - “Audio” is no longer a first-class unified family: prefer `SpeechCapability` (TTS) and `TranscriptionCapability` (STT).
@@ -405,8 +405,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Connect to MCP server
     let (tools, resolver) = mcp_tools_from_stdio("node mcp-server.js").await?;
 
-    // 2. Create model
-    let model = Siumai::builder().openai().build().await?;
+    // 2. Create model (registry is recommended for new code)
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // 3. Use with orchestrator
     let (response, _) = siumai_extras::orchestrator::generate(

@@ -7,7 +7,8 @@ It is designed to be executed incrementally while preserving developer velocity.
 
 - M1 (open `providerOptions` map + merge semantics): implemented.
 - M2 (move provider-specific `standards/*` out of `siumai-core`): implemented (provider-owned; core only keeps protocol-level shared building blocks).
-- A (recommended entry for OpenAI-compatible vendors): use vendor presets like `Siumai::builder().moonshot()` / `Provider::openai().moonshot()` (OpenAI-compatible preset).
+- A (recommended entry for OpenAI-compatible vendors): use registry + `provider:model` identifiers (e.g. `registry::global().language_model("moonshot:moonshot-v1-32k")?`).
+  - Vendor presets (builder-style) remain available as compatibility conveniences (e.g. `Siumai::builder().moonshot()`).
 - M6 (provider-first crates): OpenAI + Ollama + Anthropic + Gemini + Groq + xAI + MiniMaxi extracted into provider crates.
 
 ## Guiding principles

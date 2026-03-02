@@ -66,17 +66,12 @@ use siumai::provider_ext::openai::options::{OpenAiChatRequestExt, OpenAiOptions,
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-	let client = Siumai::builder()
-	    .openai()
-    .api_key("sk-...")
-    .model("gpt-4.1-mini")
-    .build()
-    .await?;
+	let model = registry::global().language_model("openai:gpt-4.1-mini")?;
 
 	let req = ChatRequest::new(vec![user!("hi")])
 	    .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-let _ = client.chat_request(req).await?;
+let _ = text::generate(&model, req, text::GenerateOptions::default()).await?;
 # Ok(()) }
 ```
 
@@ -113,19 +108,14 @@ fn extract(resp: &siumai::prelude::unified::ChatResponse) -> Option<OpenAiMetada
 ```
 
 OpenAI-compatible vendors (SiliconFlow/DeepSeek/OpenRouter/...) are treated as configuration presets.
-You can use a vendor preset directly (recommended), or use the explicit `openai().compatible("<vendor>")` form:
+For new code, prefer using registry handles with vendor ids, and keep builder-style presets as conveniences.
 
 ```rust,no_run
 use siumai::prelude::unified::*;
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let client = Siumai::builder()
-    .siliconflow()
-    .api_key("your-api-key")
-    .model("deepseek-ai/DeepSeek-V3.1")
-    .build()
-    .await?;
+let model = registry::global().language_model("siliconflow:deepseek-ai/DeepSeek-V3.1")?;
 # Ok(()) }
 ```
 
@@ -134,7 +124,7 @@ use siumai::prelude::unified::*;
 
 # #[tokio::main]
 # async fn main() -> Result<(), Box<dyn std::error::Error>> {
-let client = Siumai::builder()
+let _builder_client = Siumai::builder()
     .provider_id("siliconflow")
     .api_key("your-api-key")
     .model("deepseek-ai/DeepSeek-V3.1")
