@@ -12,12 +12,9 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini") // Vision-capable model
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?; // Vision-capable model
 
     // Create message with image using builder pattern
     let message = ChatMessage::user("What's in this image? Describe it in detail.")
@@ -28,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     let response = text::generate(
-        &client,
+        &model,
         ChatRequest::new(vec![message]),
         text::GenerateOptions::default(),
     )

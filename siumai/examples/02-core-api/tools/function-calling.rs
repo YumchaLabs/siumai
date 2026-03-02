@@ -12,12 +12,9 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // Define tools
     let tools = vec![
@@ -51,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(tools)
         .build();
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
 
     // Handle tool calls
     if response.has_tool_calls() {

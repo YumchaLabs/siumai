@@ -24,12 +24,9 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Initialize the client
-    let client = Siumai::builder()
-        .openai()
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // Define tools
     let tools = vec![
@@ -79,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(tools.clone())
     .with_tool_choice(ToolChoice::Auto); // Explicit, but this is the default
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -102,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tools(tools.clone())
         .with_tool_choice(ToolChoice::Required);
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -127,7 +124,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .with_tools(tools.clone())
     .with_tool_choice(ToolChoice::None);
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     println!(
         "Tool calls: {}",
@@ -144,7 +141,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_tools(tools.clone())
         .with_tool_choice(ToolChoice::tool("get_weather"));
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
@@ -172,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tool_choice(ToolChoice::tool("get_time"))
         .build();
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("Response: {:?}", response.content);
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();

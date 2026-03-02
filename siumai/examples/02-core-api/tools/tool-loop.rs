@@ -16,12 +16,9 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     let tools = vec![Tool::function(
         "get_weather".to_string(),
@@ -43,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .tools(tools.clone())
         .build();
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
 
     // Check for tool calls
     if response.has_tool_calls() {
@@ -75,7 +72,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .build();
 
         let final_response =
-            text::generate(&client, request, text::GenerateOptions::default()).await?;
+            text::generate(&model, request, text::GenerateOptions::default()).await?;
         println!("AI: {}", final_response.content_text().unwrap_or_default());
     }
 

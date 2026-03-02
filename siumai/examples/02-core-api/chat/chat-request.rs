@@ -20,29 +20,25 @@ use siumai::prelude::unified::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("📝 Chat Request Example (Recommended API)\n");
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // Method 1: Simple ChatRequest
     println!("Method 1: Simple ChatRequest");
     let request = ChatRequest::new(vec![user!("What is Rust?")]);
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("AI: {}\n", response.content_text().unwrap_or_default());
 
     // Method 2: ChatRequestBuilder (for complex requests)
     println!("Method 2: ChatRequestBuilder");
     let request = ChatRequest::builder()
         .message(user!("Explain async/await in Rust"))
-        .model("gpt-4o-mini")
         .temperature(0.7)
         .max_tokens(500)
         .build();
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("AI: {}\n", response.content_text().unwrap_or_default());
 
     // Method 3: With multiple parameters
@@ -53,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .max_tokens(100)
         .build();
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
     println!("AI: {}\n", response.content_text().unwrap_or_default());
 
     println!("✅ Example completed!");

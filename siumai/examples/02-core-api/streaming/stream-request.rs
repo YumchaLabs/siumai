@@ -13,12 +13,9 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // Build request with ChatRequestBuilder
     let request = ChatRequest::builder()
@@ -28,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build();
 
     println!("AI: ");
-    let mut stream = text::stream(&client, request, text::StreamOptions::default()).await?;
+    let mut stream = text::stream(&model, request, text::StreamOptions::default()).await?;
 
     while let Some(event) = stream.next().await {
         match event? {
