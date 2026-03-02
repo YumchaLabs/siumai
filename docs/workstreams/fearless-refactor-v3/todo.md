@@ -99,4 +99,6 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
   - [x] Add `siumai::compat` as an explicit legacy surface
   - [x] Migrate README + key examples to family APIs
   - [x] Migrate `examples/02-core-api/*` to registry construction
+  - [x] Migrate `examples/03-advanced-features/*` to registry/config-first construction
+  - [x] Migrate `examples/05-integrations/telemetry/*` to registry construction
   - [x] Migrate `examples/07-applications/*` to registry construction
