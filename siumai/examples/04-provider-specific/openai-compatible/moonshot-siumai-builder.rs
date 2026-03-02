@@ -1,4 +1,5 @@
 //! Moonshot AI - Using `Siumai::builder()` (compatibility / unified interface)
+#![allow(deprecated)]
 //!
 //! This example demonstrates using Moonshot AI through the unified `Siumai` interface.
 //!

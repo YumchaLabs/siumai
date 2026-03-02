@@ -72,6 +72,10 @@ pub struct ProviderMetadata {
 
 impl Siumai {
     /// Create a new Siumai builder for unified interface.
+    #[deprecated(
+        since = "0.11.0-beta.6",
+        note = "Siumai::builder() is a compatibility convenience and is not the recommended construction style for new code. Prefer registry::global().language_model(\"provider:model\") or config-first provider clients (*Client::from_config)."
+    )]
     pub fn builder() -> SiumaiBuilder {
         SiumaiBuilder::new()
     }
