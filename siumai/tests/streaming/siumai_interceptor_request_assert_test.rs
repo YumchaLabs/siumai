@@ -4,6 +4,7 @@
     feature = "anthropic",
     feature = "google-vertex"
 ))]
+#![allow(deprecated)]
 //! Interceptor-based request assertions on the unified Siumai interface.
 //!
 //! This test ensures interceptors attached via `Siumai::builder()` are applied

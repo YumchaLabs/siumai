@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! SiliconFlow Rerank Integration Tests
 //!
 //! These tests verify the rerank functionality with SiliconFlow provider.

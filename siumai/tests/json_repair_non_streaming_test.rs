@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Test JSON repair functionality in non-streaming responses
 //!
 //! This test verifies that malformed JSON in HTTP responses is automatically

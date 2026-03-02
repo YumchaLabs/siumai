@@ -1,4 +1,5 @@
 #![cfg(feature = "openai")]
+#![allow(deprecated)]
 
 use siumai::extensions::ModerationCapability;
 use siumai::extensions::types::ModerationRequest;

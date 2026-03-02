@@ -1,4 +1,5 @@
 #![cfg(feature = "openai")]
+#![allow(deprecated)]
 
 use serde::de::DeserializeOwned;
 use siumai::extensions::ModelListingCapability;

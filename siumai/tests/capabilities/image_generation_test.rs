@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Image Generation Integration Tests
 //!
 //! Tests for image generation capabilities across different providers.

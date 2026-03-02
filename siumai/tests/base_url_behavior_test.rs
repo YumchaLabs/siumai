@@ -1,4 +1,5 @@
 #![cfg(any(feature = "openai", feature = "google"))]
+#![allow(deprecated)]
 //! Base URL behavior tests for unified builder (`SiumaiBuilder`).
 //!
 //! These tests ensure that when a custom `base_url` is provided to the

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use axum::http::{HeaderValue, StatusCode};
 use axum::response::Response;
 use axum::{Router, routing::post};

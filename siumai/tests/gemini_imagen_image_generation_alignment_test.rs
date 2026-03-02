@@ -1,4 +1,5 @@
 #![cfg(feature = "google")]
+#![allow(deprecated)]
 
 use serde_json::json;
 use siumai::prelude::*;

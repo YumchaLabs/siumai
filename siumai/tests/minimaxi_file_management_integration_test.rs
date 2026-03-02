@@ -1,4 +1,5 @@
 #![cfg(feature = "minimaxi")]
+#![allow(deprecated)]
 //! Real MiniMaxi file management integration test (ignored by default).
 //!
 //! This test exercises the MiniMaxi File Management API against the real service:

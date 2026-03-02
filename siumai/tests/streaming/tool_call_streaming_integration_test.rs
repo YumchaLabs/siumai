@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Tool Call Streaming Integration Test
 //!
 //! This integration test verifies that tool call streaming works correctly

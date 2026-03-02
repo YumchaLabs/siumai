@@ -6,6 +6,7 @@
     feature = "ollama",
     feature = "groq"
 ))]
+#![allow(deprecated)]
 //! Real LLM Integration Tests
 //!
 //! These tests use real API keys to test actual LLM provider functionality.

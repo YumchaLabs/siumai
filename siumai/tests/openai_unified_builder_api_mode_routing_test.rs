@@ -1,4 +1,5 @@
 #![cfg(feature = "openai")]
+#![allow(deprecated)]
 
 use siumai::prelude::*;
 use wiremock::matchers::{header, method, path};

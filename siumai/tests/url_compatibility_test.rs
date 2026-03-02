@@ -4,6 +4,7 @@
     feature = "google",
     feature = "ollama"
 ))]
+#![allow(deprecated)]
 //! URL Compatibility Tests
 //!
 //! Tests to ensure all providers handle base URLs with and without trailing slashes correctly.

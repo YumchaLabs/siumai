@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use axum::body::Bytes;
 use axum::http::HeaderValue;
 use axum::response::Response;

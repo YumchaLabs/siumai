@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Audio Capability Integration Tests
 //!
 //! These tests verify audio functionality (TTS and STT) across supported providers.

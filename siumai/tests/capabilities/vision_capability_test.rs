@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Vision Capability Integration Tests
 //!
 //! These tests verify vision and multimodal functionality across supported providers.

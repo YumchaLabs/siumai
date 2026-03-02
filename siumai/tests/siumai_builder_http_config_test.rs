@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Tests for SiumaiBuilder HTTP configuration after simplification.
 
 #![cfg(feature = "openai")]

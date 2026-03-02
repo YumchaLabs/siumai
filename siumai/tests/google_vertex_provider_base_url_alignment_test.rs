@@ -1,4 +1,5 @@
 #![cfg(feature = "google-vertex")]
+#![allow(deprecated)]
 
 use siumai::prelude::unified::*;
 

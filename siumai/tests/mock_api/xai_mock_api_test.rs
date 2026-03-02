@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! xAI Mock API Tests
 //!
 //! These tests verify the HTTP layer interaction with xAI API using wiremock.

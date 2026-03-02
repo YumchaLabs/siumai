@@ -1,4 +1,5 @@
 #![cfg(feature = "openai-websocket")]
+#![allow(deprecated)]
 
 use siumai::prelude::unified::*;
 

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Mock API tests for Gemini provider
 //!
 //! These tests use wiremock to simulate Gemini API responses based on official documentation.

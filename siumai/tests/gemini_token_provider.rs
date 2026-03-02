@@ -1,4 +1,5 @@
 #![cfg(feature = "google")]
+#![allow(deprecated)]
 use std::sync::Arc;
 
 use siumai::experimental::auth::StaticTokenProvider;

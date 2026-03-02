@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 use futures_util::StreamExt;
 use siumai::prelude::unified::*;
 use wiremock::matchers::{method, path};

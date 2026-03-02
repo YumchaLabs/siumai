@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Mock API tests for Anthropic provider
 //!
 //! These tests use wiremock to simulate Anthropic API responses based on official documentation.

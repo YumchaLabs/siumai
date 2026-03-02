@@ -1,4 +1,5 @@
 #![cfg(feature = "google")]
+#![allow(deprecated)]
 
 use async_trait::async_trait;
 use futures_util::StreamExt;

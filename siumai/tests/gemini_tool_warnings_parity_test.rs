@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Tool warning parity tests for Gemini (Vercel AI SDK aligned).
 
 #![cfg(feature = "google")]

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Real Image Generation Integration Tests
 //!
 //! These tests perform real image generation calls against providers.

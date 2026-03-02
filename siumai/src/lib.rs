@@ -930,6 +930,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_provider_builder() {
         #[cfg(feature = "openai")]
         let _openai_builder = Provider::openai();

@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Integration Tests for Siumai LLM Library
 //!
 //! These tests verify the core functionality of the unified LLM interface

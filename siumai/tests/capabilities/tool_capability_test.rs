@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Tool Capability Integration Tests
 //!
 //! These tests verify tool calling functionality across all supported providers.

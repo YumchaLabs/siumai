@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! MiniMaxi Mock API Integration Tests
 //!
 //! Tests the MiniMaxi provider against a mock HTTP server.

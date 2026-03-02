@@ -1,3 +1,4 @@
+#![allow(deprecated)]
 //! Real Gemini Image Generation Integration Test
 //!
 //! Ignored by default to avoid unintended costs.
