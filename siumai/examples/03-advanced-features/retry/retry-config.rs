@@ -41,6 +41,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ChatRequest::new(vec![user!("Hello!")]),
         text::GenerateOptions {
             retry: Some(retry_options),
+            ..Default::default()
         },
     )
     .await?;
