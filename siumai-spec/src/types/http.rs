@@ -107,6 +107,22 @@ impl HttpConfig {
     pub fn builder() -> HttpConfigBuilder {
         HttpConfigBuilder::new()
     }
+
+    /// Create an "empty" request-level override config.
+    ///
+    /// This is intended for per-request overrides where callers want to set
+    /// a small subset of fields (e.g. a header) without implicitly applying
+    /// global defaults like request/connect timeouts.
+    pub fn empty() -> Self {
+        Self {
+            timeout: None,
+            connect_timeout: None,
+            headers: HashMap::new(),
+            proxy: None,
+            user_agent: None,
+            stream_disable_compression: Self::default().stream_disable_compression,
+        }
+    }
 }
 
 // Helper module for Duration serialization

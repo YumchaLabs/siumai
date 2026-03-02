@@ -331,6 +331,7 @@ mod tests {
             max_chunks_per_doc: None,
             overlap_tokens: None,
             provider_options_map: Default::default(),
+            http_config: None,
         };
 
         let result = transformers.request.transform(&req);

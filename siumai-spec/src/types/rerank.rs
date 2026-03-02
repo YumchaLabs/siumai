@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::ProviderOptionsMap;
+use super::{HttpConfig, ProviderOptionsMap};
 
 /// Rerank documents (Vercel-aligned).
 ///
@@ -100,6 +100,28 @@ pub struct RerankRequest {
         skip_serializing_if = "ProviderOptionsMap::is_empty"
     )]
     pub provider_options_map: ProviderOptionsMap,
+
+    /// Optional per-request HTTP configuration (headers, timeout, etc.).
+    ///
+    /// Runtime-only; this is not serialized to provider JSON payloads.
+    #[serde(skip)]
+    pub http_config: Option<HttpConfig>,
+}
+
+impl RerankRequest {
+    /// Set per-request HTTP config (headers, timeout, etc.).
+    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
+        self.http_config = Some(config);
+        self
+    }
+
+    /// Add a custom header for this request.
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let mut config = self.http_config.take().unwrap_or_else(HttpConfig::empty);
+        config.headers.insert(key.into(), value.into());
+        self.http_config = Some(config);
+        self
+    }
 }
 
 /// Response from reranking operation
@@ -159,6 +181,7 @@ impl RerankRequest {
             max_chunks_per_doc: None,
             overlap_tokens: None,
             provider_options_map: ProviderOptionsMap::default(),
+            http_config: None,
         }
     }
 
@@ -178,6 +201,7 @@ impl RerankRequest {
             max_chunks_per_doc: None,
             overlap_tokens: None,
             provider_options_map: ProviderOptionsMap::default(),
+            http_config: None,
         }
     }
 

@@ -137,7 +137,7 @@ impl EmbeddingRequest {
 
     /// Add a custom header for this request
     pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
-        let mut config = self.http_config.take().unwrap_or_default();
+        let mut config = self.http_config.take().unwrap_or_else(HttpConfig::empty);
         config.headers.insert(key.into(), value.into());
         self.http_config = Some(config);
         self
