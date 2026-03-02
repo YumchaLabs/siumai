@@ -4,7 +4,7 @@
 //! High-level structured object generation APIs
 //!
 //! Provides a minimal, provider-agnostic wrapper
-//! to generate typed JSON objects using any ChatCapability model. The function
+//! to generate typed JSON objects using any TextModelV3 model. The function
 //! performs optional JSON Schema validation and optional text repair before
 //! deserializing into `T`.
 
@@ -17,6 +17,7 @@ use siumai::provider_ext::anthropic::AnthropicChatRequestExt;
 use siumai::provider_ext::gemini::GeminiChatRequestExt;
 #[cfg(feature = "openai")]
 use siumai::provider_ext::openai::OpenAiChatRequestExt;
+use siumai::text::TextModelV3;
 use std::pin::Pin;
 
 use crate::structured_output::{
@@ -57,22 +58,22 @@ impl Default for GenerateObjectOptions {
     }
 }
 
-/// Generate a typed object `T` using a chat model and optional tools.
+/// Generate a typed object `T` using a text model and optional tools.
 ///
 /// Flow:
-/// - Calls `model.chat_with_tools(messages, tools)`.
+/// - Builds a `ChatRequest` from messages/tools and calls `TextModelV3::generate(...)`.
 /// - Extracts text content and attempts to parse as JSON.
 /// - Optionally validates against a JSON Schema.
 /// - Deserializes JSON into `T` and returns along with the raw ChatResponse.
 pub async fn generate_object<T: DeserializeOwned>(
-    model: &impl ChatCapability,
+    model: &impl TextModelV3,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: GenerateObjectOptions,
 ) -> Result<(T, ChatResponse), LlmError> {
     // Build ChatRequest to allow passing provider hints for structured outputs
     let request = build_chat_request_with_hints(messages, tools.clone(), &opts, false);
-    let resp = model.chat_request(request).await?;
+    let resp = model.generate(request).await?;
 
     // Prefer tool call arguments if present (Tool mode or provider chose tools)
     let text = {
@@ -180,7 +181,7 @@ pub enum StreamObjectEvent<T> {
 /// Minimal strategy: accumulate text deltas; on stream end attempt parse + optional
 /// schema validation + optional repair rounds; yield Final event when successful.
 pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
-    model: &impl ChatCapability,
+    model: &impl TextModelV3,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: StreamObjectOptions,
@@ -199,7 +200,7 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
         },
         true,
     );
-    let mut stream = model.chat_stream_request(req).await?;
+    let mut stream = model.stream(req).await?;
     let output_kind = opts.output.clone();
     let mode = opts.mode;
     let repair = opts.repair_text.clone();
@@ -414,7 +415,7 @@ fn build_chat_request_with_hints(
 
 /// Generic auto convenience using provider params hints (may be ignored by some providers).
 pub async fn generate_object_auto<T: DeserializeOwned>(
-    model: &impl ChatCapability,
+    model: &impl TextModelV3,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: GenerateObjectOptions,
@@ -424,7 +425,7 @@ pub async fn generate_object_auto<T: DeserializeOwned>(
 
 /// Generic auto streaming convenience using provider options/content hints.
 pub async fn stream_object_auto<T: DeserializeOwned + Send + 'static>(
-    model: &impl ChatCapability,
+    model: &impl TextModelV3,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     opts: StreamObjectOptions,
@@ -480,7 +481,7 @@ pub async fn generate_object_openai<T: DeserializeOwned>(
     }
 
     // Call chat_request and parse the response
-    let resp = client.chat_request(request).await?;
+    let resp = client.generate(request).await?;
 
     // Extract text content (prefer tool call arguments if present)
     let text = {
@@ -570,7 +571,7 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
     }
 
     // Stream and process events
-    let mut stream = client.chat_stream_request(request).await?;
+    let mut stream = client.stream(request).await?;
     let schema = opts.schema.clone();
     let output = opts.output.clone();
     let repair = opts.repair_text.clone();
