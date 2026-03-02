@@ -38,13 +38,12 @@ fn read_api_key() -> Result<String, Box<dyn std::error::Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = read_api_key()?;
 
-    // Provider-specific client (Gemini-only features)
-    // Note: File Search is only supported by gemini-2.5-pro and gemini-2.5-flash
-    let client = Provider::gemini()
-        .api_key(&api_key)
-        .model("gemini-2.5-flash")
-        .build()
-        .await?;
+    // Provider-specific client (Gemini-only features; config-first).
+    // Note: File Search is only supported by gemini-2.5-pro and gemini-2.5-flash.
+    let client = siumai::provider_ext::gemini::GeminiClient::from_config(
+        siumai::provider_ext::gemini::GeminiConfig::new(api_key)
+            .with_model("gemini-2.5-flash".to_string()),
+    )?;
 
     println!("📦 Creating File Search Store...");
     let store = client
@@ -86,7 +85,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("💬 Querying with File Search tool...");
     let req = ChatRequest::builder()
         .message(ChatMessage::user("Who is Robert Graves?").build())
-        .model("gemini-2.5-flash")
         .tools(vec![
             siumai::hosted_tools::google::file_search()
                 .with_file_search_store_names(vec![store.name.clone()])

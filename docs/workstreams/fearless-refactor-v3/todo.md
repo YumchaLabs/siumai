@@ -104,3 +104,4 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
   - [x] Migrate `examples/07-applications/*` to registry construction
   - [x] Migrate `examples/04-provider-specific/openai/*` to registry/config-first construction
   - [x] Migrate `examples/04-provider-specific/anthropic/*` to registry/config-first construction
+  - [x] Migrate `examples/04-provider-specific/google/*` to registry/config-first construction

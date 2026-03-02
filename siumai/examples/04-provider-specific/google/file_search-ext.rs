@@ -1,8 +1,7 @@
-//! Gemini File Search Stores (extension API + downcast)
+//! Gemini File Search Stores (extension API)
 //!
 //! This example demonstrates:
-//! - Building via the unified `Siumai` interface
-//! - Using `downcast_client_cloned::<GeminiClient>()` to access provider-specific APIs
+//! - Constructing a provider-specific `GeminiClient` via config-first
 //! - Managing File Search Stores via `siumai::provider_ext::gemini::ext::file_search_stores`
 //! - Querying via the provider-defined tool `siumai::hosted_tools::google::file_search`
 //!
@@ -29,17 +28,12 @@ fn read_api_key() -> Result<String, Box<dyn std::error::Error>> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = read_api_key()?;
 
-    let client = Siumai::builder()
-        .gemini()
-        .api_key(&api_key)
-        .model("gemini-2.5-flash")
-        .build()
-        .await?;
-
-    // Escape hatch: provider-specific Gemini client (cloned)
-    let gemini = client
-        .downcast_client_cloned::<siumai::provider_ext::gemini::GeminiClient>()
-        .expect("this Siumai instance is backed by GeminiClient");
+    // Provider-specific client (config-first; no unified builder required).
+    // Note: File Search is only supported by gemini-2.5-pro and gemini-2.5-flash.
+    let gemini = siumai::provider_ext::gemini::GeminiClient::from_config(
+        siumai::provider_ext::gemini::GeminiConfig::new(api_key)
+            .with_model("gemini-2.5-flash".to_string()),
+    )?;
 
     let stores = siumai::provider_ext::gemini::ext::file_search_stores::stores(&gemini);
 
@@ -82,14 +76,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("💬 Querying with File Search tool...");
     let req = ChatRequest::builder()
         .message(user!("Who is Robert Graves?"))
-        .model("gemini-2.5-flash")
         .tools(vec![
             siumai::hosted_tools::google::file_search()
                 .with_file_search_store_names(vec![store.name.clone()])
                 .build(),
         ])
         .build();
-    let resp = text::generate(&client, req, text::GenerateOptions::default()).await?;
+    let resp = text::generate(&gemini, req, text::GenerateOptions::default()).await?;
     println!("AI:\n{}\n", resp.content_text().unwrap_or_default());
 
     // Cleanup

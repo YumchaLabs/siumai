@@ -13,10 +13,10 @@
 //! - `REFERENCE_IMAGE_PATH` (optional)
 
 #[cfg(all(feature = "google-vertex", feature = "gcp"))]
-use siumai::prelude::*;
+use siumai::prelude::extensions::ImageExtras;
 
 #[cfg(all(feature = "google-vertex", feature = "gcp"))]
-use siumai::prelude::extensions::ImageExtras;
+use std::sync::Arc;
 
 #[cfg(all(feature = "google-vertex", feature = "gcp"))]
 use siumai::provider_ext::google_vertex::options::{
@@ -35,14 +35,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| "us-central1".to_string());
 
     // Note: Imagen is accessed via Vertex AI and requires Bearer auth.
-    let client = Siumai::builder()
-        .google_vertex()
-        .base_url_for_vertex(&project, &location, "google")
-        .with_gemini_adc()
-        // Choose an Imagen edit model as the default.
-        .model("imagen-3.0-edit-001")
-        .build()
-        .await?;
+    let base_url =
+        siumai::experimental::auth::vertex::vertex_base_url(&project, &location, "google");
+    let adc = siumai::experimental::auth::adc::AdcTokenProvider::default_client();
+    let client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
+        siumai::provider_ext::google_vertex::GoogleVertexConfig {
+            base_url,
+            model: "imagen-3.0-edit-001".to_string(),
+            api_key: None,
+            http_config: Default::default(),
+            http_transport: None,
+            token_provider: Some(Arc::new(adc)),
+        },
+    )?;
 
     let input_path = std::env::var("INPUT_IMAGE_PATH").expect("Set INPUT_IMAGE_PATH");
     let input_image = std::fs::read(input_path)?;

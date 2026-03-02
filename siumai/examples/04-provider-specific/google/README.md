@@ -14,16 +14,16 @@ that align with the Vercel AI SDK model and tool boundaries.
 ## Auth & base_url (Google AI vs Vertex)
 
 - **Google AI Gemini API** (default base URL: `https://generativelanguage.googleapis.com/v1beta`)
-  - Auth: `x-goog-api-key` (set via `.api_key(...)` or `SIUMAI_API_KEY`)
+  - Auth: `x-goog-api-key` (set via config-first `GeminiConfig::new(api_key)`).
+  - Env (convenience): many tools use `GEMINI_API_KEY`; some examples also accept `GOOGLE_API_KEY`.
 - **Vertex AI**
   - Enterprise base URL (Vercel-aligned): `https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/publishers/google`
-    - Set via `SiumaiBuilder::base_url_for_google_vertex(project, location)`
-    - Or via env vars: `GOOGLE_VERTEX_PROJECT`, `GOOGLE_VERTEX_LOCATION`
+    - Build via `siumai::experimental::auth::vertex::google_vertex_base_url(project, location)`
   - Express mode base URL (Vercel-aligned): `https://aiplatform.googleapis.com/v1/publishers/google`
-    - Set API key via `.api_key(...)` or env `GOOGLE_VERTEX_API_KEY` (requests append `?key=...`)
+    - Set API key in config (requests append `?key=...` when no Bearer header is present)
   - Auth (enterprise mode): `Authorization: Bearer <token>` via:
-    - `.with_gemini_token_provider(Arc<dyn TokenProvider>)` (`feature = "google"` or `feature = "google-vertex"`)
-    - `.with_gemini_adc()` (`feature = "gcp"` + (`google` or `google-vertex`))
+    - `GeminiConfig::with_token_provider(Arc<dyn TokenProvider>)`
+    - `AdcTokenProvider::default_client()` (`feature = "gcp"`)
   - ADC env vars (current implementation): `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, `ADC_METADATA_URL` (test override)
   - Model id: prefer bare ids (e.g. `gemini-2.0-flash`), but resource-style ids are accepted (e.g. `models/gemini-2.0-flash`, `publishers/google/models/gemini-2.0-flash`)
 

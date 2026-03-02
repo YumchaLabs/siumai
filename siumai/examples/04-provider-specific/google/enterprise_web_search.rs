@@ -10,14 +10,25 @@
 
 use siumai::prelude::unified::*;
 
+fn read_api_key() -> Result<String, Box<dyn std::error::Error>> {
+    if let Ok(k) = std::env::var("GOOGLE_API_KEY") {
+        return Ok(k);
+    }
+    if let Ok(k) = std::env::var("GEMINI_API_KEY") {
+        return Ok(k);
+    }
+    Err("Missing GOOGLE_API_KEY or GEMINI_API_KEY".into())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .gemini()
-        .api_key(&std::env::var("GOOGLE_API_KEY")?)
-        .model("gemini-2.0-flash-exp")
-        .build()
-        .await?;
+    let api_key = read_api_key()?;
+
+    // Recommended construction: provider config-first (no unified builder required).
+    let client = siumai::providers::gemini::GeminiClient::from_config(
+        siumai::providers::gemini::GeminiConfig::new(api_key)
+            .with_model("gemini-2.0-flash-exp".to_string()),
+    )?;
 
     let request = ChatRequest::builder()
         .message(user!(
