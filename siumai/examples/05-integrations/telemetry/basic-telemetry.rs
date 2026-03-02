@@ -56,13 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     siumai::experimental::observability::telemetry::add_exporter(Box::new(ConsoleExporter)).await;
     let telemetry = TelemetryConfig::development();
 
-    // Build client with telemetry
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // Use ChatRequest to include telemetry
     let mut request = ChatRequest::builder()
@@ -71,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     request.telemetry = Some(telemetry);
 
     println!("Sending request with telemetry...\n");
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
 
     println!("\nAI: {}", response.content_text().unwrap_or_default());
 
