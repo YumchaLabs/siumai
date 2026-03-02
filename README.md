@@ -229,12 +229,31 @@ Siumai supports both OpenAI chat endpoints:
 If you need to override the default on a per-request basis, set `providerOptions.openai.responsesApi.enabled`
 explicitly on the `ChatRequest`.
 
-### Compatibility: builders
+### Optional: builder-based construction (compat)
 
-Builder-style construction remains available as a temporary compatibility surface:
+Builder-style construction remains available as a **temporary** compatibility surface.
+It is convenient for quick demos, but it is **not** the recommended default for new code.
 
-- Unified: `Siumai::builder()`
-- Provider-specific: `Provider::openai()` / `Provider::anthropic()` / ...
+Recommended construction for new code:
+
+- Registry: `registry::global().language_model("openai:gpt-4o-mini")?`
+- Config-first clients: `*Client::from_config(*Config::new(...).with_model("..."))?`
+
+If you still want the builder style, prefer importing it explicitly from `siumai::compat`:
+
+```rust,ignore
+use siumai::compat::Siumai;
+
+let client = Siumai::builder()
+    .openai()
+    .api_key(std::env::var("OPENAI_API_KEY")?)
+    .model("gpt-4o-mini")
+    .build()
+    .await?;
+```
+
+Compatibility note: planned removal target is **no earlier than `0.12.0`**.
+For details, see `docs/migration/migration-0.11.0-beta.6.md`.
 
 ### Streaming
 
@@ -545,7 +564,7 @@ let client = OpenAiClient::new(cfg, http);
 
 Notes:
 - Streaming stability: By default, `stream_disable_compression` is derived from `SIUMAI_STREAM_DISABLE_COMPRESSION` (true unless set to `false|0|off|no`). You can override it per client using `HttpConfig::builder().stream_disable_compression(...)`.
-- Builder-style HTTP toggles remain available under the compatibility surface (`Siumai::builder()`).
+- Builder-style HTTP toggles remain available, but they are part of the builder compatibility surface. Prefer `HttpConfig` + registry/config-first clients for new code.
 
 Registry with custom middleware and interceptors:
 
