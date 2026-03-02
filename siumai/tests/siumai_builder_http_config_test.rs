@@ -3,7 +3,7 @@
 
 #![cfg(feature = "openai")]
 
-use siumai::prelude::Siumai;
+use siumai::provider::Siumai;
 use std::time::Duration;
 
 #[tokio::test]
@@ -59,5 +59,31 @@ async fn test_siumai_builder_basic_http_config() {
         .http_connect_timeout(Duration::from_secs(10))
         .build()
         .await;
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_siumai_builder_simple_config() {
+    let result = Siumai::builder()
+        .openai()
+        .api_key("test-key-siumai-simple")
+        .model("gpt-4o")
+        .with_timeout(Duration::from_secs(30))
+        .with_user_agent("test-agent/1.0")
+        .build()
+        .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn test_siumai_builder_default_builds() {
+    let result = Siumai::builder()
+        .openai()
+        .api_key("test-key-siumai-default")
+        .model("gpt-4o")
+        .build()
+        .await;
+
     assert!(result.is_ok());
 }
