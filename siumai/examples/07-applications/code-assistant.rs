@@ -24,12 +24,9 @@ use std::io::{self, Write};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("💻 Code Assistant\n");
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let client = registry::global().language_model("openai:gpt-4o-mini")?;
 
     println!("Commands:");
     println!("  explain <file>  - Explain code");

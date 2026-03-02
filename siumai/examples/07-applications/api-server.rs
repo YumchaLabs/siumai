@@ -44,12 +44,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🚀 API Server starting...\n");
 
     // Build LLM client
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let client = registry::global().language_model("openai:gpt-4o-mini")?;
 
     let state = AppState {
         client: Arc::new(client),

@@ -24,12 +24,9 @@ use std::io::{self, Write};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🤖 Interactive Chatbot\n");
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     let mut conversation = VecDeque::new();
     conversation.push_back(system!(
@@ -77,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let messages: Vec<ChatMessage> = conversation.iter().cloned().collect();
         let mut stream = text::stream(
-            &client,
+            &model,
             ChatRequest::new(messages),
             text::StreamOptions::default(),
         )
