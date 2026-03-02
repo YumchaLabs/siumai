@@ -8,8 +8,8 @@ model-family APIs.
 
 - Construction (recommended):
   - registry: `registry::global().language_model("openai:gpt-4o-mini")?`
-  - provider config-first: `OpenAiClient::from_config(OpenAiConfig { .. })?`
-  - provider config-first (example): `MinimaxiClient::from_config(MinimaxiConfig { .. })?`
+  - provider config-first: `OpenAiClient::from_config(OpenAiConfig::new(api_key).with_model("..."))?`
+  - provider config-first (example): `MinimaxiClient::from_config(MinimaxiConfig::new(api_key))?`
 - Builders remain available as compatibility conveniences:
   - unified builder: `Siumai::builder()...build().await?`
   - provider builders: `Provider::openai()...build().await?`
@@ -141,3 +141,12 @@ use siumai::compat::*;
 - Keep construction code unchanged.
 - Prefer `siumai::text::*` for chat-style inference.
 - If you reference method-style APIs in docs/examples, migrate them to the family functions.
+
+## Notes on examples in this repository
+
+- As of `0.11.0-beta.6`, `siumai/examples/*` prefers:
+  - `registry::global()` handles for quick starts
+  - config-first provider clients (`*Client::from_config(...)`) when provider-specific wiring is needed
+- `Siumai::builder()` is intentionally kept as a compatibility convenience, but it is not the
+  recommended default for new code. A single explicit builder-based example is kept as a
+  comparison reference under `examples/04-provider-specific/openai-compatible/moonshot-siumai-builder.rs`.

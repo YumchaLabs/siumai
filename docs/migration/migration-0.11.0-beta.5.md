@@ -135,6 +135,8 @@ The facade now intentionally keeps the stable surface small.
 - `LlmBuilder` is no longer re-exported from the unified prelude.
   - Prefer `Siumai::builder()` for unified construction.
   - For provider-specific construction, prefer `Provider::<provider>()` / `siumai::provider_ext::<provider>::*`.
+
+Note (as of `0.11.0-beta.6`): new code should prefer `registry::global()` or config-first provider clients.
 - Use instead:
   - Unified surface (recommended): `use siumai::prelude::unified::*;`
   - Non-unified extension capabilities: `use siumai::extensions::*;` + `use siumai::extensions::types::*;`

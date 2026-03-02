@@ -39,8 +39,23 @@ Siumai follows Vercel’s base URL convention for DeepSeek:
 
 If you need a different prefix (self-hosted gateway, proxy, or a `/v1`-style mount), override it via:
 
-- `Siumai::builder().openai().deepseek().base_url(\"...\")`
-- or `registry` options / provider config.
+- `registry` options / provider config.
+
+Recommended construction (built-in OpenAI-compatible preset):
+
+```rust,no_run
+use siumai::models;
+use siumai::providers::openai_compatible::OpenAiCompatibleClient;
+
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+let client = OpenAiCompatibleClient::from_builtin_env(
+    "deepseek",
+    Some(models::openai_compatible::deepseek::CHAT),
+)
+.await?;
+# Ok(()) }
+```
 
 ## Authentication
 

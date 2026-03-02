@@ -60,7 +60,8 @@ Adopt a **provider-first crate split**:
    - `siumai-provider-xai`
    - `siumai-provider-minimaxi`
 3. Keep `siumai` as the **only** umbrella facade for:
-   - ergonomic entry points (`Siumai::builder()`, `Provider::<provider>()`)
+   - ergonomic entry points (recommended: `registry::global()` and config-first `*Client::from_config(...)`)
+   - compatibility conveniences (builder-style: `Siumai::builder()`, `Provider::<provider>()`)
    - optional “all-providers” feature aggregation
    - stable re-exports (`prelude::*`, `provider_ext::*`)
 

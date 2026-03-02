@@ -94,7 +94,7 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
 ## 7) Cleanup and deprecation
 
 - [ ] Move application-flavored helpers out of core traits (keep them in extras/compat)
-- [ ] Deprecate `Siumai::builder()` as the recommended entry (keep as convenience for provider construction)
+- [x] Deprecate `Siumai::builder()` as the recommended entry (keep as convenience for provider construction)
 - [ ] Update docs and examples to the new recommended surface
   - [x] Add `siumai::compat` as an explicit legacy surface
   - [x] Migrate README + key examples to family APIs
@@ -105,3 +105,8 @@ Goal: new code should not require `Siumai::builder()` / `Provider::*()`.
   - [x] Migrate `examples/04-provider-specific/openai/*` to registry/config-first construction
   - [x] Migrate `examples/04-provider-specific/anthropic/*` to registry/config-first construction
   - [x] Migrate `examples/04-provider-specific/google/*` to registry/config-first construction
+  - [x] Migrate `examples/04-provider-specific/ollama/*` to config-first construction
+  - [x] Migrate `examples/04-provider-specific/minimaxi/*` to config-first construction
+  - [x] Update `examples/04-provider-specific/openai-compatible/README.md` to avoid builder in troubleshooting snippets
+  - [x] Keep a single explicit builder example as compat (`moonshot-siumai-builder.rs`)
+  - [x] Remove `Siumai::builder()` from stubbed MCP snippets (use registry handle in guidance blocks)
