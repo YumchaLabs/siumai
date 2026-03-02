@@ -9,7 +9,7 @@
 //!
 //! - **Capability Separation**: Uses traits to distinguish different AI capabilities (chat, audio, vision, etc.)
 //! - **Shared Parameters**: AI parameters are shared as much as possible, with extension points for provider-specific parameters.
-//! - **Builder Pattern**: Supports a builder pattern for chained method calls.
+//! - **Construction**: Prefer registry/config-first construction; builder-style construction remains available as a compatibility convenience.
 //! - **Type Safety**: Leverages Rust's type system to ensure compile-time safety.
 //! - **HTTP Customization**: Supports passing in a reqwest client and custom HTTP configurations.
 //! - **Library First**: Focuses on core library functionality, avoiding application-layer features.
@@ -18,22 +18,17 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use siumai::prelude::*;
+//! use siumai::prelude::unified::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Create a unified client via the Siumai builder
-//!     let client = Siumai::builder()
-//!         .openai()
-//!         .api_key("your-api-key")
-//!         .model("gpt-4")
-//!         .temperature(0.7)
-//!         .build()
-//!         .await?;
+//!     // Recommended construction: resolve a model handle from the registry.
+//!     // Note: API key is automatically read from `OPENAI_API_KEY`.
+//!     let model = registry::global().language_model("openai:gpt-4o-mini")?;
 //!
 //!     // Recommended invocation style: model-family APIs.
 //!     let request = ChatRequest::new(vec![user!("Hello, world!")]);
-//!     let response = siumai::text::generate(&client, request, siumai::text::GenerateOptions::default())
+//!     let response = siumai::text::generate(&model, request, siumai::text::GenerateOptions::default())
 //!         .await?;
 //!     println!("Response: {}", response.content_text().unwrap_or_default());
 //!
@@ -48,22 +43,19 @@
 //! The actual API determines what's supported:
 //!
 //! ```rust,no_run
-//! use siumai::prelude::*;
+//! use siumai::prelude::unified::*;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client = Siumai::builder()
-//!         .openai()
-//!         .api_key("your-api-key")
-//!         .model("gpt-4o")  // This model supports vision
-//!         .build()
-//!         .await?;
+//!     // Recommended construction: resolve a model handle from the registry.
+//!     // Note: API key is automatically read from `OPENAI_API_KEY`.
+//!     let model = registry::global().language_model("openai:gpt-4o")?; // Vision-capable model
 //!
 //!     // Vercel-aligned approach: image understanding is done via multimodal Chat messages.
 //!     // (No separate "VisionCapability" unified surface.)
 //!     let messages = vec![user_with_image!("Describe this image", "https://example.com/a.png")];
 //!     let resp = siumai::text::generate(
-//!         &client,
+//!         &model,
 //!         ChatRequest::new(messages),
 //!         siumai::text::GenerateOptions::default(),
 //!     )
@@ -155,7 +147,7 @@ pub mod compat;
 
 /// Legacy builder module (provider construction internals).
 ///
-/// Prefer `Siumai::builder()` / `Provider::...()` / `registry::global()` for stable construction.
+/// Prefer `registry::global()` (or config-first provider constructors) for stable construction.
 #[doc(hidden)]
 pub mod builder {
     pub use siumai_core::builder::*;

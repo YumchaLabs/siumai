@@ -9,8 +9,12 @@
 //! - `siumai::speech::*`
 //! - `siumai::transcription::*`
 //!
-//! Construction is still typically done via `Siumai::builder()` or `Provider::<provider>()`,
-//! but new code should prefer calling the family APIs for actual inference.
+//! Recommended construction for new code is registry/config-first:
+//! - `registry::global().language_model("openai:gpt-4o-mini")?`
+//! - `OpenAiClient::from_config(OpenAiConfig { .. })?`
+//!
+//! Builder-style construction (`Siumai::builder()` / `Provider::<provider>()`) remains available
+//! as a compatibility convenience.
 
 /// Legacy unified interface entry type.
 pub use crate::provider::Siumai;
