@@ -14,18 +14,19 @@
 //! ```
 
 use siumai::prelude::unified::*;
+use siumai::providers::ollama::{OllamaClient, OllamaConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("🏠 Ollama Local Models Example\n");
 
     // No API key needed for Ollama!
-    let client = Siumai::builder()
-        .ollama()
+    let config = OllamaConfig::builder()
         .base_url("http://localhost:11434") // Default Ollama URL
         .model("llama3.2") // or "mistral", "codellama", etc.
-        .build()
-        .await?;
+        .build()?;
+
+    let client = OllamaClient::from_config(config)?;
 
     println!("Using local model: llama3.2\n");
 

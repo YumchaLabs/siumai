@@ -1,8 +1,10 @@
-//! Moonshot AI - Using Siumai::builder() (Unified Interface)
+//! Moonshot AI - Using `Siumai::builder()` (compatibility / unified interface)
 //!
-//! This example demonstrates using Moonshot AI through the unified Siumai interface.
-//! This approach is useful when you need provider abstraction or want to switch
-//! providers dynamically.
+//! This example demonstrates using Moonshot AI through the unified `Siumai` interface.
+//!
+//! Note: `Siumai::builder()` is a *compatibility convenience* and is **not** the
+//! recommended construction style for new code. Prefer config-first clients or the
+//! registry handle when possible.
 //!
 //! ## Features
 //! - Unified interface across all providers
@@ -18,31 +20,21 @@
 //! cargo run --example moonshot-siumai-builder --features openai
 //! ```
 //!
-//! ## Comparison with Provider::openai()
+//! ## Recommended alternative (config-first)
 //!
-//! **Using Siumai::builder() (this example)**:
 //! ```rust,ignore
-//! let client = Siumai::builder()
-//!     .moonshot()
-//!     .model(siumai::models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
-//!     .build()
-//!     .await?;
-//! ```
-//! - Returns: `Siumai` (unified interface)
-//! - Use case: Provider abstraction, dynamic switching
-//! - Environment variable: Automatically reads MOONSHOT_API_KEY
+//! use siumai::models;
+//! use siumai::providers::openai_compatible::OpenAiCompatibleClient;
 //!
-//! **Using Provider::openai() (recommended for provider-specific usage)**:
-//! ```rust,ignore
-//! let client = Provider::openai()
-//!     .moonshot() // OpenAI-compatible preset
-//!     .model(siumai::models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
-//!     .build()
-//!     .await?;
+//! // Reads `MOONSHOT_API_KEY` by default.
+//! let client = OpenAiCompatibleClient::from_builtin_env(
+//!     "moonshot",
+//!     Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+//! )
+//! .await?;
 //! ```
-//! - Returns: provider-specific client (concrete type)
-//! - Use case: Direct provider usage, type-specific features
-//! - Environment variable: Automatically reads MOONSHOT_API_KEY
+//!
+//! See also: `moonshot-basic.rs`, `moonshot-long-context.rs`, and `moonshot-tools.rs`.
 
 use siumai::models;
 use siumai::prelude::unified::*;

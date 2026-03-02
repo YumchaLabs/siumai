@@ -10,6 +10,7 @@ use futures::StreamExt;
 use siumai::models;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::minimaxi::options::MinimaxiTtsRequestBuilder;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,13 +19,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("MINIMAXI_API_KEY")
         .expect("Please set MINIMAXI_API_KEY environment variable");
 
-    // Build MiniMaxi client (now with SiumaiBuilder::minimaxi())
-    let client = Siumai::builder()
-        .minimaxi()
-        .api_key(&api_key)
-        .model(models::minimaxi::MINIMAX_M2)
-        .build()
-        .await?;
+    // Config-first construction (recommended for new code)
+    let config = MinimaxiConfig::new(api_key).with_model(models::minimaxi::MINIMAX_M2);
+    let client = MinimaxiClient::from_config(config)?;
 
     // Send a simple message
     let resp = text::generate(

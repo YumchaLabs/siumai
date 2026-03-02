@@ -101,17 +101,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  - {} : {}", tool.name, tool.description.as_deref().unwrap_or("No description"));
     }
 
-    // Get API key
-    let api_key = std::env::var("OPENAI_API_KEY")
-        .expect("OPENAI_API_KEY environment variable not set");
-
-    println!("\nStep 3: Creating Siumai OpenAI client...");
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&api_key)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    println!("\nStep 3: Creating model handle via registry...");
+    // Ensure `OPENAI_API_KEY` is set in your environment.
+    let client = siumai::registry_global().language_model("openai:gpt-4o-mini")?;
 
     println!("✅ Client created");
 

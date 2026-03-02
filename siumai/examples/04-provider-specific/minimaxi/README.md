@@ -62,14 +62,10 @@ MiniMaxi supports AI music generation with the `music-2.0` model.
 **Example:**
 ```rust
 use siumai::prelude::extensions::*;
-use siumai::prelude::unified::*;
-use siumai::provider_ext::minimaxi::music::MinimaxiMusicRequestBuilder;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
+use siumai::provider_ext::minimaxi::ext::music::MinimaxiMusicRequestBuilder;
 
-let client = Siumai::builder()
-    .minimaxi()
-    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
-    .build()
-    .await?;
+let client = MinimaxiClient::from_config(MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?))?;
 
 let request = MinimaxiMusicRequestBuilder::new("Indie folk, melancholic, introspective")
     .lyrics_template()
@@ -96,13 +92,11 @@ MiniMaxi supports AI video generation with the `hailuo-2.3` model.
 ```rust
 use siumai::prelude::extensions::*;
 use siumai::prelude::unified::*;
-use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
+use siumai::provider_ext::minimaxi::ext::video::MinimaxiVideoRequestBuilder;
+use std::time::Duration;
 
-let client = Siumai::builder()
-    .minimaxi()
-    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
-    .build()
-    .await?;
+let client = MinimaxiClient::from_config(MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?))?;
 
 let request = MinimaxiVideoRequestBuilder::new(
     "hailuo-2.3",
@@ -144,12 +138,9 @@ Generate images using MiniMaxi's image generation models.
 **Example:**
 ```rust
 use siumai::prelude::unified::*;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
 
-let client = Siumai::builder()
-    .minimaxi()
-    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
-    .build()
-    .await?;
+let client = MinimaxiClient::from_config(MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?))?;
 
 let request = ImageGenerationRequest {
     prompt: "A serene mountain landscape at dawn".to_string(),
@@ -174,13 +165,10 @@ Convert text to speech using MiniMaxi's TTS models.
 **Example:**
 ```rust
 use siumai::prelude::unified::*;
-use siumai::provider_ext::minimaxi::tts::MinimaxiTtsRequestBuilder;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
+use siumai::provider_ext::minimaxi::options::MinimaxiTtsRequestBuilder;
 
-let client = Siumai::builder()
-    .minimaxi()
-    .api_key(&std::env::var("MINIMAXI_API_KEY")?)
-    .build()
-    .await?;
+let client = MinimaxiClient::from_config(MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?))?;
 
 let request = MinimaxiTtsRequestBuilder::new("Hello, this is a test of MiniMaxi TTS")
     .model("speech-2.6-hd")
@@ -230,18 +218,15 @@ std::fs::write("speech.mp3", &response.audio_data)?;
 You can customize the MiniMaxi client:
 
 ```rust
-use siumai::prelude::*;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
 use siumai::retry_api::RetryOptions;
 
-let client = Siumai::builder()
-    .minimaxi()
-    .api_key("your-api-key")
-    .base_url("https://api.minimax.io") // Use global endpoint
-    .model("MiniMax-M2")
-    .with_retry(RetryOptions::backoff().with_max_attempts(3))
-    .http_debug(true)
-    .build()
-    .await?;
+let config = MinimaxiConfig::new("your-api-key")
+    .with_base_url("https://api.minimax.io") // Use global endpoint
+    .with_model("MiniMax-M2");
+
+let client = MinimaxiClient::from_config(config)?
+    .with_retry(RetryOptions::policy_default().with_max_attempts(3));
 ```
 
 ## 🚀 Next Steps

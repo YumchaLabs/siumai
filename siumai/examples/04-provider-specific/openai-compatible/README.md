@@ -176,13 +176,19 @@ Moonshot AI is fully compatible with the OpenAI API specification:
 ```bash
 # Make sure your API key is set correctly
 echo $MOONSHOT_API_KEY
+```
 
-# Or set it in your code
-let client = Siumai::builder()
-    .moonshot()
-    .api_key("your-api-key-here")
-    .build()
-    .await?;
+```rust
+use siumai::models;
+use siumai::providers::openai_compatible::OpenAiCompatibleClient;
+
+// Or set it in your code (config-first)
+let client = OpenAiCompatibleClient::from_builtin(
+    "moonshot",
+    "your-api-key-here",
+    Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+)
+.await?;
 ```
 
 **Context Length Errors:**

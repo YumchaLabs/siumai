@@ -10,16 +10,13 @@
 //! ```
 
 use siumai::prelude::extensions::*;
-use siumai::prelude::unified::*;
 use siumai::provider_ext::minimaxi::ext::video::MinimaxiVideoRequestBuilder;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .minimaxi()
-        .api_key(&std::env::var("MINIMAXI_API_KEY")?)
-        .build()
-        .await?;
+    let config = MinimaxiConfig::new(std::env::var("MINIMAXI_API_KEY")?);
+    let client = MinimaxiClient::from_config(config)?;
 
     let request = MinimaxiVideoRequestBuilder::new(
         "MiniMax-Hailuo-2.3",

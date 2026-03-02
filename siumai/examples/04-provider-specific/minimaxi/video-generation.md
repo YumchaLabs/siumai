@@ -4,7 +4,7 @@ This example demonstrates how to use the MiniMaxi provider's video generation ca
 
 Recommended approach:
 
-- Use `siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder` for MiniMaxi-specific knobs.
+- Use `siumai::provider_ext::minimaxi::ext::video::MinimaxiVideoRequestBuilder` for MiniMaxi-specific knobs.
 - Execute via the non-unified `VideoGenerationCapability` extension trait.
 
 ## Basic Usage
@@ -12,7 +12,8 @@ Recommended approach:
 ```rust
 use siumai::prelude::extensions::*;
 use siumai::prelude::unified::*;
-use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
+use siumai::provider_ext::minimaxi::ext::video::MinimaxiVideoRequestBuilder;
 use siumai::extensions::types::VideoTaskStatus;
 use std::time::Duration;
 use tokio::time::sleep;
@@ -20,11 +21,7 @@ use tokio::time::sleep;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create MiniMaxi client
-    let client = Siumai::builder()
-        .minimaxi()
-        .api_key("your-api-key")
-        .build()
-        .await?;
+    let client = MinimaxiClient::from_config(MinimaxiConfig::new("your-api-key"))?;
 
     // Create video generation request
     let request = MinimaxiVideoRequestBuilder::new(
@@ -110,7 +107,7 @@ println!("Supported durations: {:?}", durations);
 ## Advanced Options
 
 ```rust
-use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
+use siumai::provider_ext::minimaxi::ext::video::MinimaxiVideoRequestBuilder;
 
 let request = MinimaxiVideoRequestBuilder::new(
     "MiniMax-Hailuo-2.3",
@@ -190,7 +187,8 @@ match client.create_video_task(request).await {
 ```rust
 use siumai::prelude::extensions::*;
 use siumai::prelude::unified::*;
-use siumai::provider_ext::minimaxi::video::MinimaxiVideoRequestBuilder;
+use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
+use siumai::provider_ext::minimaxi::ext::video::MinimaxiVideoRequestBuilder;
 use std::time::Duration;
 use tokio::time::{sleep, timeout};
 
@@ -227,11 +225,7 @@ async fn generate_video_with_timeout(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .minimaxi()
-        .api_key("your-api-key")
-        .build()
-        .await?;
+    let client = MinimaxiClient::from_config(MinimaxiConfig::new("your-api-key"))?;
 
     // Build the request with MiniMaxi-specific knobs:
     let request = MinimaxiVideoRequestBuilder::new(
