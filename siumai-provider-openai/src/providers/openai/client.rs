@@ -295,8 +295,14 @@ impl OpenAiClient {
 
     /// Creates a new `OpenAI` client with configuration (for OpenAI-compatible providers)
     pub fn new_with_config(config: super::OpenAiConfig) -> Self {
-        let http_client = reqwest::Client::new();
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)
+                .unwrap_or_else(|_| reqwest::Client::new());
         Self::new(config, http_client)
+            .with_http_interceptors(http_interceptors)
+            .with_model_middlewares(model_middlewares)
     }
 
     /// Helper: Build ProviderContext with OpenAI-specific extras
