@@ -29,18 +29,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         idempotent: true,
     };
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     println!("Sending request with retry configuration...");
     println!("(Will retry up to 3 times on transient failures)\n");
 
     let response = text::generate(
-        &client,
+        &model,
         ChatRequest::new(vec![user!("Hello!")]),
         text::GenerateOptions {
             retry: Some(retry_options),

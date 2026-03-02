@@ -13,11 +13,9 @@ use std::time::Duration;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
     // Build complex request with all features
     let mut http_config = HttpConfig::default();
@@ -42,14 +40,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let request = ChatRequest::builder()
         .message(system!("You are a helpful assistant"))
         .message(user!("What's the latest news about Rust?"))
-        .model("gpt-4o-mini")
         .temperature(0.7)
         .max_tokens(1000)
         .tools(tools)
         .http_config(http_config)
         .build();
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
 
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();

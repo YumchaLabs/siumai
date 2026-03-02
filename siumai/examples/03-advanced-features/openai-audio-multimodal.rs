@@ -19,28 +19,24 @@ use siumai::provider_ext::openai::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
     ChatCompletionModalities, OpenAiChatRequestExt, OpenAiOptions,
 };
+use siumai::text::TextModelV3;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("OpenAI Audio Multimodal Example\n");
 
-    let api_key = std::env::var("OPENAI_API_KEY")?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o-audio-preview")?;
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&api_key)
-        .model("gpt-4o-audio-preview")
-        .build()
-        .await?;
-
-    example_audio_input(&client).await?;
-    example_audio_output(&client).await?;
-    example_audio_bidirectional(&client).await?;
+    example_audio_input(&model).await?;
+    example_audio_output(&model).await?;
+    example_audio_bidirectional(&model).await?;
 
     Ok(())
 }
 
-async fn example_audio_input(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+async fn example_audio_input(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 1: Audio Input\n");
 
     let audio_data = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
@@ -50,13 +46,13 @@ async fn example_audio_input(client: &Siumai) -> Result<(), Box<dyn std::error::
         .build();
 
     let req = ChatRequest::new(vec![message]);
-    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
+    let resp = text::generate(model, req, text::GenerateOptions::default()).await?;
     println!("Text: {}\n", resp.content_text().unwrap_or_default());
 
     Ok(())
 }
 
-async fn example_audio_output(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+async fn example_audio_output(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 2: Audio Output\n");
 
     let audio_config = ChatCompletionAudio {
@@ -76,14 +72,16 @@ async fn example_audio_output(client: &Siumai) -> Result<(), Box<dyn std::error:
             .with_audio(audio_config),
     );
 
-    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
+    let resp = text::generate(model, req, text::GenerateOptions::default()).await?;
     println!("Text: {}", resp.content_text().unwrap_or_default());
     println!("Has audio: {}\n", resp.audio.is_some());
 
     Ok(())
 }
 
-async fn example_audio_bidirectional(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+async fn example_audio_bidirectional(
+    model: &impl TextModelV3,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 3: Bidirectional Audio\n");
 
     let audio_data = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
@@ -106,7 +104,7 @@ async fn example_audio_bidirectional(client: &Siumai) -> Result<(), Box<dyn std:
             .with_audio(audio_config),
     );
 
-    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
+    let resp = text::generate(model, req, text::GenerateOptions::default()).await?;
     println!("Text: {}", resp.content_text().unwrap_or_default());
     println!("Has audio: {}\n", resp.audio.is_some());
 

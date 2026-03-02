@@ -13,12 +13,9 @@ use siumai::provider_ext::openai::{OpenAiChatRequestExt, OpenAiOptions, Reasonin
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("o1-mini") // Reasoning model
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:o1-mini")?; // Reasoning model
 
     println!("🧠 Reasoning Effort Example\n");
 
@@ -30,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::High),
         );
 
-    let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
+    let response = text::generate(&model, request, text::GenerateOptions::default()).await?;
 
     println!("🤖 AI (with high reasoning effort):");
     println!("{}", response.content_text().unwrap_or_default());

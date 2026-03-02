@@ -8,17 +8,14 @@
 //! ```
 
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Example 1: Invalid API key
     println!("Example 1: Invalid API key");
-    let result = Siumai::builder()
-        .openai()
-        .api_key("invalid-key")
-        .model("gpt-4o-mini")
-        .build()
-        .await;
+    let result =
+        OpenAiClient::from_config(OpenAiConfig::new("invalid-key").with_model("gpt-4o-mini"));
 
     match result {
         Ok(client) => {
@@ -39,16 +36,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: Invalid model
     println!("\nExample 2: Invalid model");
-    if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-        let client = Siumai::builder()
-            .openai()
-            .api_key(&api_key)
-            .model("nonexistent-model")
-            .build()
-            .await?;
+    if std::env::var("OPENAI_API_KEY").is_ok() {
+        let model = registry::global().language_model("openai:nonexistent-model")?;
 
         match text::generate(
-            &client,
+            &model,
             ChatRequest::new(vec![user!("Hello")]),
             text::GenerateOptions::default(),
         )
@@ -66,16 +58,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 3: Proper error handling
     println!("\nExample 3: Proper error handling");
-    if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-        let client = Siumai::builder()
-            .openai()
-            .api_key(&api_key)
-            .model("gpt-4o-mini")
-            .build()
-            .await?;
+    if std::env::var("OPENAI_API_KEY").is_ok() {
+        let model = registry::global().language_model("openai:gpt-4o-mini")?;
 
         match text::generate(
-            &client,
+            &model,
             ChatRequest::new(vec![user!("Hello!")]),
             text::GenerateOptions::default(),
         )

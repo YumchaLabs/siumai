@@ -18,29 +18,25 @@ use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{
     OpenAiChatRequestExt, OpenAiOptions, PredictionContent, ResponsesApiConfig,
 };
+use siumai::text::TextModelV3;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("OPENAI_API_KEY")?;
-
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&api_key)
-        .model("gpt-4o")
-        .build()
-        .await?;
+    // Recommended construction: resolve a model handle from the registry.
+    // Note: API key is automatically read from `OPENAI_API_KEY`.
+    let model = registry::global().language_model("openai:gpt-4o")?;
 
     println!("OpenAI Predicted Outputs + Web Search Options Demo\n");
 
-    predicted_outputs(&client).await?;
-    web_search_context_size(&client).await?;
-    web_search_location(&client).await?;
-    two_phase_workflow(&client).await?;
+    predicted_outputs(&model).await?;
+    web_search_context_size(&model).await?;
+    web_search_location(&model).await?;
+    two_phase_workflow(&model).await?;
 
     Ok(())
 }
 
-async fn predicted_outputs(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+async fn predicted_outputs(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
     println!("1) Predicted Outputs\n");
 
     let original_content = r#"
@@ -74,12 +70,14 @@ Here is the original content:\n\n{}",
         OpenAiOptions::new().with_prediction(PredictionContent::text(original_content)),
     );
 
-    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
+    let resp = text::generate(model, req, text::GenerateOptions::default()).await?;
     println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
     Ok(())
 }
 
-async fn web_search_context_size(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+async fn web_search_context_size(
+    model: &impl TextModelV3,
+) -> Result<(), Box<dyn std::error::Error>> {
     println!("2) Web Search (Responses API): context size\n");
 
     let req = ChatRequest::new(vec![user!(
@@ -92,12 +90,12 @@ async fn web_search_context_size(client: &Siumai) -> Result<(), Box<dyn std::err
     ])
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
+    let resp = text::generate(model, req, text::GenerateOptions::default()).await?;
     println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
     Ok(())
 }
 
-async fn web_search_location(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+async fn web_search_location(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
     println!("3) Web Search (Responses API): user location\n");
 
     let req = ChatRequest::new(vec![user!("What's the weather like today?")])
@@ -115,12 +113,12 @@ async fn web_search_location(client: &Siumai) -> Result<(), Box<dyn std::error::
         ])
         .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let resp = text::generate(client, req, text::GenerateOptions::default()).await?;
+    let resp = text::generate(model, req, text::GenerateOptions::default()).await?;
     println!("Text:\n{}\n", resp.content_text().unwrap_or_default());
     Ok(())
 }
 
-async fn two_phase_workflow(client: &Siumai) -> Result<(), Box<dyn std::error::Error>> {
+async fn two_phase_workflow(model: &impl TextModelV3) -> Result<(), Box<dyn std::error::Error>> {
     println!("4) Two-phase workflow: prediction (Chat Completions) + web search (Responses)\n");
 
     let template_content = r#"
@@ -145,7 +143,7 @@ async fn two_phase_workflow(client: &Siumai) -> Result<(), Box<dyn std::error::E
         OpenAiOptions::new().with_prediction(PredictionContent::text(template_content)),
     );
 
-    let resp1 = text::generate(client, req1, text::GenerateOptions::default()).await?;
+    let resp1 = text::generate(model, req1, text::GenerateOptions::default()).await?;
     println!(
         "Phase 1 (prediction) text:\n{}\n",
         resp1.content_text().unwrap_or_default()
@@ -162,7 +160,7 @@ async fn two_phase_workflow(client: &Siumai) -> Result<(), Box<dyn std::error::E
     ])
     .with_openai_options(OpenAiOptions::new().with_responses_api(ResponsesApiConfig::new()));
 
-    let resp2 = text::generate(client, req2, text::GenerateOptions::default()).await?;
+    let resp2 = text::generate(model, req2, text::GenerateOptions::default()).await?;
     println!(
         "Phase 2 (web search) text:\n{}\n",
         resp2.content_text().unwrap_or_default()

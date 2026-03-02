@@ -17,7 +17,8 @@ use futures::StreamExt;
 use siumai::experimental::execution::middleware::language_model::{
     GenerateAsyncFn, LanguageModelMiddleware, StreamAsyncFn,
 };
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 use std::sync::Arc;
 
 // Middleware 1: Logging middleware using wrap_generate_async
@@ -168,7 +169,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Logging middleware with wrap_generate_async
     println!("\n📝 Example 1: Logging Middleware (wrap_generate_async)");
-    let client = Siumai::builder().openai().api_key(&api_key).build().await?;
+    let client = OpenAiClient::from_config(OpenAiConfig::new(api_key).with_model("gpt-4o-mini"))?
+        .with_model_middlewares(vec![
+            Arc::new(LoggingMiddleware),
+            Arc::new(ResponseTransformMiddleware {
+                prefix: "[middleware] ".to_string(),
+            }),
+        ]);
 
     // Note: This example shows the concept. In practice, you'd apply middleware
     // through the registry or by wrapping the executor directly.

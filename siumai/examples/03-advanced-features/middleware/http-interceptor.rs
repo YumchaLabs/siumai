@@ -10,6 +10,7 @@
 
 use siumai::experimental::execution::http::{HttpInterceptor, HttpRequestContext};
 use siumai::prelude::unified::*;
+use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 use std::sync::Arc;
 
 #[derive(Clone)]
@@ -46,15 +47,12 @@ impl HttpInterceptor for LoggingInterceptor {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let interceptor = Arc::new(LoggingInterceptor);
+    let interceptor: Arc<dyn HttpInterceptor> = Arc::new(LoggingInterceptor);
 
-    let client = Siumai::builder()
-        .openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .with_http_interceptor(interceptor)
-        .build()
-        .await?;
+    let client = OpenAiClient::from_config(
+        OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?).with_model("gpt-4o-mini"),
+    )?
+    .with_http_interceptors(vec![interceptor]);
 
     println!("Sending request with HTTP interceptor...\n");
 
