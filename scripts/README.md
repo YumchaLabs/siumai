@@ -86,6 +86,30 @@ Notes:
   - `togetherai`
   - `bedrock`
 
+### `test-cross-feature-contracts.sh`
+
+Runs no-network contract bundles for important multi-feature facade combinations.
+
+```bash
+# Run the full cross-feature matrix
+./scripts/test-cross-feature-contracts.sh
+
+# Run one lane
+./scripts/test-cross-feature-contracts.sh openai-websocket
+./scripts/test-cross-feature-contracts.sh google-gcp
+./scripts/test-cross-feature-contracts.sh openai-json-repair
+```
+
+Notes:
+
+- This is the local mirror of the PR cross-feature contract CI matrix.
+- Current profiles cover:
+  - `openai-websocket`
+  - `google-gcp`
+  - `openai-json-repair`
+- The `openai-json-repair` lane also covers structured-output refusal/content-filter behavior so
+  JSON repair cannot silently turn plain refusal text into a successful JSON string result.
+
 ## 🧪 Integration Test Scripts
 
 ### `run_integration_tests.sh` (Linux/macOS)

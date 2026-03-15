@@ -139,6 +139,9 @@ Validation should follow the public package story:
 - provider packages get direct package-level build coverage
 - the facade gets feature-matrix coverage
 - examples and public-surface imports get their own guardrail lane
+- cross-feature lanes own semantic regressions that only appear when optional features interact
+  (for example `openai,json-repair` must preserve structured-output refusal/content-filter errors
+  instead of treating plain refusal text as repaired JSON)
 
 See `validation-matrix.md` for the operational mapping.
 
@@ -339,6 +342,7 @@ The V4 test pyramid now maps into explicit CI lanes:
 - **PR safety net**: fast core tests plus minimal facade checks
 - **Facade feature smoke**: one feature-minimal build per first-class provider
 - **Provider contract matrix**: one no-network nextest bundle per provider-facing facade lane
+- **Cross-feature contract matrix**: one no-network nextest bundle per important multi-feature lane
 - **Provider package build matrix**: direct compile coverage for each `siumai-provider-*` crate
 - **Public guardrails**: `public_surface_imports_test` plus example compilation
 - **Mainline heavy lane**: `cargo nextest run --profile ci --all-features --workspace`

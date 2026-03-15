@@ -894,6 +894,8 @@ Status legend:
   - `validation-matrix.md` now defines Tier 0 / Tier 1 / Tier 2 / Tier 3 validation lanes so the post-refactor phase is governed by explicit package-boundary gates instead of only ad hoc full-workspace runs.
   - PR CI now compiles the `siumai` facade under every first-class provider feature (`openai`, `azure`, `anthropic`, `google`, `google-vertex`, `ollama`, `xai`, `groq`, `minimaxi`, `deepseek`, `cohere`, `togetherai`, `bedrock`) instead of only the earlier narrow subset.
   - PR CI now also runs provider-scoped no-network nextest bundles for those same facade lanes, including a separate `openai-compat` vendor/preset lane so compile-only feature smoke is backed by executable request/response contract coverage.
+  - PR CI now also runs cross-feature no-network nextest bundles for the current multi-feature coupling set: `openai,openai-websocket`, `google,gcp`, and `openai,json-repair`.
+  - The `openai,json-repair` bundle now also pins the refusal/content-filter contract: structured-output helpers must keep returning the dedicated parse error when no valid JSON was actually produced, even if JSON repair is enabled.
   - CI now also compiles each provider package directly under its own feature gate, including the compatibility packages, so provider-owned public surfaces can no longer regress silently behind the top-level facade build.
   - Local smoke/test scripts now follow that same matrix more closely by including the OpenAI-compatible package plus the focused provider packages in the `openai-compatible` / `all-providers` presets.
 
@@ -903,6 +905,7 @@ Status legend:
 
 - [x] Add a structured output parity note (`structured-output-parity.md`) and keep it in sync with request transformer behavior.
   - Stable structured-output failure semantics are now explicit too: helpers still do best-effort JSON repair for explicit responses / explicit `StreamEnd`, but interrupted streams without `StreamEnd` now require a complete JSON value and refusal/content-filter endings now return a dedicated parse error instead of silently falling back to generic "no JSON" behavior.
+  - Refusal/content-filter endings now also outrank best-effort JSON repair on non-streaming responses unless a complete strict JSON value or explicit reserved `json` tool payload already exists, which closes the `openai,json-repair` regression where plain refusal text could be misclassified as a repaired JSON string.
   - Interrupted reserved-`json` tool streams now also converge on that same stable error wording: if tool arguments are truncated before `StreamEnd`, the public facade returns the dedicated incomplete-stream parse error instead of leaking a lower-level generic parse failure.
   - Typed structured-output helpers now also distinguish the second failure stage in a stable way: once JSON extraction succeeds, deserialization mismatch is reported as a target-type failure instead of being conflated with missing/invalid JSON extraction.
   - Public `siumai::structured_output` integration coverage now pins direct delegation to `siumai-core`, so the facade cannot drift on typed mismatch or interrupted-stream failure semantics.

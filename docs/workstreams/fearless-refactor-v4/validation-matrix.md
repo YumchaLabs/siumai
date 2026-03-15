@@ -77,14 +77,25 @@ Required lanes:
      - `togetherai`
      - `bedrock`
 
-4. `provider-package-build-matrix`
+4. `pr-cross-feature-contracts`
+   - no-network `cargo nextest` lanes for non-default multi-feature combinations
+   - current profiles:
+      - `openai-websocket`
+      - `google-gcp`
+      - `openai-json-repair`
+   - the `openai-json-repair` lane also locks structured-output refusal/content-filter semantics,
+     so best-effort JSON repair cannot silently reinterpret plain refusal text as a successful JSON
+     string result
+   - protects feature interactions that compile-only smoke does not fully exercise
+
+5. `provider-package-build-matrix`
    - compile each provider package directly with its own feature gate
    - protects provider-owned public surfaces that the facade does not compile exhaustively
    - also covers compatibility packages such as:
      - `siumai-provider-openai-compatible`
      - `siumai-provider-anthropic-compatible`
 
-5. `pr-facade-guardrails`
+6. `pr-facade-guardrails`
    - compile all `siumai` examples under `all-providers`
    - run `public_surface_imports_test`
 
@@ -94,6 +105,8 @@ Acceptance rule:
   - the facade feature smoke lane
   - the provider contract lane
   - the direct provider-package build lane
+- release readiness also requires the cross-feature contract lane to stay green for the current
+  non-default coupling set (`openai-websocket`, `google,gcp`, `openai,json-repair`)
 
 ### Tier 2 - Mainline / merge validation
 
