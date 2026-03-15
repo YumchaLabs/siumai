@@ -1,4 +1,4 @@
-#![cfg(any(feature = "openai", feature = "google"))]
+#![cfg(any(feature = "openai", feature = "google", feature = "deepseek"))]
 #![allow(deprecated)]
 //! Base URL behavior tests for unified builder (`SiumaiBuilder`).
 //!
@@ -112,5 +112,57 @@ async fn gemini_custom_base_url_trailing_slash_is_trimmed() {
         gemini.base_url(),
         "https://example.org",
         "custom base_url with trailing slash should be normalized without adding /v1beta",
+    );
+}
+/// DeepSeek: custom base_url without trailing slash should be used as-is.
+#[cfg(feature = "deepseek")]
+#[tokio::test]
+async fn deepseek_custom_base_url_is_used_as_full_prefix() {
+    let client = Siumai::builder()
+        .deepseek()
+        .api_key("test-key-deepseek-base-url")
+        .base_url("https://example.net")
+        .model("deepseek-chat")
+        .build()
+        .await
+        .expect("failed to build DeepSeek client");
+
+    let inner = client.client();
+    let any = inner.as_any();
+    let deepseek = any
+        .downcast_ref::<siumai::provider_ext::deepseek::DeepSeekClient>()
+        .expect("expected DeepSeekClient");
+
+    assert_eq!(
+        deepseek.base_url(),
+        "https://example.net",
+        "custom base_url should fully override default DeepSeek prefix without appending /v1",
+    );
+}
+
+/// DeepSeek: custom base_url with trailing slash should be normalized by trimming
+/// the trailing `/` but still not append `/v1`.
+#[cfg(feature = "deepseek")]
+#[tokio::test]
+async fn deepseek_custom_base_url_trailing_slash_is_trimmed() {
+    let client = Siumai::builder()
+        .deepseek()
+        .api_key("test-key-deepseek-base-url-trim")
+        .base_url("https://example.net/")
+        .model("deepseek-chat")
+        .build()
+        .await
+        .expect("failed to build DeepSeek client");
+
+    let inner = client.client();
+    let any = inner.as_any();
+    let deepseek = any
+        .downcast_ref::<siumai::provider_ext::deepseek::DeepSeekClient>()
+        .expect("expected DeepSeekClient");
+
+    assert_eq!(
+        deepseek.base_url(),
+        "https://example.net",
+        "custom base_url with trailing slash should be normalized without adding /v1",
     );
 }

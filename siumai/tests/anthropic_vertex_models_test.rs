@@ -29,15 +29,12 @@ async fn anthropic_vertex_list_models_parses_ids() {
         .mount(&server)
         .await;
 
-    let cfg = VertexAnthropicConfig {
-        base_url: server.uri(),
-        model: "claude-3-7-sonnet-latest".to_string(),
-        http_config: HttpConfig {
+    let cfg = VertexAnthropicConfig::new(server.uri(), "claude-3-7-sonnet-latest")
+        .with_http_config(HttpConfig {
             headers: std::iter::once(("Authorization".to_string(), "Bearer ok".to_string()))
                 .collect(),
             ..Default::default()
-        },
-    };
+        });
     let cli = VertexAnthropicClient::new(cfg, reqwest::Client::new());
     let models = ModelListingCapability::list_models(&cli).await.unwrap();
     let ids: Vec<String> = models.into_iter().map(|m| m.id).collect();

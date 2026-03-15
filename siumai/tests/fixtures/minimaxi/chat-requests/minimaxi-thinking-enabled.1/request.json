@@ -1,0 +1,24 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Hello" },
+      "metadata": {}
+    }
+  ],
+  "providerOptions": {
+    "minimaxi": {
+      "thinking": { "type": "enabled", "budgetTokens": 1000 }
+    }
+  },
+  "common_params": {
+    "model": "MiniMax-M2",
+    "temperature": 0.5,
+    "max_tokens": 2000,
+    "max_completion_tokens": null,
+    "top_p": 0.7,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "stream": false
+}

@@ -16,7 +16,7 @@ async fn test_tool_call_streaming_vs_non_streaming() {
     let api_key = match std::env::var("OPENAI_API_KEY") {
         Ok(key) if !key.is_empty() && key != "demo-key" => key,
         _ => {
-            println!("⚠️  OPENAI_API_KEY not set, skipping integration test");
+            println!("[warn]  OPENAI_API_KEY not set, skipping integration test");
             return;
         }
     };
@@ -57,7 +57,7 @@ async fn test_tool_call_streaming_vs_non_streaming() {
     ];
 
     // Test 1: Non-streaming tool calls
-    println!("📋 Test 1: Using chat_with_tools");
+    println!("[info] Test 1: Using chat_with_tools");
     let non_streaming_result = client
         .chat_with_tools(messages.clone(), Some(tools.clone()))
         .await
@@ -76,7 +76,7 @@ async fn test_tool_call_streaming_vs_non_streaming() {
     };
 
     // Test 2: Streaming tool calls
-    println!("🌊 Test 2: Using chat_stream");
+    println!("[info] Test 2: Using chat_stream");
     let mut stream = client
         .chat_stream(messages, Some(tools))
         .await
@@ -130,20 +130,21 @@ async fn test_tool_call_streaming_vs_non_streaming() {
     assert_eq!(streaming_args["count"], 50);
     assert_eq!(streaming_args["query"], "rust programming");
 
-    println!("✅ Tool call streaming test passed!");
+    println!("[ok] Tool call streaming test passed!");
     println!("   Non-streaming args: {non_streaming_args}");
     println!("   Streaming args: {streaming_args}");
     println!("   Tool call deltas received: {tool_call_deltas}");
 }
 
 #[tokio::test]
+#[cfg(feature = "deepseek")]
 #[ignore] // Requires API key
 async fn test_deepseek_tool_call_streaming() {
     // Get API key
     let api_key = match std::env::var("DEEPSEEK_API_KEY") {
         Ok(key) if !key.is_empty() && key != "demo-key" => key,
         _ => {
-            println!("⚠️  DEEPSEEK_API_KEY not set, skipping DeepSeek test");
+            println!("[warn]  DEEPSEEK_API_KEY not set, skipping DeepSeek test");
             return;
         }
     };
@@ -226,7 +227,7 @@ async fn test_deepseek_tool_call_streaming() {
     assert_eq!(streaming_args["count"], 50);
     assert_eq!(streaming_args["query"], "rust programming");
 
-    println!("✅ DeepSeek tool call streaming test passed!");
+    println!("[ok] DeepSeek tool call streaming test passed!");
     println!("   Streaming args: {streaming_args}");
     println!("   Tool call deltas received: {tool_call_deltas}");
 }

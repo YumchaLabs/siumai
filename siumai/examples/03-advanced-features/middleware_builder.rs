@@ -4,6 +4,12 @@
 //! - Automatically add middlewares based on provider and model
 //! - Manually add, remove, and replace middlewares
 //! - Use preset middlewares like ExtractReasoningMiddleware
+//!
+//! Note:
+//! `MiddlewareBuilder` here is a middleware-composition utility, not the
+//! preferred public construction story for `Siumai`. For runnable application
+//! examples, prefer registry-first `05-integrations/registry/custom-middleware.rs`
+//! or config-first `03-advanced-features/middleware/http-interceptor.rs`.
 
 use siumai::experimental::execution::middleware::{
     MiddlewareBuilder,

@@ -4,6 +4,9 @@ use reqwest::header::HeaderMap;
 use siumai::experimental::core::ProviderContext;
 use siumai::experimental::core::ProviderSpec;
 use siumai::prelude::unified::*;
+use siumai::provider_ext::openrouter::{
+    OpenRouterChatRequestExt, OpenRouterOptions, OpenRouterTransform,
+};
 use siumai_protocol_openai::standards::openai::compat::provider_registry::ConfigurableAdapter;
 use siumai_protocol_openai::standards::openai::compat::spec::OpenAiCompatibleSpecWithAdapter;
 use siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config;
@@ -102,6 +105,108 @@ fn openrouter_provider_options_are_merged_into_request_body() {
     assert_eq!(
         out.get("someVendorParam").and_then(|v| v.as_bool()),
         Some(true)
+    );
+}
+
+#[test]
+fn openrouter_typed_options_are_merged_into_request_body() {
+    let (ctx, adapter) = make_ctx();
+    let spec = OpenAiCompatibleSpecWithAdapter::new(adapter);
+
+    let req = ChatRequest::builder()
+        .model("openai/gpt-4o")
+        .messages(vec![ChatMessage::user("hi").build()])
+        .build()
+        .with_openrouter_options(
+            OpenRouterOptions::new()
+                .with_transform(OpenRouterTransform::MiddleOut)
+                .with_param("someVendorParam", serde_json::json!(true)),
+        );
+
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let body = bundle.request.transform_chat(&req).expect("transform");
+
+    let hook = spec
+        .chat_before_send(&req, &ctx)
+        .expect("before_send hook for providerOptions");
+    let out = hook(&body).expect("merged body");
+
+    assert_eq!(
+        out.get("model").and_then(|v| v.as_str()),
+        Some("openai/gpt-4o")
+    );
+    assert_eq!(
+        out.get("transforms")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_str()),
+        Some("middle-out")
+    );
+    assert_eq!(
+        out.get("someVendorParam").and_then(|v| v.as_bool()),
+        Some(true)
+    );
+}
+
+#[test]
+fn openrouter_stable_fields_win_over_raw_provider_options() {
+    use siumai::prelude::unified::{ResponseFormat, Tool, ToolChoice};
+
+    let (ctx, adapter) = make_ctx();
+    let spec = OpenAiCompatibleSpecWithAdapter::new(adapter);
+
+    let schema = serde_json::json!({
+        "type": "object",
+        "properties": { "answer": { "type": "string" } },
+        "required": ["answer"],
+        "additionalProperties": false
+    });
+
+    let req = ChatRequest::builder()
+        .model("openai/gpt-4o")
+        .messages(vec![ChatMessage::user("hi").build()])
+        .tools(vec![Tool::function(
+            "get_weather",
+            "Get weather",
+            serde_json::json!({ "type": "object", "properties": {} }),
+        )])
+        .tool_choice(ToolChoice::None)
+        .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+        .build()
+        .with_provider_option(
+            "openrouter",
+            serde_json::json!({
+                "transforms": ["middle-out"],
+                "response_format": { "type": "json_object" },
+                "tool_choice": "auto"
+            }),
+        );
+
+    let bundle = spec.choose_chat_transformers(&req, &ctx);
+    let body = bundle.request.transform_chat(&req).expect("transform");
+    let hook = spec
+        .chat_before_send(&req, &ctx)
+        .expect("before_send hook for providerOptions");
+    let out = hook(&body).expect("merged body");
+
+    assert_eq!(
+        out.get("transforms")
+            .and_then(|v| v.as_array())
+            .and_then(|a| a.first())
+            .and_then(|v| v.as_str()),
+        Some("middle-out")
+    );
+    assert_eq!(out.get("tool_choice"), Some(&serde_json::json!("none")));
+    assert_eq!(
+        out.get("response_format"),
+        Some(&serde_json::json!({
+            "type": "json_schema",
+            "json_schema": {
+                "name": "response",
+                "schema": schema,
+                "strict": true
+            }
+        }))
     );
 }
 

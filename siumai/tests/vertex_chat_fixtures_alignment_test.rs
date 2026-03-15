@@ -146,7 +146,7 @@ fn run_case(root: &Path) {
         }
 
         if case_name.contains("thought-signature-text-and-reasoning") {
-            let MessageContent::MultiModal(parts) = resp.content else {
+            let MessageContent::MultiModal(ref parts) = resp.content else {
                 panic!("expected multimodal content");
             };
             assert_eq!(parts.len(), 3);
@@ -172,7 +172,7 @@ fn run_case(root: &Path) {
                 other => panic!("expected third part to be text, got: {other:?}"),
             }
         } else if case_name.contains("thought-signature-tool-call") {
-            let MessageContent::MultiModal(parts) = resp.content else {
+            let MessageContent::MultiModal(ref parts) = resp.content else {
                 panic!("expected multimodal content");
             };
 

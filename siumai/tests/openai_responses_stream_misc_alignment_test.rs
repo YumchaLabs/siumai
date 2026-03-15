@@ -1,6 +1,7 @@
 #![cfg(feature = "openai")]
 
 use siumai::prelude::unified::*;
+use siumai::provider_ext::openai::OpenAiChatResponseExt;
 use std::path::Path;
 
 fn fixtures_dir(subdir: &str) -> std::path::PathBuf {
@@ -205,6 +206,24 @@ fn openai_responses_logprobs_stream_emits_finish_provider_metadata_logprobs() {
         top.iter()
             .any(|t| t.get("token").and_then(|v| v.as_str()) == Some("Please")),
         "expected top_logprobs to include 'Please'"
+    );
+
+    let end = events
+        .iter()
+        .find_map(|e| match e {
+            ChatStreamEvent::StreamEnd { response } => Some(response),
+            _ => None,
+        })
+        .expect("expected StreamEnd");
+    let meta = end.openai_metadata().expect("expected openai metadata");
+    let end_logprobs = meta
+        .logprobs
+        .and_then(|v| v.as_array().cloned())
+        .expect("expected typed logprobs array");
+    assert_eq!(
+        end_logprobs.len(),
+        1,
+        "expected one output_text logprobs block"
     );
 }
 

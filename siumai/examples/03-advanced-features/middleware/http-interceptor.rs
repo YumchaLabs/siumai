@@ -3,6 +3,10 @@
 //! This example demonstrates using HTTP interceptors for logging,
 //! monitoring, or debugging.
 //!
+//! Construction mode: config-first.
+//! Use this file to attach transport-level observability to a provider-owned
+//! client without relying on `Siumai::builder()`.
+//!
 //! ## Run
 //! ```bash
 //! cargo run --example http-interceptor --features openai

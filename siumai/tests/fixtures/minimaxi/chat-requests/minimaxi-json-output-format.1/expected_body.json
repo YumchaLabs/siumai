@@ -1,0 +1,22 @@
+{
+  "model": "MiniMax-M2",
+  "messages": [
+    {
+      "role": "user",
+      "content": [{ "type": "text", "text": "Return JSON" }]
+    }
+  ],
+  "max_tokens": 512,
+  "output_format": {
+    "type": "json_schema",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "answer": { "type": "string" }
+      },
+      "required": ["answer"],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  }
+}

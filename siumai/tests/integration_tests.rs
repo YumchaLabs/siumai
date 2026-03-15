@@ -362,13 +362,13 @@ mod builder_tests {
 
         match result {
             Ok(client) => {
-                println!("    ✅ SiliconFlow client created with HTTP config");
+                println!("    [ok] SiliconFlow client created with HTTP config");
                 assert_eq!(client.provider_id().as_ref(), "siliconflow");
             }
             Err(e) => {
                 // Expected to fail with invalid API key, but should not fail due to HTTP config
                 println!(
-                    "    ✅ Failed with expected error (not HTTP config related): {}",
+                    "    [ok] Failed with expected error (not HTTP config related): {}",
                     e
                 );
                 assert!(!e.to_string().contains("HTTP"));
@@ -376,30 +376,33 @@ mod builder_tests {
             }
         }
 
-        // Test DeepSeek with HTTP config
-        let result = Siumai::builder()
-            .with_timeout(Duration::from_secs(60))
-            .with_connect_timeout(Duration::from_secs(10))
-            .with_user_agent("test-agent/1.0")
-            .with_header("X-Custom-Header", "test-value")
-            .with_header("X-Request-ID", "test-123")
-            .openai()
-            .deepseek()
-            .api_key("test-key")
-            .build()
-            .await;
+        #[cfg(feature = "deepseek")]
+        {
+            // Test DeepSeek with HTTP config
+            let result = Siumai::builder()
+                .with_timeout(Duration::from_secs(60))
+                .with_connect_timeout(Duration::from_secs(10))
+                .with_user_agent("test-agent/1.0")
+                .with_header("X-Custom-Header", "test-value")
+                .with_header("X-Request-ID", "test-123")
+                .openai()
+                .deepseek()
+                .api_key("test-key")
+                .build()
+                .await;
 
-        match result {
-            Ok(client) => {
-                println!("    ✅ DeepSeek client created with HTTP config");
-                assert_eq!(client.provider_id().as_ref(), "deepseek");
-            }
-            Err(e) => {
-                println!(
-                    "    ✅ Failed with expected error (not HTTP config related): {}",
-                    e
-                );
-                assert!(!e.to_string().contains("HTTP"));
+            match result {
+                Ok(client) => {
+                    println!("    [ok] DeepSeek client created with HTTP config");
+                    assert_eq!(client.provider_id().as_ref(), "deepseek");
+                }
+                Err(e) => {
+                    println!(
+                        "    [ok] Failed with expected error (not HTTP config related): {}",
+                        e
+                    );
+                    assert!(!e.to_string().contains("HTTP"));
+                }
             }
         }
     }

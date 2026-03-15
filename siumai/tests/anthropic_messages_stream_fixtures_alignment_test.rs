@@ -1,6 +1,7 @@
 #![cfg(feature = "anthropic")]
 
 use siumai::prelude::unified::*;
+use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
 use std::path::Path;
 
 fn fixtures_dir() -> std::path::PathBuf {
@@ -253,17 +254,13 @@ fn anthropic_stream_agent_skills_finish_includes_container_provider_metadata() {
         })
         .expect("expected StreamEnd event");
 
-    let container = end
-        .provider_metadata
-        .as_ref()
-        .and_then(|m| m.get("anthropic"))
-        .and_then(|m| m.get("container"))
-        .cloned()
-        .unwrap_or(serde_json::Value::Null);
-
+    let typed = end
+        .anthropic_metadata()
+        .expect("expected typed anthropic metadata");
+    let container = typed.container.expect("expected typed container metadata");
     assert!(
-        container.get("id").and_then(|v| v.as_str()).is_some(),
-        "expected StreamEnd provider_metadata.anthropic.container.id"
+        matches!(container.id.as_deref(), Some(id) if !id.is_empty()),
+        "expected typed container.id on StreamEnd"
     );
 }
 

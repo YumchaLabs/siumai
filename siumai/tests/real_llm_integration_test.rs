@@ -4,7 +4,8 @@
     feature = "google",
     feature = "xai",
     feature = "ollama",
-    feature = "groq"
+    feature = "groq",
+    feature = "deepseek"
 ))]
 #![allow(deprecated)]
 //! Real LLM Integration Tests
@@ -61,21 +62,21 @@
 //! ## Test Coverage
 //!
 //! Each provider test includes:
-//! - ✅ **Non-streaming chat**: Basic request/response functionality
-//! - 🌊 **Streaming chat**: Real-time response streaming
-//! - 🔢 **Embeddings**: Text embedding generation (if supported)
-//! - 🧠 **Reasoning**: Advanced reasoning/thinking capabilities (if supported)
+//! - **Non-streaming chat**: Basic request/response functionality
+//! - **Streaming chat**: Real-time response streaming
+//! - **Embeddings**: Text embedding generation (if supported)
+//! - **Reasoning**: Advanced reasoning/thinking capabilities (if supported)
 //!
 //! ### Provider Capabilities Matrix
 //! | Provider   | Chat | Streaming | Embeddings | Reasoning |
 //! |------------|------|-----------|------------|-----------|
-//! | OpenAI     | ✅   | ✅        | ✅         | ✅ (o1)   |
-//! | Anthropic  | ✅   | ✅        | ❌         | ✅ (thinking) |
-//! | Gemini     | ✅   | ✅        | ✅         | ✅ (thinking) |
-//! | DeepSeek   | ✅   | ✅        | ❌         | ✅ (reasoner) |
-//! | OpenRouter | ✅   | ✅        | ❌         | ✅ (o1 models) |
-//! | Groq       | ✅   | ✅        | ❌         | ❌        |
-//! | xAI        | ✅   | ✅        | ❌         | ✅ (Grok) |
+//! | OpenAI     | yes  | yes       | yes        | yes (o1)         |
+//! | Anthropic  | yes  | yes       | no         | yes (thinking)   |
+//! | Gemini     | yes  | yes       | yes        | yes (thinking)   |
+//! | DeepSeek   | yes  | yes       | no         | yes (reasoner)   |
+//! | OpenRouter | yes  | yes       | no         | yes (o1 models)  |
+//! | Groq       | yes  | yes       | no         | no               |
+//! | xAI        | yes  | yes       | no         | yes (Grok)       |
 
 use futures::StreamExt;
 use siumai::extensions::ModelListingCapability;
@@ -364,13 +365,16 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
                 test_reasoning_ollama(config).await;
             }
         }
-        _ => println!("⚠️ Unknown provider: {}", config.name),
+        _ => println!("[warn] Unknown provider: {}", config.name),
     }
 }
 
 /// Test non-streaming chat functionality
 async fn test_non_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str) {
-    println!("  📝 Testing non-streaming chat for {}...", provider_name);
+    println!(
+        "  [info] Testing non-streaming chat for {}...",
+        provider_name
+    );
 
     let messages = vec![
         system!("You are a helpful assistant. Keep responses brief."),
@@ -381,19 +385,19 @@ async fn test_non_streaming_chat<T: ChatCapability>(client: &T, provider_name: &
         Ok(response) => {
             let content = response.content_text().unwrap_or_default();
             assert!(!content.is_empty(), "Response should not be empty");
-            println!("    ✅ Non-streaming chat successful: {}", content.trim());
+            println!("    [ok] Non-streaming chat successful: {}", content.trim());
 
             // Check usage statistics if available
             if let Some(usage) = response.usage {
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
-            println!("    ⚠️ Non-streaming chat failed: {}", e);
-            println!("    💡 Note: This may indicate API key issues or model unavailability");
+            println!("    [warn] Non-streaming chat failed: {}", e);
+            println!("    [note] Note: This may indicate API key issues or model unavailability");
             // Skip remaining tests for this provider
         }
     }
@@ -401,7 +405,7 @@ async fn test_non_streaming_chat<T: ChatCapability>(client: &T, provider_name: &
 
 /// Test streaming chat functionality
 async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str) {
-    println!("  🌊 Testing streaming chat for {}...", provider_name);
+    println!("  [info] Testing streaming chat for {}...", provider_name);
 
     let messages = vec![
         system!("You are a helpful assistant. Keep responses brief."),
@@ -425,15 +429,15 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
                         ChatStreamEvent::StreamEnd { response } => {
                             let final_content = response.content_text().unwrap_or_default();
 
-                            println!("    ✅ Streaming chat successful");
+                            println!("    [ok] Streaming chat successful");
                             if !final_content.is_empty() {
-                                println!("    📝 Final content: {}", final_content.trim());
+                                println!("    [info] Final content: {}", final_content.trim());
                             } else {
                                 // For streaming, content might be accumulated in chunks
                                 let accumulated_content: String = content_chunks.join("");
                                 if !accumulated_content.is_empty() {
                                     println!(
-                                        "    📝 Accumulated content: {}",
+                                        "    [info] Accumulated content: {}",
                                         accumulated_content.trim()
                                     );
                                 }
@@ -442,14 +446,14 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
                             if !thinking_chunks.is_empty() {
                                 let thinking_content: String = thinking_chunks.join("");
                                 println!(
-                                    "    🤔 Thinking content length: {} chars",
+                                    "    [info] Thinking content length: {} chars",
                                     thinking_content.len()
                                 );
                             }
 
                             if let Some(usage) = response.usage {
                                 println!(
-                                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                                     usage.prompt_tokens,
                                     usage.completion_tokens,
                                     usage.total_tokens
@@ -458,7 +462,7 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
                             break;
                         }
                         ChatStreamEvent::Error { error } => {
-                            println!("    ❌ Stream error: {}", error);
+                            println!("    [error] Stream error: {}", error);
                             panic!("Streaming chat error for {}: {}", provider_name, error);
                         }
                         _ => {
@@ -466,7 +470,7 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
                         }
                     },
                     Err(e) => {
-                        println!("    ❌ Stream error: {}", e);
+                        println!("    [error] Stream error: {}", e);
                         panic!("Streaming chat error for {}: {}", provider_name, e);
                     }
                 }
@@ -479,8 +483,8 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
             );
         }
         Err(e) => {
-            println!("    ⚠️ Streaming chat failed: {}", e);
-            println!("    💡 Note: This may indicate API key issues or model unavailability");
+            println!("    [warn] Streaming chat failed: {}", e);
+            println!("    [note] Note: This may indicate API key issues or model unavailability");
             // Skip remaining tests for this provider
         }
     }
@@ -488,7 +492,7 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
 
 /// Test embedding functionality
 async fn test_embedding<T: EmbeddingCapability>(client: &T, provider_name: &str) {
-    println!("  🔢 Testing embedding for {}...", provider_name);
+    println!("  [info] Testing embedding for {}...", provider_name);
 
     let texts = vec![
         "Hello world".to_string(),
@@ -508,25 +512,25 @@ async fn test_embedding<T: EmbeddingCapability>(client: &T, provider_name: &str)
             }
 
             println!(
-                "    ✅ Embedding successful: {} embeddings with {} dimensions",
+                "    [ok] Embedding successful: {} embeddings with {} dimensions",
                 response.embeddings.len(),
                 response.embeddings[0].len()
             );
 
             if let Some(usage) = response.usage {
-                println!("    📊 Usage: {} total tokens", usage.total_tokens);
+                println!("    [info] Usage: {} total tokens", usage.total_tokens);
             }
         }
         Err(e) => {
-            println!("    ⚠️ Embedding failed (this may be expected): {}", e);
-            println!("    💡 Note: Some API keys may not have embedding permissions");
+            println!("    [warn] Embedding failed (this may be expected): {}", e);
+            println!("    [note] Note: Some API keys may not have embedding permissions");
         }
     }
 }
 
 /// Test OpenAI reasoning functionality (o1 models)
 async fn test_reasoning_openai(config: &ProviderTestConfig) {
-    println!("  🧠 Testing OpenAI reasoning for {}...", config.name);
+    println!("  [info] Testing OpenAI reasoning for {}...", config.name);
 
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
@@ -559,8 +563,8 @@ async fn test_reasoning_openai(config: &ProviderTestConfig) {
                 "Reasoning response should not be empty"
             );
 
-            println!("    ✅ OpenAI reasoning successful");
-            println!("    📝 Response: {}", content.trim());
+            println!("    [ok] OpenAI reasoning successful");
+            println!("    [info] Response: {}", content.trim());
 
             // Check for reasoning tokens in usage
             if let Some(usage) = response.usage {
@@ -569,27 +573,27 @@ async fn test_reasoning_openai(config: &ProviderTestConfig) {
                     .as_ref()
                     .and_then(|d| d.reasoning_tokens)
                 {
-                    println!("    🧠 Reasoning tokens: {}", reasoning_tokens);
+                    println!("    [info] Reasoning tokens: {}", reasoning_tokens);
                 }
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
             println!(
-                "    ⚠️ OpenAI reasoning failed (this may be expected): {}",
+                "    [warn] OpenAI reasoning failed (this may be expected): {}",
                 e
             );
-            println!("    💡 Note: o1 models may not be available for all API keys");
+            println!("    [note] Note: o1 models may not be available for all API keys");
         }
     }
 }
 
 /// Test Anthropic thinking functionality
 async fn test_reasoning_anthropic(config: &ProviderTestConfig) {
-    println!("  🤔 Testing Anthropic thinking for {}...", config.name);
+    println!("  [info] Testing Anthropic thinking for {}...", config.name);
 
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
@@ -610,50 +614,50 @@ async fn test_reasoning_anthropic(config: &ProviderTestConfig) {
         .await
         .expect("Failed to build Anthropic thinking client");
 
-    let messages = vec![user!("What is 4 × 3? Think step by step.")];
+    let messages = vec![user!("What is 4  3? Think step by step.")];
 
     match client.chat(messages).await {
         Ok(response) => {
             let content = response.content_text().unwrap_or_default();
             assert!(!content.is_empty(), "Thinking response should not be empty");
 
-            println!("    ✅ Anthropic thinking successful");
-            println!("    📝 Response: {}", content.trim());
+            println!("    [ok] Anthropic thinking successful");
+            println!("    [info] Response: {}", content.trim());
 
             // Check for thinking content
             let reasoning = response.reasoning();
             if !reasoning.is_empty() {
                 println!(
-                    "    🤔 Thinking content length: {} chars",
+                    "    [info] Thinking content length: {} chars",
                     reasoning[0].len()
                 );
             }
 
             if let Some(usage) = response.usage {
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
             println!(
-                "    ⚠️ Anthropic thinking failed (this may be expected): {}",
+                "    [warn] Anthropic thinking failed (this may be expected): {}",
                 e
             );
-            println!("    💡 Note: Thinking feature may not be available for all models/keys");
+            println!("    [note] Note: Thinking feature may not be available for all models/keys");
         }
     }
 }
 
 /// Test Gemini thinking functionality
 async fn test_reasoning_gemini(config: &ProviderTestConfig) {
-    println!("  💎 Testing Gemini thinking for {}...", config.name);
+    println!("   Testing Gemini thinking for {}...", config.name);
 
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    println!("    🔍 Using model: {}", reasoning_model);
+    println!("     Using model: {}", reasoning_model);
 
     let client = Siumai::builder()
         .gemini()
@@ -664,7 +668,7 @@ async fn test_reasoning_gemini(config: &ProviderTestConfig) {
         .await
         .expect("Failed to build Gemini thinking client");
 
-    let messages = vec![user!("What is 10 ÷ 2? Show your reasoning.")];
+    let messages = vec![user!("What is 10  2? Show your reasoning.")];
 
     match client.chat(messages).await {
         Ok(response) => {
@@ -674,38 +678,37 @@ async fn test_reasoning_gemini(config: &ProviderTestConfig) {
                 "Gemini thinking response should not be empty"
             );
 
-            println!("    ✅ Gemini thinking successful");
-            println!("    📝 Response: {}", content.trim());
+            println!("    [ok] Gemini thinking successful");
+            println!("    [info] Response: {}", content.trim());
 
             // Check for thinking content
             let reasoning = response.reasoning();
             if !reasoning.is_empty() {
-                println!(
-                    "    💎 Thinking content length: {} chars",
-                    reasoning[0].len()
-                );
+                println!("     Thinking content length: {} chars", reasoning[0].len());
             } else {
                 println!(
-                    "    ℹ️ No thinking content returned (this may be normal for simple questions)"
+                    "     No thinking content returned (this may be normal for simple questions)"
                 );
             }
 
             if let Some(usage) = response.usage {
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
             println!(
-                "    ⚠️ Gemini thinking failed (this may be expected): {}",
+                "    [warn] Gemini thinking failed (this may be expected): {}",
                 e
             );
-            println!("    💡 Note: Thinking feature may not be available for all models");
-            println!("    💡 Suggestion: Check if your API key has access to Gemini 2.5 models");
+            println!("    [note] Note: Thinking feature may not be available for all models");
             println!(
-                "    💡 Try running: curl \"https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY\""
+                "    [note] Suggestion: Check if your API key has access to Gemini 2.5 models"
+            );
+            println!(
+                "    [note] Try running: curl \"https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY\""
             );
         }
     }
@@ -713,7 +716,7 @@ async fn test_reasoning_gemini(config: &ProviderTestConfig) {
 
 /// Test DeepSeek reasoning functionality
 async fn test_reasoning_deepseek(config: &ProviderTestConfig) {
-    println!("  🔍 Testing DeepSeek reasoning for {}...", config.name);
+    println!("   Testing DeepSeek reasoning for {}...", config.name);
 
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
@@ -737,38 +740,38 @@ async fn test_reasoning_deepseek(config: &ProviderTestConfig) {
                 "DeepSeek reasoning response should not be empty"
             );
 
-            println!("    ✅ DeepSeek reasoning successful");
-            println!("    📝 Response: {}", content.trim());
+            println!("    [ok] DeepSeek reasoning successful");
+            println!("    [info] Response: {}", content.trim());
 
             // Check for reasoning content
             let reasoning = response.reasoning();
             if !reasoning.is_empty() {
                 println!(
-                    "    🔍 Reasoning content length: {} chars",
+                    "     Reasoning content length: {} chars",
                     reasoning[0].len()
                 );
             }
 
             if let Some(usage) = response.usage {
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
             println!(
-                "    ⚠️ DeepSeek reasoning failed (this may be expected): {}",
+                "    [warn] DeepSeek reasoning failed (this may be expected): {}",
                 e
             );
-            println!("    💡 Note: Reasoner models may not be available for all API keys");
+            println!("    [note] Note: Reasoner models may not be available for all API keys");
         }
     }
 }
 
 /// Test OpenRouter reasoning functionality (using o1 models)
 async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
-    println!("  🌐 Testing OpenRouter reasoning for {}...", config.name);
+    println!("   Testing OpenRouter reasoning for {}...", config.name);
 
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
@@ -794,8 +797,8 @@ async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
                 "OpenRouter reasoning response should not be empty"
             );
 
-            println!("    ✅ OpenRouter reasoning successful");
-            println!("    📝 Response: {}", content.trim());
+            println!("    [ok] OpenRouter reasoning successful");
+            println!("    [info] Response: {}", content.trim());
 
             // Check for reasoning tokens (if using o1 models through OpenRouter)
             if let Some(usage) = response.usage {
@@ -804,27 +807,29 @@ async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
                     .as_ref()
                     .and_then(|d| d.reasoning_tokens)
                 {
-                    println!("    🧠 Reasoning tokens: {}", reasoning_tokens);
+                    println!("    [info] Reasoning tokens: {}", reasoning_tokens);
                 }
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
             println!(
-                "    ⚠️ OpenRouter reasoning failed (this may be expected): {}",
+                "    [warn] OpenRouter reasoning failed (this may be expected): {}",
                 e
             );
-            println!("    💡 Note: o1 models may not be available through OpenRouter for all keys");
+            println!(
+                "    [note] Note: o1 models may not be available through OpenRouter for all keys"
+            );
         }
     }
 }
 
 /// Test xAI reasoning functionality
 async fn test_reasoning_xai(config: &ProviderTestConfig) {
-    println!("  🚀 Testing xAI reasoning for {}...", config.name);
+    println!("   Testing xAI reasoning for {}...", config.name);
 
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
@@ -847,35 +852,38 @@ async fn test_reasoning_xai(config: &ProviderTestConfig) {
                 "xAI reasoning response should not be empty"
             );
 
-            println!("    ✅ xAI reasoning successful");
-            println!("    📝 Response: {}", content.trim());
+            println!("    [ok] xAI reasoning successful");
+            println!("    [info] Response: {}", content.trim());
 
             // Check for reasoning content
             let reasoning = response.reasoning();
             if !reasoning.is_empty() {
                 println!(
-                    "    🚀 Reasoning content length: {} chars",
+                    "     Reasoning content length: {} chars",
                     reasoning[0].len()
                 );
             }
 
             if let Some(usage) = response.usage {
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
-            println!("    ⚠️ xAI reasoning failed (this may be expected): {}", e);
-            println!("    💡 Note: Grok models may not be available for all API keys");
+            println!(
+                "    [warn] xAI reasoning failed (this may be expected): {}",
+                e
+            );
+            println!("    [note] Note: Grok models may not be available for all API keys");
         }
     }
 }
 
 /// Test Ollama reasoning functionality
 async fn test_reasoning_ollama(config: &ProviderTestConfig) {
-    println!("  🦙 Testing Ollama reasoning for {}...", config.name);
+    println!("   Testing Ollama reasoning for {}...", config.name);
 
     let base_url =
         env::var(config.api_key_env).unwrap_or_else(|_| "http://localhost:11434".to_string());
@@ -900,34 +908,34 @@ async fn test_reasoning_ollama(config: &ProviderTestConfig) {
                 "Ollama reasoning response should not be empty"
             );
 
-            println!("    ✅ Ollama reasoning successful");
-            println!("    📝 Response: {}", content.trim());
+            println!("    [ok] Ollama reasoning successful");
+            println!("    [info] Response: {}", content.trim());
 
             // Check for thinking content
             let reasoning = response.reasoning();
             if !reasoning.is_empty() {
                 println!(
-                    "    🧠 Thinking content length: {} chars",
+                    "    [info] Thinking content length: {} chars",
                     reasoning[0].len()
                 );
             }
 
             if let Some(usage) = response.usage {
                 println!(
-                    "    📊 Usage: {} prompt + {} completion = {} total tokens",
+                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
                     usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
                 );
             }
         }
         Err(e) => {
             println!(
-                "    ⚠️ Ollama reasoning failed (this may be expected): {}",
+                "    [warn] Ollama reasoning failed (this may be expected): {}",
                 e
             );
             println!(
-                "    💡 Note: Make sure Ollama is running and the reasoning model is available"
+                "    [note] Note: Make sure Ollama is running and the reasoning model is available"
             );
-            println!("    💡 Try: ollama pull {}", reasoning_model);
+            println!("    [note] Try: ollama pull {}", reasoning_model);
         }
     }
 }
@@ -937,15 +945,15 @@ async fn test_model_listing<T>(client: &T, provider_name: &str)
 where
     T: ModelListingCapability + Send + Sync,
 {
-    println!("  🔍 Testing model listing for {}...", provider_name);
+    println!("   Testing model listing for {}...", provider_name);
 
     // Test list_models
     match client.list_models().await {
         Ok(models) => {
-            println!("    ✅ Successfully listed {} models", models.len());
+            println!("    [ok] Successfully listed {} models", models.len());
 
             if !models.is_empty() {
-                println!("    📋 Available models:");
+                println!("     Available models:");
                 for (i, model) in models.iter().take(5).enumerate() {
                     let name = model.name.as_ref().unwrap_or(&model.id);
                     let capabilities = if model.capabilities.is_empty() {
@@ -969,11 +977,11 @@ where
 
                 // Test get_model with the first model
                 let first_model_id = &models[0].id;
-                println!("    🔍 Testing get_model with '{}'...", first_model_id);
+                println!("     Testing get_model with '{}'...", first_model_id);
 
                 match client.get_model(first_model_id.clone()).await {
                     Ok(model_info) => {
-                        println!("    ✅ Successfully retrieved model info");
+                        println!("    [ok] Successfully retrieved model info");
                         println!("       ID: {}", model_info.id);
                         if let Some(name) = &model_info.name {
                             println!("       Name: {}", name);
@@ -989,16 +997,20 @@ where
                         }
                     }
                     Err(e) => {
-                        println!("    ⚠️ Failed to get model info: {}", e);
+                        println!("    [warn] Failed to get model info: {}", e);
                     }
                 }
             } else {
-                println!("    ⚠️ No models returned (this might be expected for some providers)");
+                println!(
+                    "    [warn] No models returned (this might be expected for some providers)"
+                );
             }
         }
         Err(e) => {
-            println!("    ⚠️ Failed to list models: {}", e);
-            println!("    💡 This might be expected if the provider doesn't support model listing");
+            println!("    [warn] Failed to list models: {}", e);
+            println!(
+                "    [note] This might be expected if the provider doesn't support model listing"
+            );
         }
     }
 }
@@ -1117,7 +1129,7 @@ mod tests {
         let config = &get_provider_configs()[0]; // OpenAI
 
         if !is_provider_available(config) {
-            println!("⏭️ Skipping OpenAI test: {} not set", config.api_key_env);
+            println!(" Skipping OpenAI test: {} not set", config.api_key_env);
             return;
         }
 
@@ -1177,7 +1189,7 @@ mod tests {
         let config = &get_provider_configs()[1]; // Anthropic
 
         if !is_provider_available(config) {
-            println!("⏭️ Skipping Anthropic test: {} not set", config.api_key_env);
+            println!(" Skipping Anthropic test: {} not set", config.api_key_env);
             return;
         }
 
@@ -1217,7 +1229,7 @@ mod tests {
         let config = &get_provider_configs()[2]; // Gemini
 
         if !is_provider_available(config) {
-            println!("⏭️ Skipping Gemini test: {} not set", config.api_key_env);
+            println!(" Skipping Gemini test: {} not set", config.api_key_env);
             return;
         }
 
@@ -1262,7 +1274,7 @@ mod tests {
         let config = &get_provider_configs()[3]; // DeepSeek
 
         if !is_provider_available(config) {
-            println!("⏭️ Skipping DeepSeek test: {} not set", config.api_key_env);
+            println!(" Skipping DeepSeek test: {} not set", config.api_key_env);
             return;
         }
 
@@ -1295,10 +1307,7 @@ mod tests {
         let config = &get_provider_configs()[4]; // OpenRouter
 
         if !is_provider_available(config) {
-            println!(
-                "⏭️ Skipping OpenRouter test: {} not set",
-                config.api_key_env
-            );
+            println!(" Skipping OpenRouter test: {} not set", config.api_key_env);
             return;
         }
 
@@ -1333,7 +1342,7 @@ mod tests {
         let config = &get_provider_configs()[5]; // Groq
 
         if !is_provider_available(config) {
-            println!("⏭️ Skipping Groq test: {} not set", config.api_key_env);
+            println!(" Skipping Groq test: {} not set", config.api_key_env);
             return;
         }
 
@@ -1362,7 +1371,7 @@ mod tests {
         let config = &get_provider_configs()[6]; // xAI
 
         if !is_provider_available(config) {
-            println!("⏭️ Skipping xAI test: {} not set", config.api_key_env);
+            println!(" Skipping xAI test: {} not set", config.api_key_env);
             return;
         }
 
@@ -1405,19 +1414,19 @@ mod tests {
             .await
         {
             Ok(response) if response.status().is_success() => {
-                println!("✅ Ollama is available at {}", base_url);
+                println!("[ok] Ollama is available at {}", base_url);
             }
             _ => {
                 println!(
-                    "⏭️ Skipping Ollama test: Ollama not available at {}",
+                    " Skipping Ollama test: Ollama not available at {}",
                     base_url
                 );
-                println!("💡 Make sure Ollama is running: ollama serve");
+                println!("[note] Make sure Ollama is running: ollama serve");
                 return;
             }
         }
 
-        println!("🦙 Testing Ollama provider...");
+        println!(" Testing Ollama provider...");
 
         // Test non-streaming chat
         let client = Siumai::builder()
@@ -1455,7 +1464,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_all_available_providers() {
-        println!("🚀 Running integration tests for all available providers...\n");
+        println!(" Running integration tests for all available providers...\n");
 
         let configs = get_provider_configs();
         let mut tested_providers = Vec::new();
@@ -1464,7 +1473,7 @@ mod tests {
         for config in &configs {
             if is_provider_available(config) {
                 tested_providers.push(config.name);
-                println!("✅ Testing {} provider...", config.name);
+                println!("[ok] Testing {} provider...", config.name);
 
                 // Test each provider individually
                 match config.name {
@@ -1492,15 +1501,15 @@ mod tests {
                     "Ollama" => {
                         test_provider_integration(config).await;
                     }
-                    _ => println!("⚠️ Unknown provider: {}", config.name),
+                    _ => println!("[warn] Unknown provider: {}", config.name),
                 }
             } else {
                 skipped_providers.push(config.name);
-                println!("⏭️ Skipping {} (no API key)", config.name);
+                println!(" Skipping {} (no API key)", config.name);
             }
         }
 
-        println!("\n📊 Test Summary:");
+        println!("\n[info] Test Summary:");
         println!("   Tested providers: {:?}", tested_providers);
         println!("   Skipped providers: {:?}", skipped_providers);
         println!(
@@ -1514,7 +1523,7 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_model_listing_all_providers() {
-        println!("🔍 Testing model listing for all available providers...");
+        println!(" Testing model listing for all available providers...");
 
         let configs = get_provider_configs();
         let mut tested_providers = Vec::new();
@@ -1523,26 +1532,26 @@ mod tests {
         for config in &configs {
             // Check if API key is available
             if env::var(config.api_key_env).is_ok() {
-                println!("\n📋 Testing model listing for {}...", config.name);
+                println!("\n Testing model listing for {}...", config.name);
 
                 match test_provider_model_listing(config).await {
                     Ok(()) => {
                         tested_providers.push(config.name);
-                        println!("  ✅ {} model listing test passed", config.name);
+                        println!("  [ok] {} model listing test passed", config.name);
                     }
                     Err(e) => {
                         failed_providers.push((config.name, e));
-                        println!("  ❌ {} model listing test failed", config.name);
+                        println!("  [error] {} model listing test failed", config.name);
                     }
                 }
             } else {
-                println!("  ⏭️ Skipping {} (no API key found)", config.name);
+                println!("   Skipping {} (no API key found)", config.name);
             }
         }
 
-        println!("\n📊 Model Listing Test Summary:");
-        println!("   ✅ Passed: {}", tested_providers.len());
-        println!("   ❌ Failed: {}", failed_providers.len());
+        println!("\n[info] Model Listing Test Summary:");
+        println!("   [ok] Passed: {}", tested_providers.len());
+        println!("   [error] Failed: {}", failed_providers.len());
 
         if !failed_providers.is_empty() {
             println!("   Failed providers:");

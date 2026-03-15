@@ -22,7 +22,7 @@
 //!
 //! 3. Run the example (enable extras opentelemetry feature):
 //!    ```bash
-//!    cargo run -p siumai-extras --example opentelemetry_tracing --features opentelemetry
+//!    cargo run -p siumai-extras --example opentelemetry_tracing --features "opentelemetry,openai"
 //!    ```
 //!
 //! 4. View traces in Jaeger UI:
@@ -38,7 +38,8 @@
 
 use opentelemetry::global;
 use opentelemetry::trace::{Span as _, TraceContextExt, Tracer};
-use siumai::prelude::*;
+use siumai::prelude::unified::*;
+use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 use siumai_extras::otel;
 use siumai_extras::otel_middleware::OpenTelemetryMiddleware;
 use std::sync::Arc;
@@ -60,12 +61,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✅ OpenTelemetry initialized");
     println!("📊 Traces will be sent to Jaeger at http://localhost:16686\n");
 
-    // Build an OpenAI client and attach OpenTelemetry middleware
-    let openai_client = Provider::openai()
-        .api_key(&std::env::var("OPENAI_API_KEY")?)
-        .model("gpt-4o-mini")
-        .build()
-        .await?;
+    // Build an OpenAI client (config-first) and attach OpenTelemetry middleware.
+    let cfg = OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?)
+        .with_model("gpt-4o-mini")
+        .with_temperature(0.0);
+    let openai_client = OpenAiClient::from_config(cfg)?;
 
     // Keep default auto middlewares and add OpenTelemetry middleware
     let model_id = openai_client.common_params().model.clone();
@@ -100,10 +100,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Example 1: Simple request with automatic tracing
-async fn simple_request(client: &impl ChatCapability) -> Result<(), Box<dyn std::error::Error>> {
+async fn simple_request(
+    model: &impl siumai::text::TextModelV3,
+) -> Result<(), Box<dyn std::error::Error>> {
     let request = ChatRequest::new(vec![user!("What is 2+2?")]);
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(model, request, text::GenerateOptions::default()).await?;
 
     println!(
         "   Response: {}",
@@ -116,7 +118,7 @@ async fn simple_request(client: &impl ChatCapability) -> Result<(), Box<dyn std:
 
 /// Example 2: Request with parent span for distributed tracing
 async fn request_with_parent_span(
-    client: &impl ChatCapability,
+    model: &impl siumai::text::TextModelV3,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create a parent span for the entire operation
     let tracer = global::tracer("siumai-example");
@@ -135,7 +137,7 @@ async fn request_with_parent_span(
     // Make LLM request - it will be a child span
     let request = ChatRequest::new(vec![user!("What is the capital of France?")]);
 
-    let response = client.chat_request(request).await?;
+    let response = text::generate(model, request, text::GenerateOptions::default()).await?;
 
     println!(
         "   Response: {}",
@@ -149,7 +151,7 @@ async fn request_with_parent_span(
 
 /// Example 3: Multiple requests in a single trace
 async fn multiple_requests_in_trace(
-    client: &impl ChatCapability,
+    model: &impl siumai::text::TextModelV3,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Create a parent span for a sequence of operations
     let tracer = global::tracer("siumai-example");
@@ -165,7 +167,7 @@ async fn multiple_requests_in_trace(
     println!("   📤 Request 1: Asking for a topic");
     let request1 = ChatRequest::new(vec![user!("Give me a random topic in one word")]);
 
-    let response1 = client.chat_request(request1).await?;
+    let response1 = text::generate(model, request1, text::GenerateOptions::default()).await?;
 
     let topic = response1.content_text().unwrap_or_default();
     println!("   📥 Response 1: {}", topic);
@@ -177,7 +179,7 @@ async fn multiple_requests_in_trace(
         topic
     ))]);
 
-    let response2 = client.chat_request(request2).await?;
+    let response2 = text::generate(model, request2, text::GenerateOptions::default()).await?;
 
     println!(
         "   📥 Response 2: {}",

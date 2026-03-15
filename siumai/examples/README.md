@@ -1,306 +1,195 @@
 # Siumai Examples
 
-Welcome to the Siumai examples! This directory contains examples organized by complexity and use case.
+Welcome to the Siumai examples directory.
 
-## 📚 Directory Structure
+Examples are organized by complexity and by the kind of public surface they demonstrate.
+The recommended learning order is:
 
-```
+1. `registry-first`
+2. `config-first`
+3. `builder convenience`
+
+## Directory Structure
+
+```text
 examples/
-├── 01-quickstart/          # Start here! (3 examples)
-├── 02-core-api/            # Core API methods (10 examples)
-├── 03-advanced-features/   # Advanced features (12 examples)
-├── 04-provider-specific/   # Provider-unique features (9 examples)
-├── 05-integrations/        # Registry, MCP, telemetry (7 examples)
-├── 06-extensibility/       # Custom providers (6 examples)
-└── 07-applications/        # Complete applications (3 examples)
+  01-quickstart/          # Start here
+  02-core-api/            # Stable family APIs
+  03-advanced-features/   # Middleware, retry, request shaping, advanced options
+  04-provider-specific/   # Provider-owned, focused, and compat-vendor examples
+  05-integrations/        # Registry, MCP, telemetry
+  06-extensibility/       # Custom providers and executor-level extensibility
+  07-applications/        # End-to-end application examples
 ```
 
-**Total: ~50 focused examples**
+## Construction Priority
 
----
+When choosing examples for new code, prefer them in this order:
 
-## 🚀 Quick Start
+1. `registry-first` examples for application code and dynamic routing
+2. `config-first` examples for provider-specific setup
+3. `builder convenience` examples only for migration, comparison, or quick demos
 
-### 1. Basic Chat (15 lines)
+Example map:
+
+- registry-first: `01-quickstart/*`, `05-integrations/registry/*`
+- config-first: most files under `04-provider-specific/*`
+- builder convenience: explicit compatibility demos such as `04-provider-specific/openai-compatible/moonshot-siumai-builder.rs`
+
+Surface policy:
+
+- keep application walkthroughs on registry-first paths whenever possible
+- keep the six Stable family modules `text`, `embedding`, `image`, `rerank`, `speech`, and `transcription` as the primary documented entry points
+- keep provider-specific knobs near config-first examples and `provider_ext::<provider>` types
+- keep builder examples explicit about being convenience or compatibility-oriented, not the default architecture
+
+Provider example policy:
+
+- examples under `04-provider-specific/<provider>` should prefer config-first when the provider owns a real package boundary
+- focused provider directories should stay narrow instead of imitating the largest providers
+- examples under `04-provider-specific/openai-compatible` are vendor-view or preset examples on top of the shared compat runtime, not evidence that every OpenAI-compatible vendor needs a dedicated provider package
+- see `04-provider-specific/README.md` for the package-tier map across provider-specific examples
+- builder-based files in provider directories should be labeled as convenience demos, not the preferred default path
+- when looking for secondary-provider examples, start with config-first provider-owned files such as `04-provider-specific/deepseek/reasoning.rs`, `04-provider-specific/groq/structured-output.rs`, `04-provider-specific/xai/reasoning.rs`, `04-provider-specific/xai/structured-output.rs`, `04-provider-specific/xai/tts.rs`, `04-provider-specific/xai/web-search.rs`, `04-provider-specific/ollama/structured-output.rs`, and `04-provider-specific/ollama/metadata.rs`, then move to compat vendor views such as `04-provider-specific/openai-compatible/openrouter-embedding.rs`, `04-provider-specific/openai-compatible/openrouter-transforms.rs`, and `04-provider-specific/openai-compatible/perplexity-search.rs`, and only then to compat preset stories such as `04-provider-specific/openai-compatible/moonshot-basic.rs`, `04-provider-specific/openai-compatible/siliconflow-rerank.rs`, `04-provider-specific/openai-compatible/jina-rerank.rs`, `04-provider-specific/openai-compatible/voyageai-rerank.rs`, `04-provider-specific/openai-compatible/siliconflow-image.rs`, `04-provider-specific/openai-compatible/siliconflow-speech.rs`, `04-provider-specific/openai-compatible/siliconflow-transcription.rs`, `04-provider-specific/openai-compatible/together-image.rs`, `04-provider-specific/openai-compatible/together-speech.rs`, `04-provider-specific/openai-compatible/together-transcription.rs`, or `04-provider-specific/openai-compatible/fireworks-transcription.rs`
+
+## Quick Start
+
+### 1. Basic Chat
+
 ```bash
 cargo run --example basic-chat --features openai
 ```
 
-### 2. Streaming (30 lines)
+### 2. Streaming
+
 ```bash
 cargo run --example streaming --features openai
 ```
 
-### 3. Provider Switching (50 lines)
+### 3. Provider Switching
+
 ```bash
 cargo run --example provider-switching --features "openai,anthropic,google"
 ```
 
----
+## Learning Paths
 
-## 📖 Learning Paths
+### Beginner Path
 
-### 🎓 Beginner Path
-Start with the basics and build up:
+1. `01-quickstart/basic-chat.rs` - simplest possible usage
+2. `01-quickstart/streaming.rs` - real-time responses
+3. `02-core-api/chat/chat-request.rs` - full-control `ChatRequest` + `text::generate` (recommended)
+4. `02-core-api/chat/simple-chat.rs` - minimal `ChatRequest` + `text::generate`
+5. `02-core-api/tools/function-calling.rs` - adding tools
 
-1. **01-quickstart/basic-chat.rs** - Simplest possible usage
-2. **01-quickstart/streaming.rs** - Real-time responses
-3. **02-core-api/chat/chat-request.rs** - Full-control `ChatRequest` + `text::generate` ⭐ Recommended
-4. **02-core-api/chat/simple-chat.rs** - Minimal `ChatRequest` + `text::generate`
-5. **02-core-api/tools/function-calling.rs** - Adding tools
+### Developer Path
 
-### 💼 Developer Path
-For production applications:
+1. `02-core-api/chat/chat-request.rs` - recommended core API
+2. `03-advanced-features/provider-params/structured-output.rs` - JSON schemas
+3. `03-advanced-features/request-building/complex-request.rs` - full request control
+4. `03-advanced-features/retry/retry-config.rs` - retry and resilience
+5. `05-integrations/registry/basic-registry.rs` - string-driven model routing
+6. `07-applications/chatbot.rs` - practical application example
 
-1. **02-core-api/chat/chat-request.rs** - Recommended API
-2. **03-advanced-features/provider-params/structured-output.rs** - JSON schemas
-3. **03-advanced-features/request-building/complex-request.rs** - Full control
-4. **03-advanced-features/retry/retry-config.rs** - Resilience
-5. **05-integrations/registry/basic-registry.rs** - String-driven models
-6. **07-applications/chatbot.rs** - A practical app example
+### Advanced Path
 
-### 🔬 Advanced Path
-For complex integrations:
+1. `05-integrations/registry/custom-middleware.rs` - registry-first request/response middleware
+2. `03-advanced-features/middleware/http-interceptor.rs` - config-first HTTP observability
+3. `05-integrations/telemetry/basic-telemetry.rs` - registry-first telemetry attachment
+4. `04-provider-specific/anthropic/prompt-caching.rs` - provider-owned optimization
+5. `05-integrations/mcp/stdio-client.rs` - MCP integration
+6. `06-extensibility/executor-testing.rs` - low-level executor validation
 
-1. **siumai-extras/examples/basic-orchestrator.rs** - Multi-step tool calling
-2. **siumai-extras/examples/agent-pattern.rs** - Reusable agents
-3. **05-integrations/registry/custom-middleware.rs** - Transform requests
-4. **03-advanced-features/middleware/http-interceptor.rs** - Observe traffic
-5. **04-provider-specific/anthropic/prompt-caching.rs** - Cost optimization
-6. **05-integrations/mcp/stdio-client.rs** - MCP protocol
+## Directory Guide
 
----
+### `01-quickstart/`
 
-## 📂 Directory Guide
+Use this directory to learn the preferred Stable story quickly.
 
-### 01-quickstart/ (Start Here!)
-The fastest way to get started. Each example is 15-50 lines.
+- `basic-chat.rs`
+- `streaming.rs`
+- `provider-switching.rs`
 
-- **basic-chat.rs** - Simplest chat usage
-- **streaming.rs** - Real-time streaming
-- **provider-switching.rs** - Unified interface demo
+### `02-core-api/`
 
-### 02-core-api/ (Core Methods)
-Learn the core API methods. Organized by functionality.
+Use this directory to learn Stable family APIs such as:
 
-**chat/**
-- **simple-chat.rs** - Minimal `ChatRequest` + `text::generate()`
-- **chat-with-tools.rs** - `ChatRequest` + tools + `text::generate()`
-- **chat-request.rs** - `ChatRequest` + `text::generate()` ⭐ Recommended
-- **usage-builder-demo.rs** - Usage statistics builder API
+- `text::generate`
+- `text::stream`
+- request building
+- tools and tool loops
+- multimodal requests
 
-**streaming/**
-- **basic-stream.rs** - `ChatRequest` + `text::stream()`
-- **stream-request.rs** - `ChatRequest` + `text::stream()` ⭐ Recommended
-- **stream-with-cancel.rs** - `text::stream_with_cancel()` (cancellable streams)
+### `03-advanced-features/`
 
-**tools/**
-- **function-calling.rs** - Define and use tools
-- **tool-loop.rs** - Complete tool execution cycle
-- **tool-choice-demo.rs** - Control tool usage strategies
+Use this directory for:
 
-**multimodal/**
-- **vision.rs** - Image understanding
+- structured output
+- provider params
+- middleware
+- retry
+- complex request construction
 
-### 03-advanced-features/ (Power Features)
-Advanced features for production use.
+For observability and middleware, prefer runnable examples that stay on
+registry-first or config-first paths. Treat `middleware_builder.rs` as a
+middleware-composition utility demo, not as the default public construction
+pattern for new code.
 
-**provider-params/**
-- **structured-output.rs** - Cross-provider JSON schemas
-- **reasoning-effort.rs** - Control thinking depth
+### `04-provider-specific/`
 
-**request-building/**
-- **complex-request.rs** - ChatRequestBuilder with all features
+Use this directory when you need provider-specific setup or typed extension APIs.
 
-**middleware/**
-- **http-interceptor.rs** - Observe requests/responses
+See `04-provider-specific/README.md` for the provider package tier map.
 
-**retry/**
-- **retry-config.rs** - Handle transient failures
+### `05-integrations/`
 
-**error-handling/**
-- **error-types.rs** - Understanding LlmError
+Use this directory for:
 
-**orchestrator/** (moved to `siumai-extras`)
-- Runnable examples live under `siumai-extras/examples/*` (the `siumai` crate keeps stub entry points).
+- registry examples
+- MCP integration
+- telemetry
 
-### 04-provider-specific/ (Unique Features)
-Provider-specific features that don't have cross-provider equivalents.
+This directory is also the preferred home for application-level middleware
+stories when registry ownership is part of the example.
 
-**openai/**
-- **responses-api.rs** - Stateful conversations
-- **responses-multi-turn.rs** - Multi-turn conversations
+### `06-extensibility/`
 
-**anthropic/**
-- **extended-thinking.rs** - Deep reasoning
-- **prompt-caching.rs** - Cost optimization
+Use this directory when you want to build custom providers or work close to executor/runtime internals.
 
-**google/**
-- **grounding.rs** - Web search integration
+### `07-applications/`
 
-**ollama/**
-- **local-models.rs** - Run models locally
+Use this directory for practical end-to-end examples.
 
-**xai/**
-- **grok.rs** - Using Grok models
+## Key Concepts
 
-**minimaxi/**
-- **minimaxi_basic.rs** - Basic chat with MiniMaxi
-- **music-generation.md** - Music generation guide
-- **video-generation.md** - Video generation guide
+- Stable family API: `text`, `embedding`, `image`, `rerank`, `speech`, `transcription`
+- provider-specific escape hatches: `provider_ext::<provider>`
+- compatibility surface: thin, useful, but not the architectural default
 
-### 05-integrations/ (Ecosystem)
-Integration with the broader ecosystem.
+## Running Examples
 
-**registry/**
-- **quickstart.rs** - Quick start with registry
-- **basic-registry.rs** - String-driven model resolution
-- **registry-with-cache.rs** - LRU cache for efficiency
-- **custom-middleware.rs** - Transform requests globally
+Most examples can be run with:
 
-**mcp/**
-- **stdio-client.rs** - Model Context Protocol
-
-**server-adapters/** (moved to `siumai-extras`)
-- See `siumai-extras` crate for server integration examples
-
-**telemetry/** (moved to `siumai-extras`)
-- See `siumai-extras` crate for telemetry examples
-
-### 06-extensibility/ (Custom Providers)
-Build your own providers and extend Siumai.
-
-- **complete-custom-provider.rs** - Full custom provider implementation
-- **custom-provider-spec.rs** - Custom ProviderSpec example
-- **executor-testing.rs** - Testing executors with mocks
-- **custom-provider-options.rs** - Custom provider options
-- **custom_provider_implementation.rs** - Provider implementation patterns
-- **custom_provider_parameters.rs** - Custom parameter handling
-
-### 07-applications/ (Complete Apps)
-Full applications demonstrating real-world usage.
-
-- **chatbot.rs** - Interactive conversational AI
-- **code-assistant.rs** - AI-powered coding helper
-- **api-server.rs** - HTTP API for LLM access
-
----
-
-## 🎯 Key Concepts
-
-### Unified Interface
-Siumai's biggest advantage is the unified interface. The same code works across all providers:
-
-```rust
-// Works with OpenAI, Anthropic, Google, Ollama, xAI, Groq
-let reg = registry::global();
-let client = reg.language_model("openai:gpt-4o-mini")?; // or "anthropic:..." / "gemini:..." / "ollama:..."
-
-let response = text::generate(
-    &client,
-    ChatRequest::new(vec![user!("Hello!")]),
-    text::GenerateOptions::default(),
-)
-.await?;
-```
-
-### Recommended API (0.11.0-beta.6+)
-Use the model-family APIs for inference, and pass a `ChatRequest` for full control:
-
-```rust
-use siumai::providers::openai::{OpenAiChatRequestExt, OpenAiOptions};
-let request = ChatRequest::builder()
-    .message(user!("Hello!"))
-    .temperature(0.7)
-    .build()
-    .with_openai_options(OpenAiOptions::new());
-
-let response = text::generate(&client, request, text::GenerateOptions::default()).await?;
-```
-
-### Provider Registry
-String-driven model selection for dynamic applications:
-
-```rust
-let registry = create_registry_with_defaults();
-let lm = registry.language_model("openai:gpt-4o-mini")?;
-let response = text::generate(
-    &lm,
-    ChatRequest::new(vec![user!("Hello!")]),
-    text::GenerateOptions::default(),
-)
-.await?;
-```
-
----
-
-## 🔧 Running Examples
-
-### Prerequisites
-Set up API keys:
 ```bash
-export OPENAI_API_KEY="your-key"
-export ANTHROPIC_API_KEY="your-key"
-export GOOGLE_API_KEY="your-key"
+cargo run --example <example-name> --features <feature-list>
 ```
 
-Or use Ollama (no API key needed):
-```bash
-ollama serve
-ollama pull llama3.2
-```
+Examples under provider-specific directories often require provider credentials or local runtime setup.
+Always read the file header and directory README first.
 
-### Run an Example
-```bash
-# Basic example
-cargo run --example basic-chat --features openai
+## Additional Resources
 
-# With multiple providers
-cargo run --example provider-switching --features "openai,anthropic,google"
-```
+- `docs/workstreams/fearless-refactor-v4/public-api-story.md`
+- `docs/workstreams/fearless-refactor-v4/migration-examples.md`
+- `docs/workstreams/fearless-refactor-v4/provider-package-alignment.md`
 
----
+## Contributing
 
-## 📊 Example Comparison
+When adding a new example:
 
-| Category | Old Structure | New Structure |
-|----------|--------------|---------------|
-| **Total Examples** | 54 files | ~33 files |
-| **Average Lines** | ~200 lines | ~40 lines |
-| **Organization** | By provider + feature | By API functionality |
-| **Redundancy** | High (provider × feature) | Low (unified interface) |
-| **Learning Curve** | Steep | Gradual |
-| **0.11.0 Features** | Not highlighted | Emphasized |
+- prefer registry-first for Stable application stories
+- prefer config-first for provider-owned examples
+- label builder examples as convenience demos
+- place compat vendor examples under the compat narrative unless promotion criteria are met
 
----
-
-## 💡 Tips
-
-1. **Start Simple**: Begin with `01-quickstart/` examples
-2. **Use Recommended APIs**: Prefer model-family APIs (e.g. `text::generate`) over `client.chat()`
-3. **Leverage Unified Interface**: Write provider-agnostic code
-4. **Check Provider-Specific**: Only when you need unique features
-5. **Explore Complete Apps**: See real-world patterns in `06-applications/`
-
----
-
-## 🔗 Additional Resources
-
-- **MCP Integration**: See `siumai-extras` crate with `mcp` feature for complete MCP examples
-- **Server Adapters**: See `siumai-extras` crate with `server` feature for Axum integration
-- **Telemetry**: See `siumai-extras` crate with `telemetry` and `opentelemetry` features for observability
-
----
-
-## 📝 Contributing
-
-When adding new examples:
-1. Keep them focused (one concept per example)
-2. Use the recommended model-family APIs (`text::generate`, `text::stream`, etc.)
-3. Add clear comments and documentation
-4. Place in the appropriate directory
-5. Update this README
-
----
-
-**Happy coding with Siumai! 🚀**
+Happy coding with Siumai.

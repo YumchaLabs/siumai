@@ -3,6 +3,7 @@
 //! Alignment tests for Vercel `@ai-sdk/amazon-bedrock` Converse streaming fixtures.
 
 use siumai::prelude::unified::*;
+use siumai::provider_ext::bedrock::BedrockChatResponseExt;
 use std::path::Path;
 
 fn fixtures_dir() -> std::path::PathBuf {
@@ -140,11 +141,6 @@ fn bedrock_json_tool_stream_emits_json_as_text() {
     let end_resp = end_resp.expect("StreamEnd response");
     assert_eq!(end_resp.finish_reason, Some(FinishReason::Stop));
 
-    let meta = end_resp
-        .provider_metadata
-        .as_ref()
-        .and_then(|m| m.get("bedrock"))
-        .and_then(|m| m.get("isJsonResponseFromTool"))
-        .and_then(|v| v.as_bool());
-    assert_eq!(meta, Some(true));
+    let meta = end_resp.bedrock_metadata().expect("bedrock metadata");
+    assert_eq!(meta.is_json_response_from_tool, Some(true));
 }

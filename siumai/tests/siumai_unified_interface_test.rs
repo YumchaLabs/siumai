@@ -4,7 +4,8 @@
     feature = "google",
     feature = "xai",
     feature = "ollama",
-    feature = "groq"
+    feature = "groq",
+    feature = "deepseek"
 ))]
 //! Siumai Unified Interface Tests
 //!
@@ -155,8 +156,10 @@ async fn test_all_providers_supported() {
 
     match deepseek_result {
         Ok(client) => {
-            // DeepSeek uses OpenAI client internally, so provider_name will be "openai"
-            // but the metadata should reflect it's a custom provider
+            // DeepSeek still reuses the OpenAI-compatible runtime internally,
+            // but unified metadata should now expose a first-class provider type.
+            assert_eq!(client.metadata().provider_type, ProviderType::DeepSeek);
+            assert_eq!(client.metadata().provider_id, "deepseek");
             assert!(client.supports("chat"));
             assert!(client.supports("streaming"));
         }
@@ -201,7 +204,7 @@ async fn test_provider_id_mapping() {
         ("ollama", ProviderType::Ollama),
         ("xai", ProviderType::XAI),
         ("groq", ProviderType::Groq),
-        ("deepseek", ProviderType::Custom("deepseek".to_string())),
+        ("deepseek", ProviderType::DeepSeek),
         ("openrouter", ProviderType::Custom("openrouter".to_string())),
     ];
 
@@ -453,10 +456,11 @@ fn test_provider_type_consistency() {
         ProviderType::Ollama,
         ProviderType::XAI,
         ProviderType::Groq,
-        ProviderType::Custom("deepseek".to_string()),
+        ProviderType::DeepSeek,
         ProviderType::Custom("openrouter".to_string()),
     ];
 
+    assert_eq!(ProviderType::from_name("deepseek"), ProviderType::DeepSeek);
     // Test that all provider types can be displayed
     for provider_type in provider_types {
         let display_string = format!("{}", provider_type);

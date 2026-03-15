@@ -3,7 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
-use siumai::provider_ext::anthropic::AnthropicChatResponseExt;
+use siumai::provider_ext::anthropic::{AnthropicChatResponseExt, AnthropicContentPartExt};
 use siumai_core::types::{ChatResponse, MessageContent, Warning};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -522,16 +522,13 @@ fn anthropic_code_execution_response_maps_to_stable_tool_name_and_container_meta
         .transform_chat_response(&raw)
         .expect("transform response");
 
-    let Some(meta) = resp.provider_metadata.as_ref() else {
-        panic!("expected provider_metadata");
-    };
+    let typed = resp
+        .anthropic_metadata()
+        .expect("expected typed anthropic metadata");
+    let container = typed.container.expect("expected typed container metadata");
     assert!(
-        meta.get("anthropic")
-            .and_then(|v| v.get("container"))
-            .and_then(|v| v.get("id"))
-            .and_then(|v| v.as_str())
-            .is_some(),
-        "expected provider_metadata.anthropic.container.id"
+        matches!(container.id.as_deref(), Some(id) if !id.is_empty()),
+        "expected typed container.id"
     );
 
     let MessageContent::MultiModal(parts) = resp.content else {
@@ -613,31 +610,6 @@ fn anthropic_agent_skills_provider_metadata_maps_container_skills() {
         .transform_chat_response(&raw)
         .expect("transform response");
 
-    let Some(meta) = resp.provider_metadata.as_ref() else {
-        panic!("expected provider_metadata");
-    };
-    let anthropic = meta.get("anthropic").expect("anthropic metadata missing");
-    let container = anthropic.get("container").expect("container missing");
-
-    assert!(
-        container
-            .get("expiresAt")
-            .and_then(|v| v.as_str())
-            .is_some(),
-        "expected provider_metadata.anthropic.container.expiresAt"
-    );
-
-    let skills = container.get("skills").expect("skills missing");
-    let Some(arr) = skills.as_array() else {
-        panic!("expected container.skills array");
-    };
-    assert!(
-        arr.iter()
-            .any(|s| s.get("skillId").and_then(|v| v.as_str()) == Some("pptx")),
-        "expected container.skills to include pptx skillId"
-    );
-
-    // Typed metadata should also expose container information (Vercel-aligned).
     let typed = resp
         .anthropic_metadata()
         .expect("expected typed anthropic metadata");
@@ -761,7 +733,7 @@ fn anthropic_programmatic_tool_calling_includes_caller_metadata() {
     let has_roll_die_caller = parts.iter().any(|p| {
         let ContentPart::ToolCall {
             tool_name,
-            provider_metadata: Some(meta),
+            provider_metadata: Some(_),
             ..
         } = p
         else {
@@ -771,16 +743,13 @@ fn anthropic_programmatic_tool_calling_includes_caller_metadata() {
             return false;
         }
 
-        let Some(anthropic_meta) = meta.get("anthropic").and_then(|v| v.as_object()) else {
+        let Some(meta) = p.anthropic_tool_call_metadata() else {
             return false;
         };
-        let Some(caller) = anthropic_meta.get("caller").and_then(|v| v.as_object()) else {
-            return false;
-        };
-        caller
-            .get("type")
-            .and_then(|v| v.as_str())
-            .is_some_and(|t| t == "code_execution_20250825")
+
+        meta.caller
+            .and_then(|caller| caller.kind)
+            .is_some_and(|kind| kind == "code_execution_20250825")
     });
     assert!(
         has_roll_die_caller,

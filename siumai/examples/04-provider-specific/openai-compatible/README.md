@@ -1,222 +1,165 @@
 # OpenAI-Compatible Providers Examples
 
-This directory contains examples for OpenAI-compatible providers that use the unified OpenAI client interface with custom base URLs.
+This directory contains examples for vendors that currently live on the shared OpenAI-compatible runtime.
 
-## 🌙 Moonshot AI (Kimi)
+## Package tier
 
-Moonshot AI, developed by Dark Side of the Moon, specializes in long-context understanding and Chinese language processing.
+- compat vendor view or compat preset
+- preferred construction here is config-first or built-in compat client construction
+- builder examples in this directory are convenience / compatibility demos, not the preferred architectural default
 
-### Features
+## Recommended Reading Order
 
-- **Exceptional Long Context**: Up to 256K tokens (Kimi K2) or 128K tokens (V1 models)
-- **Bilingual Excellence**: Outstanding performance in both Chinese and English
-- **Function Calling**: Full support for OpenAI-compatible tool/function calling
-- **Vision Models**: Support for image understanding (V1 Vision models)
+1. typed compat vendor views first:
+   - `openrouter-embedding.rs`
+   - `openrouter-transforms.rs`
+   - `perplexity-search.rs`
+2. compat preset stories next:
+   - `moonshot-basic.rs`
+   - `moonshot-long-context.rs`
+   - `moonshot-tools.rs`
+   - `siliconflow-rerank.rs`
+   - `jina-rerank.rs`
+   - `voyageai-rerank.rs`
+   - `siliconflow-image.rs`
+   - `siliconflow-speech.rs`
+   - `siliconflow-transcription.rs`
+   - `together-speech.rs`
+   - `together-transcription.rs`
+   - `fireworks-transcription.rs`
+3. builder convenience examples only when you specifically want a comparison with compatibility-style setup
 
-### Examples
+The file `moonshot-siumai-builder.rs` is intentionally kept as a compatibility demo, not the default path for new code.
 
-#### 1. Basic Chat (`moonshot-basic.rs`)
+## Surface Note
 
-Demonstrates basic usage of Moonshot AI models with different context windows.
+- examples in this directory are primarily compat vendor views or preset stories built on `OpenAiCompatibleClient`
+- `openrouter` and `perplexity` are the preferred examples for typed vendor extensions on the compat runtime
+- compat audio is split by vendor capability rather than forced symmetry:
+  - `together` and `siliconflow` expose both TTS and transcription on the shared compat runtime
+  - `fireworks` currently stays transcription-only on its dedicated audio host
+- compat image generation is also provider-specific:
+  - `siliconflow` and `together` expose image generation on the shared compat runtime
+  - `fireworks` does not currently participate in the compat image story
+- preset vendors such as `siliconflow`, `together`, and `fireworks` should stay in this compatibility story until they earn promotion through stronger provider-owned public semantics
+- this directory does **not** imply that every OpenAI-compatible vendor should become a dedicated top-level provider package
+
+## Included Example Themes
+
+### Typed compat vendor views
+
+- `openrouter-embedding.rs` - Stable embedding request options on `OpenAiCompatibleClient`
+- `openrouter-transforms.rs` - typed `OpenRouterOptions` plus typed `OpenRouterMetadata` on `OpenAiCompatibleClient`
+- `perplexity-search.rs` - typed `PerplexityOptions` plus typed response metadata on `OpenAiCompatibleClient`
+
+These are the preferred examples when you want to understand what a
+**compat vendor view** looks like in Siumai: typed vendor helpers layered on the
+shared compat runtime without inventing a provider-owned client package.
+
+### Compat presets
+
+#### Moonshot (Kimi)
+
+Moonshot is documented here as an OpenAI-compatible preset story.
+
+Examples:
+
+- `moonshot-basic.rs` - config-first basic chat
+- `moonshot-tools.rs` - function/tool calling
+- `moonshot-long-context.rs` - long-context usage
+- `moonshot-siumai-builder.rs` - compatibility/builder comparison demo
+
+### Compat preset image generation
+
+- `siliconflow-image.rs` - config-first image generation on `OpenAiCompatibleClient`
+- `together-image.rs` - config-first Together image generation on `OpenAiCompatibleClient`
+
+### Compat preset rerank
+
+- `siliconflow-rerank.rs` - config-first SiliconFlow rerank on `OpenAiCompatibleClient`
+- `jina-rerank.rs` - config-first Jina rerank on `OpenAiCompatibleClient`
+- `voyageai-rerank.rs` - config-first VoyageAI rerank on `OpenAiCompatibleClient`
+
+### Compat preset audio split
+
+- `siliconflow-speech.rs` - config-first SiliconFlow TTS on `OpenAiCompatibleClient`
+- `siliconflow-transcription.rs` - config-first SiliconFlow STT on `OpenAiCompatibleClient`
+- `together-speech.rs` - config-first Together TTS on `OpenAiCompatibleClient`
+- `together-transcription.rs` - config-first Together STT on `OpenAiCompatibleClient`
+- `fireworks-transcription.rs` - config-first Fireworks STT on `OpenAiCompatibleClient`
+
+## Quick Start
 
 ```bash
+export OPENROUTER_API_KEY="your-api-key-here"
+cargo run --example openrouter-transforms --features openai
+
+export OPENROUTER_API_KEY="your-api-key-here"
+cargo run --example openrouter-embedding --features openai
+
+export PERPLEXITY_API_KEY="your-api-key-here"
+cargo run --example perplexity-search --features openai
+
+export SILICONFLOW_API_KEY="your-api-key-here"
+cargo run --example siliconflow-rerank --features openai
+
+export SILICONFLOW_API_KEY="your-api-key-here"
+cargo run --example siliconflow-image --features openai
+
+export SILICONFLOW_API_KEY="your-api-key-here"
+cargo run --example siliconflow-speech --features openai
+
+export SILICONFLOW_API_KEY="your-api-key-here"
+export SILICONFLOW_AUDIO_FILE="/path/to/audio.mp3"
+cargo run --example siliconflow-transcription --features openai
+
+export TOGETHER_API_KEY="your-api-key-here"
+cargo run --example together-image --features openai
+
+export JINA_API_KEY="your-api-key-here"
+cargo run --example jina-rerank --features openai
+
+export VOYAGEAI_API_KEY="your-api-key-here"
+cargo run --example voyageai-rerank --features openai
+
+export TOGETHER_API_KEY="your-api-key-here"
+cargo run --example together-speech --features openai
+
+export TOGETHER_API_KEY="your-api-key-here"
+export TOGETHER_AUDIO_FILE="/path/to/audio.mp3"
+cargo run --example together-transcription --features openai
+
+export FIREWORKS_API_KEY="your-api-key-here"
+export FIREWORKS_AUDIO_FILE="/path/to/audio.mp3"
+cargo run --example fireworks-transcription --features openai
+
 export MOONSHOT_API_KEY="your-api-key-here"
 cargo run --example moonshot-basic --features openai
 ```
 
-**What you'll learn:**
-- How to use Kimi K2 (latest model)
-- Choosing the right context window model (8K, 32K, 128K)
-- Bilingual conversation (Chinese and English)
-- Cost-effective model selection
+## Moonshot Notes
 
-#### 2. Function Calling (`moonshot-tools.rs`)
+Moonshot is strong in long-context and Chinese/English bilingual workflows.
 
-Shows how to use Moonshot's function calling capabilities.
+Typical examples in this directory cover:
 
-```bash
-export MOONSHOT_API_KEY="your-api-key-here"
-cargo run --example moonshot-tools --features openai
-```
+- long context
+- tool calling
+- bilingual prompts
+- config-first compat construction
 
-**What you'll learn:**
-- Defining tools/functions for Kimi
-- Single and multiple tool calls
-- Multi-turn conversations with tool execution
-- Tool result handling
+## Model Selection Notes
 
-**Reference:** https://platform.moonshot.cn/docs/guide/use-kimi-api-to-complete-tool-calls
+Typical Moonshot model examples include:
 
-#### 3. Long Context Processing (`moonshot-long-context.rs`)
+| Model | Context window | Best for |
+|---|---:|---|
+| `kimi-k2-0905-preview` | 256K | latest features, agentic coding, long context |
+| `moonshot-v1-128k` | 128K | long documents and research |
+| `moonshot-v1-32k` | 32K | long articles and conversations |
+| `moonshot-v1-8k` | 8K | short chats and quick tasks |
 
-Demonstrates Moonshot's exceptional long-context capabilities.
+## Notes
 
-```bash
-export MOONSHOT_API_KEY="your-api-key-here"
-cargo run --example moonshot-long-context --features openai
-```
-
-**What you'll learn:**
-- Processing long documents (up to 256K tokens)
-- Document summarization
-- Multi-turn conversations with long context
-- Document Q&A
-- Context window comparison
-
-### Getting Started
-
-1. **Get API Key**: Visit [Moonshot Platform](https://platform.moonshot.cn/) to register and get your API key
-
-2. **Set Environment Variable**:
-   ```bash
-   export MOONSHOT_API_KEY="your-api-key-here"
-   ```
-
-3. **Run Examples**:
-   ```bash
-   cargo run --example moonshot-basic --features openai
-   ```
-
-### Model Selection Guide
-
-| Model | Context Window | Best For | Cost |
-|-------|---------------|----------|------|
-| `kimi-k2-0905-preview` | 256K tokens | Latest features, Agentic Coding | Higher |
-| `moonshot-v1-128k` | 128K tokens | Long documents, research papers | Medium |
-| `moonshot-v1-32k` | 32K tokens | Long articles, conversations | Medium |
-| `moonshot-v1-8k` | 8K tokens | Short chats, quick queries | Lower |
-
-### Model Constants
-
-Use type-safe model constants from the library:
-
-```rust
-use siumai::models;
-
-// Latest Kimi K2 model
-models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW
-
-// Auto-updated models
-models::openai_compatible::moonshot::KIMI_LATEST
-models::openai_compatible::moonshot::MOONSHOT_V1_AUTO
-
-// Specific context windows
-models::openai_compatible::moonshot::MOONSHOT_V1_8K
-models::openai_compatible::moonshot::MOONSHOT_V1_32K
-models::openai_compatible::moonshot::MOONSHOT_V1_128K
-
-// Vision models
-models::openai_compatible::moonshot::MOONSHOT_V1_128K_VISION
-```
-
-### API Compatibility
-
-Moonshot AI is fully compatible with the OpenAI API specification:
-
-- ✅ Chat Completions
-- ✅ Streaming
-- ✅ Function Calling (Tools)
-- ✅ Vision (with Vision models)
-- ✅ System Messages
-- ✅ Multi-turn Conversations
-
-### Use Cases
-
-**Perfect for:**
-- 📚 Long document analysis (research papers, books, legal documents)
-- 🇨🇳 Chinese language tasks (translation, writing, understanding)
-- 💬 Extended conversations with long context retention
-- 🔍 Multi-document comparison and analysis
-- 📊 Data extraction from lengthy reports
-- 🎓 Academic research and literature review
-
-**Not ideal for:**
-- Real-time applications requiring ultra-low latency
-- Tasks requiring specialized domain knowledge (use fine-tuned models)
-- Image generation (Moonshot focuses on understanding, not generation)
-
-### Tips & Best Practices
-
-1. **Choose the Right Model**:
-   - Use `KIMI_K2_0905_PREVIEW` for latest features and best performance
-   - Use `MOONSHOT_V1_8K` for cost-effective short conversations
-   - Use `MOONSHOT_V1_128K` for long document processing
-
-2. **Optimize Context Usage**:
-   - Only include necessary context in your prompts
-   - Use summarization for very long documents when possible
-   - Consider chunking extremely long documents
-
-3. **Leverage Long Context**:
-   - Moonshot excels at maintaining coherence across long conversations
-   - Perfect for analyzing entire books or research papers
-   - Great for multi-document comparison
-
-4. **Chinese Language**:
-   - Moonshot has exceptional Chinese language understanding
-   - Ideal for Chinese-English translation and bilingual tasks
-   - Excellent for Chinese document analysis
-
-5. **Function Calling**:
-   - Moonshot supports OpenAI-compatible function calling
-   - Works well with complex tool interactions
-   - Good at understanding tool requirements in Chinese
-
-### Resources
-
-- **Official Documentation**: https://platform.moonshot.cn/docs
-- **API Reference**: https://platform.moonshot.cn/docs/api-reference
-- **Model List**: https://platform.moonshot.cn/docs/intro
-- **Pricing**: https://platform.moonshot.cn/docs/pricing
-- **Migration Guide**: https://platform.moonshot.cn/docs/guide/migrating-from-openai-to-kimi
-
-### Troubleshooting
-
-**API Key Issues:**
-```bash
-# Make sure your API key is set correctly
-echo $MOONSHOT_API_KEY
-```
-
-```rust
-use siumai::models;
-use siumai::providers::openai_compatible::OpenAiCompatibleClient;
-
-// Or set it in your code (config-first)
-let client = OpenAiCompatibleClient::from_builtin(
-    "moonshot",
-    "your-api-key-here",
-    Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
-)
-.await?;
-```
-
-**Context Length Errors:**
-- Check your input length doesn't exceed the model's context window
-- Use a model with larger context window (e.g., V1 128K or Kimi K2)
-- Consider summarizing or chunking your input
-
-**Rate Limits:**
-- Moonshot has rate limits based on your account tier
-- Implement retry logic with exponential backoff
-- Contact Moonshot support for higher limits
-
----
-
-## Adding More Providers
-
-This directory is designed to hold examples for all OpenAI-compatible providers. To add examples for other providers (DeepSeek, OpenRouter, SiliconFlow, etc.), follow the same pattern:
-
-1. Create provider-specific example files
-2. Use model constants from `siumai::models::openai_compatible::{provider}`
-3. Document provider-specific features and capabilities
-4. Include setup instructions and API key information
-
-## Contributing
-
-When adding new examples:
-- Follow the existing example structure
-- Include clear documentation and comments
-- Add setup instructions and prerequisites
-- Demonstrate provider-specific features
-- Include error handling and best practices
+Use this directory when you want compat runtime examples with vendor-specific typed helpers or preset wiring.
+If you need a real provider-owned package story, prefer directories under `04-provider-specific/<provider>` that map to provider-owned `Config` / `Client` surfaces.

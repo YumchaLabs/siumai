@@ -3,6 +3,11 @@
 //! This example demonstrates Moonshot AI's function calling capabilities.
 //! Reference: https://platform.moonshot.cn/docs/guide/use-kimi-api-to-complete-tool-calls
 //!
+//! Package tier:
+//! - compat preset example on the shared OpenAI-compatible runtime
+//! - preferred path in this file: config-first built-in compat construction
+//! - use `moonshot-siumai-builder.rs` only when you specifically want a builder convenience comparison
+//!
 //! ## Features
 //! - Function calling with Kimi models
 //! - Multi-turn conversations with tool usage
@@ -10,22 +15,22 @@
 //!
 //! ## Run
 //! ```bash
+//! # Set your Moonshot API key
 //! export MOONSHOT_API_KEY="your-api-key-here"
+//!
 //! cargo run --example moonshot-tools --features openai
 //! ```
 
 use serde_json::json;
 use siumai::models;
 use siumai::prelude::*;
+use siumai::provider_ext::openai_compatible::OpenAiCompatibleClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🌙 Moonshot AI - Function Calling Example\n");
-    println!("==========================================\n");
-
     // Build Moonshot client (config-first).
     // Note: API key is automatically read from `MOONSHOT_API_KEY`.
-    let client = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+    let client = OpenAiCompatibleClient::from_builtin_env(
         "moonshot",
         Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
     )
@@ -73,7 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Example 1: Single tool call
-    println!("📝 Example 1: Single Tool Call\n");
+    println!("Example 1: Single tool call");
 
     let request = ChatRequest::builder()
         .message(user!("北京今天天气怎么样？"))
@@ -84,11 +89,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
-        println!("🔧 Tool calls requested:");
+        println!("Tool calls requested:");
         for call in tool_calls {
             if let Some(info) = call.as_tool_call() {
-                println!("   - Function: {}", info.tool_name);
-                println!("     Arguments: {}", info.arguments);
+                println!("- Function: {}", info.tool_name);
+                println!("  Arguments: {}", info.arguments);
             }
         }
     }
@@ -96,7 +101,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
 
     // Example 2: Multiple tools available
-    println!("📝 Example 2: Multiple Tools Available\n");
+    println!("Example 2: Multiple tools available");
 
     let request = ChatRequest::builder()
         .message(user!(
@@ -109,21 +114,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
-        println!("🔧 Tool calls requested:");
+        println!("Tool calls requested:");
         for call in tool_calls {
             if let Some(info) = call.as_tool_call() {
-                println!("   - Function: {}", info.tool_name);
-                println!("     Arguments: {}", info.arguments);
+                println!("- Function: {}", info.tool_name);
+                println!("  Arguments: {}", info.arguments);
             }
         }
     } else {
-        println!("Response: {}", response.content_text().unwrap_or_default());
+        println!("Answer:\n{}", response.content_text().unwrap_or_default());
     }
 
     println!();
 
     // Example 3: Multi-turn conversation with tool execution
-    println!("📝 Example 3: Multi-turn Conversation with Tool Execution\n");
+    println!("Example 3: Multi-turn tool execution");
 
     let mut messages = vec![user!(
         "What's the weather like in San Francisco? Please use celsius."
@@ -141,12 +146,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if response.has_tool_calls() {
         let tool_calls = response.tool_calls();
-        println!("🔧 Assistant requested tool calls:");
+        println!("Assistant requested tool calls:");
 
         for call in tool_calls {
             if let Some(info) = call.as_tool_call() {
-                println!("   - Function: {}", info.tool_name);
-                println!("     Arguments: {}", info.arguments);
+                println!("- Function: {}", info.tool_name);
+                println!("  Arguments: {}", info.arguments);
 
                 // Simulate tool execution
                 let tool_result = json!({
@@ -169,7 +174,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        println!("\n📤 Sending tool results back to Kimi...\n");
+        println!("\nSending tool results back to the model...\n");
 
         // Continue conversation with tool results
         let final_request = ChatRequest::builder()
@@ -180,16 +185,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let final_response =
             text::generate(&client, final_request, text::GenerateOptions::default()).await?;
 
-        println!("🌙 Kimi's final response:");
-        println!("{}\n", final_response.content_text().unwrap_or_default());
+        println!(
+            "Final answer:\n{}\n",
+            final_response.content_text().unwrap_or_default()
+        );
     }
 
-    println!("✅ Example completed successfully!");
-    println!("\n💡 Tips:");
-    println!("   - Moonshot supports OpenAI-compatible function calling");
-    println!("   - Tools can be called multiple times in a conversation");
-    println!("   - Kimi excels at understanding tool requirements in Chinese");
-    println!("   - Use multi-turn conversations for complex tool interactions");
+    println!("Notes:");
+    println!("- Moonshot supports OpenAI-compatible function calling");
+    println!("- Tools can be called multiple times in one conversation");
+    println!("- Kimi is strong at following tool instructions in Chinese");
+    println!("- Multi-turn tool loops work well for more complex tasks");
 
     Ok(())
 }

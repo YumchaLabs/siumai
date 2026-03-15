@@ -4,6 +4,7 @@
 
 use serde_json::Value;
 use siumai::prelude::unified::*;
+use siumai::provider_ext::bedrock::BedrockChatResponseExt;
 use std::path::Path;
 
 fn fixtures_dir() -> std::path::PathBuf {
@@ -64,13 +65,8 @@ fn bedrock_json_tool_response_format_returns_json_as_text() {
         "expected JSON text to be preserved"
     );
 
-    let meta = resp
-        .provider_metadata
-        .as_ref()
-        .and_then(|m| m.get("bedrock"))
-        .and_then(|m| m.get("isJsonResponseFromTool"))
-        .and_then(|v| v.as_bool());
-    assert_eq!(meta, Some(true));
+    let meta = resp.bedrock_metadata().expect("bedrock metadata");
+    assert_eq!(meta.is_json_response_from_tool, Some(true));
 }
 
 #[test]

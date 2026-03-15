@@ -24,7 +24,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             separator: ':',
             language_model_middleware: vec![],
             http_interceptors: Vec::new(),
+            http_client: None,
+            http_transport: None,
             http_config: None,
+            api_key: None,
+            base_url: None,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+            provider_build_overrides: HashMap::new(),
             retry_options: None,
             max_cache_entries: Some(10), // Cache up to 10 clients
             client_ttl: Some(Duration::from_secs(300)), // 5 minute TTL

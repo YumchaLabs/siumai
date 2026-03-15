@@ -2,8 +2,10 @@
 #![allow(deprecated)]
 
 use serde::de::DeserializeOwned;
-use siumai::extensions::AudioCapability;
-use siumai::prelude::unified::{ProviderOptionsMap, Siumai, SttRequest, TtsRequest};
+use siumai::extensions::TranscriptionExtras;
+use siumai::prelude::unified::{
+    ProviderOptionsMap, Siumai, SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest,
+};
 use std::path::{Path, PathBuf};
 use wiremock::matchers::{
     body_json, body_string_contains, header, header_exists, header_regex, method, path,
@@ -67,7 +69,7 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
     );
 
     let resp = client
-        .text_to_speech(
+        .tts(
             TtsRequest::new("hello".to_string())
                 .with_model("gpt-4o-mini-tts".to_string())
                 .with_voice("alloy".to_string())
@@ -147,7 +149,7 @@ async fn openai_stt_sends_multipart_and_maps_metadata() {
         serde_json::json!(["ref_1"]),
     );
 
-    let resp = client.speech_to_text(req).await.expect("stt ok");
+    let resp = client.stt(req).await.expect("stt ok");
     assert_eq!(resp.text, "hello");
     assert_eq!(resp.language.as_deref(), Some("en"));
     assert!(resp.duration.unwrap_or_default() > 1.0);
@@ -208,7 +210,7 @@ async fn openai_audio_translation_sends_multipart_and_parses_json() {
         serde_json::Value::String("json".to_string()),
     );
 
-    let resp = client.translate_audio(req).await.expect("translate ok");
+    let resp = client.audio_translate(req).await.expect("translate ok");
     assert_eq!(resp.text, "hello (translated)");
     assert!(resp.metadata.contains_key("usage"));
     assert!(resp.metadata.contains_key("segments"));

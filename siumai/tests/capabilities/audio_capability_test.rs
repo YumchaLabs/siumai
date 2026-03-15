@@ -1,7 +1,6 @@
-#![allow(deprecated)]
-//! Audio Capability Integration Tests
+//! Audio Family Integration Tests
 //!
-//! These tests verify audio functionality (TTS and STT) across supported providers.
+//! These tests verify speech/transcription functionality across supported providers.
 //! They are ignored by default to prevent accidental API usage during normal testing.
 //!
 //! ## Running Tests
@@ -15,14 +14,15 @@
 //! cargo test test_all_provider_audio -- --ignored
 //! ```
 
-use siumai::extensions::AudioCapability;
-use siumai::prelude::unified::TtsRequest;
+#![allow(deprecated)]
+
+use siumai::experimental::client::LlmClient;
+use siumai::prelude::unified::{SpeechCapability, TranscriptionCapability, TtsRequest};
 use siumai::prelude::*;
 use std::env;
 
-/// Test Text-to-Speech functionality
-async fn test_text_to_speech<T: AudioCapability>(client: &T, provider_name: &str) {
-    println!("  🔊 Testing Text-to-Speech for {}...", provider_name);
+async fn test_text_to_speech<T: SpeechCapability>(client: &T, provider_name: &str) {
+    println!("  Testing Text-to-Speech for {}...", provider_name);
 
     let (voice, format, model) = match provider_name {
         "OpenAI" => ("alloy", "mp3", "tts-1"),
@@ -40,102 +40,65 @@ async fn test_text_to_speech<T: AudioCapability>(client: &T, provider_name: &str
         http_config: None,
     };
 
-    match client.text_to_speech(request).await {
+    match client.tts(request).await {
         Ok(response) => {
-            println!("    ✅ Text-to-Speech successful");
-            println!(
-                "    📊 Audio data size: {} bytes",
-                response.audio_data.len()
-            );
+            println!("    Text-to-Speech successful");
+            println!("    Audio data size: {} bytes", response.audio_data.len());
 
-            // Verify we got actual audio data
             if response.audio_data.len() > 1000 {
-                println!("    🎵 Audio data appears to be valid (size > 1KB)");
+                println!("    Audio data appears to be valid (size > 1KB)");
             } else {
-                println!("    ⚠️ Audio data seems small, may not be valid");
+                println!("    Audio data seems small, may not be valid");
             }
 
-            // Check format if provided
             if !response.format.is_empty() {
-                println!("    🎵 Audio format: {}", response.format);
+                println!("    Audio format: {}", response.format);
             }
-
-            // Note: In a real test, you might want to save the audio file
-            // std::fs::write("test_output.mp3", response.audio_data)?;
         }
-        Err(e) => {
-            println!("    ⚠️ Text-to-Speech failed: {}", e);
-            println!("    💡 Note: TTS may not be available for this provider/model");
+        Err(err) => {
+            println!("    Text-to-Speech failed: {}", err);
+            println!("    Note: TTS may not be available for this provider/model");
         }
     }
 }
 
-/// Test Speech-to-Text functionality
-async fn test_speech_to_text<T: AudioCapability>(_client: &T, provider_name: &str) {
-    println!("  🎤 Testing Speech-to-Text for {}...", provider_name);
-
-    // Note: For a real test, you would need actual audio data
-    // This is a mock test since we don't have audio files in the test suite
-    println!("    ⚠️ STT test skipped - requires actual audio file");
-    println!("    💡 To test STT manually:");
+async fn test_speech_to_text<T: TranscriptionCapability>(_client: &T, provider_name: &str) {
+    println!("  Testing Speech-to-Text for {}...", provider_name);
+    println!("    STT test skipped - requires actual audio file");
+    println!("    To test STT manually:");
     println!("       1. Record or obtain an audio file");
     println!("       2. Load it as bytes");
     println!("       3. Create SttRequest with the audio data");
-    println!("       4. Call client.speech_to_text(request)");
-
-    // Example of how STT would be tested with real audio data:
-    /*
-    let audio_data = std::fs::read("test_audio.mp3")?;
-    let request = SttRequest {
-        audio_data,
-        format: Some("mp3".to_string()),
-        language: Some("en".to_string()),
-        model: Some(match provider_name {
-            "OpenAI" => "whisper-1".to_string(),
-            "Groq" => "whisper-large-v3".to_string(),
-            _ => "default".to_string(),
-        }),
-        extra_params: std::collections::HashMap::new(),
-    };
-
-    match client.speech_to_text(request).await {
-        Ok(response) => {
-            println!("    ✅ Speech-to-Text successful");
-            println!("    📝 Transcription: {}", response.text);
-        }
-        Err(e) => {
-            println!("    ⚠️ Speech-to-Text failed: {}", e);
-        }
-    }
-    */
+    println!("       4. Call client.stt(request)");
 }
 
-/// Test audio features discovery
-async fn test_audio_features<T: AudioCapability>(client: &T, provider_name: &str) {
-    println!("  🔍 Testing audio features for {}...", provider_name);
-
-    let features = client.supported_features();
-    println!("    📋 Supported audio features:");
-
-    for feature in features {
-        println!("      - {:?}", feature);
-    }
-
-    if features.is_empty() {
-        println!("    ⚠️ No audio features reported");
-    } else {
-        println!("    ✅ {} audio features available", features.len());
-    }
+fn test_audio_family_surface<T: LlmClient>(client: &T, provider_name: &str) {
+    println!("  Testing audio-family surface for {}...", provider_name);
+    println!(
+        "    - speech capability: {}",
+        client.as_speech_capability().is_some()
+    );
+    println!(
+        "    - speech extras: {}",
+        client.as_speech_extras().is_some()
+    );
+    println!(
+        "    - transcription capability: {}",
+        client.as_transcription_capability().is_some()
+    );
+    println!(
+        "    - transcription extras: {}",
+        client.as_transcription_extras().is_some()
+    );
 }
 
-/// Test OpenAI audio capabilities
 async fn test_openai_audio() {
     if env::var("OPENAI_API_KEY").is_err() {
-        println!("⏭️ Skipping OpenAI audio tests: OPENAI_API_KEY not set");
+        println!("Skipping OpenAI audio tests: OPENAI_API_KEY not set");
         return;
     }
 
-    println!("🔊 Testing OpenAI audio capabilities...");
+    println!("Testing OpenAI speech/transcription families...");
     let api_key = env::var("OPENAI_API_KEY").unwrap();
 
     let client = Siumai::builder()
@@ -146,34 +109,31 @@ async fn test_openai_audio() {
         .await
         .expect("Failed to build OpenAI client");
 
-    test_audio_features(&client, "OpenAI").await;
+    test_audio_family_surface(&client, "OpenAI");
     test_text_to_speech(&client, "OpenAI").await;
     test_speech_to_text(&client, "OpenAI").await;
 
-    println!("✅ OpenAI audio testing completed\n");
+    println!("OpenAI audio-family testing completed\n");
 }
 
-/// Test audio capability availability across providers
 async fn test_audio_capability_availability() {
-    println!("📊 Testing audio capability availability across providers...");
+    println!("Testing audio-family availability across providers...");
 
-    // Check which providers claim to support audio
-    let providers_with_audio = vec![("OpenAI", env::var("OPENAI_API_KEY").is_ok(), true)];
+    let providers = vec![("OpenAI", env::var("OPENAI_API_KEY").is_ok(), true)];
 
-    println!("  📋 Audio capability status:");
-    for (provider, has_key, has_trait) in providers_with_audio {
-        let status = match (has_key, has_trait) {
-            (true, true) => "✅ Available",
-            (true, false) => "⚠️ API available but AudioCapability trait not implemented",
-            (false, _) => "❌ No API key",
+    println!("  Speech/Transcription family status:");
+    for (provider, has_key, has_traits) in providers {
+        let status = match (has_key, has_traits) {
+            (true, true) => "Available",
+            (true, false) => "API available but narrow family traits missing",
+            (false, _) => "No API key",
         };
         println!("    {} - {}", provider, status);
     }
 
-    println!("  💡 Note: Other providers (Anthropic, Gemini, etc.) may support audio");
-    println!("     through their native APIs but not through Siumai's AudioCapability trait yet");
-
-    println!("✅ Audio capability availability check completed\n");
+    println!("  Note: compatibility-only AudioCapability still exists");
+    println!("     but recommended call sites should prefer narrow speech/transcription families");
+    println!("Audio-family availability check completed\n");
 }
 
 #[cfg(test)]
@@ -189,12 +149,12 @@ mod tests {
     #[tokio::test]
     #[ignore]
     async fn test_all_provider_audio() {
-        println!("🚀 Running audio capability tests for all available providers...\n");
+        println!("Running audio-family tests for all available providers...\n");
 
         test_openai_audio().await;
         test_audio_capability_availability().await;
 
-        println!("🎉 All provider audio testing completed!");
+        println!("All provider audio-family testing completed!");
     }
 
     #[tokio::test]
@@ -203,13 +163,10 @@ mod tests {
     }
 }
 
-/// Additional test utilities for manual testing
 #[cfg(test)]
 mod manual_test_utils {
     use super::*;
 
-    /// Helper function to test TTS with custom text
-    /// This can be used for manual testing with different text inputs
     #[allow(dead_code)]
     pub async fn test_tts_with_text(
         text: &str,
@@ -236,7 +193,7 @@ mod manual_test_utils {
                         http_config: None,
                     };
 
-                    let response = client.text_to_speech(request).await?;
+                    let response = client.tts(request).await?;
                     std::fs::write("manual_test_output.mp3", response.audio_data)?;
                     println!("Audio saved to manual_test_output.mp3");
                 }

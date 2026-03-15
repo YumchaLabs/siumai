@@ -4,6 +4,11 @@
 //! Moonshot models can handle up to 256K tokens (Kimi K2) or 128K tokens (V1 models),
 //! making them ideal for processing long documents, research papers, and books.
 //!
+//! Package tier:
+//! - compat preset example on the shared OpenAI-compatible runtime
+//! - preferred path in this file: config-first built-in compat construction
+//! - use `moonshot-siumai-builder.rs` only when you specifically want a builder convenience comparison
+//!
 //! ## Features
 //! - Process extremely long documents (up to 256K tokens)
 //! - Multi-document analysis
@@ -12,28 +17,28 @@
 //!
 //! ## Run
 //! ```bash
+//! # Set your Moonshot API key
 //! export MOONSHOT_API_KEY="your-api-key-here"
+//!
 //! cargo run --example moonshot-long-context --features openai
 //! ```
 
 use siumai::models;
 use siumai::prelude::*;
+use siumai::provider_ext::openai_compatible::OpenAiCompatibleClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🌙 Moonshot AI - Long Context Processing Example\n");
-    println!("================================================\n");
-
     // Use Kimi K2 for maximum context window (256K tokens).
     // Note: API key is automatically read from `MOONSHOT_API_KEY`.
-    let client = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+    let client = OpenAiCompatibleClient::from_builtin_env(
         "moonshot",
         Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
     )
     .await?;
 
     // Example 1: Long document summarization
-    println!("📝 Example 1: Long Document Summarization\n");
+    println!("Example 1: Long document summarization");
 
     let long_document = r#"
 # The History of Artificial Intelligence
@@ -109,11 +114,13 @@ ensure responsible development, and work towards AI systems that benefit all of 
     )
     .await?;
 
-    println!("📄 Document Summary:");
-    println!("{}\n", response.content_text().unwrap());
+    println!(
+        "Summary:\n{}\n",
+        response.content_text().unwrap_or_default()
+    );
 
     // Example 2: Multi-turn conversation with long context
-    println!("📝 Example 2: Multi-turn Conversation with Long Context\n");
+    println!("Example 2: Multi-turn long-context follow-up");
 
     let mut conversation = vec![
         user!(format!(
@@ -132,7 +139,10 @@ ensure responsible development, and work towards AI systems that benefit all of 
         text::GenerateOptions::default(),
     )
     .await?;
-    println!("🌙 Kimi: {}\n", response.content_text().unwrap());
+    println!(
+        "Answer 1:\n{}\n",
+        response.content_text().unwrap_or_default()
+    );
 
     // Continue the conversation
     conversation.extend(response.to_messages());
@@ -146,26 +156,28 @@ ensure responsible development, and work towards AI systems that benefit all of 
         text::GenerateOptions::default(),
     )
     .await?;
-    println!("🌙 Kimi: {}\n", response.content_text().unwrap());
+    println!(
+        "Answer 2:\n{}\n",
+        response.content_text().unwrap_or_default()
+    );
 
     // Example 3: Comparing different context window models
-    println!("📝 Example 3: Context Window Comparison\n");
-
-    println!("💡 Model Context Windows:");
-    println!("   - Kimi K2 (0905): 256K tokens (~200K words)");
-    println!("   - Moonshot V1 128K: 128K tokens (~100K words)");
-    println!("   - Moonshot V1 32K: 32K tokens (~25K words)");
-    println!("   - Moonshot V1 8K: 8K tokens (~6K words)");
+    println!("Example 3: Context window comparison");
+    println!("Model context windows:");
+    println!("- Kimi K2 (0905): 256K tokens (~200K words)");
+    println!("- Moonshot V1 128K: 128K tokens (~100K words)");
+    println!("- Moonshot V1 32K: 32K tokens (~25K words)");
+    println!("- Moonshot V1 8K: 8K tokens (~6K words)");
     println!();
 
-    println!("📊 Use Case Recommendations:");
-    println!("   - Books/Research Papers: Use Kimi K2 or V1 128K");
-    println!("   - Long Articles: Use V1 32K");
-    println!("   - Short Conversations: Use V1 8K (most cost-effective)");
+    println!("Use case recommendations:");
+    println!("- Books / research papers: use Kimi K2 or V1 128K");
+    println!("- Long articles: use V1 32K");
+    println!("- Short conversations: use V1 8K");
     println!();
 
     // Example 4: Document Q&A
-    println!("📝 Example 4: Document Q&A\n");
+    println!("Example 4: Document Q&A");
 
     let qa_response = text::generate(
         &client,
@@ -177,16 +189,16 @@ ensure responsible development, and work towards AI systems that benefit all of 
     )
     .await?;
 
-    println!("❓ Question: When was the term 'Artificial Intelligence' coined and by whom?");
-    println!("💬 Answer: {}\n", qa_response.content_text().unwrap());
-
-    println!("✅ Example completed successfully!");
-    println!("\n💡 Tips:");
-    println!("   - Moonshot excels at processing long Chinese and English documents");
-    println!("   - Use Kimi K2 for maximum context (256K tokens)");
-    println!("   - Long context enables multi-document analysis and comparison");
-    println!("   - Perfect for research, legal documents, and technical documentation");
-    println!("   - Maintains coherence across very long conversations");
+    println!("Question: When was the term 'Artificial Intelligence' coined and by whom?");
+    println!(
+        "Answer:\n{}\n",
+        qa_response.content_text().unwrap_or_default()
+    );
+    println!("Notes:");
+    println!("- Moonshot handles long Chinese and English documents well");
+    println!("- Use Kimi K2 for the maximum context window");
+    println!("- Long context helps with multi-document analysis and follow-up Q&A");
+    println!("- This pattern works well for research or technical documentation");
 
     Ok(())
 }

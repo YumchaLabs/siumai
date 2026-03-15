@@ -25,3 +25,23 @@ async fn build_gemini_with_token_provider_without_api_key() {
         "Gemini build should succeed when a token provider is supplied even without an API key"
     );
 }
+
+#[tokio::test]
+async fn build_gemini_with_google_token_provider_alias_without_api_key() {
+    let vertex_base = "https://us-central1-aiplatform.googleapis.com/v1/projects/demo/locations/us-central1/publishers/google";
+
+    let tp = Arc::new(StaticTokenProvider::new("test-token"));
+
+    let result = Siumai::builder()
+        .gemini()
+        .model("gemini-1.5-flash")
+        .base_url(vertex_base)
+        .with_google_token_provider(tp)
+        .build()
+        .await;
+
+    assert!(
+        result.is_ok(),
+        "Gemini build should succeed when the neutral Google token-provider alias is supplied"
+    );
+}

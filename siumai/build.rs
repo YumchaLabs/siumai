@@ -31,11 +31,14 @@ fn ensure_provider_available() {
         cfg!(feature = "groq"),
         cfg!(feature = "minimaxi"),
         cfg!(feature = "deepseek"),
+        cfg!(feature = "cohere"),
+        cfg!(feature = "togetherai"),
+        cfg!(feature = "bedrock"),
     ];
 
     if !providers.iter().any(|&enabled| enabled) {
         panic!(
-            "At least one provider feature must be enabled. Available features: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi, deepseek"
+            "At least one provider feature must be enabled. Available features: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi, deepseek, cohere, togetherai, bedrock"
         );
     }
 }
@@ -74,6 +77,15 @@ fn add_build_info() {
     }
     if cfg!(feature = "deepseek") {
         enabled_providers.push("deepseek");
+    }
+    if cfg!(feature = "cohere") {
+        enabled_providers.push("cohere");
+    }
+    if cfg!(feature = "togetherai") {
+        enabled_providers.push("togetherai");
+    }
+    if cfg!(feature = "bedrock") {
+        enabled_providers.push("bedrock");
     }
 
     // Set environment variables for runtime access

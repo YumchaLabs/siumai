@@ -3,6 +3,11 @@
 //! This example demonstrates basic usage of Moonshot AI (Kimi) models.
 //! Moonshot AI specializes in long-context understanding and Chinese language processing.
 //!
+//! Package tier:
+//! - compat preset example on the shared OpenAI-compatible runtime
+//! - preferred path in this file: config-first built-in compat construction
+//! - use `moonshot-siumai-builder.rs` only when you specifically want a builder convenience comparison
+//!
 //! ## Features
 //! - Latest Kimi K2 model with enhanced capabilities
 //! - Support for extremely long context (up to 256K tokens)
@@ -22,22 +27,20 @@
 
 use siumai::models;
 use siumai::prelude::*;
+use siumai::provider_ext::openai_compatible::OpenAiCompatibleClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🌙 Moonshot AI (Kimi) - Basic Chat Example\n");
-    println!("===========================================\n");
-
     // Build Moonshot client using the latest Kimi K2 model (config-first).
     // Note: API key is automatically read from `MOONSHOT_API_KEY`.
-    let client = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+    let client = OpenAiCompatibleClient::from_builtin_env(
         "moonshot",
         Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
     )
     .await?;
 
     // Example 1: Simple chat
-    println!("📝 Example 1: Simple Chat\n");
+    println!("Example 1: Basic chat");
 
     let response = text::generate(
         &client,
@@ -48,10 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    println!("Kimi: {}\n", response.content_text().unwrap());
+    println!("Answer:\n{}\n", response.content_text().unwrap_or_default());
 
     // Example 2: Bilingual conversation
-    println!("📝 Example 2: Bilingual Conversation\n");
+    println!("Example 2: Bilingual prompt");
 
     let response = text::generate(
         &client,
@@ -62,13 +65,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    println!("Kimi: {}\n", response.content_text().unwrap());
+    println!("Answer:\n{}\n", response.content_text().unwrap_or_default());
 
     // Example 3: Using different context window models
-    println!("📝 Example 3: Different Context Window Models\n");
+    println!("Example 3: Context window variants");
 
     // For short conversations, use 8K model (more cost-effective)
-    let client_8k = siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
+    let client_8k = OpenAiCompatibleClient::from_builtin_env(
         "moonshot",
         Some(models::openai_compatible::moonshot::MOONSHOT_V1_8K),
     )
@@ -81,15 +84,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    println!("Kimi (8K): {}\n", response.content_text().unwrap());
+    println!(
+        "8K answer:\n{}\n",
+        response.content_text().unwrap_or_default()
+    );
 
     // For long documents, use 128K model
-    let client_128k =
-        siumai::providers::openai_compatible::OpenAiCompatibleClient::from_builtin_env(
-            "moonshot",
-            Some(models::openai_compatible::moonshot::MOONSHOT_V1_128K),
-        )
-        .await?;
+    let client_128k = OpenAiCompatibleClient::from_builtin_env(
+        "moonshot",
+        Some(models::openai_compatible::moonshot::MOONSHOT_V1_128K),
+    )
+    .await?;
 
     let response = text::generate(
         &client_128k,
@@ -100,14 +105,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    println!("Kimi (128K): {}\n", response.content_text().unwrap());
-
-    println!("✅ Example completed successfully!");
-    println!("\n💡 Tips:");
-    println!("   - Use KIMI_K2_0905_PREVIEW for latest features");
-    println!("   - Use MOONSHOT_V1_8K for cost-effective short chats");
-    println!("   - Use MOONSHOT_V1_128K for long document processing");
-    println!("   - Moonshot excels at Chinese language understanding");
+    println!(
+        "128K answer:\n{}\n",
+        response.content_text().unwrap_or_default()
+    );
+    println!("Notes:");
+    println!("- Use `KIMI_K2_0905_PREVIEW` for the broadest feature set");
+    println!("- Use `MOONSHOT_V1_8K` for short, cost-sensitive chats");
+    println!("- Use `MOONSHOT_V1_128K` for longer documents");
+    println!("- Moonshot is strong in bilingual Chinese/English workflows");
 
     Ok(())
 }

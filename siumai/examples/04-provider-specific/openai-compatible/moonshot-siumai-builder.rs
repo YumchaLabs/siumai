@@ -7,6 +7,11 @@
 //! recommended construction style for new code. Prefer config-first clients or the
 //! registry handle when possible.
 //!
+//! Package tier:
+//! - compat preset example on the shared OpenAI-compatible runtime
+//! - this file is intentionally a builder convenience demo
+//! - compare it against `moonshot-basic.rs`, `moonshot-long-context.rs`, and `moonshot-tools.rs`
+//!
 //! ## Features
 //! - Unified interface across all providers
 //! - Automatic environment variable reading (MOONSHOT_API_KEY)
@@ -42,23 +47,21 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🌙 Moonshot AI - Siumai::builder() Example\n");
-    println!("===========================================\n");
-
     // Build Moonshot client using Siumai::builder() (unified interface)
-    // Note: API key is automatically read from MOONSHOT_API_KEY environment variable
+    // Note: API key is automatically read from `MOONSHOT_API_KEY`.
     let client = Siumai::builder()
         .moonshot()
         .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
         .build()
         .await?;
 
-    println!("✅ Successfully created Moonshot client using Siumai::builder()\n");
-    println!("   This demonstrates that the unified interface now supports");
-    println!("   automatic environment variable reading for OpenAI-compatible providers.\n");
+    println!("Built a Moonshot client through `Siumai::builder()`.");
+    println!(
+        "This is useful for compatibility comparisons, but config-first remains the preferred path.\n"
+    );
 
     // Test basic chat
-    println!("📝 Testing Basic Chat\n");
+    println!("Example: Basic chat through the compatibility builder");
 
     let response = text::generate(
         &client,
@@ -67,14 +70,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .await?;
 
-    println!("Kimi: {}\n", response.content_text().unwrap_or_default());
+    println!("Answer:\n{}\n", response.content_text().unwrap_or_default());
 
     // Demonstrate provider abstraction
-    println!("🔄 Provider Abstraction Benefits:\n");
-    println!("   With Siumai::builder(), you can easily switch providers:");
-    println!("   - Change .moonshot() to .deepseek() or .openrouter()");
-    println!("   - The rest of your code remains unchanged");
-    println!("   - Perfect for multi-provider applications\n");
+    println!("Why keep this demo:");
+    println!("- You can switch `.moonshot()` to another compat/provider shortcut");
+    println!("- The surrounding request code stays almost unchanged");
+    println!("- It is useful when comparing migration or convenience flows");
 
     Ok(())
 }

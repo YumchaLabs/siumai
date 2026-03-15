@@ -15,15 +15,13 @@ use siumai::prelude::unified::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("🤖 xAI Grok Example\n");
+    println!("xAI Grok Example\n");
 
     // Config-first: read API key from env (XAI_API_KEY).
-    // This client is a thin wrapper around the OpenAI-compatible vendor implementation.
-    let client = siumai::providers::xai::XaiClient::from_builtin_env(
-        "xai",
-        Some(models::xai::grok_2::GROK_2_1212),
-    )
-    .await?;
+    // This client is a provider-owned wrapper over the shared OpenAI-compatible runtime.
+    let client =
+        siumai::providers::xai::XaiClient::from_builtin_env(Some(models::xai::grok_2::GROK_2_1212))
+            .await?;
 
     let response = text::generate(
         &client,

@@ -3,6 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
+use siumai::provider_ext::google::{GeminiChatResponseExt, GeminiContentPartExt};
 use siumai_core::types::{ChatResponse, MessageContent, Warning};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -152,7 +153,7 @@ fn google_code_execution_response_emits_tool_call_and_result() {
         .transform_chat_response(&raw)
         .expect("transform response");
 
-    let MessageContent::MultiModal(parts) = resp.content else {
+    let MessageContent::MultiModal(ref parts) = resp.content else {
         panic!("expected multimodal content");
     };
 
@@ -170,7 +171,7 @@ fn google_code_execution_response_emits_tool_call_and_result() {
                 ..
             } if tool_name == "code_execution" => {
                 has_call = true;
-                call_id = Some(tool_call_id);
+                call_id = Some(tool_call_id.clone());
                 assert!(
                     arguments.get("language").and_then(|v| v.as_str()).is_some(),
                     "expected code_execution language"
@@ -188,7 +189,7 @@ fn google_code_execution_response_emits_tool_call_and_result() {
                 ..
             } if tool_name == "code_execution" => {
                 has_result = true;
-                assert_eq!(Some(tool_call_id), call_id);
+                assert_eq!(Some(tool_call_id), call_id.as_ref());
                 assert!(
                     value.get("outcome").and_then(|v| v.as_str()).is_some(),
                     "expected code_execution result outcome"
@@ -202,34 +203,24 @@ fn google_code_execution_response_emits_tool_call_and_result() {
     assert!(has_result, "expected code_execution tool result");
 }
 
-fn assert_google_thought_signature(
-    provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
-    expected: &str,
-) {
-    let Some(meta) = provider_metadata.as_ref() else {
-        panic!("expected providerMetadata");
-    };
-    let sig = meta
-        .get("google")
-        .and_then(|v| v.get("thoughtSignature"))
-        .and_then(|v| v.as_str())
+fn assert_google_thought_signature(part: &siumai::prelude::unified::ContentPart, expected: &str) {
+    let sig = part
+        .gemini_metadata()
+        .and_then(|meta| meta.thought_signature)
         .expect("expected providerMetadata.google.thoughtSignature");
     assert_eq!(sig, expected);
 }
 
-fn assert_vertex_thought_signature(
-    provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
-    expected: &str,
-) {
-    let Some(meta) = provider_metadata.as_ref() else {
-        panic!("expected providerMetadata");
-    };
-    let sig = meta
-        .get("vertex")
-        .and_then(|v| v.get("thoughtSignature"))
-        .and_then(|v| v.as_str())
+fn assert_vertex_thought_signature(part: &siumai::prelude::unified::ContentPart, expected: &str) {
+    let sig = part
+        .gemini_metadata()
+        .and_then(|meta| meta.thought_signature)
         .expect("expected providerMetadata.vertex.thoughtSignature");
     assert_eq!(sig, expected);
+}
+
+fn assert_response_metadata_is_parsed(resp: &siumai::prelude::unified::ChatResponse) {
+    let _meta = resp.gemini_metadata().expect("expected gemini metadata");
 }
 
 #[test]
@@ -256,41 +247,32 @@ fn google_response_thought_signatures_are_exposed_on_text_and_reasoning_parts() 
         .transform_chat_response(&raw)
         .expect("transform response");
 
-    let MessageContent::MultiModal(parts) = resp.content else {
+    let MessageContent::MultiModal(ref parts) = resp.content else {
         panic!("expected multimodal content");
     };
 
     assert_eq!(parts.len(), 3);
 
     match &parts[0] {
-        ContentPart::Text {
-            text,
-            provider_metadata,
-        } => {
+        ContentPart::Text { text, .. } => {
             assert_eq!(text, "Visible text part 1. ");
-            assert_google_thought_signature(provider_metadata, "sig1");
+            assert_google_thought_signature(&parts[0], "sig1");
         }
         other => panic!("expected first part to be text, got: {other:?}"),
     }
 
     match &parts[1] {
-        ContentPart::Reasoning {
-            text,
-            provider_metadata,
-        } => {
+        ContentPart::Reasoning { text, .. } => {
             assert_eq!(text, "This is a thought process.");
-            assert_google_thought_signature(provider_metadata, "sig2");
+            assert_google_thought_signature(&parts[1], "sig2");
         }
         other => panic!("expected second part to be reasoning, got: {other:?}"),
     }
 
     match &parts[2] {
-        ContentPart::Text {
-            text,
-            provider_metadata,
-        } => {
+        ContentPart::Text { text, .. } => {
             assert_eq!(text, "Visible text part 2.");
-            assert_google_thought_signature(provider_metadata, "sig3");
+            assert_google_thought_signature(&parts[2], "sig3");
         }
         other => panic!("expected third part to be text, got: {other:?}"),
     }
@@ -320,20 +302,13 @@ fn google_response_thought_signatures_are_exposed_on_tool_calls() {
         .transform_chat_response(&raw)
         .expect("transform response");
 
-    let MessageContent::MultiModal(parts) = resp.content else {
+    let MessageContent::MultiModal(ref parts) = resp.content else {
         panic!("expected multimodal content");
     };
 
     let tool = parts
         .iter()
-        .find_map(|p| match p {
-            ContentPart::ToolCall {
-                tool_name,
-                provider_metadata,
-                ..
-            } if tool_name == "test-tool" => Some(provider_metadata),
-            _ => None,
-        })
+        .find(|p| matches!(p, ContentPart::ToolCall { tool_name, .. } if tool_name == "test-tool"))
         .expect("expected tool-call part");
 
     assert_google_thought_signature(tool, "tool_sig");
@@ -363,39 +338,34 @@ fn vertex_provider_id_uses_vertex_key_for_thought_signature_parts_and_response_m
         .transform_chat_response(&raw)
         .expect("transform response");
 
-    let MessageContent::MultiModal(parts) = resp.content else {
+    let MessageContent::MultiModal(ref parts) = resp.content else {
         panic!("expected multimodal content");
     };
     assert_eq!(parts.len(), 3);
 
     match &parts[0] {
-        ContentPart::Text {
-            provider_metadata, ..
-        } => assert_vertex_thought_signature(provider_metadata, "sig1"),
+        ContentPart::Text { .. } => assert_vertex_thought_signature(&parts[0], "sig1"),
         other => panic!("expected first part to be text, got: {other:?}"),
     }
 
     match &parts[1] {
-        ContentPart::Reasoning {
-            provider_metadata, ..
-        } => assert_vertex_thought_signature(provider_metadata, "sig2"),
+        ContentPart::Reasoning { .. } => assert_vertex_thought_signature(&parts[1], "sig2"),
         other => panic!("expected second part to be reasoning, got: {other:?}"),
     }
 
     match &parts[2] {
-        ContentPart::Text {
-            provider_metadata, ..
-        } => assert_vertex_thought_signature(provider_metadata, "sig3"),
+        ContentPart::Text { .. } => assert_vertex_thought_signature(&parts[2], "sig3"),
         other => panic!("expected third part to be text, got: {other:?}"),
     }
 
-    let meta = resp
+    assert_response_metadata_is_parsed(&resp);
+    let raw = resp
         .provider_metadata
         .as_ref()
         .expect("expected provider_metadata");
     assert!(
-        meta.contains_key("vertex"),
+        raw.contains_key("vertex"),
         "expected provider_metadata.vertex"
     );
-    assert!(!meta.contains_key("google"));
+    assert!(!raw.contains_key("google"));
 }

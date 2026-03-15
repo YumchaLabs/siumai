@@ -3,6 +3,10 @@
 //! This example demonstrates creating custom middleware for the registry
 //! to transform requests, override models/providers, or add default parameters.
 //!
+//! Construction mode: registry-first.
+//! Use this file for application-level routing and request shaping where the
+//! registry owns middleware composition.
+//!
 //! ## Features Demonstrated
 //! - `transform_params()` - Modify request parameters
 //! - `override_model_id()` - Dynamic model routing (A/B testing, fallback)
@@ -101,7 +105,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             separator: ':',
             language_model_middleware: vec![temp_middleware, override_middleware],
             http_interceptors: Vec::new(),
+            http_client: None,
+            http_transport: None,
             http_config: None,
+            api_key: None,
+            base_url: None,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+            provider_build_overrides: HashMap::new(),
             retry_options: None,
             max_cache_entries: None,
             client_ttl: None,

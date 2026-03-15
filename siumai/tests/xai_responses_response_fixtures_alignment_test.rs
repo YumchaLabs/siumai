@@ -3,6 +3,7 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use siumai::experimental::execution::transformers::response::ResponseTransformer;
+use siumai::prelude::ChatResponse;
 use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {
@@ -94,6 +95,14 @@ fn run_case(root: &Path) {
     );
 }
 
+fn run_case_response(root_name: &str) -> ChatResponse {
+    let root = fixtures_dir().join(root_name);
+    let response: Value = read_json(root.join("response.json"));
+    let tx =
+        siumai_provider_xai::standards::xai::responses_response::XaiResponsesResponseTransformer::new();
+    tx.transform_chat_response(&response).expect("transform")
+}
+
 #[test]
 fn xai_responses_response_fixtures_match() {
     let roots = case_dirs(&fixtures_dir());
@@ -101,4 +110,54 @@ fn xai_responses_response_fixtures_match() {
     for root in roots {
         run_case(&root);
     }
+}
+
+#[test]
+fn xai_web_search_response_uses_generic_tool_call_and_typed_metadata_boundary() {
+    let resp = run_case_response("web-search-tool.1");
+    let value = serde_json::to_value(resp).expect("serialize response");
+    let parts = value["content"]["MultiModal"]
+        .as_array()
+        .expect("expected multimodal content");
+
+    let tool_call = parts
+        .iter()
+        .find(|part| part.get("type").and_then(|value| value.as_str()) == Some("tool-call"))
+        .expect("expected tool call");
+
+    assert_eq!(tool_call["toolName"], serde_json::json!("web_search"));
+    assert_eq!(tool_call["providerExecuted"], serde_json::json!(true));
+    assert_eq!(
+        tool_call["input"],
+        serde_json::json!("{\"query\":\"what is xAI\",\"num_results\":5}")
+    );
+
+    let source_count = parts
+        .iter()
+        .filter(|part| part.get("type").and_then(|value| value.as_str()) == Some("source"))
+        .count();
+    assert_eq!(source_count, 5);
+}
+
+#[test]
+fn xai_x_search_response_keeps_provider_specific_tool_name_on_generic_tool_call() {
+    let resp = run_case_response("x-search-tool.1");
+    let value = serde_json::to_value(resp).expect("serialize response");
+    let parts = value["content"]["MultiModal"]
+        .as_array()
+        .expect("expected multimodal content");
+
+    let tool_call = parts
+        .iter()
+        .find(|part| part.get("type").and_then(|value| value.as_str()) == Some("tool-call"))
+        .expect("expected tool call");
+
+    assert_eq!(tool_call["toolName"], serde_json::json!("x_search"));
+    assert_eq!(tool_call["providerExecuted"], serde_json::json!(true));
+    assert!(
+        tool_call["input"]
+            .as_str()
+            .is_some_and(|value| value.contains("\"query\":\"AI artificial intelligence\"")),
+        "expected x_search input payload"
+    );
 }

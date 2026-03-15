@@ -4,7 +4,8 @@
     feature = "google",
     feature = "ollama",
     feature = "xai",
-    feature = "groq"
+    feature = "groq",
+    feature = "minimaxi"
 ))]
 //! Provider Builder API Consistency Tests
 //!
@@ -77,6 +78,12 @@ fn test_all_providers_support_timeout() {
 
     // Ollama
     let _ = Provider::ollama().model("llama3.2").timeout(timeout);
+
+    // MiniMaxi
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
+        .timeout(timeout);
 }
 
 /// Test that all providers support connect_timeout() method
@@ -118,6 +125,12 @@ fn test_all_providers_support_connect_timeout() {
     let _ = Provider::ollama()
         .model("llama3.2")
         .connect_timeout(timeout);
+
+    // MiniMaxi
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
+        .connect_timeout(timeout);
 }
 
 /// Test that all providers support with_http_client() method
@@ -158,6 +171,12 @@ fn test_all_providers_support_custom_http_client() {
     // Ollama
     let _ = Provider::ollama()
         .model("llama3.2")
+        .with_http_client(client.clone());
+
+    // MiniMaxi
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
         .with_http_client(client);
 }
 
@@ -196,6 +215,12 @@ fn test_all_providers_support_http_debug() {
 
     // Ollama
     let _ = Provider::ollama().model("llama3.2").http_debug(true);
+
+    // MiniMaxi
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
+        .http_debug(true);
 }
 
 /// Test that all providers support with_http_interceptor() method
@@ -236,6 +261,12 @@ fn test_all_providers_support_http_interceptor() {
     // Ollama
     let _ = Provider::ollama()
         .model("llama3.2")
+        .with_http_interceptor(interceptor.clone());
+
+    // MiniMaxi
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
         .with_http_interceptor(interceptor);
 }
 
@@ -269,6 +300,14 @@ fn test_all_providers_support_tracing() {
     // Ollama
     let _ = Provider::ollama()
         .model("llama3.2")
+        .debug_tracing()
+        .pretty_json(true)
+        .mask_sensitive_values(true);
+
+    // MiniMaxi
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
         .debug_tracing()
         .pretty_json(true)
         .mask_sensitive_values(true);
@@ -310,6 +349,12 @@ fn test_all_providers_support_http_stream_disable_compression() {
     // Ollama
     let _ = Provider::ollama()
         .model("llama3.2")
+        .http_stream_disable_compression(true);
+
+    // MiniMaxi
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
         .http_stream_disable_compression(true);
 }
 
@@ -375,8 +420,127 @@ fn test_all_providers_support_method_chaining() {
         .model("llama3.2")
         .timeout(timeout)
         .connect_timeout(timeout)
+        .with_http_client(client.clone())
+        .http_debug(true)
+        .with_http_interceptor(interceptor.clone())
+        .http_stream_disable_compression(true);
+
+    let _ = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
+        .timeout(timeout)
+        .connect_timeout(timeout)
         .with_http_client(client)
         .http_debug(true)
         .with_http_interceptor(interceptor)
         .http_stream_disable_compression(true);
+}
+
+fn assert_common_http_config_shape(
+    cfg: &siumai::prelude::unified::HttpConfig,
+    timeout: Duration,
+    connect_timeout: Duration,
+) {
+    assert_eq!(cfg.timeout, Some(timeout));
+    assert_eq!(cfg.connect_timeout, Some(connect_timeout));
+    assert!(!cfg.stream_disable_compression);
+}
+
+/// Test that major provider builders expose `into_config()` and preserve the common
+/// inherited HTTP/builder settings there instead of re-deriving them later in `build()`.
+#[test]
+fn test_major_provider_builders_into_config_preserve_common_http_settings() {
+    let timeout = Duration::from_secs(30);
+    let connect_timeout = Duration::from_secs(10);
+    let interceptor = Arc::new(MockInterceptor);
+
+    let openai = Provider::openai()
+        .api_key("test")
+        .model("gpt-4")
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .with_http_interceptor(interceptor.clone())
+        .http_stream_disable_compression(false)
+        .into_config()
+        .expect("openai into_config");
+    assert_eq!(openai.common_params.model, "gpt-4");
+    assert_common_http_config_shape(&openai.http_config, timeout, connect_timeout);
+    assert_eq!(openai.http_interceptors.len(), 1);
+
+    let anthropic = Provider::anthropic()
+        .api_key("test")
+        .model("claude-3-5-sonnet-20241022")
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .with_http_interceptor(interceptor.clone())
+        .http_stream_disable_compression(false)
+        .into_config()
+        .expect("anthropic into_config");
+    assert_eq!(anthropic.common_params.model, "claude-3-5-sonnet-20241022");
+    assert_common_http_config_shape(&anthropic.http_config, timeout, connect_timeout);
+    assert_eq!(anthropic.http_interceptors.len(), 1);
+
+    let xai = Provider::xai()
+        .api_key("test")
+        .model("grok-beta")
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .with_http_interceptor(interceptor.clone())
+        .http_stream_disable_compression(false)
+        .into_config()
+        .expect("xai into_config");
+    assert_eq!(xai.common_params.model, "grok-beta");
+    assert_common_http_config_shape(&xai.http_config, timeout, connect_timeout);
+    assert_eq!(xai.http_interceptors.len(), 1);
+
+    let gemini = Provider::gemini()
+        .api_key("test")
+        .model("gemini-1.5-flash")
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .with_http_interceptor(interceptor.clone())
+        .http_stream_disable_compression(false)
+        .into_config()
+        .expect("gemini into_config");
+    assert_eq!(gemini.common_params.model, "gemini-1.5-flash");
+    assert_common_http_config_shape(&gemini.http_config, timeout, connect_timeout);
+    assert_eq!(gemini.http_interceptors.len(), 1);
+
+    let groq = Provider::groq()
+        .api_key("test")
+        .model("llama-3.3-70b-versatile")
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .with_http_interceptor(interceptor.clone())
+        .http_stream_disable_compression(false)
+        .into_config()
+        .expect("groq into_config");
+    assert_eq!(groq.common_params.model, "llama-3.3-70b-versatile");
+    assert_common_http_config_shape(&groq.http_config, timeout, connect_timeout);
+    assert_eq!(groq.http_interceptors.len(), 1);
+
+    let ollama = Provider::ollama()
+        .model("llama3.2")
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .with_http_interceptor(interceptor.clone())
+        .http_stream_disable_compression(false)
+        .into_config()
+        .expect("ollama into_config");
+    assert_eq!(ollama.common_params.model, "llama3.2");
+    assert_common_http_config_shape(&ollama.http_config, timeout, connect_timeout);
+    assert_eq!(ollama.http_interceptors.len(), 1);
+
+    let minimaxi = Provider::minimaxi()
+        .api_key("test")
+        .model("MiniMax-M2")
+        .timeout(timeout)
+        .connect_timeout(connect_timeout)
+        .with_http_interceptor(interceptor)
+        .http_stream_disable_compression(false)
+        .into_config()
+        .expect("minimaxi into_config");
+    assert_eq!(minimaxi.common_params.model, "MiniMax-M2");
+    assert_common_http_config_shape(&minimaxi.http_config, timeout, connect_timeout);
+    assert_eq!(minimaxi.http_interceptors.len(), 1);
 }

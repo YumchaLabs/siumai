@@ -1,6 +1,7 @@
 #![cfg(feature = "google")]
 
 use siumai::prelude::unified::ChatStreamEvent;
+use siumai::provider_ext::google::GeminiChatResponseExt;
 use std::path::Path;
 
 fn fixtures_dir() -> std::path::PathBuf {
@@ -244,10 +245,11 @@ fn vertex_provider_id_stream_reasoning_events_use_vertex_provider_metadata_key()
         _ => None,
     });
     let end = end.expect("expected StreamEnd event");
-    let meta = end
+    let _meta = end.gemini_metadata().expect("expected gemini metadata");
+    let raw = end
         .provider_metadata
         .as_ref()
         .expect("expected provider_metadata on stream end response");
-    assert!(meta.contains_key("vertex"));
-    assert!(!meta.contains_key("google"));
+    assert!(raw.contains_key("vertex"));
+    assert!(!raw.contains_key("google"));
 }

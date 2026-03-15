@@ -3,6 +3,10 @@
 //! This example demonstrates using telemetry to track and export
 //! LLM operations to observability platforms.
 //!
+//! Construction mode: registry-first.
+//! Prefer this pattern for application-level observability so telemetry stays
+//! attached to the stable family + registry path rather than builder demos.
+//!
 //! Supported exporters:
 //! - Langfuse
 //! - Helicone

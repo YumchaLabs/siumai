@@ -334,7 +334,7 @@ mod minimaxi_tests {
     /// Test text-to-speech (TTS)
     #[tokio::test]
     async fn test_minimaxi_text_to_speech() {
-        use siumai::extensions::AudioCapability;
+        use siumai::prelude::unified::SpeechCapability;
 
         let mock_server = MockServer::start().await;
 
@@ -387,10 +387,7 @@ mod minimaxi_tests {
             .with_format("mp3".to_string());
 
         // Execute TTS
-        let response = client
-            .text_to_speech(request)
-            .await
-            .expect("TTS request failed");
+        let response = client.tts(request).await.expect("TTS request failed");
 
         // Verify response
         assert_eq!(response.audio_data, b"Hello");
@@ -402,7 +399,7 @@ mod minimaxi_tests {
     /// Test TTS with custom parameters
     #[tokio::test]
     async fn test_minimaxi_tts_with_custom_params() {
-        use siumai::extensions::AudioCapability;
+        use siumai::prelude::unified::SpeechCapability;
 
         let mock_server = MockServer::start().await;
 
@@ -457,10 +454,7 @@ mod minimaxi_tests {
             .insert("bitrate".to_string(), json!(256000));
         request.extra_params.insert("channel".to_string(), json!(2));
 
-        let response = client
-            .text_to_speech(request)
-            .await
-            .expect("TTS request failed");
+        let response = client.tts(request).await.expect("TTS request failed");
 
         // Verify response
         assert_eq!(response.audio_data, b"\xe4\xbd\xa0\xe5\xa5\xbd"); // "你好" in UTF-8

@@ -39,14 +39,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         siumai::experimental::auth::vertex::vertex_base_url(&project, &location, "google");
     let adc = siumai::experimental::auth::adc::AdcTokenProvider::default_client();
     let client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
-        siumai::provider_ext::google_vertex::GoogleVertexConfig {
+        siumai::provider_ext::google_vertex::GoogleVertexConfig::new(
             base_url,
-            model: "imagen-3.0-edit-001".to_string(),
-            api_key: None,
-            http_config: Default::default(),
-            http_transport: None,
-            token_provider: Some(Arc::new(adc)),
-        },
+            "imagen-3.0-edit-001",
+        )
+        .with_token_provider(Arc::new(adc)),
     )?;
 
     let input_path = std::env::var("INPUT_IMAGE_PATH").expect("Set INPUT_IMAGE_PATH");

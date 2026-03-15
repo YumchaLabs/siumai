@@ -1,59 +1,91 @@
-# Google (Gemini) provider-specific examples
+# Google Provider Examples
 
-This folder contains **Gemini (Google AI / Vertex AI)** examples (and a separate **Google Vertex** Imagen example)
-that align with the Vercel AI SDK model and tool boundaries.
+This directory contains Google-specific examples across two closely related surfaces:
 
-## Official docs
+- Gemini (Google AI)
+- Google Vertex
 
-- Gemini API overview: https://ai.google.dev/gemini-api
-- Function calling: https://ai.google.dev/gemini-api/docs/function-calling
-- Grounding (Google Search): https://ai.google.dev/gemini-api/docs/grounding
-- REST (v1beta): https://ai.google.dev/api/rest/v1beta
-- Vertex AI Gemini: https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini
+## Package tier
 
-## Auth & base_url (Google AI vs Vertex)
+- `google/` in examples is a provider-owned package story
+- Gemini examples are provider-owned and config-first by default
+- Vertex examples live here only when they share the broader Google provider narrative; dedicated Vertex package guidance still lives under `provider_ext::google_vertex`
 
-- **Google AI Gemini API** (default base URL: `https://generativelanguage.googleapis.com/v1beta`)
-  - Auth: `x-goog-api-key` (set via config-first `GeminiConfig::new(api_key)`).
-  - Env (convenience): many tools use `GEMINI_API_KEY`; some examples also accept `GOOGLE_API_KEY`.
-- **Vertex AI**
-  - Enterprise base URL (Vercel-aligned): `https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/publishers/google`
-    - Build via `siumai::experimental::auth::vertex::google_vertex_base_url(project, location)`
-  - Express mode base URL (Vercel-aligned): `https://aiplatform.googleapis.com/v1/publishers/google`
-    - Set API key in config (requests append `?key=...` when no Bearer header is present)
-  - Auth (enterprise mode): `Authorization: Bearer <token>` via:
-    - `GeminiConfig::with_token_provider(Arc<dyn TokenProvider>)`
-    - `AdcTokenProvider::default_client()` (`feature = "gcp"`)
-  - ADC env vars (current implementation): `GOOGLE_OAUTH_ACCESS_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, `ADC_METADATA_URL` (test override)
-  - Model id: prefer bare ids (e.g. `gemini-2.0-flash`), but resource-style ids are accepted (e.g. `models/gemini-2.0-flash`, `publishers/google/models/gemini-2.0-flash`)
+## Official Docs
 
-## Capabilities & model constraints (best-effort)
+- Gemini API overview: <https://ai.google.dev/gemini-api>
+- Function calling: <https://ai.google.dev/gemini-api/docs/function-calling>
+- Grounding / Google Search: <https://ai.google.dev/gemini-api/docs/grounding>
+- Gemini REST reference: <https://ai.google.dev/api/rest/v1beta>
+- Vertex AI Gemini reference: <https://cloud.google.com/vertex-ai/generative-ai/docs/model-reference/gemini>
 
-These constraints are enforced by Siumai’s Gemini protocol conversion logic. Unsupported tools are
-silently omitted to keep the unified surface stable.
+## Auth and Base URL
 
-| Tool id | Helper | Notes / constraints |
+### Google AI Gemini API
+
+- Default base URL: `https://generativelanguage.googleapis.com/v1beta`
+- Auth: `x-goog-api-key`
+- Preferred construction: config-first `GeminiConfig::new(api_key)`
+- Common env vars: `GEMINI_API_KEY`, sometimes `GOOGLE_API_KEY`
+
+### Vertex AI
+
+- Enterprise base URL:
+  `https://{location}-aiplatform.googleapis.com/v1beta1/projects/{project}/locations/{location}/publishers/google`
+- Helper: `siumai::experimental::auth::vertex::google_vertex_base_url(project, location)`
+- Express mode base URL: `https://aiplatform.googleapis.com/v1/publishers/google`
+- Express mode may append `?key=...` when no Bearer auth is present
+- Enterprise auth usually uses `Authorization: Bearer <token>`
+- Token providers include:
+  - `GeminiConfig::with_token_provider(Arc<dyn TokenProvider>)`
+  - `AdcTokenProvider::default_client()` with `gcp`
+- Current ADC-related env vars used by the implementation include:
+  - `GOOGLE_OAUTH_ACCESS_TOKEN`
+  - `GOOGLE_APPLICATION_CREDENTIALS`
+  - `ADC_METADATA_URL` (test override)
+
+## Capability Notes
+
+These examples follow Siumai's current Gemini / Vertex conversion rules.
+Unsupported tool combinations may be omitted intentionally to keep the Stable family surface predictable.
+
+| Tool id | Helper | Notes |
 |---|---|---|
-| `google.google_search` | `siumai::hosted_tools::google::google_search()` | On Gemini **2.x/3.x** maps to `googleSearch`. On Gemini **1.5** maps to legacy `googleSearchRetrieval`. |
-| `google.file_search` | `siumai::hosted_tools::google::file_search()` | Requires Gemini **2.5** (Gemini 2.0 models will ignore it). |
-| `google.code_execution` | `siumai::hosted_tools::google::code_execution()` | Generally supported where Google exposes the tool; follow model-specific docs. |
-| `google.url_context` | `siumai::hosted_tools::google::url_context()` | Gemini **2.x/3.x** only. |
-| `google.enterprise_web_search` | `siumai::hosted_tools::google::enterprise_web_search()` | Gemini **2.x/3.x** only. |
-| `google.google_maps` | `siumai::hosted_tools::google::google_maps()` | Gemini **2.x/3.x** only. |
-| `google.vertex_rag_store` | `siumai::hosted_tools::google::vertex_rag_store(..)` | Vertex-only; Gemini **2.x/3.x** only. |
+| `google.google_search` | `siumai::hosted_tools::google::google_search()` | Gemini 2.x / 3.x uses `googleSearch`; Gemini 1.5 falls back to `googleSearchRetrieval`. |
+| `google.file_search` | `siumai::hosted_tools::google::file_search()` | Requires Gemini 2.5-level support. |
+| `google.code_execution` | `siumai::hosted_tools::google::code_execution()` | Availability follows Google model support. |
+| `google.url_context` | `siumai::hosted_tools::google::url_context()` | Gemini 2.x / 3.x only. |
+| `google.enterprise_web_search` | `siumai::hosted_tools::google::enterprise_web_search()` | Gemini 2.x / 3.x only. |
+| `google.google_maps` | `siumai::hosted_tools::google::google_maps()` | Gemini 2.x / 3.x only. |
+| `google.vertex_rag_store` | `siumai::hosted_tools::google::vertex_rag_store(..)` | Vertex-only; Gemini 2.x / 3.x only. |
 
 ## Examples
 
-- `grounding.rs`: Google Search grounding (provider-hosted tool).
-- `url_context.rs`: URL context tool.
-- `enterprise_web_search.rs`: Enterprise web search tool.
-- `file_search.rs`: File search tool usage (query-time retrieval).
-- `file_search-ext.rs`: File Search Stores (resource management; provider extension API).
-- `vertex_chat.rs`: Minimal Vertex AI chat via ADC (`--features "google gcp"`).
-- `vertex_imagen_edit.rs`: Vertex AI Imagen edit/inpaint with mask + reference images (`--features "google-vertex gcp"`).
+- `grounding.rs` - Google Search grounding
+- `url_context.rs` - URL context tool
+- `enterprise_web_search.rs` - enterprise web search
+- `file_search.rs` - query-time file search
+- `file_search-ext.rs` - file-search store management via provider extensions
+- `logprobs.rs` - Google logprobs-oriented request shaping
+- `vertex_chat.rs` - minimal Vertex chat via ADC (`--features "google gcp"`)
+- `vertex_imagen_edit.rs` - Vertex Imagen edit / inpaint (`--features "google-vertex gcp"`)
 
-## Vertex Imagen notes
+## Vertex Imagen Notes
 
-- Vertex Imagen uses the Vertex `:predict` endpoint and requires Bearer auth (ADC/service account).
-- For editing/inpainting, set `ImageEditRequest.model` to an Imagen edit model (e.g. `imagen-3.0-edit-001`).
-- Reference images and negative prompts can be passed via `providerOptions["vertex"]` (preferred) or `extra_params`.
+- Vertex Imagen uses the Vertex `:predict` endpoint
+- Bearer auth is typically required in enterprise mode
+- For editing/inpainting, set `ImageEditRequest.model` to an Imagen edit model such as `imagen-3.0-edit-001`
+- Reference images and negative prompts can be passed via `providerOptions["vertex"]` when needed
+
+## Recommended Reading Order
+
+1. `grounding.rs`
+2. `url_context.rs`
+3. `file_search.rs`
+4. `file_search-ext.rs`
+5. `vertex_chat.rs`
+6. `vertex_imagen_edit.rs`
+
+## Notes
+
+Google examples are provider-owned examples, not compat-preset examples. Prefer config-first here unless a specific file is explicitly demonstrating a Stable registry-first path.
