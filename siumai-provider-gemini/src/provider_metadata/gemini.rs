@@ -9,6 +9,10 @@ pub use crate::standards::gemini::GeminiSource;
 /// Gemini-specific metadata from chat responses.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GeminiMetadata {
+    /// Per-part or response-level thought signature metadata.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
+    pub thought_signature: Option<String>,
+
     /// Grounding metadata (for search-grounded responses)
     #[serde(skip_serializing_if = "Option::is_none", rename = "groundingMetadata")]
     pub grounding_metadata: Option<GroundingMetadata>,
@@ -282,6 +286,50 @@ impl GeminiChatResponseExt for crate::types::ChatResponse {
     }
 }
 
+/// Typed helper for Gemini metadata extraction from `ContentPart`.
+pub trait GeminiContentPartExt {
+    fn gemini_metadata(&self) -> Option<GeminiMetadata>;
+}
+
+impl GeminiContentPartExt for crate::types::ContentPart {
+    fn gemini_metadata(&self) -> Option<GeminiMetadata> {
+        use crate::types::ContentPart;
+
+        let provider_metadata = match self {
+            ContentPart::Text {
+                provider_metadata, ..
+            }
+            | ContentPart::Image {
+                provider_metadata, ..
+            }
+            | ContentPart::Audio {
+                provider_metadata, ..
+            }
+            | ContentPart::File {
+                provider_metadata, ..
+            }
+            | ContentPart::ToolCall {
+                provider_metadata, ..
+            }
+            | ContentPart::ToolResult {
+                provider_metadata, ..
+            }
+            | ContentPart::Reasoning {
+                provider_metadata, ..
+            } => provider_metadata.as_ref()?,
+            ContentPart::Source { .. }
+            | ContentPart::ToolApprovalResponse { .. }
+            | ContentPart::ToolApprovalRequest { .. } => return None,
+        };
+
+        let inner = provider_metadata
+            .get("google")
+            .or_else(|| provider_metadata.get("vertex"))
+            .or_else(|| provider_metadata.get("gemini"))?;
+        serde_json::from_value(inner.clone()).ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,6 +341,7 @@ mod tests {
         ));
 
         let mut inner = HashMap::new();
+        inner.insert("thoughtSignature".to_string(), serde_json::json!("sig-1"));
         inner.insert("avgLogprobs".to_string(), serde_json::json!(-0.1));
         inner.insert(
             "logprobsResult".to_string(),
@@ -308,10 +357,27 @@ mod tests {
         resp.provider_metadata = Some(outer);
 
         let meta = resp.gemini_metadata().expect("gemini metadata");
+        assert_eq!(meta.thought_signature.as_deref(), Some("sig-1"));
         assert_eq!(meta.avg_logprobs, Some(-0.1));
         assert!(meta.logprobs_result.is_some());
         let chosen = meta.logprobs_result.unwrap().chosen_candidates;
         assert_eq!(chosen.len(), 1);
         assert_eq!(chosen[0].token.as_deref(), Some("h"));
+    }
+
+    #[test]
+    fn gemini_content_part_metadata_parses_thought_signature() {
+        let part = crate::types::ContentPart::Reasoning {
+            text: "thinking".to_string(),
+            provider_metadata: Some(HashMap::from([(
+                "google".to_string(),
+                serde_json::json!({
+                    "thoughtSignature": "sig-part"
+                }),
+            )])),
+        };
+
+        let meta = part.gemini_metadata().expect("gemini content metadata");
+        assert_eq!(meta.thought_signature.as_deref(), Some("sig-part"));
     }
 }

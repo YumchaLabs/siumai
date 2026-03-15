@@ -13,6 +13,14 @@ pub enum AnthropicEffort {
     High,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AnthropicStructuredOutputMode {
+    Auto,
+    OutputFormat,
+    JsonTool,
+}
+
 /// Anthropic-specific options
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnthropicOptions {
@@ -22,6 +30,12 @@ pub struct AnthropicOptions {
     pub thinking_mode: Option<ThinkingModeConfig>,
     /// Structured output configuration (JSON object or JSON schema)
     pub response_format: Option<AnthropicResponseFormat>,
+    /// Structured output routing strategy (`outputFormat` vs reserved `json` tool fallback).
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "structuredOutputMode"
+    )]
+    pub structured_output_mode: Option<AnthropicStructuredOutputMode>,
     /// Container configuration (agent skills, etc.)
     pub container: Option<AnthropicContainerConfig>,
     /// Context management configuration (Vercel `contextManagement` -> API `context_management`).
@@ -71,6 +85,12 @@ impl AnthropicOptions {
             schema,
             strict,
         });
+        self
+    }
+
+    /// Configure the structured output routing mode.
+    pub fn with_structured_output_mode(mut self, mode: AnthropicStructuredOutputMode) -> Self {
+        self.structured_output_mode = Some(mode);
         self
     }
 
@@ -185,4 +205,36 @@ pub enum AnthropicResponseFormat {
         schema: serde_json::Value,
         strict: bool,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn structured_output_mode_serializes_to_provider_options_shape() {
+        let value = serde_json::to_value(
+            AnthropicOptions::new()
+                .with_structured_output_mode(AnthropicStructuredOutputMode::JsonTool),
+        )
+        .expect("serialize anthropic options");
+
+        assert_eq!(
+            value.get("structured_output_mode"),
+            Some(&serde_json::json!("jsonTool"))
+        );
+    }
+
+    #[test]
+    fn structured_output_mode_deserializes_from_camel_case_provider_option() {
+        let options: AnthropicOptions = serde_json::from_value(serde_json::json!({
+            "structuredOutputMode": "outputFormat"
+        }))
+        .expect("deserialize anthropic options");
+
+        assert_eq!(
+            options.structured_output_mode,
+            Some(AnthropicStructuredOutputMode::OutputFormat)
+        );
+    }
 }

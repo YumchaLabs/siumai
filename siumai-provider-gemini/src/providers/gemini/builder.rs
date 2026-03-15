@@ -369,9 +369,8 @@ impl GeminiBuilder {
         self
     }
 
-    /// Build the Gemini client
-    pub async fn build(self) -> Result<crate::providers::gemini::GeminiClient, LlmError> {
-        // Step 1: Get API key (priority: parameter > environment variable)
+    /// Convert the builder into the canonical Gemini config.
+    pub fn into_config(self) -> Result<crate::providers::gemini::GeminiConfig, LlmError> {
         let api_key = self
             .api_key
             .or_else(|| std::env::var("GEMINI_API_KEY").ok())
@@ -379,37 +378,18 @@ impl GeminiBuilder {
                 LlmError::ConfigurationError("API key is required for Gemini".to_string())
             })?;
 
-        // Step 2: Get base URL (from parameter or default)
-        // Note: Default is set in GeminiConfig::new()
-
-        // Note: Tracing initialization has been moved to siumai-extras.
-        // Users should initialize tracing manually using siumai_extras::telemetry
-        // or tracing_subscriber directly before creating the client.
-
-        // Step 3: Build configuration
         let mut config = crate::providers::gemini::GeminiConfig::new(api_key);
 
         if let Some(base_url) = self.base_url {
             config = config.with_base_url(base_url);
         }
 
-        // Basic validation of thinking configuration
-        if let Some(_thinking_config) = &self.thinking_config {
-            // ThinkingConfig validation is now handled by the API
-            // No client-side validation needed
-        }
-
-        // Apply common parameters (includes unified model)
         config = config.with_common_params(self.common_params.clone());
-        // Keep config.model in sync for Gemini converters/spec (they read config.model)
         if !config.common_params.model.is_empty() {
-            let m = config.common_params.model.clone();
-            config = config.with_model(m);
+            let model = config.common_params.model.clone();
+            config = config.with_model(model);
         }
 
-        // Common parameters already applied via with_common_params()
-
-        // Build generation config for Gemini-specific parameters (top_k, candidate_count, etc.)
         let mut generation_config = crate::providers::gemini::GenerationConfig::new();
         let mut has_generation_config = false;
 
@@ -430,13 +410,11 @@ impl GeminiBuilder {
             has_generation_config = true;
         }
 
-        // Apply thinking configuration to generation config
         if let Some(thinking_config) = &self.thinking_config {
             generation_config = generation_config.with_thinking_config(thinking_config.clone());
             has_generation_config = true;
         }
 
-        // Only set generation_config if it has Gemini-specific parameters
         if has_generation_config {
             config = config.with_generation_config(generation_config);
         }
@@ -445,49 +423,168 @@ impl GeminiBuilder {
             config = config.with_safety_settings(safety_settings);
         }
 
-        // Apply HTTP config from ProviderCore (headers/proxy/stream_disable_compression/etc.).
-        // This keeps behavior consistent across providers and ensures `http_stream_disable_compression`
-        // affects Gemini streaming requests.
         config = config.with_http_config(self.core.http_config.clone());
         if let Some(transport) = self.core.http_transport.clone() {
             config = config.with_http_transport(transport);
         }
 
-        // Step 4: Build HTTP client from core
-        let http_client = self.core.build_http_client()?;
-
-        // Save model from config common params (fallback to config.model if empty) before moving it
         let model_id = if !config.common_params.model.is_empty() {
             config.common_params.model.clone()
         } else {
             config.model.clone()
         };
 
-        // Step 5: Create client instance
-        let mut client =
-            crate::providers::gemini::GeminiClient::with_http_client(config, http_client)?;
-
-        // Step 6: Apply tracing and retry configuration from core
-        if let Some(ref tracing_config) = self.core.tracing_config {
-            client.set_tracing_config(Some(tracing_config.clone()));
-        }
-        if let Some(ref retry_options) = self.core.retry_options {
-            client.set_retry_options(Some(retry_options.clone()));
-        }
-
-        // Step 7: Install HTTP interceptors
-        let interceptors = self.core.get_http_interceptors();
-        if !interceptors.is_empty() {
-            client = client.with_http_interceptors(interceptors);
-        }
-
-        // Step 8: Install automatic middlewares
-        let mut middlewares = self.core.get_auto_middlewares("gemini", &model_id);
-        middlewares.push(Arc::new(
+        let mut model_middlewares = self.core.get_auto_middlewares("gemini", &model_id);
+        model_middlewares.push(Arc::new(
             crate::providers::gemini::middleware::GeminiToolWarningsMiddleware::new(),
         ));
-        client = client.with_model_middlewares(middlewares);
+
+        Ok(config
+            .with_http_interceptors(self.core.get_http_interceptors())
+            .with_model_middlewares(model_middlewares))
+    }
+
+    /// Build the Gemini client
+    pub async fn build(self) -> Result<crate::providers::gemini::GeminiClient, LlmError> {
+        let http_client_override = self.core.base.http_client.clone();
+        let tracing_config = self.core.tracing_config.clone();
+        let retry_options = self.core.retry_options.clone();
+        let config = self.into_config()?;
+
+        let mut client = if let Some(http_client) = http_client_override {
+            crate::providers::gemini::GeminiClient::with_http_client(config, http_client)?
+        } else {
+            crate::providers::gemini::GeminiClient::from_config(config)?
+        };
+
+        if let Some(tracing_config) = tracing_config {
+            client.set_tracing_config(Some(tracing_config));
+        }
+        if let Some(retry_options) = retry_options {
+            client.set_retry_options(Some(retry_options));
+        }
 
         Ok(client)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn gemini_builder_into_config_converges_on_gemini_config() {
+        let config = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com")
+            .model("gemini-2.5-flash")
+            .temperature(0.3)
+            .max_tokens(1024)
+            .top_k(8)
+            .candidate_count(2)
+            .json_schema(serde_json::json!({ "type": "object" }))
+            .reasoning_budget(2048)
+            .timeout(Duration::from_secs(20))
+            .http_debug(true)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.base_url, "https://example.com");
+        assert_eq!(config.model, "gemini-2.5-flash");
+        assert_eq!(config.common_params.model, "gemini-2.5-flash");
+        assert_eq!(config.common_params.temperature, Some(0.3));
+        assert_eq!(config.common_params.max_tokens, Some(1024));
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(20)));
+        let generation_config = config.generation_config.expect("generation config");
+        assert_eq!(generation_config.top_k, Some(8));
+        assert_eq!(generation_config.candidate_count, Some(2));
+        assert_eq!(
+            generation_config.response_mime_type.as_deref(),
+            Some("application/json")
+        );
+        assert_eq!(
+            generation_config.response_schema,
+            Some(serde_json::json!({ "type": "object" }))
+        );
+        let thinking = generation_config.thinking_config.expect("thinking config");
+        assert_eq!(thinking.thinking_budget, Some(2048));
+        assert_eq!(thinking.include_thoughts, Some(true));
+        assert_eq!(config.http_interceptors.len(), 1);
+        assert!(!config.model_middlewares.is_empty());
+    }
+
+    #[test]
+    fn gemini_builder_into_config_matches_manual_gemini_config() {
+        let builder_config = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com")
+            .model("gemini-2.5-flash")
+            .temperature(0.3)
+            .max_tokens(1024)
+            .top_k(8)
+            .candidate_count(2)
+            .json_schema(serde_json::json!({ "type": "object" }))
+            .reasoning_budget(2048)
+            .timeout(Duration::from_secs(20))
+            .http_debug(true)
+            .into_config()
+            .expect("builder config");
+
+        let mut http_config = crate::types::HttpConfig::default();
+        http_config.timeout = Some(Duration::from_secs(20));
+        let mut manual_middlewares =
+            crate::execution::middleware::build_auto_middlewares_vec("gemini", "gemini-2.5-flash");
+        manual_middlewares.push(Arc::new(
+            crate::providers::gemini::middleware::GeminiToolWarningsMiddleware::new(),
+        ));
+        let manual_config = crate::providers::gemini::GeminiConfig::new("test-key")
+            .with_base_url("https://example.com".to_string())
+            .with_model("gemini-2.5-flash".to_string())
+            .with_temperature(0.3)
+            .with_max_tokens(1024)
+            .with_top_k(8)
+            .with_candidate_count(2)
+            .with_json_schema(serde_json::json!({ "type": "object" }))
+            .with_reasoning_budget(2048)
+            .with_http_config(http_config)
+            .with_http_interceptors(vec![Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            )])
+            .with_model_middlewares(manual_middlewares);
+
+        assert_eq!(builder_config.base_url, manual_config.base_url);
+        assert_eq!(builder_config.model, manual_config.model);
+        assert_eq!(
+            builder_config.common_params.model,
+            manual_config.common_params.model
+        );
+        assert_eq!(
+            builder_config.common_params.temperature,
+            manual_config.common_params.temperature
+        );
+        assert_eq!(
+            builder_config.common_params.max_tokens,
+            manual_config.common_params.max_tokens
+        );
+        assert_eq!(
+            serde_json::to_value(&builder_config.generation_config)
+                .expect("serialize builder generation config"),
+            serde_json::to_value(&manual_config.generation_config)
+                .expect("serialize manual generation config")
+        );
+        assert_eq!(
+            builder_config.http_config.timeout,
+            manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_interceptors.len(),
+            manual_config.http_interceptors.len()
+        );
+        assert_eq!(
+            builder_config.model_middlewares.len(),
+            manual_config.model_middlewares.len()
+        );
     }
 }

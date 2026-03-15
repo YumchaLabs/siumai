@@ -121,13 +121,12 @@ impl ProviderSpec for VertexAnthropicSpec {
             .with_vision()
     }
 
-    fn build_headers(
-        &self,
-        _ctx: &ProviderContext,
-    ) -> Result<reqwest::header::HeaderMap, LlmError> {
+    fn build_headers(&self, ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, LlmError> {
+        let mut headers = self.extra_headers.clone();
+        headers.extend(ctx.http_extra_headers.clone());
         let builder = crate::execution::http::headers::HttpHeaderBuilder::new()
             .with_json_content_type()
-            .with_custom_headers(&self.extra_headers)?;
+            .with_custom_headers(&headers)?;
         Ok(builder.build())
     }
 

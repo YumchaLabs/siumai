@@ -88,11 +88,18 @@ impl AnthropicTokens {
             let body = body.clone();
             let per_request_headers = per_request_headers.clone();
             async move {
+                let per_request_http_config = if per_request_headers.is_empty() {
+                    None
+                } else {
+                    let mut override_http = crate::types::HttpConfig::empty();
+                    override_http.headers = per_request_headers;
+                    Some(override_http)
+                };
                 let result = execute_json_request(
                     &http_config,
                     &url,
                     HttpBody::Json(body),
-                    Some(&per_request_headers),
+                    per_request_http_config.as_ref(),
                     false,
                 )
                 .await?;
@@ -126,11 +133,16 @@ impl AnthropicTokens {
             let body = body.clone();
             let headers = per_request_headers.clone();
             async move {
+                let per_request_http_config = headers.map(|headers| {
+                    let mut override_http = crate::types::HttpConfig::empty();
+                    override_http.headers = headers;
+                    override_http
+                });
                 let result = execute_json_request(
                     &http_config,
                     &url,
                     HttpBody::Json(body),
-                    headers.as_ref(),
+                    per_request_http_config.as_ref(),
                     false,
                 )
                 .await?;

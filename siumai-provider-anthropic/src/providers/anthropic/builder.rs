@@ -3,6 +3,7 @@ use crate::builder::{BuilderBase, ProviderCore};
 use crate::params::AnthropicParams;
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmError};
+use secrecy::ExposeSecret;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -226,8 +227,7 @@ impl AnthropicBuilder {
     }
 
     /// Builds the Anthropic client
-    pub async fn build(self) -> Result<AnthropicClient, LlmError> {
-        // Step 1: Get API key (priority: parameter > environment variable)
+    pub fn into_config(self) -> Result<crate::providers::anthropic::AnthropicConfig, LlmError> {
         let api_key = self
             .api_key
             .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
@@ -235,59 +235,197 @@ impl AnthropicBuilder {
                 "Anthropic API key not provided".to_string(),
             ))?;
 
-        // Step 2: Get base URL (priority: parameter > default)
         let base_url = self
             .base_url
             .unwrap_or_else(|| "https://api.anthropic.com".to_string());
 
-        // Note: Tracing initialization has been moved to siumai-extras.
-        // Users should initialize tracing manually using siumai_extras::telemetry
-        // or tracing_subscriber directly before creating the client.
-
-        // Step 3: Build configuration
         let model_id = self.common_params.model.clone();
+        let http_interceptors = self.core.get_http_interceptors();
+        let model_middlewares = self.core.get_auto_middlewares("anthropic", &model_id);
 
-        let specific_params =
-            crate::providers::anthropic::specific_params_from_legacy_params(&self.anthropic_params);
-
-        // Step 4: Build HTTP client from core
-        let http_client = self.core.build_http_client()?;
-
-        // Step 5: Create client instance
-        let mut client = AnthropicClient::new(
-            api_key,
+        Ok(crate::providers::anthropic::AnthropicConfig {
+            api_key: secrecy::SecretString::from(api_key),
             base_url,
-            http_client,
-            self.common_params,
-            self.anthropic_params,
-            self.core.http_config.clone(),
-        );
+            common_params: self.common_params,
+            anthropic_params: self.anthropic_params,
+            http_config: self.core.http_config.clone(),
+            http_transport: self.core.http_transport.clone(),
+            http_interceptors,
+            model_middlewares,
+        })
+    }
 
-        if let Some(transport) = self.core.http_transport.clone() {
-            client = client.with_http_transport(transport);
-        }
+    pub async fn build(self) -> Result<AnthropicClient, LlmError> {
+        let http_client_override = self.core.base.http_client.clone();
+        let tracing_config = self.core.tracing_config.clone();
+        let retry_options = self.core.retry_options.clone();
+        let config = self.into_config()?;
 
-        // Step 6: Apply tracing and retry configuration from core
-        client = client.with_specific_params(specific_params);
-        if let Some(ref tracing_config) = self.core.tracing_config {
-            client.set_tracing_config(Some(tracing_config.clone()));
-        }
-        if let Some(ref retry_options) = self.core.retry_options {
-            client.set_retry_options(Some(retry_options.clone()));
-        }
+        let mut client = if let Some(http_client) = http_client_override {
+            let specific_params = crate::providers::anthropic::specific_params_from_legacy_params(
+                &config.anthropic_params,
+            );
+            let http_interceptors = config.http_interceptors.clone();
+            let model_middlewares = config.model_middlewares.clone();
+            let mut client = AnthropicClient::new(
+                config.api_key.expose_secret().to_string(),
+                config.base_url,
+                http_client,
+                config.common_params,
+                config.anthropic_params,
+                config.http_config,
+            )
+            .with_specific_params(specific_params);
 
-        // Step 7: Install HTTP interceptors
-        let interceptors = self.core.get_http_interceptors();
-        if !interceptors.is_empty() {
-            client = client.with_http_interceptors(interceptors);
-        }
+            if let Some(transport) = config.http_transport {
+                client = client.with_http_transport(transport);
+            }
 
-        // Step 8: Install automatic middlewares
-        let middlewares = self.core.get_auto_middlewares("anthropic", &model_id);
-        if !middlewares.is_empty() {
-            client = client.with_model_middlewares(middlewares);
+            client
+                .with_http_interceptors(http_interceptors)
+                .with_model_middlewares(model_middlewares)
+        } else {
+            AnthropicClient::from_config(config)?
+        };
+
+        if let Some(tracing_config) = tracing_config {
+            client.set_tracing_config(Some(tracing_config));
+        }
+        if let Some(retry_options) = retry_options {
+            client.set_retry_options(Some(retry_options));
         }
 
         Ok(client)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn anthropic_builder_into_config_converges_on_anthropic_config() {
+        let config = AnthropicBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com")
+            .model("claude-3-5-sonnet-20241022")
+            .temperature(0.2)
+            .max_tokens(512)
+            .top_p(0.9)
+            .cache_control(crate::params::anthropic::CacheControl::ephemeral())
+            .thinking_budget(2048)
+            .system_message("You are helpful")
+            .metadata("team", "core")
+            .timeout(Duration::from_secs(18))
+            .http_debug(true)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.base_url, "https://example.com");
+        assert_eq!(config.common_params.model, "claude-3-5-sonnet-20241022");
+        assert_eq!(config.common_params.temperature, Some(0.2));
+        assert_eq!(config.common_params.max_tokens, Some(512));
+        assert_eq!(config.common_params.top_p, Some(0.9));
+        assert_eq!(
+            config
+                .anthropic_params
+                .cache_control
+                .as_ref()
+                .map(|c| c.r#type.as_str()),
+            Some("ephemeral")
+        );
+        assert_eq!(config.anthropic_params.thinking_budget, Some(2048));
+        assert_eq!(
+            config.anthropic_params.system.as_deref(),
+            Some("You are helpful")
+        );
+        assert_eq!(
+            config
+                .anthropic_params
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("team"))
+                .map(String::as_str),
+            Some("core")
+        );
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(18)));
+        assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn anthropic_builder_into_config_matches_manual_anthropic_config() {
+        let builder_config = AnthropicBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com")
+            .model("claude-3-5-sonnet-20241022")
+            .temperature(0.2)
+            .max_tokens(512)
+            .top_p(0.9)
+            .cache_control(crate::params::anthropic::CacheControl::ephemeral())
+            .thinking_budget(2048)
+            .system_message("You are helpful")
+            .metadata("team", "core")
+            .timeout(Duration::from_secs(18))
+            .http_debug(true)
+            .into_config()
+            .expect("builder config");
+
+        let mut http_config = crate::types::HttpConfig::default();
+        http_config.timeout = Some(Duration::from_secs(18));
+        let manual_config = crate::providers::anthropic::AnthropicConfig::new("test-key")
+            .with_base_url("https://example.com")
+            .with_model("claude-3-5-sonnet-20241022")
+            .with_temperature(0.2)
+            .with_max_tokens(512)
+            .with_top_p(0.9)
+            .with_cache_control(crate::params::anthropic::CacheControl::ephemeral())
+            .with_thinking_budget(2048)
+            .with_system_message("You are helpful")
+            .add_metadata("team", "core")
+            .with_http_config(http_config)
+            .with_http_interceptors(vec![Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            )])
+            .with_model_middlewares(crate::execution::middleware::build_auto_middlewares_vec(
+                "anthropic",
+                "claude-3-5-sonnet-20241022",
+            ));
+
+        assert_eq!(builder_config.base_url, manual_config.base_url);
+        assert_eq!(
+            builder_config.common_params.model,
+            manual_config.common_params.model
+        );
+        assert_eq!(
+            builder_config.common_params.temperature,
+            manual_config.common_params.temperature
+        );
+        assert_eq!(
+            builder_config.common_params.max_tokens,
+            manual_config.common_params.max_tokens
+        );
+        assert_eq!(
+            builder_config.common_params.top_p,
+            manual_config.common_params.top_p
+        );
+        assert_eq!(
+            serde_json::to_value(&builder_config.anthropic_params)
+                .expect("serialize builder params"),
+            serde_json::to_value(&manual_config.anthropic_params).expect("serialize manual params")
+        );
+        assert_eq!(
+            builder_config.http_config.timeout,
+            manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_interceptors.len(),
+            manual_config.http_interceptors.len()
+        );
+        assert_eq!(
+            builder_config.model_middlewares.len(),
+            manual_config.model_middlewares.len()
+        );
     }
 }

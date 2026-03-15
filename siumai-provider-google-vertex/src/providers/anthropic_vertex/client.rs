@@ -9,6 +9,7 @@ use reqwest::Client as HttpClient;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::auth::TokenProvider;
 use crate::error::LlmError;
 use crate::execution::executors::chat::HttpChatExecutor;
 use crate::execution::executors::common::{HttpExecutionConfig, execute_get_request};
@@ -25,6 +26,11 @@ pub struct VertexAnthropicConfig {
     pub base_url: String,
     pub model: String,
     pub http_config: crate::types::HttpConfig,
+    /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
+    pub http_transport:
+        Option<std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    /// Optional Bearer token provider (e.g. ADC).
+    pub token_provider: Option<Arc<dyn TokenProvider>>,
     /// Optional HTTP interceptors applied to all requests built from this config.
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares applied before provider mapping (chat only).
@@ -33,11 +39,107 @@ pub struct VertexAnthropicConfig {
 
 impl std::fmt::Debug for VertexAnthropicConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VertexAnthropicConfig")
-            .field("base_url", &self.base_url)
+        let mut ds = f.debug_struct("VertexAnthropicConfig");
+        ds.field("base_url", &self.base_url)
             .field("model", &self.model)
-            .field("http_config", &self.http_config)
-            .finish()
+            .field("http_config", &self.http_config);
+
+        if self.token_provider.is_some() {
+            ds.field("has_token_provider", &true);
+        }
+
+        ds.finish()
+    }
+}
+
+impl VertexAnthropicConfig {
+    pub fn new<B: Into<String>, M: Into<String>>(base_url: B, model: M) -> Self {
+        Self {
+            base_url: base_url.into(),
+            model: model.into(),
+            http_config: crate::types::HttpConfig::default(),
+            http_transport: None,
+            token_provider: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
+        }
+    }
+
+    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+
+    pub fn with_model<S: Into<String>>(mut self, model: S) -> Self {
+        self.model = model.into();
+        self
+    }
+
+    pub fn with_http_config(mut self, http_config: crate::types::HttpConfig) -> Self {
+        self.http_config = http_config;
+        self
+    }
+
+    pub fn with_http_transport(
+        mut self,
+        transport: std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.http_transport = Some(transport);
+        self
+    }
+
+    pub fn with_token_provider(mut self, token_provider: Arc<dyn TokenProvider>) -> Self {
+        self.token_provider = Some(token_provider);
+        self
+    }
+
+    pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
+        self.http_interceptors = interceptors;
+        self
+    }
+
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.model_middlewares = middlewares;
+        self
+    }
+
+    pub fn with_bearer_token<S: Into<String>>(mut self, token: S) -> Self {
+        let token = token.into();
+        let trimmed = token.trim();
+        if !trimmed.is_empty() {
+            self.http_config
+                .headers
+                .insert("Authorization".to_string(), format!("Bearer {trimmed}"));
+        }
+        self
+    }
+
+    pub fn with_authorization<S: Into<String>>(mut self, value: S) -> Self {
+        let value = value.into();
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            self.http_config
+                .headers
+                .insert("Authorization".to_string(), trimmed.to_string());
+        }
+        self
+    }
+
+    pub fn validate(&self) -> Result<(), LlmError> {
+        if self.base_url.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Vertex Anthropic requires a non-empty base_url".to_string(),
+            ));
+        }
+        if self.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Vertex Anthropic requires a non-empty model id".to_string(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -56,22 +158,19 @@ pub struct VertexAnthropicClient {
 impl VertexAnthropicClient {
     /// Construct a `VertexAnthropicClient` from a config-first `VertexAnthropicConfig`.
     pub fn from_config(config: VertexAnthropicConfig) -> Result<Self, LlmError> {
-        if config.base_url.trim().is_empty() {
-            return Err(LlmError::ConfigurationError(
-                "Vertex Anthropic requires a non-empty base_url".to_string(),
-            ));
-        }
-        if config.model.trim().is_empty() {
-            return Err(LlmError::ConfigurationError(
-                "Vertex Anthropic requires a non-empty model id".to_string(),
-            ));
-        }
-
-        let http_interceptors = config.http_interceptors.clone();
-        let model_middlewares = config.model_middlewares.clone();
-
         let http_client =
             crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Self::with_http_client(config, http_client)
+    }
+
+    /// Construct a `VertexAnthropicClient` from a config with a caller-supplied HTTP client.
+    pub fn with_http_client(
+        config: VertexAnthropicConfig,
+        http_client: HttpClient,
+    ) -> Result<Self, LlmError> {
+        config.validate()?;
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
         Ok(Self::new(config, http_client)
             .with_http_interceptors(http_interceptors)
             .with_model_middlewares(model_middlewares))
@@ -87,6 +186,15 @@ impl VertexAnthropicClient {
         }
     }
 
+    pub fn base_url(&self) -> &str {
+        &self.config.base_url
+    }
+
+    #[cfg(test)]
+    pub(crate) fn _debug_has_token_provider(&self) -> bool {
+        self.config.token_provider.is_some()
+    }
+
     fn parse_model_id(name: &str) -> String {
         // Vertex model resource typically ends with "/models/{id}"; extract the trailing id.
         match name.rsplit_once("/models/") {
@@ -95,29 +203,28 @@ impl VertexAnthropicClient {
         }
     }
 
-    /// Create provider context for this client
-    fn build_context(&self) -> crate::core::ProviderContext {
-        crate::core::ProviderContext::new(
-            "anthropic-vertex",
-            self.config.base_url.clone(),
-            None,
-            self.config.http_config.headers.clone(),
-        )
+    /// Create provider context for this client.
+    async fn build_context(&self) -> crate::core::ProviderContext {
+        super::context::build_context(&self.config).await
     }
 
     /// Create chat executor using the builder pattern
-    fn build_chat_executor(&self, request: &ChatRequest) -> Arc<HttpChatExecutor> {
+    async fn build_chat_executor(&self, request: &ChatRequest) -> Arc<HttpChatExecutor> {
         use crate::core::ProviderSpec;
         use crate::execution::executors::chat::ChatExecutorBuilder;
 
-        let ctx = self.build_context();
+        let ctx = self.build_context().await;
+        let model = if request.common_params.model.trim().is_empty() {
+            self.config.model.clone()
+        } else {
+            request.common_params.model.clone()
+        };
         let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
             self.config.base_url.clone(),
-            self.config.model.clone(),
+            model,
             self.config.http_config.headers.clone(),
         ));
         let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
 
         let mut builder = ChatExecutorBuilder::new("anthropic-vertex", self.http_client.clone())
             .with_spec(spec)
@@ -127,8 +234,8 @@ impl VertexAnthropicClient {
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(self.model_middlewares.clone());
 
-        if let Some(hook) = before_send_hook {
-            builder = builder.with_before_send(hook);
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
         }
 
         if let Some(retry) = self.retry_options.clone() {
@@ -138,28 +245,53 @@ impl VertexAnthropicClient {
         builder.build()
     }
 
-    fn build_models_http_config(&self) -> HttpExecutionConfig {
-        let ctx = self.build_context();
+    fn prepare_chat_request(
+        &self,
+        mut request: ChatRequest,
+        stream: bool,
+    ) -> Result<ChatRequest, LlmError> {
+        if request.common_params.model.trim().is_empty() {
+            request.common_params.model = self.config.model.clone();
+        }
+        if request.common_params.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Vertex Anthropic request requires a non-empty model id".to_string(),
+            ));
+        }
+        if request.http_config.is_none() {
+            request.http_config = Some(self.config.http_config.clone());
+        }
+        request.stream = stream;
+        Ok(request)
+    }
+
+    async fn build_models_http_config(&self) -> HttpExecutionConfig {
+        let ctx = self.build_context().await;
         let spec = Arc::new(super::spec::VertexAnthropicSpec::new(
             self.config.base_url.clone(),
             self.config.model.clone(),
             self.config.http_config.headers.clone(),
         ));
-        crate::execution::wiring::HttpExecutionWiring::new(
+        let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             "anthropic-vertex",
             self.http_client.clone(),
             ctx,
         )
         .with_interceptors(self.http_interceptors.clone())
-        .with_retry_options(self.retry_options.clone())
-        .config(spec)
+        .with_retry_options(self.retry_options.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            wiring = wiring.with_transport(transport);
+        }
+
+        wiring.config(spec)
     }
 
     /// Execute chat request via spec (unified implementation)
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let exec = self.build_chat_executor(&request);
+        let exec = self.build_chat_executor(&request).await;
         ChatExecutor::execute(&*exec, request).await
     }
 
@@ -170,7 +302,7 @@ impl VertexAnthropicClient {
     ) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let exec = self.build_chat_executor(&request);
+        let exec = self.build_chat_executor(&request).await;
         ChatExecutor::execute_stream(&*exec, request).await
     }
 }
@@ -218,6 +350,16 @@ impl ChatCapability for VertexAnthropicClient {
 
         self.chat_stream_request_via_spec(req).await
     }
+
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let request = self.prepare_chat_request(request, false)?;
+        self.chat_request_via_spec(request).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        let request = self.prepare_chat_request(request, true)?;
+        self.chat_stream_request_via_spec(request).await
+    }
 }
 
 fn anthropic_backoff_executor() -> crate::retry_api::BackoffRetryExecutor {
@@ -262,7 +404,7 @@ impl VertexAnthropicClient {
 #[async_trait]
 impl ModelListingCapability for VertexAnthropicClient {
     async fn list_models(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let config = self.build_models_http_config();
+        let config = self.build_models_http_config().await;
         let url = config.provider_spec.models_url(&config.provider_context);
         let res = execute_get_request(&config, &url, None).await?;
         let json = res.json;
@@ -323,7 +465,7 @@ impl ModelListingCapability for VertexAnthropicClient {
         // Attempt to fetch a specific model; if endpoint is unavailable, fallback to minimal info
         let url =
             crate::utils::url::join_url(&self.config.base_url, &format!("models/{}", model_id));
-        let config = self.build_models_http_config();
+        let config = self.build_models_http_config().await;
         let res = match execute_get_request(&config, &url, None).await {
             Ok(res) => res,
             Err(_) => {
@@ -413,6 +555,66 @@ impl crate::client::LlmClient for VertexAnthropicClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
+        HttpTransportStreamResponse,
+    };
+    use async_trait::async_trait;
+    use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct CaptureTransport {
+        last: Arc<Mutex<Option<HttpTransportRequest>>>,
+        last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
+    }
+
+    impl CaptureTransport {
+        fn take(&self) -> Option<HttpTransportRequest> {
+            self.last.lock().expect("lock").take()
+        }
+
+        fn take_stream(&self) -> Option<HttpTransportRequest> {
+            self.last_stream.lock().expect("lock").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for CaptureTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last.lock().expect("lock") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 401,
+                headers,
+                body: br#"{"error":{"type":"auth_error","message":"unauthorized"}}"#.to_vec(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            *self.last_stream.lock().expect("lock") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportStreamResponse {
+                status: 401,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(
+                    br#"{"error":{"type":"auth_error","message":"unauthorized"}}"#.to_vec(),
+                ),
+            })
+        }
+    }
 
     #[test]
     fn vertex_anthropic_llmclient_exposes_chat_capability() {
@@ -420,6 +622,10 @@ mod tests {
             base_url: "https://example.invalid".to_string(),
             model: "claude-3-5-sonnet-20241022".to_string(),
             http_config: crate::types::HttpConfig::default(),
+            http_transport: None,
+            token_provider: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         };
         let client = VertexAnthropicClient::new(cfg, reqwest::Client::new());
         let llm: &dyn crate::client::LlmClient = &client;
@@ -429,5 +635,117 @@ mod tests {
         );
         assert!(llm.as_chat_capability().is_some());
         assert!(llm.capabilities().chat);
+    }
+
+    #[test]
+    fn prepare_chat_request_for_stream_sets_stream_and_fills_defaults() {
+        let cfg = VertexAnthropicConfig::new(
+            "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
+            "claude-3-5-sonnet-20241022",
+        )
+        .with_http_config(crate::types::HttpConfig::default());
+        let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, true)
+            .expect("prepare stream request");
+
+        assert!(prepared.stream);
+        assert_eq!(prepared.common_params.model, "claude-3-5-sonnet-20241022");
+        assert!(prepared.http_config.is_some());
+    }
+
+    #[test]
+    fn prepare_chat_request_for_non_stream_clears_stream_and_preserves_explicit_model() {
+        let cfg = VertexAnthropicConfig::new(
+            "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
+            "claude-3-5-sonnet-20241022",
+        )
+        .with_http_config(crate::types::HttpConfig::default());
+        let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .model("claude-3-7-sonnet-20250219")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .stream(true)
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, false)
+            .expect("prepare non-stream request");
+
+        assert!(!prepared.stream);
+        assert_eq!(prepared.common_params.model, "claude-3-7-sonnet-20250219");
+        assert!(prepared.http_config.is_some());
+    }
+
+    #[tokio::test]
+    async fn chat_request_uses_explicit_request_model_in_raw_predict_url() {
+        let transport = CaptureTransport::default();
+        let cfg = VertexAnthropicConfig::new(
+            "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
+            "claude-3-5-sonnet-20241022",
+        )
+        .with_authorization("Bearer test-token")
+        .with_http_transport(Arc::new(transport.clone()));
+        let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .model("claude-3-7-sonnet-20250219")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let err = client
+            .chat_request(request)
+            .await
+            .expect_err("transport should stop request");
+        assert!(matches!(err, LlmError::ApiError { code: 401, .. }));
+
+        let captured = transport.take().expect("captured request");
+        assert!(
+            captured
+                .url
+                .contains("/models/claude-3-7-sonnet-20250219:rawPredict"),
+            "unexpected url: {}",
+            captured.url
+        );
+        assert!(transport.take_stream().is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_uses_explicit_request_model_in_stream_raw_predict_url() {
+        let transport = CaptureTransport::default();
+        let cfg = VertexAnthropicConfig::new(
+            "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
+            "claude-3-5-sonnet-20241022",
+        )
+        .with_authorization("Bearer test-token")
+        .with_http_transport(Arc::new(transport.clone()));
+        let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .model("claude-3-7-sonnet-20250219")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let err = match client.chat_stream_request(request).await {
+            Ok(_) => panic!("transport should stop stream request"),
+            Err(err) => err,
+        };
+        assert!(matches!(err, LlmError::ApiError { code: 401, .. }));
+
+        let captured = transport.take_stream().expect("captured stream request");
+        assert!(
+            captured
+                .url
+                .contains("/models/claude-3-7-sonnet-20250219:streamRawPredict"),
+            "unexpected url: {}",
+            captured.url
+        );
+        assert!(transport.take().is_none());
     }
 }

@@ -71,7 +71,6 @@ impl GeminiChatCapability {
             self.config.clone(),
         ));
         let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
 
         let mut builder = ChatExecutorBuilder::new("gemini", self.http_client.clone())
             .with_spec(spec)
@@ -83,10 +82,6 @@ impl GeminiChatCapability {
 
         if let Some(transport) = self.config.http_transport.clone() {
             builder = builder.with_transport(transport);
-        }
-
-        if let Some(hook) = before_send_hook {
-            builder = builder.with_before_send(hook);
         }
 
         builder.build()

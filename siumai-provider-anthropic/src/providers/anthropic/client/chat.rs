@@ -68,6 +68,7 @@ impl ChatCapability for AnthropicClient {
     }
 
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
-        self.chat_stream_request_via_spec(request).await
+        self.chat_stream_request_via_spec(request.with_streaming(true))
+            .await
     }
 }

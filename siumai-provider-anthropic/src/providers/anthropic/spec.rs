@@ -550,6 +550,7 @@ impl AnthropicSpec {
                 "promptCaching" => "prompt_caching",
                 "thinkingMode" => "thinking_mode",
                 "responseFormat" => "response_format",
+                "structuredOutputMode" => "structured_output_mode",
                 "contextManagement" => "context_management",
                 "toolStreaming" => "tool_streaming",
                 "expiresAt" => "expires_at",

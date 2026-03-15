@@ -120,4 +120,128 @@ impl AnthropicConfig {
         self.common_params.max_tokens = Some(max_tokens);
         self
     }
+
+    pub const fn with_top_p(mut self, top_p: f64) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
+    pub fn with_anthropic_params(mut self, params: AnthropicParams) -> Self {
+        self.anthropic_params = params;
+        self
+    }
+
+    pub fn with_cache_control(mut self, cache: CacheControl) -> Self {
+        self.anthropic_params.cache_control = Some(cache);
+        self
+    }
+
+    pub const fn with_thinking_budget(mut self, budget: u32) -> Self {
+        self.anthropic_params.thinking_budget = Some(budget);
+        self
+    }
+
+    pub const fn with_thinking_enabled(mut self) -> Self {
+        self.anthropic_params.thinking_budget = Some(10000);
+        self
+    }
+
+    pub const fn with_thinking_mode(mut self, budget_tokens: Option<u32>) -> Self {
+        self.anthropic_params.thinking_budget = budget_tokens;
+        self
+    }
+
+    pub fn with_system_message<S: Into<String>>(mut self, system: S) -> Self {
+        self.anthropic_params.system = Some(system.into());
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: std::collections::HashMap<String, String>) -> Self {
+        self.anthropic_params.metadata = Some(metadata);
+        self
+    }
+
+    pub fn add_metadata<K, V>(mut self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.anthropic_params
+            .metadata
+            .get_or_insert_with(std::collections::HashMap::new)
+            .insert(key.into(), value.into());
+        self
+    }
+
+    pub const fn with_stream(mut self, enabled: bool) -> Self {
+        self.anthropic_params.stream = Some(enabled);
+        self
+    }
+
+    pub fn with_beta_features(mut self, features: Vec<String>) -> Self {
+        self.anthropic_params.beta_features = Some(features);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn anthropic_config_provider_specific_fluent_setters() {
+        let mut metadata = HashMap::new();
+        metadata.insert("team".to_string(), "core".to_string());
+
+        let config = AnthropicConfig::new("test-key")
+            .with_model("claude-3-7-sonnet-latest")
+            .with_top_p(0.9)
+            .with_cache_control(CacheControl::ephemeral())
+            .with_thinking_budget(2048)
+            .with_system_message("You are helpful")
+            .with_metadata(metadata)
+            .add_metadata("feature", "config-first")
+            .with_stream(true)
+            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()]);
+
+        assert_eq!(config.common_params.model, "claude-3-7-sonnet-latest");
+        assert_eq!(config.common_params.top_p, Some(0.9));
+        assert_eq!(
+            config
+                .anthropic_params
+                .cache_control
+                .as_ref()
+                .map(|c| c.r#type.as_str()),
+            Some("ephemeral")
+        );
+        assert_eq!(config.anthropic_params.thinking_budget, Some(2048));
+        assert_eq!(
+            config.anthropic_params.system.as_deref(),
+            Some("You are helpful")
+        );
+        assert_eq!(
+            config
+                .anthropic_params
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("team"))
+                .map(String::as_str),
+            Some("core")
+        );
+        assert_eq!(
+            config
+                .anthropic_params
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("feature"))
+                .map(String::as_str),
+            Some("config-first")
+        );
+        assert_eq!(config.anthropic_params.stream, Some(true));
+        assert_eq!(
+            config.anthropic_params.beta_features.as_deref(),
+            Some(&["prompt-caching-2024-07-31".to_string()][..])
+        );
+    }
 }

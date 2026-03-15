@@ -1,6 +1,7 @@
 //! Anthropic extended thinking helpers (extension API).
 
 use crate::error::LlmError;
+use crate::provider_metadata::anthropic::AnthropicChatResponseExt;
 use crate::provider_options::anthropic::{AnthropicOptions, ThinkingModeConfig};
 use crate::providers::anthropic::ext::AnthropicChatRequestExt;
 use crate::traits::ChatCapability;
@@ -32,24 +33,18 @@ where
 pub fn assistant_message_with_thinking_metadata(response: &ChatResponse) -> ChatMessage {
     let mut msg = response.to_assistant_message();
 
-    let Some(provider_meta) = response.provider_metadata.as_ref() else {
-        return msg;
-    };
-    let Some(anthropic) = provider_meta.get("anthropic") else {
+    let Some(anthropic) = response.anthropic_metadata() else {
         return msg;
     };
 
-    if let Some(sig) = anthropic.get("thinking_signature").and_then(|v| v.as_str()) {
+    if let Some(sig) = anthropic.thinking_signature.as_deref() {
         msg.metadata.custom.insert(
             "anthropic_thinking_signature".to_string(),
             serde_json::json!(sig),
         );
     }
 
-    if let Some(data) = anthropic
-        .get("redacted_thinking_data")
-        .and_then(|v| v.as_str())
-    {
+    if let Some(data) = anthropic.redacted_thinking_data.as_deref() {
         msg.metadata.custom.insert(
             "anthropic_redacted_thinking_data".to_string(),
             serde_json::json!(data),
@@ -72,4 +67,41 @@ pub fn assistant_message_with_thinking_metadata(response: &ChatResponse) -> Chat
     }
 
     msg
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assistant_message_with_thinking_metadata_uses_typed_metadata_fields() {
+        let mut response = ChatResponse::new(MessageContent::Text("visible".to_string()));
+        response.provider_metadata = Some(std::collections::HashMap::from([(
+            "anthropic".to_string(),
+            std::collections::HashMap::from([
+                ("thinking_signature".to_string(), serde_json::json!("sig-1")),
+                (
+                    "redacted_thinking_data".to_string(),
+                    serde_json::json!("redacted-blob"),
+                ),
+            ]),
+        )]));
+
+        let msg = assistant_message_with_thinking_metadata(&response);
+        assert_eq!(
+            msg.metadata
+                .custom
+                .get("anthropic_thinking_signature")
+                .and_then(|v| v.as_str()),
+            Some("sig-1")
+        );
+        assert_eq!(
+            msg.metadata
+                .custom
+                .get("anthropic_redacted_thinking_data")
+                .and_then(|v| v.as_str()),
+            Some("redacted-blob")
+        );
+        assert!(msg.has_reasoning());
+    }
 }

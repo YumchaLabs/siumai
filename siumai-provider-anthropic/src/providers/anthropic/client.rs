@@ -401,7 +401,6 @@ impl AnthropicClient {
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::anthropic::spec::AnthropicSpec::new());
         let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
 
         // Ensure required Anthropic beta headers are present when using provider-hosted tools.
         let mut middlewares = self.model_middlewares.clone();
@@ -423,10 +422,6 @@ impl AnthropicClient {
 
         if let Some(transport) = self.http_transport.clone() {
             builder = builder.with_transport(transport);
-        }
-
-        if let Some(hook) = before_send_hook {
-            builder = builder.with_before_send(hook);
         }
 
         if let Some(retry) = self.retry_options.clone() {
@@ -782,10 +777,81 @@ impl LlmClient for AnthropicClient {
     }
 }
 
+impl crate::traits::ModelMetadata for AnthropicClient {
+    fn provider_id(&self) -> &str {
+        "anthropic"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.common_params.model
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
+        HttpTransportStreamResponse,
+    };
+    use crate::provider_options::anthropic::{
+        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicEffort, AnthropicOptions,
+        ThinkingModeConfig,
+    };
     use crate::providers::anthropic::AnthropicConfig;
+    use crate::providers::anthropic::ext::request_options::AnthropicChatRequestExt;
+    use crate::traits::ChatCapability;
+    use async_trait::async_trait;
+    use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct CaptureStreamTransport {
+        last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
+    }
+
+    impl CaptureStreamTransport {
+        fn take_stream(&self) -> Option<HttpTransportRequest> {
+            self.last_stream.lock().expect("lock stream request").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for CaptureStreamTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 501,
+                headers,
+                body: br#"{"error":{"message":"json unsupported in test","type":"test_error","code":"unsupported"}}"#
+                    .to_vec(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            *self.last_stream.lock().expect("lock stream request") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream; charset=utf-8"),
+            );
+
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(Vec::new()),
+            })
+        }
+    }
 
     #[test]
     fn test_anthropic_client_creation() {
@@ -799,7 +865,7 @@ mod tests {
         );
 
         assert_eq!(
-            client.provider_id(),
+            crate::client::LlmClient::provider_id(&client),
             std::borrow::Cow::Borrowed("anthropic")
         );
         assert!(!client.supported_models().is_empty());
@@ -810,7 +876,7 @@ mod tests {
         let cfg = AnthropicConfig::new("test-key").with_model("claude-3-5-haiku-20241022");
         let client = AnthropicClient::from_config(cfg).expect("from_config ok");
         assert_eq!(
-            client.provider_id(),
+            crate::client::LlmClient::provider_id(&client),
             std::borrow::Cow::Borrowed("anthropic")
         );
         assert_eq!(client.common_params().model, "claude-3-5-haiku-20241022");
@@ -1166,6 +1232,126 @@ mod tests {
             .unwrap_or_default();
 
         assert_eq!(val, "computer-use-2025-01-24");
+    }
+
+    #[test]
+    fn anthropic_client_chat_stream_request_preserves_typed_options_and_transport_headers() {
+        let transport = CaptureStreamTransport::default();
+        let client = AnthropicClient::from_config(
+            AnthropicConfig::new("test-key")
+                .with_base_url("https://example.com/custom")
+                .with_model("claude-sonnet-4-5")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("build anthropic client");
+
+        let mut request = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_anthropic_options(
+                AnthropicOptions::new()
+                    .with_thinking_mode(ThinkingModeConfig {
+                        enabled: true,
+                        thinking_budget: Some(1000),
+                    })
+                    .with_json_object()
+                    .with_tool_streaming(false)
+                    .with_context_management(serde_json::json!({
+                        "clear_at_least": 1,
+                        "exclude_tools": ["editor"]
+                    }))
+                    .with_effort(AnthropicEffort::High)
+                    .with_container(AnthropicContainerConfig {
+                        id: Some("container-1".to_string()),
+                        skills: Some(vec![AnthropicContainerSkill {
+                            skill_type: "anthropic".to_string(),
+                            skill_id: "pptx".to_string(),
+                            version: "latest".to_string(),
+                        }]),
+                    }),
+            );
+        request.common_params.model = "claude-sonnet-4-5".to_string();
+        request.common_params.max_tokens = Some(2000);
+        request.common_params.temperature = Some(0.5);
+        request.common_params.top_p = Some(0.7);
+
+        let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
+        let stream = runtime
+            .block_on(client.chat_stream_request(request))
+            .expect("stream request succeeds");
+        drop(stream);
+
+        let req = transport.take_stream().expect("captured stream request");
+        assert_eq!(req.url, "https://example.com/custom/v1/messages");
+        assert_eq!(
+            req.headers.get("x-api-key").and_then(|s| s.to_str().ok()),
+            Some("test-key")
+        );
+        assert_eq!(
+            req.headers.get("accept").and_then(|s| s.to_str().ok()),
+            Some("text/event-stream")
+        );
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 1000
+            })
+        );
+        assert_eq!(req.body["max_tokens"], serde_json::json!(3000));
+        assert!(req.body.get("temperature").is_none());
+        assert!(req.body.get("top_p").is_none());
+        assert_eq!(
+            req.body["output_format"],
+            serde_json::json!({
+                "type": "json_object"
+            })
+        );
+        assert_eq!(
+            req.body["context_management"],
+            serde_json::json!({
+                "clear_at_least": 1,
+                "exclude_tools": ["editor"]
+            })
+        );
+        assert_eq!(
+            req.body["output_config"],
+            serde_json::json!({
+                "effort": "high"
+            })
+        );
+        assert_eq!(
+            req.body["container"],
+            serde_json::json!({
+                "id": "container-1",
+                "skills": [{
+                    "type": "anthropic",
+                    "skill_id": "pptx",
+                    "version": "latest"
+                }]
+            })
+        );
+
+        let beta = req
+            .headers
+            .get("anthropic-beta")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            beta.split(',')
+                .any(|token| token.trim() == "skills-2025-10-02"),
+            "missing skills beta token: {beta}"
+        );
+        assert!(
+            beta.split(',')
+                .any(|token| token.trim() == "files-api-2025-04-14"),
+            "missing files-api beta token: {beta}"
+        );
+        assert!(
+            !beta
+                .split(',')
+                .any(|token| token.trim() == "fine-grained-tool-streaming-2025-05-14"),
+            "unexpected fine-grained-tool-streaming beta token: {beta}"
+        );
     }
 
     #[test]

@@ -1,40 +1,40 @@
-//! Vertex ProviderContext helpers.
+//! Anthropic-on-Vertex ProviderContext helpers.
 //!
-//! Mirrors Gemini's pattern:
-//! - `ProviderContext.api_key` is used only for express mode (query param `key`).
-//! - Bearer auth is injected via `Authorization` header from `token_provider` when available.
+//! Mirrors the Google Vertex pattern:
+//! - auth is ultimately expressed as `Authorization: Bearer ...`
+//! - user-supplied `Authorization` must win
+//! - token providers can lazily inject a Bearer token into the runtime context
 
 use crate::core::ProviderContext;
 
-use super::client::GoogleVertexConfig;
+use super::client::VertexAnthropicConfig;
 
 fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
     headers
         .keys()
-        .any(|k| k.eq_ignore_ascii_case("authorization"))
+        .any(|key| key.eq_ignore_ascii_case("authorization"))
 }
 
-pub fn build_base_context(config: &GoogleVertexConfig) -> ProviderContext {
+pub fn build_base_context(config: &VertexAnthropicConfig) -> ProviderContext {
     ProviderContext::new(
-        "vertex",
+        "anthropic-vertex",
         config.base_url.clone(),
-        config.api_key.clone(),
+        None,
         config.http_config.headers.clone(),
     )
 }
 
-pub async fn build_context(config: &GoogleVertexConfig) -> ProviderContext {
+pub async fn build_context(config: &VertexAnthropicConfig) -> ProviderContext {
     let mut ctx = build_base_context(config);
 
-    // Vercel AI SDK alignment (provider-node): auto-inject Bearer token when available,
-    // but do not override user-supplied Authorization headers.
     if !has_auth_header(&ctx.http_extra_headers)
         && let Some(tp) = &config.token_provider
-        && let Ok(tok) = tp.token().await
+        && let Ok(token) = tp.token().await
     {
         ctx.http_extra_headers
-            .insert("Authorization".to_string(), format!("Bearer {tok}"));
+            .insert("Authorization".to_string(), format!("Bearer {token}"));
     }
+
     ctx
 }
 
@@ -46,14 +46,14 @@ mod tests {
 
     #[tokio::test]
     async fn build_context_injects_bearer_token_when_missing() {
-        let cfg = GoogleVertexConfig::new("https://example", "m")
+        let cfg = VertexAnthropicConfig::new("https://example", "claude")
             .with_token_provider(Arc::new(StaticTokenProvider::new("tok")));
 
         let ctx = build_context(&cfg).await;
         assert_eq!(
             ctx.http_extra_headers
                 .get("Authorization")
-                .map(|s| s.as_str()),
+                .map(String::as_str),
             Some("Bearer tok")
         );
     }
@@ -65,7 +65,7 @@ mod tests {
             .headers
             .insert("Authorization".to_string(), "Bearer user".to_string());
 
-        let cfg = GoogleVertexConfig::new("https://example", "m")
+        let cfg = VertexAnthropicConfig::new("https://example", "claude")
             .with_http_config(http_config)
             .with_token_provider(Arc::new(StaticTokenProvider::new("tok")));
 
@@ -73,7 +73,7 @@ mod tests {
         assert_eq!(
             ctx.http_extra_headers
                 .get("Authorization")
-                .map(|s| s.as_str()),
+                .map(String::as_str),
             Some("Bearer user")
         );
     }

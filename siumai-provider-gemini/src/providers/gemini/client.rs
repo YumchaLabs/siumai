@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use backoff::ExponentialBackoffBuilder;
 use reqwest::Client as HttpClient;
+use siumai_core::traits::ModelMetadata;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -216,6 +217,26 @@ impl GeminiClient {
             request.tools.as_deref(),
         )?;
         self.tokens().count_tokens_for_generate_request(typed).await
+    }
+
+    fn prepare_chat_request(
+        &self,
+        mut request: ChatRequest,
+        stream: bool,
+    ) -> Result<ChatRequest, LlmError> {
+        if request.common_params.model.trim().is_empty() {
+            request.common_params.model = self.common_params.model.clone();
+        }
+        if request.common_params.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Gemini chat request requires a non-empty model id".to_string(),
+            ));
+        }
+        if request.http_config.is_none() {
+            request.http_config = Some(self.config.http_config.clone());
+        }
+        request.stream = stream;
+        Ok(request)
     }
 
     /// Set the model to use
@@ -558,6 +579,16 @@ impl GeminiClient {
     }
 }
 
+impl ModelMetadata for GeminiClient {
+    fn provider_id(&self) -> &str {
+        "gemini"
+    }
+
+    fn model_id(&self) -> &str {
+        self.config.model.as_str()
+    }
+}
+
 impl GeminiClient {
     async fn chat_with_tools_inner(
         &self,
@@ -592,7 +623,6 @@ impl GeminiClient {
             self.config.clone(),
         ));
         let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
 
         let mut builder = ChatExecutorBuilder::new("gemini", self.http_client.clone())
             .with_spec(spec)
@@ -606,10 +636,6 @@ impl GeminiClient {
             builder = builder.with_transport(transport);
         }
 
-        if let Some(hook) = before_send_hook {
-            builder = builder.with_before_send(hook);
-        }
-
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
         }
@@ -621,6 +647,7 @@ impl GeminiClient {
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
+        let request = self.prepare_chat_request(request, false)?;
         let exec = self.build_chat_executor(&request).await;
         ChatExecutor::execute(&*exec, request).await
     }
@@ -632,6 +659,7 @@ impl GeminiClient {
     ) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
+        let request = self.prepare_chat_request(request, true)?;
         let exec = self.build_chat_executor(&request).await;
         ChatExecutor::execute_stream(&*exec, request).await
     }
@@ -797,5 +825,47 @@ mod tests {
         assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("gemini"));
         assert!(llm.as_chat_capability().is_some());
         assert!(llm.capabilities().chat);
+    }
+
+    #[test]
+    fn prepare_chat_request_for_stream_sets_stream_and_fills_defaults() {
+        let cfg = GeminiConfig::new("test-key")
+            .with_model("gemini-2.0-flash-exp".to_string())
+            .with_http_config(crate::types::HttpConfig::default());
+        let client = GeminiClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, true)
+            .expect("prepare stream request");
+
+        assert!(prepared.stream);
+        assert_eq!(prepared.common_params.model, "gemini-2.0-flash-exp");
+        assert!(prepared.http_config.is_some());
+    }
+
+    #[test]
+    fn prepare_chat_request_for_non_stream_clears_stream_and_preserves_explicit_model() {
+        let cfg = GeminiConfig::new("test-key")
+            .with_model("gemini-2.0-flash-exp".to_string())
+            .with_http_config(crate::types::HttpConfig::default());
+        let client = GeminiClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .model("gemini-1.5-flash")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .stream(true)
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, false)
+            .expect("prepare non-stream request");
+
+        assert!(!prepared.stream);
+        assert_eq!(prepared.common_params.model, "gemini-1.5-flash");
+        assert!(prepared.http_config.is_some());
     }
 }

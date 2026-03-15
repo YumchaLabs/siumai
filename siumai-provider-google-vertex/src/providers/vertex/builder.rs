@@ -169,7 +169,7 @@ impl GoogleVertexBuilder {
         self
     }
 
-    pub fn build(self) -> Result<GoogleVertexClient, LlmError> {
+    pub fn into_config(self) -> Result<GoogleVertexConfig, LlmError> {
         let api_key = self
             .api_key
             .or_else(|| std::env::var("GOOGLE_VERTEX_API_KEY").ok())
@@ -214,8 +214,6 @@ impl GoogleVertexBuilder {
             self.common_params.model.clone()
         };
 
-        let http_client = self.core.build_http_client()?;
-
         // Vercel AI SDK alignment (`@ai-sdk/google-vertex` exports the node variant by default):
         // - If no API key is provided (enterprise mode) and the user didn't supply an explicit
         //   Authorization header or custom token provider, auto-enable ADC-based auth (when available).
@@ -245,30 +243,83 @@ impl GoogleVertexBuilder {
             }
         };
 
-        let cfg = GoogleVertexConfig {
-            base_url,
-            model: model_id.clone(),
-            api_key,
-            http_config: HttpConfig {
-                ..self.core.http_config.clone()
-            },
-            http_transport: self.core.http_transport.clone(),
-            token_provider,
-        };
-
-        let mut client =
-            GoogleVertexClient::new(cfg, http_client).with_common_params(self.common_params);
-
-        if let Some(opts) = self.core.retry_options.clone() {
-            client = client.with_retry_options(opts);
-        }
+        let mut cfg = GoogleVertexConfig::new(base_url, model_id).with_http_config(HttpConfig {
+            ..self.core.http_config.clone()
+        });
 
         let interceptors = self.core.get_http_interceptors();
         if !interceptors.is_empty() {
-            client = client.with_interceptors(interceptors);
+            cfg = cfg.with_http_interceptors(interceptors);
+        }
+        if let Some(transport) = self.core.http_transport.clone() {
+            cfg = cfg.with_http_transport(transport);
+        }
+        if let Some(api_key) = api_key {
+            cfg = cfg.with_api_key(api_key);
+        }
+        if let Some(token_provider) = token_provider {
+            cfg = cfg.with_token_provider(token_provider);
+        }
+
+        Ok(cfg)
+    }
+
+    pub fn build(self) -> Result<GoogleVertexClient, LlmError> {
+        let http_client = self.core.build_http_client()?;
+        let retry_options = self.core.retry_options.clone();
+        let common_params = self.common_params.clone();
+        let mut client = GoogleVertexClient::with_http_client(self.into_config()?, http_client)?
+            .with_common_params(common_params);
+
+        if let Some(opts) = retry_options {
+            client = client.with_retry_options(opts);
         }
 
         Ok(client)
+    }
+}
+
+#[cfg(test)]
+mod config_first_tests {
+    use super::*;
+    use crate::builder::BuilderBase;
+    use crate::client::LlmClient;
+
+    #[derive(Clone, Default)]
+    struct NoopInterceptor;
+
+    impl crate::execution::http::interceptor::HttpInterceptor for NoopInterceptor {}
+
+    #[test]
+    fn into_config_uses_express_base_url_and_preserves_http_interceptors() {
+        let cfg = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("gemini-2.5-pro")
+            .with_http_interceptor(Arc::new(NoopInterceptor))
+            .into_config()
+            .expect("into_config");
+
+        assert_eq!(
+            cfg.base_url,
+            crate::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+        );
+        assert_eq!(cfg.api_key.as_deref(), Some("test-key"));
+        assert_eq!(cfg.model, "gemini-2.5-pro");
+        assert_eq!(cfg.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn build_and_into_config_converge_on_config_first_client_construction() {
+        let builder = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("gemini-2.5-pro");
+
+        let cfg = builder.clone().into_config().expect("into_config");
+        let built = builder.build().expect("build client");
+        let from_config = GoogleVertexClient::from_config(cfg).expect("from_config client");
+
+        assert_eq!(built.base_url(), from_config.base_url());
+        assert_eq!(built.supported_models(), from_config.supported_models());
     }
 }
 
