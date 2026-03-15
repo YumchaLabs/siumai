@@ -175,6 +175,15 @@ impl MinimaxiClient {
         self
     }
 
+    fn merge_default_provider_options(&self, mut request: ChatRequest) -> ChatRequest {
+        if !self.config.default_provider_options_map.is_empty() {
+            let mut merged = self.config.default_provider_options_map.clone();
+            merged.merge_overrides(std::mem::take(&mut request.provider_options_map));
+            request.provider_options_map = merged;
+        }
+        request
+    }
+
     fn build_context(&self) -> crate::core::ProviderContext {
         super::utils::build_context(
             &self.config.api_key,
@@ -319,6 +328,7 @@ impl ChatCapability for MinimaxiClient {
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
+        let request = self.merge_default_provider_options(request);
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
     }
@@ -326,7 +336,7 @@ impl ChatCapability for MinimaxiClient {
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let request = request.with_streaming(true);
+        let request = self.merge_default_provider_options(request.with_streaming(true));
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
     }
@@ -345,7 +355,7 @@ impl ChatCapability for MinimaxiClient {
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
-        let request = builder.build();
+        let request = self.merge_default_provider_options(builder.build());
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
@@ -366,7 +376,7 @@ impl ChatCapability for MinimaxiClient {
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
-        let request = builder.build();
+        let request = self.merge_default_provider_options(builder.build());
 
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
@@ -797,5 +807,49 @@ mod tests {
         assert!(captured.body.get("temperature").is_none());
         assert!(captured.body.get("tool_choice").is_none());
         assert!(captured.body.get("tools").is_none());
+    }
+
+    #[tokio::test]
+    async fn minimaxi_client_merges_config_default_provider_options_before_request_overrides() {
+        let transport = CaptureTransport::default();
+        let client = MinimaxiClient::from_config(
+            MinimaxiConfig::new("test-key")
+                .with_base_url("https://example.com/custom")
+                .with_model("MiniMax-M2")
+                .with_http_transport(Arc::new(transport.clone()))
+                .with_reasoning_budget(1024)
+                .with_json_object(),
+        )
+        .expect("build minimaxi client");
+
+        let request = ChatRequest::builder()
+            .model("MiniMax-M2")
+            .max_tokens(256)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_minimaxi_options(MinimaxiOptions::new().with_reasoning_budget(2048));
+
+        let _ = client.chat_request(request).await;
+        let captured = transport
+            .last
+            .lock()
+            .expect("lock request")
+            .take()
+            .expect("captured");
+
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+        assert_eq!(captured.body["max_tokens"], serde_json::json!(2304));
+        assert_eq!(
+            captured.body["output_format"],
+            serde_json::json!({
+                "type": "json_object"
+            })
+        );
     }
 }

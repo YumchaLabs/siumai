@@ -6,6 +6,7 @@ use std::time::Duration;
 
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
+use crate::provider_options::{MinimaxiOptions, MinimaxiThinkingModeConfig};
 use crate::retry_api::RetryOptions;
 
 use super::client::MinimaxiClient;
@@ -150,6 +151,47 @@ impl MinimaxiBuilder {
         interceptor: std::sync::Arc<dyn crate::execution::http::interceptor::HttpInterceptor>,
     ) -> Self {
         self.core = self.core.with_http_interceptor(interceptor);
+        self
+    }
+
+    /// Merge MiniMaxi default provider options into the builder config.
+    pub fn with_minimaxi_options(mut self, options: MinimaxiOptions) -> Self {
+        self.config = self.config.with_minimaxi_options(options);
+        self
+    }
+
+    /// Configure MiniMaxi thinking mode defaults.
+    pub fn with_thinking_mode(mut self, config: MinimaxiThinkingModeConfig) -> Self {
+        self.config = self.config.with_thinking_mode(config);
+        self
+    }
+
+    /// Configure MiniMaxi reasoning enablement defaults.
+    pub fn with_reasoning_enabled(mut self, enabled: bool) -> Self {
+        self.config = self.config.with_reasoning_enabled(enabled);
+        self
+    }
+
+    /// Configure MiniMaxi reasoning budget defaults.
+    pub fn with_reasoning_budget(mut self, budget: u32) -> Self {
+        self.config = self.config.with_reasoning_budget(budget);
+        self
+    }
+
+    /// Configure MiniMaxi JSON-object structured output defaults.
+    pub fn with_json_object(mut self) -> Self {
+        self.config = self.config.with_json_object();
+        self
+    }
+
+    /// Configure MiniMaxi JSON-schema structured output defaults.
+    pub fn with_json_schema(
+        mut self,
+        name: impl Into<String>,
+        schema: serde_json::Value,
+        strict: bool,
+    ) -> Self {
+        self.config = self.config.with_json_schema(name, schema, strict);
         self
     }
 
@@ -315,5 +357,27 @@ mod config_first_tests {
             built.config().model_middlewares.len(),
             from_config.config().model_middlewares.len()
         );
+    }
+
+    #[test]
+    fn into_config_preserves_default_minimaxi_provider_options() {
+        let cfg = MinimaxiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("MiniMax-M2")
+            .with_reasoning_budget(1024)
+            .with_json_object()
+            .into_config()
+            .expect("into_config");
+
+        let value = cfg
+            .default_provider_options_map
+            .get("minimaxi")
+            .expect("minimaxi defaults");
+        assert_eq!(value["thinking_mode"]["enabled"], serde_json::json!(true));
+        assert_eq!(
+            value["thinking_mode"]["thinking_budget"],
+            serde_json::json!(1024)
+        );
+        assert_eq!(value["response_format"], serde_json::json!("JsonObject"));
     }
 }
