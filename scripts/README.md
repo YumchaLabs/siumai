@@ -46,6 +46,13 @@ SIUMAI_REGISTRY_FEATURES="openai,anthropic" \
 SIUMAI_TEST_FACADE=1 SIUMAI_FEATURES="openai" ./scripts/test-smoke.sh
 ```
 
+Notes:
+
+- The `openai-compatible` smoke preset now covers the shared
+  `siumai-provider-openai-compatible` package plus the `deepseek`, `groq`, and `xai` wrappers.
+- The `all-providers` smoke/test-fast presets now also include the focused provider packages
+  `deepseek`, `cohere`, `togetherai`, and `bedrock`.
+
 ## 🧪 Integration Test Scripts
 
 ### `run_integration_tests.sh` (Linux/macOS)

@@ -10,7 +10,7 @@ Environment:
   SIUMAI_SMOKE_PROFILE        Optional preset for a provider feature set.
                              Values:
                                - openai (default)
-                               - openai-compatible (openai + openai_compatible + groq + xai)
+                               - openai-compatible (openai + openai-compatible + groq + xai + deepseek)
                                - all-providers
                                - custom (use the *_FEATURES vars below)
 
@@ -50,9 +50,9 @@ case "${profile}" in
   openai-compatible)
     # Goal: keep a fast but meaningful refactor safety net for the OpenAI-compatible stack.
     # Note: `openai_compatible` provider module is behind the `openai` cargo feature.
-    : "${SIUMAI_CORE_FEATURES:=openai,groq,xai}"
-    : "${SIUMAI_REGISTRY_FEATURES:=openai,groq,xai}"
-    : "${SIUMAI_FEATURES:=openai,groq,xai}"
+    : "${SIUMAI_CORE_FEATURES:=openai,groq,xai,deepseek}"
+    : "${SIUMAI_REGISTRY_FEATURES:=openai,groq,xai,deepseek}"
+    : "${SIUMAI_FEATURES:=openai,groq,xai,deepseek}"
     ;;
   all-providers)
     : "${SIUMAI_CORE_FEATURES:=all-providers}"
@@ -95,20 +95,34 @@ run_provider_tests() {
 
 if [[ ",${registry_features}," == *",all-providers,"* ]]; then
   run_provider_tests siumai-provider-openai openai
+  run_provider_tests siumai-provider-openai-compatible openai-standard
   run_provider_tests siumai-provider-anthropic anthropic
   run_provider_tests siumai-provider-gemini google
   run_provider_tests siumai-provider-ollama ollama
   run_provider_tests siumai-provider-groq groq
   run_provider_tests siumai-provider-xai xai
   run_provider_tests siumai-provider-minimaxi minimaxi
+  run_provider_tests siumai-provider-deepseek deepseek
+  run_provider_tests siumai-provider-cohere cohere
+  run_provider_tests siumai-provider-togetherai togetherai
+  run_provider_tests siumai-provider-amazon-bedrock bedrock
 else
-  [[ ",${registry_features}," == *",openai,"* ]] && run_provider_tests siumai-provider-openai openai
+  if [[ ",${registry_features}," == *",openai,"* ]]; then
+    run_provider_tests siumai-provider-openai openai
+    run_provider_tests siumai-provider-openai-compatible openai-standard
+  fi
+  [[ ",${registry_features}," == *",azure,"* ]] && run_provider_tests siumai-provider-azure azure
   [[ ",${registry_features}," == *",anthropic,"* ]] && run_provider_tests siumai-provider-anthropic anthropic
   [[ ",${registry_features}," == *",google,"* ]] && run_provider_tests siumai-provider-gemini google
+  [[ ",${registry_features}," == *",google-vertex,"* ]] && run_provider_tests siumai-provider-google-vertex google-vertex
   [[ ",${registry_features}," == *",ollama,"* ]] && run_provider_tests siumai-provider-ollama ollama
   [[ ",${registry_features}," == *",groq,"* ]] && run_provider_tests siumai-provider-groq groq
   [[ ",${registry_features}," == *",xai,"* ]] && run_provider_tests siumai-provider-xai xai
   [[ ",${registry_features}," == *",minimaxi,"* ]] && run_provider_tests siumai-provider-minimaxi minimaxi
+  [[ ",${registry_features}," == *",deepseek,"* ]] && run_provider_tests siumai-provider-deepseek deepseek
+  [[ ",${registry_features}," == *",cohere,"* ]] && run_provider_tests siumai-provider-cohere cohere
+  [[ ",${registry_features}," == *",togetherai,"* ]] && run_provider_tests siumai-provider-togetherai togetherai
+  [[ ",${registry_features}," == *",bedrock,"* ]] && run_provider_tests siumai-provider-amazon-bedrock bedrock
 fi
 
 echo "[test-smoke] Running registry unit tests (features: ${registry_features})..."

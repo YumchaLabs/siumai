@@ -6,7 +6,7 @@
 
 
 
-Last updated: 2026-03-12
+Last updated: 2026-03-15
 
 
 
@@ -1224,7 +1224,7 @@ Acceptance criteria:
 
 
 
-Status: not started
+Status: in progress
 
 
 
@@ -1325,7 +1325,13 @@ Acceptance criteria:
 
 
 
-Status: not started
+Status: in progress
+
+Notes:
+
+- The post-refactor validation phase now has an explicit `validation-matrix.md` document that maps local smoke loops, PR gates, merge-time heavy lanes, and release readiness checks.
+- CI now validates the split package topology more directly: PRs compile `siumai` under every first-class provider feature, and a dedicated provider-package build matrix compiles each `siumai-provider-*` crate under its own feature gate.
+- `pr-facade-guardrails` continues to compile `siumai` examples under `all-providers` and run `public_surface_imports_test`, so the example tree and public export paths remain part of the release gate rather than informal follow-up work.
 
 
 

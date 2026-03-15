@@ -1,0 +1,139 @@
+# Fearless Refactor V4 - Validation Matrix
+
+Last updated: 2026-03-15
+
+## Purpose
+
+The V4 refactor is no longer blocked on large architectural moves.
+
+The main risk now is **feature drift across package boundaries**:
+
+- a provider package compiles on its own but not through `siumai`
+- a facade feature compiles, but the provider-owned package surface regresses
+- examples or public-surface tests drift behind the real provider matrix
+
+This document defines the validation lanes that close those gaps.
+
+## Validation tiers
+
+### Tier 0 - Local refactor loop
+
+Use these during normal implementation:
+
+- `cargo fmt --all --check`
+- `./scripts/test-fast.sh`
+- `./scripts/test-smoke.sh`
+- targeted `cargo nextest run -p siumai --test ...`
+
+Goal:
+
+- catch obvious compile and contract regressions quickly
+- keep no-network parity tests as the default signal
+- avoid paying the `--all-features --workspace` cost for every edit
+
+### Tier 1 - Pull request gates
+
+PR validation must prove that the public package layout still compiles in feature-minimal mode.
+
+Required lanes:
+
+1. `test`
+   - core safety net
+   - minimal facade compile/test path (`siumai` with `openai`)
+
+2. `pr-provider-smoke`
+   - single-feature facade compile matrix for each first-class provider surface
+   - current set:
+     - `openai`
+     - `azure`
+     - `anthropic`
+     - `google`
+     - `google-vertex`
+     - `ollama`
+     - `xai`
+     - `groq`
+     - `minimaxi`
+     - `deepseek`
+     - `cohere`
+     - `togetherai`
+     - `bedrock`
+
+3. `provider-package-build-matrix`
+   - compile each provider package directly with its own feature gate
+   - protects provider-owned public surfaces that the facade does not compile exhaustively
+   - also covers compatibility packages such as:
+     - `siumai-provider-openai-compatible`
+     - `siumai-provider-anthropic-compatible`
+
+4. `pr-facade-guardrails`
+   - compile all `siumai` examples under `all-providers`
+   - run `public_surface_imports_test`
+
+Acceptance rule:
+
+- a provider migration is not considered operationally complete until it is present in both the
+  facade feature smoke lane and the direct provider-package build lane
+
+### Tier 2 - Mainline / merge validation
+
+These lanes are allowed to be heavier:
+
+1. `cargo nextest run --profile ci --all-features --workspace`
+2. facade feature build matrix
+3. extras feature build matrix
+4. docs build
+5. formatting and clippy
+
+The facade feature build matrix must include:
+
+- all first-class single-provider features
+- cross-feature combinations that exercise non-default wiring:
+  - `openai,openai-websocket`
+  - `google,gcp`
+  - `openai,json-repair`
+  - `all-providers`
+
+### Tier 3 - Release readiness
+
+Before calling the V4 line release-ready:
+
+- all Tier 1 and Tier 2 lanes must be green
+- major examples must compile on their recommended construction paths
+- at least one no-network parity or fixture test must exist for every newly aligned provider story
+- migration docs must point users to the preferred path:
+  - registry-first
+  - config-first
+  - builder convenience last
+
+Live integration tests remain valuable, but they are **not** the primary architectural gate.
+
+## Package-boundary mapping
+
+Use the following mapping when deciding where to add validation:
+
+| Surface | Primary validation | Secondary validation |
+|---|---|---|
+| `siumai-provider-*` provider-owned surface | `provider-package-build-matrix` | provider-local tests / examples |
+| `siumai` facade single-provider feature | `pr-provider-smoke` / `feature-build-matrix` | top-level no-network tests |
+| `siumai` public examples and exports | `pr-facade-guardrails` | docs review |
+| `siumai-extras` optional integration layers | `extras-build-matrix` | focused crate tests |
+
+## Current focus
+
+The current post-refactor validation focus is:
+
+1. keep every provider package independently buildable
+2. keep `siumai` feature-minimal builds honest
+3. make the example tree reflect the real package tiers
+4. prevent “default feature passes, non-default provider breaks” regressions
+
+## Non-goals
+
+This matrix is not trying to:
+
+- make every provider participate in every Stable family
+- require live-network tests for routine refactor confidence
+- force one giant `all-features` job to be the only source of truth
+
+The goal is a layered gate system where **package boundaries, feature boundaries, and public
+examples all have explicit owners**.

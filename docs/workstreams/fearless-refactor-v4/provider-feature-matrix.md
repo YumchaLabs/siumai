@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Provider Feature Matrix
 
-Last updated: 2026-03-13
+Last updated: 2026-03-15
 
 This document is a working matrix for **cross-provider feature alignment**.
 It is intentionally pragmatic: it focuses on *what must feel consistent to users* while allowing
@@ -26,6 +26,8 @@ high-value, while keeping **Compatibility** thin and non-authoritative.
 For package-boundary decisions (full provider package vs focused package vs compat preset),
 see `provider-package-alignment.md`.
 
+For CI ownership and release gating of this matrix, see `validation-matrix.md`.
+
 ## Status legend
 
 - `[x]` shipped / aligned
@@ -46,6 +48,16 @@ A feature is considered aligned when:
 2. Provider-specific differences are isolated under **Extension** or `provider_options_map`.
 3. Errors are predictable (same categories, similar messages), and tests cover the invariants.
 4. Builder APIs are not required to access the capability (no builder-only features).
+
+## Validation mapping
+
+An aligned row should now have a visible validation owner:
+
+- **provider package compile lane** for provider-owned surfaces
+- **facade feature smoke lane** for the corresponding `siumai` feature
+- **public example or no-network contract test** for the recommended user path
+
+If a row has architecture notes but no validation owner, it is not considered fully stabilized.
 
 ## Matrix (high-level)
 

@@ -47,17 +47,24 @@ case "${provider_profile}" in
     ;;
   openai-compatible)
     cargo test -p siumai-provider-openai --lib --features openai
+    cargo test -p siumai-provider-openai-compatible --lib --features openai-standard
     cargo test -p siumai-provider-groq --lib --features groq
     cargo test -p siumai-provider-xai --lib --features xai
+    cargo test -p siumai-provider-deepseek --lib --features deepseek
     ;;
   all-providers)
     cargo test -p siumai-provider-openai --lib --features openai
+    cargo test -p siumai-provider-openai-compatible --lib --features openai-standard
     cargo test -p siumai-provider-anthropic --lib --features anthropic
     cargo test -p siumai-provider-gemini --lib --features google
     cargo test -p siumai-provider-ollama --lib --features ollama
     cargo test -p siumai-provider-groq --lib --features groq
     cargo test -p siumai-provider-xai --lib --features xai
     cargo test -p siumai-provider-minimaxi --lib --features minimaxi
+    cargo test -p siumai-provider-deepseek --lib --features deepseek
+    cargo test -p siumai-provider-cohere --lib --features cohere
+    cargo test -p siumai-provider-togetherai --lib --features togetherai
+    cargo test -p siumai-provider-amazon-bedrock --lib --features bedrock
     ;;
   *)
     echo "[test-fast] Unknown SIUMAI_PROVIDER_PROFILE='${provider_profile}'."

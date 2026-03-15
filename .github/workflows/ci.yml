@@ -82,7 +82,7 @@ jobs:
         run: cargo fmt --all -- --check
 
   pr-provider-smoke:
-    name: PR Provider Smoke (facade)
+    name: PR Facade Feature Smoke
     if: ${{ github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
     strategy:
@@ -90,8 +90,18 @@ jobs:
       matrix:
         features:
           - openai
+          - azure
           - anthropic
           - google
+          - google-vertex
+          - ollama
+          - xai
+          - groq
+          - minimaxi
+          - deepseek
+          - cohere
+          - togetherai
+          - bedrock
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -102,8 +112,77 @@ jobs:
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Cargo check (siumai)
-        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }}
+      - name: Cargo check (siumai facade + tests)
+        run: cargo check -p siumai --no-default-features --features ${{ matrix.features }} --lib --tests
+
+  provider-package-build-matrix:
+    name: Provider Package Build Matrix (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      RUSTFLAGS: "-C debuginfo=0"
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: openai
+            package: siumai-provider-openai
+            features: openai
+          - name: openai-compatible
+            package: siumai-provider-openai-compatible
+            features: openai-standard
+          - name: azure
+            package: siumai-provider-azure
+            features: azure
+          - name: anthropic
+            package: siumai-provider-anthropic
+            features: anthropic
+          - name: anthropic-compatible
+            package: siumai-provider-anthropic-compatible
+            features: anthropic
+          - name: gemini
+            package: siumai-provider-gemini
+            features: google
+          - name: google-vertex
+            package: siumai-provider-google-vertex
+            features: google-vertex
+          - name: ollama
+            package: siumai-provider-ollama
+            features: ollama
+          - name: xai
+            package: siumai-provider-xai
+            features: xai
+          - name: groq
+            package: siumai-provider-groq
+            features: groq
+          - name: minimaxi
+            package: siumai-provider-minimaxi
+            features: minimaxi
+          - name: deepseek
+            package: siumai-provider-deepseek
+            features: deepseek
+          - name: cohere
+            package: siumai-provider-cohere
+            features: cohere
+          - name: togetherai
+            package: siumai-provider-togetherai
+            features: togetherai
+          - name: bedrock
+            package: siumai-provider-amazon-bedrock
+            features: bedrock
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo check (provider package)
+        run: cargo check -p ${{ matrix.package }} --all-targets --no-default-features --features ${{ matrix.features }}
 
   pr-facade-guardrails:
     name: PR Facade Guardrails (public surface + examples)
@@ -142,14 +221,22 @@ jobs:
       matrix:
         features:
           - openai
+          - azure
           - anthropic
           - google
+          - google-vertex
           - xai
           - groq
           - ollama
           - minimaxi
+          - deepseek
+          - cohere
+          - togetherai
+          - bedrock
+          - openai,openai-websocket
           - google,gcp
           - openai,json-repair
+          - all-providers
     steps:
       - name: Checkout
         uses: actions/checkout@v4

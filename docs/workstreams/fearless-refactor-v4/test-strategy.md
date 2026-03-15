@@ -6,7 +6,7 @@
 
 
 
-Last updated: 2026-03-12
+Last updated: 2026-03-15
 
 
 
@@ -119,6 +119,28 @@ The migration should rely primarily on:
 
 
 Live integration tests remain valuable, but should not be the main signal for architectural correctness.
+
+### T4 - Feature-minimal builds are part of the contract
+
+The V4 package split makes feature-minimal builds a first-class correctness signal.
+
+It is no longer enough that `--all-features` happens to pass.
+
+We must prove that:
+
+- each provider package builds under its own feature gate
+- the `siumai` facade builds under each first-class provider feature
+- `all-providers` examples still compile on the public recommended paths
+
+### T5 - CI lanes should mirror package boundaries
+
+Validation should follow the public package story:
+
+- provider packages get direct package-level build coverage
+- the facade gets feature-matrix coverage
+- examples and public-surface imports get their own guardrail lane
+
+See `validation-matrix.md` for the operational mapping.
 
 
 
@@ -309,6 +331,20 @@ Expected properties:
 
 
 
+
+## CI validation lanes
+
+The V4 test pyramid now maps into explicit CI lanes:
+
+- **PR safety net**: fast core tests plus minimal facade checks
+- **Facade feature smoke**: one feature-minimal build per first-class provider
+- **Provider package build matrix**: direct compile coverage for each `siumai-provider-*` crate
+- **Public guardrails**: `public_surface_imports_test` plus example compilation
+- **Mainline heavy lane**: `cargo nextest run --profile ci --all-features --workspace`
+
+This is intentional.
+
+The architectural risk after the refactor is mostly cross-boundary drift, not lack of raw test count.
 
 ## Level 3 - Provider parity tests
 

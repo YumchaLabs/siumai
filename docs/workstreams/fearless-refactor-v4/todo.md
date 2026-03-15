@@ -6,7 +6,7 @@
 
 
 
-Last updated: 2026-03-12
+Last updated: 2026-03-15
 
 
 
@@ -889,6 +889,12 @@ Status legend:
   - Registry family handles now follow that same fail-fast contract beyond rerank as well: unsupported native `embedding_model`, `image_model`, `speech_model`, and `transcription_model` entries reject construction up front instead of leaking dead-end handles that only fail on first use.
   - Focused OpenAI-compatible presets now also lock the same rule on the generic registry text entry: `registry.language_model("jina:...")` and `registry.language_model("voyageai:...")` reject construction up front, while mixed-surface `infini` keeps the positive text handle and remains the reference case for “chat + embedding can coexist on one preset”.
   - The generic registry text entry now uses the same rule for all focused non-chat providers, not just OpenAI-compatible presets: rerank-only `cohere` / `togetherai` entries now reject `registry.language_model("provider:model")` construction up front, while chat-capable mixed surfaces like `infini` still keep the positive path.
+
+- [x] Add a validation matrix and wire CI gates to package boundaries.
+  - `validation-matrix.md` now defines Tier 0 / Tier 1 / Tier 2 / Tier 3 validation lanes so the post-refactor phase is governed by explicit package-boundary gates instead of only ad hoc full-workspace runs.
+  - PR CI now compiles the `siumai` facade under every first-class provider feature (`openai`, `azure`, `anthropic`, `google`, `google-vertex`, `ollama`, `xai`, `groq`, `minimaxi`, `deepseek`, `cohere`, `togetherai`, `bedrock`) instead of only the earlier narrow subset.
+  - CI now also compiles each provider package directly under its own feature gate, including the compatibility packages, so provider-owned public surfaces can no longer regress silently behind the top-level facade build.
+  - Local smoke/test scripts now follow that same matrix more closely by including the OpenAI-compatible package plus the focused provider packages in the `openai-compatible` / `all-providers` presets.
 
 - [x] Add a public API story doc that assigns registry-first, config-first, `provider_ext`, and `compat` surfaces to clear roles.
 
