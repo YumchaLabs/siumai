@@ -285,64 +285,162 @@ impl OllamaBuilder {
         self
     }
 
-    /// Build the Ollama client
-    pub async fn build(self) -> Result<crate::providers::ollama::OllamaClient, LlmError> {
-        // Step 1: Get API key (not required for Ollama)
-        // Note: Ollama typically doesn't require an API key
+    /// Set a custom HTTP transport (Vercel-style `fetch` parity).
+    pub fn with_http_transport(
+        mut self,
+        transport: std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.core = self.core.with_http_transport(transport);
+        self
+    }
 
-        // Step 2: Get base URL (from parameter or default)
+    /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
+    pub fn fetch(
+        self,
+        transport: std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
+    }
+
+    /// Convert the builder into the canonical Ollama config.
+    pub fn into_config(self) -> Result<crate::providers::ollama::OllamaConfig, LlmError> {
         let base_url = self
             .base_url
             .unwrap_or_else(|| "http://localhost:11434".to_string());
+        let model_id = self.common_params.model.clone();
 
-        // Note: Tracing initialization has been moved to siumai-extras.
-        // Users should initialize tracing manually using siumai_extras::telemetry
-        // or tracing_subscriber directly before creating the client.
-
-        // Step 3: Build configuration
-        let model_from_common_params = self.common_params.model.clone();
-
-        let http_config_clone = self.core.http_config.clone();
-
-        let config = crate::providers::ollama::OllamaConfig::builder()
+        crate::providers::ollama::OllamaConfig::builder()
             .base_url(base_url)
+            .model(self.model.unwrap_or(model_id.clone()))
             .common_params(self.common_params)
-            .http_config(http_config_clone.clone())
-            .ollama_params(self.ollama_params);
+            .http_config(self.core.http_config.clone())
+            .ollama_params(self.ollama_params)
+            .http_transport_opt(self.core.http_transport.clone())
+            .http_interceptors(self.core.get_http_interceptors())
+            .model_middlewares(self.core.get_auto_middlewares("ollama", &model_id))
+            .build()
+    }
 
-        let config = config.build()?;
+    /// Build the Ollama client
+    pub async fn build(self) -> Result<crate::providers::ollama::OllamaClient, LlmError> {
+        let http_client_override = self.core.base.http_client.clone();
+        let tracing_config = self.core.tracing_config.clone();
+        let retry_options = self.core.retry_options.clone();
+        let config = self.into_config()?;
 
-        // Step 4: Build HTTP client from core
-        let http_client = self.core.build_http_client()?;
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
 
-        // Step 5: Create client instance
-        let mut client = crate::providers::ollama::OllamaClient::new(config, http_client);
-
-        // Step 6: Apply tracing and retry configuration from core
-        if let Some(ref tracing_config) = self.core.tracing_config {
-            client.set_tracing_config(Some(tracing_config.clone()));
-        }
-        if let Some(ref retry_options) = self.core.retry_options {
-            client.set_retry_options(Some(retry_options.clone()));
-        }
-
-        // Step 7: Install HTTP interceptors
-        let interceptors = self.core.get_http_interceptors();
-        if !interceptors.is_empty() {
-            client = client.with_http_interceptors(interceptors);
-        }
-
-        // Step 8: Install automatic middlewares
-        let model_id = if !model_from_common_params.is_empty() {
-            model_from_common_params.as_str()
+        let mut client = if let Some(http_client) = http_client_override {
+            crate::providers::ollama::OllamaClient::new(config, http_client)
+                .with_http_interceptors(http_interceptors)
+                .with_model_middlewares(model_middlewares)
         } else {
-            ""
+            crate::providers::ollama::OllamaClient::from_config(config)?
         };
-        let middlewares = self.core.get_auto_middlewares("ollama", model_id);
-        if !middlewares.is_empty() {
-            client = client.with_model_middlewares(middlewares);
+
+        if let Some(tracing_config) = tracing_config {
+            client.set_tracing_config(Some(tracing_config));
+        }
+        if let Some(retry_options) = retry_options {
+            client.set_retry_options(Some(retry_options));
         }
 
         Ok(client)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn ollama_builder_into_config_converges_on_ollama_config() {
+        let config = OllamaBuilder::new(BuilderBase::default())
+            .base_url("http://localhost:11434")
+            .model("llama3.2")
+            .temperature(0.5)
+            .max_tokens(256)
+            .timeout(Duration::from_secs(13))
+            .http_debug(true)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.base_url, "http://localhost:11434");
+        assert_eq!(config.model.as_deref(), Some("llama3.2"));
+        assert_eq!(config.common_params.model, "llama3.2");
+        assert_eq!(config.common_params.temperature, Some(0.5));
+        assert_eq!(config.common_params.max_tokens, Some(256));
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(13)));
+        assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn ollama_builder_into_config_matches_manual_ollama_config() {
+        let builder_config = OllamaBuilder::new(BuilderBase::default())
+            .base_url("http://localhost:11434")
+            .model("llama3.2")
+            .temperature(0.5)
+            .max_tokens(256)
+            .keep_alive("5m")
+            .timeout(Duration::from_secs(13))
+            .http_debug(true)
+            .into_config()
+            .expect("builder config");
+
+        let mut http_config = crate::types::HttpConfig::default();
+        http_config.timeout = Some(Duration::from_secs(13));
+        let manual_config = crate::providers::ollama::OllamaConfig::builder()
+            .base_url("http://localhost:11434")
+            .model("llama3.2")
+            .common_params(crate::types::CommonParams {
+                model: "llama3.2".to_string(),
+                temperature: Some(0.5),
+                max_tokens: Some(256),
+                ..Default::default()
+            })
+            .http_config(http_config)
+            .keep_alive("5m")
+            .http_interceptors(vec![Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            )])
+            .model_middlewares(crate::execution::middleware::build_auto_middlewares_vec(
+                "ollama", "llama3.2",
+            ))
+            .build()
+            .expect("manual config");
+
+        assert_eq!(builder_config.base_url, manual_config.base_url);
+        assert_eq!(builder_config.model, manual_config.model);
+        assert_eq!(
+            builder_config.common_params.model,
+            manual_config.common_params.model
+        );
+        assert_eq!(
+            builder_config.common_params.temperature,
+            manual_config.common_params.temperature
+        );
+        assert_eq!(
+            builder_config.common_params.max_tokens,
+            manual_config.common_params.max_tokens
+        );
+        assert_eq!(
+            builder_config.ollama_params.keep_alive,
+            manual_config.ollama_params.keep_alive
+        );
+        assert_eq!(
+            builder_config.http_config.timeout,
+            manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_interceptors.len(),
+            manual_config.http_interceptors.len()
+        );
+        assert_eq!(
+            builder_config.model_middlewares.len(),
+            manual_config.model_middlewares.len()
+        );
     }
 }

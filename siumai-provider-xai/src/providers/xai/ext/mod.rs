@@ -4,5 +4,7 @@
 //! Use them when you need xAI-specific escape hatches.
 
 pub mod request_options;
+pub mod tts_options;
 
 pub use request_options::XaiChatRequestExt;
+pub use tts_options::XaiTtsRequestExt;

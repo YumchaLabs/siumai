@@ -26,6 +26,9 @@ pub struct OllamaChatRequest {
     /// Additional model options
     #[serde(skip_serializing_if = "Option::is_none")]
     pub options: Option<HashMap<String, serde_json::Value>>,
+    /// Raw mode (bypass templating)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw: Option<bool>,
     /// Keep model loaded duration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub keep_alive: Option<String>,

@@ -136,6 +136,11 @@ impl ProviderSpec for GroqSpec {
                 let mut out = body.clone();
                 if let Some(obj) = out.as_object_mut() {
                     for (k, v) in &extra {
+                        if matches!(k.as_str(), "response_format" | "tool_choice")
+                            && obj.contains_key(k)
+                        {
+                            continue;
+                        }
                         obj.insert(k.clone(), v.clone());
                     }
                 }
@@ -171,6 +176,9 @@ impl GroqSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ProviderContext;
+    use crate::core::ProviderSpec;
+    use crate::types::{ChatMessage, ChatRequest, CommonParams, FinishReason, Tool, ToolChoice};
 
     #[test]
     fn groq_spec_declares_audio_capability() {
@@ -179,5 +187,249 @@ mod tests {
             caps.supports("audio"),
             "GroqSpec must declare audio=true to pass HttpAudioExecutor capability guards"
         );
+    }
+
+    #[test]
+    fn groq_adapter_preserves_response_format_json_schema() {
+        use crate::types::chat::ResponseFormat;
+
+        let spec = GroqSpec;
+        let ctx = ProviderContext::new(
+            "groq",
+            crate::providers::groq::config::GroqConfig::DEFAULT_BASE_URL.to_string(),
+            None,
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(CommonParams {
+                model: "llama-3.3-70b-versatile".to_string(),
+                ..Default::default()
+            })
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).unwrap();
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn groq_spec_merges_typed_provider_options_before_send() {
+        use crate::provider_options::{
+            GroqOptions, GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+        };
+        use crate::providers::groq::ext::GroqChatRequestExt;
+
+        let spec = GroqSpec;
+        let ctx = ProviderContext::new(
+            "groq",
+            crate::providers::groq::config::GroqConfig::DEFAULT_BASE_URL.to_string(),
+            None,
+            Default::default(),
+        );
+
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(CommonParams {
+                model: "llama-3.3-70b-versatile".to_string(),
+                ..Default::default()
+            })
+            .build()
+            .with_groq_options(
+                GroqOptions::new()
+                    .with_logprobs(true)
+                    .with_top_logprobs(2)
+                    .with_service_tier(GroqServiceTier::Flex)
+                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_reasoning_format(GroqReasoningFormat::Parsed),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).unwrap();
+        let hook = spec.chat_before_send(&req, &ctx).expect("before-send hook");
+        let body = hook(&body).expect("hook should produce body");
+
+        assert_eq!(body["logprobs"], serde_json::json!(true));
+        assert_eq!(body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(body["service_tier"], serde_json::json!("flex"));
+        assert_eq!(body["reasoning_effort"], serde_json::json!("default"));
+        assert_eq!(body["reasoning_format"], serde_json::json!("parsed"));
+    }
+
+    #[test]
+    fn groq_spec_keeps_stable_response_format_while_merging_typed_provider_options() {
+        use crate::provider_options::{
+            GroqOptions, GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+        };
+        use crate::providers::groq::ext::GroqChatRequestExt;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = GroqSpec;
+        let ctx = ProviderContext::new(
+            "groq",
+            crate::providers::groq::config::GroqConfig::DEFAULT_BASE_URL.to_string(),
+            None,
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(CommonParams {
+                model: "llama-3.3-70b-versatile".to_string(),
+                ..Default::default()
+            })
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build()
+            .with_groq_options(
+                GroqOptions::new()
+                    .with_logprobs(true)
+                    .with_top_logprobs(2)
+                    .with_service_tier(GroqServiceTier::Flex)
+                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_reasoning_format(GroqReasoningFormat::Parsed)
+                    .with_param(
+                        "response_format",
+                        serde_json::json!({
+                            "type": "json_object"
+                        }),
+                    ),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).unwrap();
+        let hook = spec.chat_before_send(&req, &ctx).expect("before-send hook");
+        let body = hook(&body).expect("hook should produce body");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+        assert_eq!(body["logprobs"], serde_json::json!(true));
+        assert_eq!(body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(body["service_tier"], serde_json::json!("flex"));
+        assert_eq!(body["reasoning_effort"], serde_json::json!("default"));
+        assert_eq!(body["reasoning_format"], serde_json::json!("parsed"));
+    }
+
+    #[test]
+    fn groq_adapter_preserves_tool_choice_none_with_tools() {
+        let spec = GroqSpec;
+        let ctx = ProviderContext::new(
+            "groq",
+            crate::providers::groq::config::GroqConfig::DEFAULT_BASE_URL.to_string(),
+            None,
+            Default::default(),
+        );
+
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(CommonParams {
+                model: "llama-3.3-70b-versatile".to_string(),
+                ..Default::default()
+            })
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::None)
+            .build()
+            .with_provider_option(
+                "groq",
+                serde_json::json!({
+                    "tool_choice": "auto"
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).unwrap();
+        let hook = spec.chat_before_send(&req, &ctx).expect("before-send hook");
+        let body = hook(&body).expect("hook should produce body");
+        assert_eq!(body.get("tool_choice"), Some(&serde_json::json!("none")));
+    }
+
+    #[test]
+    fn groq_adapter_maps_tool_call_responses_like_openai() {
+        let spec = GroqSpec;
+        let ctx = ProviderContext::new(
+            "groq",
+            crate::providers::groq::config::GroqConfig::DEFAULT_BASE_URL.to_string(),
+            None,
+            Default::default(),
+        );
+
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(CommonParams {
+                model: "llama-3.3-70b-versatile".to_string(),
+                ..Default::default()
+            })
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let raw = serde_json::json!({
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "llama-3.3-70b-versatile",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"city\":\"Tokyo\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = bundle.response.transform_chat_response(&raw).unwrap();
+        assert_eq!(resp.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(resp.tool_calls().len(), 1);
+        let call = resp.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(call.tool_call_id, "call_1");
+        assert_eq!(call.tool_name, "get_weather");
+        assert_eq!(call.arguments, &serde_json::json!({ "city": "Tokyo" }));
     }
 }

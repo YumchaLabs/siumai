@@ -15,4 +15,12 @@ pub mod builder {
     pub use siumai_core::builder::*;
 }
 
+pub mod providers;
 pub mod standards;
+
+pub use types::{ChatResponse, CommonParams};
+
+/// Provider-owned typed response metadata (`ChatResponse.provider_metadata["bedrock"]`).
+pub mod provider_metadata;
+/// Provider-owned typed option structs (Bedrock-specific).
+pub mod provider_options;

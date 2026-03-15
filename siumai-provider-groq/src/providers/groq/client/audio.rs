@@ -17,6 +17,7 @@ impl AudioCapability for GroqClient {
         request: crate::types::TtsRequest,
     ) -> Result<crate::types::TtsResponse, LlmError> {
         use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder};
+        let request = request.with_model_if_missing(self.inner().model().to_string());
 
         let spec = std::sync::Arc::new(spec::GroqSpec);
         let ctx = self.provider_context();
@@ -50,6 +51,7 @@ impl AudioCapability for GroqClient {
         request: crate::types::SttRequest,
     ) -> Result<crate::types::SttResponse, LlmError> {
         use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder};
+        let request = request.with_model_if_missing(self.inner().model().to_string());
 
         let spec = std::sync::Arc::new(spec::GroqSpec);
         let ctx = self.provider_context();

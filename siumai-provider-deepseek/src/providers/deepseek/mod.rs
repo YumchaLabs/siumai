@@ -27,9 +27,16 @@
 //! ```
 
 pub mod builder;
+mod client;
+pub mod config;
+pub mod ext;
 pub mod models;
+pub mod spec;
 
 pub use builder::DeepSeekBuilder;
+pub use client::DeepSeekClient;
+pub use config::DeepSeekConfig;
 
-pub type DeepSeekClient =
-    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
+// Provider-owned typed options live at the crate root; re-export them under the provider path.
+pub use crate::provider_options::DeepSeekOptions;
+pub use spec::DeepSeekSpec;

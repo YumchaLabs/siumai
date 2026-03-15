@@ -8,13 +8,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::client::LlmClient;
+use crate::core::ProviderContext;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    ChatCapability, EmbeddingCapability, LlmProvider, ModelListingCapability, ProviderCapabilities,
+    ChatCapability, EmbeddingCapability, EmbeddingExtensions, LlmProvider, ModelListingCapability,
+    ProviderCapabilities,
 };
 use crate::types::*;
 
@@ -159,6 +162,19 @@ impl OllamaClient {
             .with_model_middlewares(model_middlewares))
     }
 
+    /// Construct an `OllamaClient` from an `OllamaConfig` with a caller-supplied HTTP client.
+    pub fn with_http_client(
+        config: OllamaConfig,
+        http_client: reqwest::Client,
+    ) -> Result<Self, LlmError> {
+        config.validate()?;
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+        Ok(Self::new(config, http_client)
+            .with_http_interceptors(http_interceptors)
+            .with_model_middlewares(model_middlewares))
+    }
+
     /// Creates a new Ollama client with configuration
     pub fn new_with_config(config: OllamaConfig) -> Self {
         let http_interceptors = config.http_interceptors.clone();
@@ -174,6 +190,36 @@ impl OllamaClient {
     /// Get the base URL
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    /// Get the normalized provider context used by execution helpers.
+    pub fn provider_context(&self) -> ProviderContext {
+        ProviderContext::new(
+            "ollama",
+            self.base_url.clone(),
+            None,
+            std::collections::HashMap::new(),
+        )
+    }
+
+    /// Get the underlying HTTP client.
+    pub fn http_client(&self) -> reqwest::Client {
+        self.http_client.clone()
+    }
+
+    /// Get unified retry options.
+    pub fn retry_options(&self) -> Option<RetryOptions> {
+        self.retry_options.clone()
+    }
+
+    /// Get installed HTTP interceptors.
+    pub fn http_interceptors(&self) -> Vec<Arc<dyn HttpInterceptor>> {
+        self.http_interceptors.clone()
+    }
+
+    /// Get the installed custom HTTP transport.
+    pub fn http_transport(&self) -> Option<Arc<dyn HttpTransport>> {
+        self.http_transport.clone()
     }
 
     /// Set the tracing configuration
@@ -420,8 +466,19 @@ impl OllamaClient {
     ) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
+        let request = request.with_streaming(true);
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
+    }
+}
+
+impl crate::traits::ModelMetadata for OllamaClient {
+    fn provider_id(&self) -> &str {
+        "ollama"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.common_params.model
     }
 }
 
@@ -477,6 +534,16 @@ impl EmbeddingCapability for OllamaClient {
 
     fn embedding_dimension(&self) -> usize {
         self.embedding_capability.embedding_dimension()
+    }
+}
+
+#[async_trait]
+impl EmbeddingExtensions for OllamaClient {
+    async fn embed_with_config(
+        &self,
+        request: EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, LlmError> {
+        self.embedding_capability.embed_with_config(request).await
     }
 }
 
@@ -572,7 +639,100 @@ fn ollama_backoff_executor() -> crate::retry_api::BackoffRetryExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
+        HttpTransportStreamResponse,
+    };
     use crate::providers::ollama::ext::OllamaChatRequestExt;
+    use async_trait::async_trait;
+    use futures_util::StreamExt;
+    use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+    use std::sync::Mutex;
+
+    #[derive(Clone, Default)]
+    struct CaptureTransport {
+        last: Arc<Mutex<Option<HttpTransportRequest>>>,
+    }
+
+    #[async_trait]
+    impl HttpTransport for CaptureTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last.lock().unwrap() = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: br#"{"model":"llama3.2","message":{"role":"assistant","content":"ok"},"done":true}"#
+                    .to_vec(),
+            })
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct RecordingTransport {
+        json_calls: Arc<Mutex<Vec<HttpTransportRequest>>>,
+        stream_calls: Arc<Mutex<Vec<HttpTransportRequest>>>,
+    }
+
+    impl RecordingTransport {
+        fn json_calls(&self) -> Vec<HttpTransportRequest> {
+            self.json_calls.lock().unwrap().clone()
+        }
+
+        fn stream_calls(&self) -> Vec<HttpTransportRequest> {
+            self.stream_calls.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for RecordingTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            self.json_calls.lock().unwrap().push(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: br#"{"model":"llama3.2","message":{"role":"assistant","content":"ok"},"done":true}"#
+                    .to_vec(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            self.stream_calls.lock().unwrap().push(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("application/x-ndjson"),
+            );
+
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(
+                    br#"{"model":"llama3.2","message":{"role":"assistant","content":"ok"},"done":false}
+{"model":"llama3.2","done":true,"prompt_eval_count":1,"eval_count":1}
+"#
+                    .to_vec(),
+                ),
+            })
+        }
+    }
 
     #[test]
     fn test_client_creation() {
@@ -591,6 +751,31 @@ mod tests {
         let config = OllamaConfig::default();
         let client = OllamaClient::from_config(config).expect("from_config ok");
         assert_eq!(client.base_url(), "http://localhost:11434");
+    }
+
+    #[test]
+    fn ollama_client_with_http_client_preserves_wrapper_context() {
+        let transport = CaptureTransport::default();
+        let config = OllamaConfig::builder()
+            .base_url("http://localhost:11434/custom/")
+            .model("llama3.2")
+            .http_transport(Arc::new(transport))
+            .build()
+            .expect("build ollama config");
+
+        let mut client =
+            OllamaClient::with_http_client(config, reqwest::Client::new()).expect("client ok");
+        client.set_retry_options(Some(RetryOptions::backoff()));
+
+        let ctx = client.provider_context();
+        assert_eq!(ctx.provider_id, "ollama");
+        assert_eq!(ctx.base_url, "http://localhost:11434/custom/");
+        assert!(ctx.api_key.is_none());
+        assert_eq!(client.base_url(), "http://localhost:11434/custom/");
+        assert!(client.retry_options().is_some());
+        assert!(client.http_transport().is_some());
+        assert_eq!(crate::traits::ModelMetadata::provider_id(&client), "ollama");
+        assert_eq!(crate::traits::ModelMetadata::model_id(&client), "llama3.2");
     }
 
     #[test]
@@ -624,6 +809,7 @@ mod tests {
         let client = OllamaClient::new_with_config(config)
             .with_model("llama3.2")
             .with_keep_alive("10m")
+            .with_raw(true)
             .with_format("json")
             .with_reasoning_enabled()
             .with_option(
@@ -638,6 +824,7 @@ mod tests {
             .with_ollama_options(
                 OllamaOptions::new()
                     .with_keep_alive("1m")
+                    .with_raw_mode(false)
                     .with_param("think", serde_json::json!(false))
                     .with_param("num_ctx", serde_json::json!(4096)),
             );
@@ -646,9 +833,100 @@ mod tests {
         let json = exec.request_transformer.transform_chat(&request).unwrap();
 
         assert_eq!(json["keep_alive"], "1m");
+        assert_eq!(json["raw"], false);
         assert_eq!(json["format"], "json");
         assert_eq!(json["think"], false);
         assert_eq!(json["options"]["num_ctx"], 4096);
         assert_eq!(json["options"]["top_k"], 40);
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_forces_stream_true_and_preserves_response_format_schema() {
+        let transport = RecordingTransport::default();
+        let config = OllamaConfig::builder()
+            .base_url("http://localhost:11434/custom/")
+            .model("llama3.2")
+            .http_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("build ollama config");
+        let client = OllamaClient::from_config(config).expect("client ok");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model("llama3.2")
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .provider_option("ollama", serde_json::json!({ "format": "json" }))
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                schema.clone(),
+            ))
+            .build();
+
+        let mut stream = client
+            .chat_stream_request(request)
+            .await
+            .expect("stream request ok");
+        while let Some(event) = stream.next().await {
+            let event = event.expect("stream event ok");
+            if matches!(event, crate::types::ChatStreamEvent::StreamEnd { .. }) {
+                break;
+            }
+        }
+
+        let json_calls = transport.json_calls();
+        assert!(
+            json_calls.is_empty(),
+            "stream path should not use execute_json"
+        );
+
+        let stream_calls = transport.stream_calls();
+        assert_eq!(stream_calls.len(), 1);
+
+        let call = &stream_calls[0];
+        assert_eq!(call.url, "http://localhost:11434/custom/api/chat");
+        assert_eq!(call.body["stream"], serde_json::json!(true));
+        assert_eq!(call.body["format"], schema);
+    }
+
+    #[tokio::test]
+    async fn chat_request_required_tool_choice_fails_fast_before_transport() {
+        let transport = RecordingTransport::default();
+        let config = OllamaConfig::builder()
+            .base_url("http://localhost:11434/custom/")
+            .model("llama3.2")
+            .http_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("build ollama config");
+        let client = OllamaClient::from_config(config).expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("llama3.2")
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    },
+                    "required": ["city"]
+                }),
+            )])
+            .tool_choice(crate::types::ToolChoice::Required)
+            .build();
+
+        let err = client
+            .chat_request(request)
+            .await
+            .expect_err("required tool_choice should fail before transport");
+        assert!(matches!(err, LlmError::UnsupportedOperation(_)));
+        assert!(transport.json_calls().is_empty());
+        assert!(transport.stream_calls().is_empty());
     }
 }

@@ -73,6 +73,133 @@ mod message_tests {
         assert_eq!(body.messages[0].tool_name.as_deref(), Some("get_weather"));
         assert_eq!(body.messages[0].content, "11 degrees");
     }
+
+    #[test]
+    fn build_chat_request_maps_response_format_json_schema_to_ollama_format() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
+                ..Default::default()
+            })
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                schema.clone(),
+            ))
+            .build();
+
+        let body = build_chat_request(&req, &OllamaParams::default()).unwrap();
+        assert_eq!(body.format, Some(schema));
+    }
+
+    #[test]
+    fn response_format_overrides_ollama_provider_option_format() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
+                ..Default::default()
+            })
+            .provider_option("ollama", serde_json::json!({ "format": "json" }))
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                schema.clone(),
+            ))
+            .build();
+
+        let body = build_chat_request(&req, &OllamaParams::default()).unwrap();
+        assert_eq!(body.format, Some(schema));
+    }
+
+    #[test]
+    fn build_chat_request_omits_tools_when_tool_choice_none() {
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
+                ..Default::default()
+            })
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    },
+                    "required": ["city"]
+                }),
+            )])
+            .tool_choice(crate::types::ToolChoice::None)
+            .build();
+
+        let body = build_chat_request(&req, &OllamaParams::default()).unwrap();
+        assert!(body.tools.is_none());
+    }
+
+    #[test]
+    fn build_chat_request_rejects_required_tool_choice() {
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
+                ..Default::default()
+            })
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    },
+                    "required": ["city"]
+                }),
+            )])
+            .tool_choice(crate::types::ToolChoice::Required)
+            .build();
+
+        let err = build_chat_request(&req, &OllamaParams::default()).expect_err("expected error");
+        assert!(matches!(err, crate::LlmError::UnsupportedOperation(_)));
+    }
+
+    #[test]
+    fn build_chat_request_rejects_specific_tool_choice() {
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
+                ..Default::default()
+            })
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    },
+                    "required": ["city"]
+                }),
+            )])
+            .tool_choice(crate::types::ToolChoice::tool("get_weather"))
+            .build();
+
+        let err = build_chat_request(&req, &OllamaParams::default()).expect_err("expected error");
+        assert!(matches!(err, crate::LlmError::UnsupportedOperation(_)));
+    }
 }
 
 /// Convert common `ChatMessage` to Ollama format
@@ -219,9 +346,9 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
 
     // Add tool calls if present
     if let Some(tool_calls) = &message.tool_calls {
-        for tc in tool_calls {
+        for (idx, tc) in tool_calls.iter().enumerate() {
             parts.push(crate::types::ContentPart::tool_call(
-                format!("call_{}", chrono::Utc::now().timestamp_millis()),
+                format!("call_{idx}"),
                 tc.function.name.clone(),
                 tc.function.arguments.clone(),
                 None,
@@ -539,15 +666,39 @@ pub fn build_chat_request(
         }
     }
 
-    // Convert tools
-    let tools = request
-        .tools
-        .as_ref()
-        .map(|tools| tools.iter().filter_map(convert_tool).collect());
+    // Convert tools. Ollama does not expose a native `tool_choice` field:
+    // - `ToolChoice::None` can be represented by omitting tools
+    // - `ToolChoice::Required` / `ToolChoice::Tool { .. }` cannot be mapped faithfully and
+    //   therefore fail fast instead of silently degrading to `Auto`
+    match request.tool_choice.as_ref() {
+        Some(crate::types::ToolChoice::Required) => {
+            return Err(crate::LlmError::UnsupportedOperation(
+                "Ollama does not support ToolChoice::Required on the native chat route."
+                    .to_string(),
+            ));
+        }
+        Some(crate::types::ToolChoice::Tool { .. }) => {
+            return Err(crate::LlmError::UnsupportedOperation(
+                "Ollama does not support forcing a specific tool on the native chat route."
+                    .to_string(),
+            ));
+        }
+        _ => {}
+    }
+
+    let tools = if matches!(request.tool_choice, Some(crate::types::ToolChoice::None)) {
+        None
+    } else {
+        request
+            .tools
+            .as_ref()
+            .map(|tools| tools.iter().filter_map(convert_tool).collect())
+    };
 
     // Merge provider options
     let mut keep_alive = default_params.keep_alive.clone();
     let mut format_str = default_params.format.clone();
+    let mut raw = default_params.raw;
     let mut think_override: Option<bool> = None;
     let mut extra_params: HashMap<String, serde_json::Value> = HashMap::new();
 
@@ -562,10 +713,18 @@ pub fn build_chat_request(
         if opts.format.is_some() {
             format_str = opts.format.clone();
         }
+        if opts.raw.is_some() {
+            raw = opts.raw;
+        }
         think_override = opts.extra_params.get("think").and_then(|v| v.as_bool());
         extra_params = opts.extra_params.clone();
         extra_params.remove("think");
     }
+
+    let response_format_value = match &request.response_format {
+        Some(crate::types::chat::ResponseFormat::Json { schema, .. }) => Some(schema.clone()),
+        None => None,
+    };
 
     // Build options: common params + runtime options + custom maps
     let mut options = build_model_options(
@@ -607,12 +766,14 @@ pub fn build_chat_request(
         messages,
         tools,
         stream: Some(request.stream),
-        format: format_str.as_deref().and_then(parse_format_value),
+        format: response_format_value
+            .or_else(|| format_str.as_deref().and_then(parse_format_value)),
         options: if options.is_empty() {
             None
         } else {
             Some(options)
         },
+        raw,
         keep_alive,
         think,
     })
@@ -751,6 +912,58 @@ pub fn calculate_tokens_per_second(
     }
 }
 
+pub(crate) fn build_ollama_provider_metadata(
+    total_duration: Option<u64>,
+    load_duration: Option<u64>,
+    prompt_eval_duration: Option<u64>,
+    eval_duration: Option<u64>,
+    eval_count: Option<u32>,
+) -> Option<HashMap<String, HashMap<String, serde_json::Value>>> {
+    let mut ollama_metadata = HashMap::new();
+
+    if let Some(tokens_per_second) = calculate_tokens_per_second(eval_count, eval_duration) {
+        ollama_metadata.insert(
+            "tokens_per_second".to_string(),
+            serde_json::Value::Number(
+                serde_json::Number::from_f64(tokens_per_second)
+                    .unwrap_or_else(|| serde_json::Number::from(0)),
+            ),
+        );
+    }
+    if let Some(total_duration) = total_duration {
+        ollama_metadata.insert(
+            "total_duration_ms".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(total_duration / 1_000_000)),
+        );
+    }
+    if let Some(load_duration) = load_duration {
+        ollama_metadata.insert(
+            "load_duration_ms".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(load_duration / 1_000_000)),
+        );
+    }
+    if let Some(prompt_eval_duration) = prompt_eval_duration {
+        ollama_metadata.insert(
+            "prompt_eval_duration_ms".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(prompt_eval_duration / 1_000_000)),
+        );
+    }
+    if let Some(eval_duration) = eval_duration {
+        ollama_metadata.insert(
+            "eval_duration_ms".to_string(),
+            serde_json::Value::Number(serde_json::Number::from(eval_duration / 1_000_000)),
+        );
+    }
+
+    if ollama_metadata.is_empty() {
+        None
+    } else {
+        let mut meta = HashMap::new();
+        meta.insert("ollama".to_string(), ollama_metadata);
+        Some(meta)
+    }
+}
+
 /// Convert an Ollama chat response to the unified `ChatResponse` (includes provider metadata).
 pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::ChatResponse {
     let message = convert_from_ollama_message(&response.message);
@@ -771,49 +984,38 @@ pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::Chat
     };
 
     // Finish reason
-    let finish_reason = response
-        .done_reason
-        .as_deref()
-        .map(|reason| match reason {
-            "stop" => crate::types::FinishReason::Stop,
-            "length" => crate::types::FinishReason::Length,
-            _ => crate::types::FinishReason::Other(reason.to_string()),
-        })
-        .or({
-            if response.done {
-                Some(crate::types::FinishReason::Stop)
-            } else {
-                None
-            }
-        });
-
-    // Provider metadata
-    let mut ollama_metadata = HashMap::new();
-    if let Some(tokens_per_second) =
-        calculate_tokens_per_second(response.eval_count, response.eval_duration)
-    {
-        ollama_metadata.insert(
-            "tokens_per_second".to_string(),
-            serde_json::Value::Number(
-                serde_json::Number::from_f64(tokens_per_second)
-                    .unwrap_or_else(|| serde_json::Number::from(0)),
-            ),
-        );
-    }
-    if let Some(total_duration) = response.total_duration {
-        ollama_metadata.insert(
-            "total_duration_ms".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(total_duration / 1_000_000)),
-        );
-    }
-
-    let provider_metadata = if !ollama_metadata.is_empty() {
-        let mut meta = HashMap::new();
-        meta.insert("ollama".to_string(), ollama_metadata);
-        Some(meta)
+    let has_tool_calls = response
+        .message
+        .tool_calls
+        .as_ref()
+        .is_some_and(|calls| !calls.is_empty());
+    let finish_reason = if has_tool_calls {
+        Some(crate::types::FinishReason::ToolCalls)
     } else {
-        None
+        response
+            .done_reason
+            .as_deref()
+            .map(|reason| match reason {
+                "stop" => crate::types::FinishReason::Stop,
+                "length" => crate::types::FinishReason::Length,
+                _ => crate::types::FinishReason::Other(reason.to_string()),
+            })
+            .or({
+                if response.done {
+                    Some(crate::types::FinishReason::Stop)
+                } else {
+                    None
+                }
+            })
     };
+
+    let provider_metadata = build_ollama_provider_metadata(
+        response.total_duration,
+        response.load_duration,
+        response.prompt_eval_duration,
+        response.eval_duration,
+        response.eval_count,
+    );
 
     crate::types::ChatResponse {
         id: Some(format!("ollama-{}", chrono::Utc::now().timestamp_millis())),
@@ -890,5 +1092,92 @@ mod tests {
         assert_eq!(calculate_tokens_per_second(None, Some(1_000_000_000)), None);
         assert_eq!(calculate_tokens_per_second(Some(100), None), None);
         assert_eq!(calculate_tokens_per_second(Some(100), Some(0)), None);
+    }
+
+    #[test]
+    fn test_convert_chat_response_maps_tool_calls_and_finish_reason() {
+        let response = OllamaChatResponse {
+            model: "llama3.2".to_string(),
+            created_at: "2026-03-07T00:00:00Z".to_string(),
+            message: OllamaChatMessage {
+                role: "assistant".to_string(),
+                content: String::new(),
+                tool_name: None,
+                images: None,
+                tool_calls: Some(vec![OllamaToolCall {
+                    function: OllamaFunctionCall {
+                        name: "get_weather".to_string(),
+                        arguments: serde_json::json!({ "city": "Toronto" }),
+                    },
+                }]),
+                thinking: None,
+            },
+            done: true,
+            done_reason: Some("stop".to_string()),
+            total_duration: None,
+            load_duration: None,
+            prompt_eval_count: Some(10),
+            prompt_eval_duration: None,
+            eval_count: Some(20),
+            eval_duration: None,
+        };
+
+        let converted = convert_chat_response(response);
+        assert_eq!(
+            converted.finish_reason,
+            Some(crate::types::FinishReason::ToolCalls)
+        );
+        assert_eq!(converted.tool_calls().len(), 1);
+        let call = converted.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(call.tool_call_id, "call_0");
+        assert_eq!(call.tool_name, "get_weather");
+        assert_eq!(call.arguments, &serde_json::json!({ "city": "Toronto" }));
+    }
+
+    #[test]
+    fn test_convert_chat_response_emits_ollama_timing_metadata() {
+        let response = OllamaChatResponse {
+            model: "llama3.2".to_string(),
+            created_at: "2026-03-07T00:00:00Z".to_string(),
+            message: OllamaChatMessage {
+                role: "assistant".to_string(),
+                content: "Hello there!".to_string(),
+                tool_name: None,
+                images: None,
+                tool_calls: None,
+                thinking: None,
+            },
+            done: true,
+            done_reason: Some("stop".to_string()),
+            total_duration: Some(1_250_000_000),
+            load_duration: Some(150_000_000),
+            prompt_eval_count: Some(10),
+            prompt_eval_duration: Some(200_000_000),
+            eval_count: Some(20),
+            eval_duration: Some(700_000_000),
+        };
+
+        let converted = convert_chat_response(response);
+        assert_eq!(
+            converted.get_metadata("ollama", "total_duration_ms"),
+            Some(&serde_json::json!(1250))
+        );
+        assert_eq!(
+            converted.get_metadata("ollama", "load_duration_ms"),
+            Some(&serde_json::json!(150))
+        );
+        assert_eq!(
+            converted.get_metadata("ollama", "prompt_eval_duration_ms"),
+            Some(&serde_json::json!(200))
+        );
+        assert_eq!(
+            converted.get_metadata("ollama", "eval_duration_ms"),
+            Some(&serde_json::json!(700))
+        );
+        assert!(
+            converted
+                .get_metadata("ollama", "tokens_per_second")
+                .is_some()
+        );
     }
 }

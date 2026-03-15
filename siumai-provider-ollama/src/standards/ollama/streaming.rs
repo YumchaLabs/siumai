@@ -23,7 +23,9 @@ struct OllamaStreamResponse {
     total_duration: Option<u64>,
     load_duration: Option<u64>,
     prompt_eval_count: Option<u32>,
+    prompt_eval_duration: Option<u64>,
     eval_count: Option<u32>,
+    eval_duration: Option<u64>,
 }
 
 /// Ollama message structure
@@ -124,12 +126,28 @@ impl OllamaEventConverter {
                 model: response.model.clone(),
                 content: MessageContent::Text(String::new()),
                 usage: self.extract_usage(&response),
-                finish_reason: Some(FinishReason::Stop),
+                finish_reason: Some({
+                    let saw_tool_calls = *self
+                        .tool_calls_emitted
+                        .lock()
+                        .expect("tool_calls_emitted lock");
+                    if saw_tool_calls {
+                        FinishReason::ToolCalls
+                    } else {
+                        FinishReason::Stop
+                    }
+                }),
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
-                provider_metadata: None,
+                provider_metadata: crate::standards::ollama::utils::build_ollama_provider_metadata(
+                    response.total_duration,
+                    response.load_duration,
+                    response.prompt_eval_duration,
+                    response.eval_duration,
+                    response.eval_count,
+                ),
             };
             builder = builder.add_stream_end(chat_response);
         }
@@ -338,6 +356,8 @@ impl JsonEventConverter for OllamaEventConverter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::standards::ollama::utils::convert_chat_response;
+    use crate::streaming::StreamProcessor;
     use crate::types::Usage;
 
     #[tokio::test]
@@ -368,7 +388,7 @@ mod tests {
         let converter = OllamaEventConverter::new();
 
         // Test stream end conversion
-        let json_data = r#"{"model":"llama2","done":true,"prompt_eval_count":10,"eval_count":20}"#;
+        let json_data = r#"{"model":"llama2","done":true,"total_duration":1250000000,"load_duration":150000000,"prompt_eval_count":10,"prompt_eval_duration":200000000,"eval_count":20,"eval_duration":700000000}"#;
 
         let result = converter.convert_json(json_data).await;
         assert!(!result.is_empty());
@@ -383,6 +403,32 @@ mod tests {
             assert_eq!(usage.completion_tokens, 20);
         } else {
             panic!("Expected UsageUpdate event in results: {:?}", result);
+        }
+
+        let stream_end = result
+            .iter()
+            .find(|event| matches!(event, Ok(ChatStreamEvent::StreamEnd { .. })));
+
+        match stream_end {
+            Some(Ok(ChatStreamEvent::StreamEnd { response })) => {
+                assert_eq!(
+                    response.get_metadata("ollama", "total_duration_ms"),
+                    Some(&serde_json::json!(1250))
+                );
+                assert_eq!(
+                    response.get_metadata("ollama", "load_duration_ms"),
+                    Some(&serde_json::json!(150))
+                );
+                assert_eq!(
+                    response.get_metadata("ollama", "prompt_eval_duration_ms"),
+                    Some(&serde_json::json!(200))
+                );
+                assert_eq!(
+                    response.get_metadata("ollama", "eval_duration_ms"),
+                    Some(&serde_json::json!(700))
+                );
+            }
+            _ => panic!("Expected StreamEnd event in results: {:?}", result),
         }
     }
 
@@ -412,6 +458,72 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn test_ollama_streaming_tool_calls_match_non_streaming_tool_calls() {
+        let non_streaming =
+            convert_chat_response(crate::standards::ollama::types::OllamaChatResponse {
+                model: "llama3.2".to_string(),
+                created_at: "2026-03-07T00:00:00Z".to_string(),
+                message: crate::standards::ollama::types::OllamaChatMessage {
+                    role: "assistant".to_string(),
+                    content: String::new(),
+                    tool_name: None,
+                    images: None,
+                    tool_calls: Some(vec![crate::standards::ollama::types::OllamaToolCall {
+                        function: crate::standards::ollama::types::OllamaFunctionCall {
+                            name: "get_weather".to_string(),
+                            arguments: serde_json::json!({ "city": "Toronto" }),
+                        },
+                    }]),
+                    thinking: None,
+                },
+                done: true,
+                done_reason: Some("stop".to_string()),
+                total_duration: None,
+                load_duration: None,
+                prompt_eval_count: Some(10),
+                prompt_eval_duration: None,
+                eval_count: Some(20),
+                eval_duration: None,
+            });
+
+        assert_eq!(non_streaming.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(non_streaming.tool_calls().len(), 1);
+
+        let converter = OllamaEventConverter::new();
+        let mut processor = StreamProcessor::new();
+        let mut finish_reason = None;
+
+        let chunks = vec![
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"","tool_calls":[{"function":{"name":"get_weather","arguments":{"city":"Toronto"}}}]},"done":false}"#,
+            r#"{"model":"llama3.2","done":true,"prompt_eval_count":10,"eval_count":20}"#,
+        ];
+
+        for chunk in chunks {
+            for event in converter.convert_json(chunk).await.into_iter().flatten() {
+                match event {
+                    ChatStreamEvent::StreamEnd { response } => {
+                        finish_reason = response.finish_reason;
+                    }
+                    other => {
+                        let _ = processor.process_event(other);
+                    }
+                }
+            }
+        }
+
+        let streaming = processor.build_final_response_with_finish_reason(finish_reason);
+        assert_eq!(streaming.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(streaming.tool_calls().len(), 1);
+
+        let a = non_streaming.tool_calls()[0]
+            .as_tool_call()
+            .expect("tool call");
+        let b = streaming.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(b.tool_call_id, a.tool_call_id);
+        assert_eq!(b.tool_name, a.tool_name);
+        assert_eq!(b.arguments, a.arguments);
+    }
     #[test]
     fn test_ollama_serializes_content_delta_to_jsonl() {
         let converter = OllamaEventConverter::new();

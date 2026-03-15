@@ -20,5 +20,7 @@ pub mod standards;
 
 pub use types::{ChatResponse, CommonParams};
 
+/// Provider-owned typed response metadata (`ChatResponse.provider_metadata["groq"]`).
+pub mod provider_metadata;
 /// Provider-owned typed option structs (Groq-specific).
 pub mod provider_options;

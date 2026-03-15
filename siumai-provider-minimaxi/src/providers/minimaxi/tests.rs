@@ -45,11 +45,11 @@ mod minimaxi_tests {
 
         let spec = spec::MinimaxiAudioSpec::new();
 
-        // Test with Anthropic base URL
+        // Test with Anthropic-compatible base URL on a custom host
         let ctx_anthropic = ProviderContext {
             provider_id: "minimaxi".to_string(),
             api_key: Some("test-key".to_string()),
-            base_url: "https://api.minimaxi.com/anthropic".to_string(),
+            base_url: "https://proxy.example.com/anthropic/v1".to_string(),
             http_extra_headers: Default::default(),
             organization: None,
             project: None,
@@ -57,7 +57,7 @@ mod minimaxi_tests {
         };
 
         let audio_url = spec.audio_base_url(&ctx_anthropic);
-        assert_eq!(audio_url, config::MinimaxiConfig::OPENAI_BASE_URL);
+        assert_eq!(audio_url, "https://proxy.example.com/v1");
 
         // Test with OpenAI base URL
         let ctx_openai = ProviderContext {
@@ -82,11 +82,11 @@ mod minimaxi_tests {
         let spec = spec::MinimaxiImageSpec::new();
         let request = ImageGenerationRequest::default();
 
-        // Test with Anthropic base URL
+        // Test with Anthropic-compatible base URL on a custom host
         let ctx_anthropic = ProviderContext {
             provider_id: "minimaxi".to_string(),
             api_key: Some("test-key".to_string()),
-            base_url: "https://api.minimaxi.com/anthropic".to_string(),
+            base_url: "https://proxy.example.com/anthropic/v1".to_string(),
             http_extra_headers: Default::default(),
             organization: None,
             project: None,
@@ -94,13 +94,7 @@ mod minimaxi_tests {
         };
 
         let image_url = spec.image_url(&request, &ctx_anthropic);
-        assert_eq!(
-            image_url,
-            format!(
-                "{}/image_generation",
-                config::MinimaxiConfig::OPENAI_BASE_URL
-            )
-        );
+        assert_eq!(image_url, "https://proxy.example.com/v1/image_generation");
 
         // Test with OpenAI base URL
         let ctx_openai = ProviderContext {
@@ -126,7 +120,7 @@ mod minimaxi_tests {
         let ctx_anthropic = ProviderContext {
             provider_id: "minimaxi".to_string(),
             api_key: Some("test-key".to_string()),
-            base_url: config::MinimaxiConfig::DEFAULT_BASE_URL.to_string(),
+            base_url: "https://proxy.example.com/anthropic/v1".to_string(),
             http_extra_headers: Default::default(),
             organization: None,
             project: None,
@@ -134,13 +128,7 @@ mod minimaxi_tests {
         };
 
         let url = spec.video_generation_url(&ctx_anthropic);
-        assert_eq!(
-            url,
-            format!(
-                "{}/video_generation",
-                config::MinimaxiConfig::OPENAI_BASE_URL
-            )
-        );
+        assert_eq!(url, "https://proxy.example.com/v1/video_generation");
     }
 
     #[test]
@@ -152,7 +140,7 @@ mod minimaxi_tests {
         let ctx_anthropic = ProviderContext {
             provider_id: "minimaxi".to_string(),
             api_key: Some("test-key".to_string()),
-            base_url: config::MinimaxiConfig::DEFAULT_BASE_URL.to_string(),
+            base_url: "https://proxy.example.com/anthropic/v1".to_string(),
             http_extra_headers: Default::default(),
             organization: None,
             project: None,
@@ -160,13 +148,7 @@ mod minimaxi_tests {
         };
 
         let url = spec.music_generation_url(&ctx_anthropic);
-        assert_eq!(
-            url,
-            format!(
-                "{}/music_generation",
-                config::MinimaxiConfig::OPENAI_BASE_URL
-            )
-        );
+        assert_eq!(url, "https://proxy.example.com/v1/music_generation");
     }
 
     #[test]

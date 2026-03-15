@@ -1,10 +1,12 @@
 //! `xAI` Provider Module
 //!
-//! Thin wrapper around the OpenAI-compatible vendor implementation.
+//! Thin wrapper around the OpenAI-compatible vendor implementation with provider-owned entry types.
 //!
 //! # Architecture
-//! - `models.rs` - Built-in model catalog (fallback)
 //! - `builder.rs` - Builder that delegates to `openai().compatible("xai")`
+//! - `config.rs`  - Provider-owned config-first surface
+//! - `client.rs`  - Provider-owned client wrapper
+//! - `models.rs`  - Built-in model catalog (fallback)
 //!
 //! # Example Usage
 //! ```rust,no_run
@@ -19,7 +21,6 @@
 //!         .build()
 //!         .await?;
 //!
-//!     // Use chat capability
 //!     let messages = vec![user!("Hello, world!")];
 //!     let response = client.chat(messages).await?;
 //!
@@ -27,17 +28,19 @@
 //! }
 //! ```
 
+mod audio;
 pub mod builder;
+mod client;
+pub mod config;
 /// xAI extension APIs (non-unified surface)
 pub mod ext;
 pub mod models;
 
 pub use builder::XaiBuilder;
-
-pub type XaiClient =
-    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
+pub use client::XaiClient;
+pub use config::XaiConfig;
 
 // Provider-owned typed options live at the crate root; re-export them under the provider path.
 pub use crate::provider_options::{
-    SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+    SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters, XaiTtsOptions,
 };

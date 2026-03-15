@@ -18,4 +18,8 @@ pub mod builder {
     pub use siumai_core::builder::*;
 }
 
+pub mod providers;
 pub mod standards;
+
+/// Provider-owned typed option structs (Cohere-specific).
+pub mod provider_options;

@@ -19,3 +19,8 @@ pub mod providers;
 pub mod standards;
 
 pub use types::{ChatResponse, CommonParams};
+
+/// Provider-owned typed response metadata (`ChatResponse.provider_metadata["deepseek"]`).
+pub mod provider_metadata;
+/// Provider-owned typed option structs (DeepSeek-specific).
+pub mod provider_options;

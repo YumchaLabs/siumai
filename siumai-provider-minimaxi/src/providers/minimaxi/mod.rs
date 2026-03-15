@@ -63,12 +63,22 @@ pub mod music;
 pub mod video;
 
 // Re-export main types for convenience
+pub use crate::provider_options::{
+    MinimaxiOptions, MinimaxiResponseFormat, MinimaxiThinkingModeConfig, MinimaxiTtsOptions,
+};
 pub use builder::MinimaxiBuilder;
 pub use client::MinimaxiClient;
 pub use config::MinimaxiConfig;
 pub use files::MinimaxiFiles;
 pub use spec::MinimaxiSpec;
 pub use types::*;
+
+// Typed provider metadata views (provider-owned; re-exported via this provider for ergonomics).
+pub use crate::provider_metadata::minimaxi::{
+    MinimaxiChatResponseExt, MinimaxiCitation, MinimaxiCitationsBlock, MinimaxiContentPartExt,
+    MinimaxiMetadata, MinimaxiServerToolUse, MinimaxiSource, MinimaxiToolCallMetadata,
+    MinimaxiToolCaller,
+};
 
 // Re-export chat capability implementation
 // (Removed) `MinimaxiChatCapability`: chat is implemented directly on `MinimaxiClient`.

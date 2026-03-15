@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
+use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
 
@@ -21,6 +22,8 @@ pub struct GroqConfig {
     pub common_params: CommonParams,
     /// HTTP configuration
     pub http_config: HttpConfig,
+    /// Optional custom HTTP transport.
+    pub http_transport: Option<Arc<dyn HttpTransport>>,
     /// Optional HTTP interceptors applied to all requests built from this config.
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares applied before provider mapping (chat only).
@@ -47,6 +50,17 @@ impl GroqConfig {
     /// Default Groq API base URL
     pub const DEFAULT_BASE_URL: &'static str = "https://api.groq.com/openai/v1";
 
+    pub(crate) fn normalize_base_url(base_url: &str) -> String {
+        let trimmed = base_url.trim_end_matches('/');
+        let path = trimmed.splitn(4, '/').nth(3).unwrap_or("");
+
+        if path.is_empty() {
+            format!("{trimmed}/openai/v1")
+        } else {
+            trimmed.to_string()
+        }
+    }
+
     /// Create a new `Groq` configuration
     pub fn new<S: Into<String>>(api_key: S) -> Self {
         Self {
@@ -54,6 +68,7 @@ impl GroqConfig {
             base_url: Self::DEFAULT_BASE_URL.to_string(),
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
+            http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
         }
@@ -61,7 +76,8 @@ impl GroqConfig {
 
     /// Set the base URL
     pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
-        self.base_url = base_url.into();
+        let base_url = base_url.into();
+        self.base_url = Self::normalize_base_url(&base_url);
         self
     }
 
@@ -101,9 +117,33 @@ impl GroqConfig {
         self
     }
 
+    /// Set HTTP configuration.
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = http_config;
+        self
+    }
+
+    /// Replace custom HTTP headers.
+    pub fn with_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
+        self.http_config.headers = headers;
+        self
+    }
+
+    /// Add a single custom HTTP header.
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.http_config.headers.insert(key.into(), value.into());
+        self
+    }
+
     /// Install HTTP interceptors for requests created by clients built from this config.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Set a custom HTTP transport.
+    pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
+        self.http_transport = Some(transport);
         self
     }
 
@@ -244,5 +284,14 @@ mod tests {
             crate::providers::groq::models::popular::FLAGSHIP
         ));
         assert!(!GroqConfig::is_model_supported("non-existent-model"));
+    }
+
+    #[test]
+    fn test_groq_config_normalizes_root_base_url() {
+        let config = GroqConfig::new("test-api-key")
+            .with_base_url("https://example.com")
+            .with_model("playai-tts");
+
+        assert_eq!(config.base_url, "https://example.com/openai/v1");
     }
 }

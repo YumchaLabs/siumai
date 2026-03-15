@@ -136,6 +136,30 @@ impl OllamaConfigBuilder {
         self
     }
 
+    /// Set temperature.
+    pub fn temperature(mut self, temperature: f64) -> Self {
+        let mut params = self.common_params.unwrap_or_default();
+        params.temperature = Some(temperature);
+        self.common_params = Some(params);
+        self
+    }
+
+    /// Set max tokens.
+    pub fn max_tokens(mut self, max_tokens: u32) -> Self {
+        let mut params = self.common_params.unwrap_or_default();
+        params.max_tokens = Some(max_tokens);
+        self.common_params = Some(params);
+        self
+    }
+
+    /// Set top-p.
+    pub fn top_p(mut self, top_p: f64) -> Self {
+        let mut params = self.common_params.unwrap_or_default();
+        params.top_p = Some(top_p);
+        self.common_params = Some(params);
+        self
+    }
+
     /// Set HTTP configuration
     pub fn http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = Some(config);
@@ -254,12 +278,37 @@ impl OllamaConfigBuilder {
         self
     }
 
+    /// Replace all model options at once.
+    pub fn options(
+        mut self,
+        options: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        let mut params = self.ollama_params.unwrap_or_default();
+        params.options = Some(options);
+        self.ollama_params = Some(params);
+        self
+    }
+
+    /// Unified reasoning alias for thinking models.
+    pub fn reasoning(self, enabled: bool) -> Self {
+        self.think(enabled)
+    }
+
     /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
     pub fn http_transport(
         mut self,
         transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
     ) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    /// Set an optional custom HTTP transport.
+    pub fn http_transport_opt(
+        mut self,
+        transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    ) -> Self {
+        self.http_transport = transport;
         self
     }
 
@@ -318,6 +367,10 @@ mod tests {
         let config = OllamaConfig::builder()
             .base_url("http://localhost:11434")
             .model("llama3.2")
+            .temperature(0.5)
+            .max_tokens(256)
+            .top_p(0.9)
+            .reasoning(true)
             .keep_alive("10m")
             .raw(true)
             .format("json")
@@ -331,6 +384,10 @@ mod tests {
 
         assert_eq!(config.base_url, "http://localhost:11434");
         assert_eq!(config.model, Some("llama3.2".to_string()));
+        assert_eq!(config.common_params.model, "llama3.2");
+        assert_eq!(config.common_params.temperature, Some(0.5));
+        assert_eq!(config.common_params.max_tokens, Some(256));
+        assert_eq!(config.common_params.top_p, Some(0.9));
         assert_eq!(config.ollama_params.keep_alive, Some("10m".to_string()));
         assert_eq!(config.ollama_params.raw, Some(true));
         assert_eq!(config.ollama_params.format, Some("json".to_string()));

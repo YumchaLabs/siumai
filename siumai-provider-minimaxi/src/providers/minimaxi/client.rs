@@ -78,14 +78,20 @@ impl std::fmt::Debug for MinimaxiClient {
 impl MinimaxiClient {
     /// Construct a `MinimaxiClient` from a config-first `MinimaxiConfig`.
     pub fn from_config(config: MinimaxiConfig) -> Result<Self, LlmError> {
+        let http_client =
+            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Self::with_http_client(config, http_client)
+    }
+
+    /// Construct a `MinimaxiClient` from a `MinimaxiConfig` with a caller-supplied HTTP client.
+    pub fn with_http_client(
+        config: MinimaxiConfig,
+        http_client: reqwest::Client,
+    ) -> Result<Self, LlmError> {
         config.validate()?;
 
         let http_interceptors = config.http_interceptors.clone();
         let model_middlewares = config.model_middlewares.clone();
-
-        let http_client =
-            crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
-
         let http_config = config.http_config.clone();
         let mut client = Self::new_with_http_config(config, http_client, http_config);
 
@@ -93,11 +99,9 @@ impl MinimaxiClient {
             client = client.with_http_transport(transport);
         }
 
-        client = client
+        Ok(client
             .with_interceptors(http_interceptors)
-            .with_model_middlewares(model_middlewares);
-
-        Ok(client)
+            .with_model_middlewares(model_middlewares))
     }
 
     /// Create a new MiniMaxi client
@@ -189,7 +193,6 @@ impl MinimaxiClient {
         let ctx = self.build_context();
         let spec = Arc::new(super::spec::MinimaxiSpec::new());
         let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
 
         let mut builder = ChatExecutorBuilder::new("minimaxi", self.http_client.clone())
             .with_spec(spec)
@@ -207,11 +210,17 @@ impl MinimaxiClient {
             builder = builder.with_retry_options(retry);
         }
 
-        if let Some(hook) = before_send_hook {
-            builder = builder.with_before_send(hook);
-        }
-
         builder.build()
+    }
+}
+
+impl crate::traits::ModelMetadata for MinimaxiClient {
+    fn provider_id(&self) -> &str {
+        "minimaxi"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.config.common_params.model
     }
 }
 
@@ -264,7 +273,15 @@ impl LlmClient for MinimaxiClient {
         Some(self)
     }
 
+    fn as_speech_extras(&self) -> Option<&dyn crate::traits::SpeechExtras> {
+        None
+    }
+
     fn as_transcription_capability(&self) -> Option<&dyn crate::traits::TranscriptionCapability> {
+        None
+    }
+
+    fn as_transcription_extras(&self) -> Option<&dyn crate::traits::TranscriptionExtras> {
         None
     }
 
@@ -299,6 +316,21 @@ impl LlmClient for MinimaxiClient {
 
 #[async_trait]
 impl ChatCapability for MinimaxiClient {
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        use crate::execution::executors::chat::ChatExecutor;
+
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute(&*exec, request).await
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        use crate::execution::executors::chat::ChatExecutor;
+
+        let request = request.with_streaming(true);
+        let exec = self.build_chat_executor(&request);
+        ChatExecutor::execute_stream(&*exec, request).await
+    }
+
     async fn chat_with_tools(
         &self,
         messages: Vec<ChatMessage>,
@@ -349,6 +381,7 @@ impl AudioCapability for MinimaxiClient {
 
     async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         use crate::execution::executors::audio::AudioExecutor;
+        let request = request.with_model_if_missing(self.config.common_params.model.clone());
 
         let exec = super::audio::build_audio_executor(
             &self.config.api_key,
@@ -570,11 +603,71 @@ impl MusicGenerationCapability for MinimaxiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
+        HttpTransportStreamResponse,
+    };
+    use crate::provider_options::MinimaxiOptions;
+    use crate::providers::minimaxi::ext::request_options::MinimaxiChatRequestExt;
+    use async_trait::async_trait;
+    use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
+    use std::sync::Mutex;
 
     #[derive(Clone, Default)]
     struct NoopInterceptor;
 
     impl crate::execution::http::interceptor::HttpInterceptor for NoopInterceptor {}
+
+    #[derive(Clone, Default)]
+    struct CaptureTransport {
+        last: Arc<Mutex<Option<HttpTransportRequest>>>,
+        last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
+    }
+
+    impl CaptureTransport {
+        fn take_stream(&self) -> Option<HttpTransportRequest> {
+            self.last_stream.lock().expect("lock stream request").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for CaptureTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last.lock().expect("lock request") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 401,
+                headers,
+                body: br#"{"type":"error","error":{"type":"authentication_error","message":"unauthorized"}}"#
+                    .to_vec(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            *self.last_stream.lock().expect("lock stream request") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportStreamResponse {
+                status: 401,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(
+                    br#"{"type":"error","error":{"type":"authentication_error","message":"unauthorized"}}"#
+                        .to_vec(),
+                ),
+            })
+        }
+    }
 
     #[test]
     fn build_chat_executor_inherits_interceptors_and_retry() {
@@ -590,5 +683,119 @@ mod tests {
         let exec = client.build_chat_executor(&req);
         assert_eq!(exec.policy.interceptors.len(), 1);
         assert!(exec.policy.retry_options.is_some());
+    }
+
+    #[test]
+    fn with_http_client_preserves_config_interceptors_and_model_metadata() {
+        let cfg = MinimaxiConfig::new("test-key")
+            .with_model("MiniMax-M2")
+            .with_http_interceptors(vec![Arc::new(NoopInterceptor)]);
+        let client = MinimaxiClient::with_http_client(cfg, reqwest::Client::new())
+            .expect("with_http_client client");
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_common_params(client.config().common_params.clone())
+            .with_http_config(client.http_config.clone());
+        let exec = client.build_chat_executor(&req);
+
+        assert_eq!(client.config().http_interceptors.len(), 1);
+        assert_eq!(exec.policy.interceptors.len(), 1);
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(&client),
+            "minimaxi"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(&client),
+            "MiniMax-M2"
+        );
+    }
+
+    #[test]
+    fn minimaxi_client_does_not_expose_speech_extras_without_provider_owned_support() {
+        let cfg = MinimaxiConfig::new("test-key").with_model("speech-2.5-hd");
+        let client = MinimaxiClient::with_http_client(cfg, reqwest::Client::new())
+            .expect("with_http_client client");
+
+        assert!(client.as_audio_capability().is_some());
+        assert!(client.as_speech_capability().is_some());
+        assert!(client.as_speech_extras().is_none());
+        assert!(client.as_transcription_capability().is_none());
+        assert!(client.as_transcription_extras().is_none());
+    }
+
+    #[tokio::test]
+    async fn minimaxi_client_chat_stream_request_preserves_typed_options_and_stable_response_shape_at_transport_boundary()
+     {
+        let transport = CaptureTransport::default();
+        let client = MinimaxiClient::from_config(
+            MinimaxiConfig::new("test-key")
+                .with_base_url("https://example.com/custom")
+                .with_model("MiniMax-M2")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("build minimaxi client");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model("MiniMax-M2")
+            .temperature(0.5)
+            .max_tokens(256)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "lookup_weather",
+                "Look up the weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "location": { "type": "string" } },
+                    "required": ["location"],
+                    "additionalProperties": false
+                }),
+            )])
+            .tool_choice(crate::types::ToolChoice::Required)
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                schema.clone(),
+            ))
+            .build()
+            .with_minimaxi_options(
+                MinimaxiOptions::new()
+                    .with_reasoning_budget(4096)
+                    .with_json_object(),
+            );
+
+        let _ = client.chat_stream_request(request).await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert_eq!(
+            captured
+                .headers
+                .get(ACCEPT)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/event-stream")
+        );
+        assert_eq!(captured.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 4096
+            })
+        );
+        assert_eq!(captured.body["max_tokens"], serde_json::json!(4352));
+        assert_eq!(
+            captured.body["output_format"],
+            serde_json::json!({
+                "type": "json_schema",
+                "schema": schema
+            })
+        );
+        assert!(captured.body.get("temperature").is_none());
+        assert!(captured.body.get("tool_choice").is_none());
+        assert!(captured.body.get("tools").is_none());
     }
 }

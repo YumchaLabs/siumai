@@ -26,3 +26,6 @@ pub use types::{ChatResponse, CommonParams};
 
 /// Provider-owned typed option structs (Ollama-specific).
 pub mod provider_options;
+
+/// Provider-owned typed response metadata.
+pub mod provider_metadata;

@@ -20,5 +20,7 @@ pub mod standards;
 
 pub use types::{ChatResponse, CommonParams};
 
+/// Provider-owned typed response metadata (`ChatResponse.provider_metadata["minimaxi"]`).
+pub mod provider_metadata;
 /// Provider-owned typed option structs (MiniMaxi-specific).
 pub mod provider_options;

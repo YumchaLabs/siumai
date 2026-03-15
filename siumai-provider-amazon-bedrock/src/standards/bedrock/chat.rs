@@ -158,7 +158,7 @@ impl BedrockChatRequestTransformer {
 
         if uses_json_tool {
             let schema = match req.response_format.as_ref() {
-                Some(ResponseFormat::Json { schema }) => schema.clone(),
+                Some(ResponseFormat::Json { schema, .. }) => schema.clone(),
                 _ => serde_json::json!({ "type": "object" }),
             };
             tools.push(Tool::function(
@@ -885,5 +885,98 @@ impl JsonEventConverter for BedrockEventConverter {
             provider_metadata: None,
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response: resp }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider_metadata::bedrock::BedrockChatResponseExt;
+
+    #[test]
+    fn request_injects_reserved_json_tool_for_response_format() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .model("anthropic.claude-3-sonnet")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()))
+            .build();
+
+        let uses_json_tool = matches!(
+            req.response_format.as_ref(),
+            Some(ResponseFormat::Json { .. })
+        );
+        let tx = BedrockChatStandard::new().create_transformers("bedrock", uses_json_tool);
+        let body = tx.request.transform_chat(&req).expect("transform");
+
+        let tool_cfg = body.get("toolConfig").expect("toolConfig should exist");
+        let tools = tool_cfg
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .expect("tools should be an array");
+        assert_eq!(tools.len(), 1);
+
+        let tool_spec = tools[0]
+            .get("toolSpec")
+            .and_then(|v| v.as_object())
+            .expect("toolSpec should exist");
+        assert_eq!(tool_spec.get("name"), Some(&serde_json::json!("json")));
+        assert_eq!(
+            tool_spec
+                .get("inputSchema")
+                .and_then(|v| v.get("json"))
+                .cloned(),
+            Some(schema)
+        );
+
+        assert_eq!(
+            tool_cfg
+                .get("toolChoice")
+                .and_then(|v| v.get("any"))
+                .cloned(),
+            Some(serde_json::json!({}))
+        );
+    }
+
+    #[test]
+    fn json_response_from_reserved_tool_is_emitted_as_text_and_finish_reason_stop() {
+        let tx = BedrockChatStandard::new().create_transformers("bedrock", true);
+
+        let raw = serde_json::json!({
+            "output": {
+                "message": {
+                    "content": [
+                        {
+                            "toolUse": {
+                                "toolUseId": "call_1",
+                                "name": "json",
+                                "input": { "value": "ok" }
+                            }
+                        }
+                    ]
+                }
+            },
+            "stopReason": "tool_use",
+            "usage": { "inputTokens": 1, "outputTokens": 2, "totalTokens": 3 }
+        });
+
+        let resp = tx
+            .response
+            .transform_chat_response(&raw)
+            .expect("transform");
+
+        assert_eq!(resp.text().as_deref(), Some(r#"{"value":"ok"}"#));
+        assert_eq!(resp.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(
+            resp.bedrock_metadata()
+                .and_then(|meta| meta.is_json_response_from_tool),
+            Some(true)
+        );
     }
 }
