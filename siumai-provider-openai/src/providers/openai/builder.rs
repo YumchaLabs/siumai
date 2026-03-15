@@ -457,11 +457,26 @@ impl OpenAiBuilder {
         self.vendor(OpenAiVendorId::PERPLEXITY)
     }
 
+    pub fn mistral(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
+        self.vendor(OpenAiVendorId::MISTRAL)
+    }
+
+    pub fn jina(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
+        self.vendor(OpenAiVendorId::JINA)
+    }
+
+    pub fn voyageai(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
+        self.vendor(OpenAiVendorId::VOYAGEAI)
+    }
+
+    pub fn infini(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
+        self.vendor(OpenAiVendorId::INFINI)
+    }
+
     // Note: Built-in tools should be configured via OpenAiOptions + hosted_tools::openai
 
-    /// Builds the `OpenAI` client
-    pub async fn build(self) -> Result<OpenAiClient, LlmError> {
-        // Step 1: Get API key (priority: parameter > environment variable)
+    /// Convert the builder into the canonical OpenAI config.
+    pub fn into_config(self) -> Result<crate::providers::openai::OpenAiConfig, LlmError> {
         let api_key = self
             .api_key
             .or_else(|| std::env::var("OPENAI_API_KEY").ok())
@@ -469,22 +484,15 @@ impl OpenAiBuilder {
                 "OpenAI API key not provided".to_string(),
             ))?;
 
-        // Step 2: Get base URL (priority: parameter > default)
         let base_url = self
             .base_url
             .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
 
-        // Note: Tracing initialization has been moved to siumai-extras.
-        // Users should initialize tracing manually using siumai_extras::telemetry
-        // or tracing_subscriber directly before creating the client.
-
-        // Step 3: Build configuration
         let model_id = self.common_params.model.clone();
-
+        let http_interceptors = self.core.get_http_interceptors();
+        let model_middlewares = self.core.get_auto_middlewares("openai", &model_id);
         let mut provider_options_map = self.default_provider_options_map;
 
-        // Backward-compat: keep builder knobs, but express them via providerOptions.openai
-        // so request-level overrides still work.
         if self.use_responses_api {
             let mut openai_obj = serde_json::json!({ "responsesApi": { "enabled": true } });
             if let Some(id) = self.responses_previous_response_id
@@ -503,7 +511,7 @@ impl OpenAiBuilder {
             provider_options_map.merge_overrides(overrides);
         }
 
-        let cfg = crate::providers::openai::OpenAiConfig {
+        Ok(crate::providers::openai::OpenAiConfig {
             api_key: secrecy::SecretString::from(api_key),
             base_url,
             organization: self.organization,
@@ -513,38 +521,211 @@ impl OpenAiBuilder {
             provider_options_map,
             http_config: self.core.http_config.clone(),
             http_transport: self.core.http_transport.clone(),
-            http_interceptors: Vec::new(),
-            model_middlewares: Vec::new(),
+            http_interceptors,
+            model_middlewares,
+        })
+    }
+
+    /// Builds the `OpenAI` client
+    pub async fn build(self) -> Result<OpenAiClient, LlmError> {
+        let http_client_override = self.core.base.http_client.clone();
+        let tracing_config = self.core.tracing_config.clone();
+        let retry_options = self.core.retry_options.clone();
+        let config = self.into_config()?;
+
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
+        let mut client = if let Some(http_client) = http_client_override {
+            OpenAiClient::new(config, http_client)
+                .with_http_interceptors(http_interceptors)
+                .with_model_middlewares(model_middlewares)
+        } else {
+            OpenAiClient::from_config(config)?
         };
 
-        // Model is carried solely via common_params.model now
-
-        // Step 4: Build HTTP client from core
-        let http_client = self.core.build_http_client()?;
-
-        // Step 5: Create client instance
-        let mut client = OpenAiClient::new(cfg, http_client);
-
-        // Step 6: Apply tracing and retry configuration from core
-        if let Some(ref tracing_config) = self.core.tracing_config {
-            client.set_tracing_config(Some(tracing_config.clone()));
+        if let Some(tracing_config) = tracing_config {
+            client.set_tracing_config(Some(tracing_config));
         }
-        if let Some(ref retry_options) = self.core.retry_options {
-            client.set_retry_options(Some(retry_options.clone()));
-        }
-
-        // Step 7: Install HTTP interceptors
-        let interceptors = self.core.get_http_interceptors();
-        if !interceptors.is_empty() {
-            client = client.with_http_interceptors(interceptors);
-        }
-
-        // Step 8: Install automatic middlewares
-        let middlewares = self.core.get_auto_middlewares("openai", &model_id);
-        if !middlewares.is_empty() {
-            client = client.with_model_middlewares(middlewares);
+        if let Some(retry_options) = retry_options {
+            client.set_retry_options(Some(retry_options));
         }
 
         Ok(client)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[test]
+    fn openai_builder_into_config_converges_on_openai_config() {
+        let config = OpenAiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com/v1")
+            .organization("org-1")
+            .project("proj-1")
+            .model("gpt-4o-mini")
+            .temperature(0.7)
+            .max_tokens(256)
+            .top_p(0.85)
+            .stop_sequences(vec!["END".to_string()])
+            .seed(99)
+            .response_format(ResponseFormat::JsonObject)
+            .tool_choice(ToolChoice::String("required".to_string()))
+            .frequency_penalty(0.5)
+            .presence_penalty(-0.25)
+            .parallel_tool_calls(true)
+            .responses_previous_response_id("resp_123")
+            .provider_options(serde_json::json!({ "custom": { "enabled": true } }))
+            .timeout(Duration::from_secs(12))
+            .http_debug(true)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.base_url, "https://example.com/v1");
+        assert_eq!(config.organization.as_deref(), Some("org-1"));
+        assert_eq!(config.project.as_deref(), Some("proj-1"));
+        assert_eq!(config.common_params.model, "gpt-4o-mini");
+        assert_eq!(config.common_params.temperature, Some(0.7));
+        assert_eq!(config.common_params.max_tokens, Some(256));
+        assert_eq!(config.common_params.top_p, Some(0.85));
+        assert_eq!(
+            config.common_params.stop_sequences,
+            Some(vec!["END".to_string()])
+        );
+        assert_eq!(config.common_params.seed, Some(99));
+        assert!(matches!(
+            config.openai_params.response_format,
+            Some(ResponseFormat::JsonObject)
+        ));
+        assert!(matches!(
+            config.openai_params.tool_choice,
+            Some(ToolChoice::String(ref choice)) if choice == "required"
+        ));
+        assert_eq!(config.openai_params.frequency_penalty, Some(0.5));
+        assert_eq!(config.openai_params.presence_penalty, Some(-0.25));
+        assert_eq!(config.openai_params.parallel_tool_calls, Some(true));
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(12)));
+        let openai_options = config
+            .provider_options_map
+            .get("openai")
+            .expect("openai options");
+        assert_eq!(
+            openai_options["responsesApi"]["enabled"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            openai_options["responsesApi"]["previousResponseId"],
+            serde_json::json!("resp_123")
+        );
+        assert_eq!(openai_options["custom"]["enabled"], serde_json::json!(true));
+        assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn openai_builder_into_config_matches_manual_openai_config() {
+        let builder_config = OpenAiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com/v1")
+            .organization("org-1")
+            .project("proj-1")
+            .model("gpt-4o-mini")
+            .temperature(0.7)
+            .max_tokens(256)
+            .top_p(0.85)
+            .stop_sequences(vec!["END".to_string()])
+            .seed(99)
+            .response_format(ResponseFormat::JsonObject)
+            .tool_choice(ToolChoice::String("required".to_string()))
+            .frequency_penalty(0.5)
+            .presence_penalty(-0.25)
+            .parallel_tool_calls(true)
+            .responses_previous_response_id("resp_123")
+            .provider_options(serde_json::json!({ "custom": { "enabled": true } }))
+            .timeout(Duration::from_secs(12))
+            .http_debug(true)
+            .into_config()
+            .expect("builder config");
+
+        let mut http_config = crate::types::HttpConfig::default();
+        http_config.timeout = Some(Duration::from_secs(12));
+        let manual_config = crate::providers::openai::OpenAiConfig::new("test-key")
+            .with_base_url("https://example.com/v1")
+            .with_organization("org-1")
+            .with_project("proj-1")
+            .with_model("gpt-4o-mini")
+            .with_temperature(0.7)
+            .with_max_tokens(256)
+            .with_top_p(0.85)
+            .with_stop_sequences(vec!["END".to_string()])
+            .with_seed(99)
+            .with_response_format(ResponseFormat::JsonObject)
+            .with_tool_choice(ToolChoice::String("required".to_string()))
+            .with_frequency_penalty(0.5)
+            .with_presence_penalty(-0.25)
+            .with_parallel_tool_calls(true)
+            .with_use_responses_api(true)
+            .with_responses_previous_response_id("resp_123")
+            .with_provider_options(serde_json::json!({ "custom": { "enabled": true } }))
+            .with_http_config(http_config)
+            .with_http_interceptors(vec![Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            )])
+            .with_model_middlewares(crate::execution::middleware::build_auto_middlewares_vec(
+                "openai",
+                "gpt-4o-mini",
+            ));
+
+        assert_eq!(builder_config.base_url, manual_config.base_url);
+        assert_eq!(builder_config.organization, manual_config.organization);
+        assert_eq!(builder_config.project, manual_config.project);
+        assert_eq!(
+            builder_config.common_params.model,
+            manual_config.common_params.model
+        );
+        assert_eq!(
+            builder_config.common_params.temperature,
+            manual_config.common_params.temperature
+        );
+        assert_eq!(
+            builder_config.common_params.max_tokens,
+            manual_config.common_params.max_tokens
+        );
+        assert_eq!(
+            builder_config.common_params.top_p,
+            manual_config.common_params.top_p
+        );
+        assert_eq!(
+            builder_config.common_params.stop_sequences,
+            manual_config.common_params.stop_sequences
+        );
+        assert_eq!(
+            builder_config.common_params.seed,
+            manual_config.common_params.seed
+        );
+        assert_eq!(
+            serde_json::to_value(&builder_config.openai_params).expect("serialize builder params"),
+            serde_json::to_value(&manual_config.openai_params).expect("serialize manual params")
+        );
+        assert_eq!(
+            builder_config.http_config.timeout,
+            manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.provider_options_map.get("openai"),
+            manual_config.provider_options_map.get("openai")
+        );
+        assert_eq!(
+            builder_config.http_interceptors.len(),
+            manual_config.http_interceptors.len()
+        );
+        assert_eq!(
+            builder_config.model_middlewares.len(),
+            manual_config.model_middlewares.len()
+        );
     }
 }

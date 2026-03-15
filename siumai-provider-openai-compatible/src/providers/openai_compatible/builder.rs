@@ -2,6 +2,7 @@ use crate::LlmError;
 use crate::builder::BuilderBase;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::execution::http::transport::HttpTransport;
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use std::sync::Arc;
 
@@ -55,6 +56,8 @@ pub struct OpenAiCompatibleBuilder {
     retry_options: Option<RetryOptions>,
     /// Optional HTTP interceptors applied to chat requests
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Additional model middlewares appended after provider auto-middlewares.
+    extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Enable lightweight HTTP debug logging interceptor
     http_debug: bool,
 }
@@ -84,6 +87,7 @@ impl OpenAiCompatibleBuilder {
             retry_options: None,
             // Inherit interceptors/debug from unified builder
             http_interceptors: base.http_interceptors.clone(),
+            extra_model_middlewares: Vec::new(),
             http_debug: base.http_debug,
         }
     }
@@ -245,6 +249,15 @@ impl OpenAiCompatibleBuilder {
     /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    /// Append extra model middlewares after provider auto-middlewares.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.extra_model_middlewares = middlewares;
         self
     }
 
@@ -437,14 +450,10 @@ impl OpenAiCompatibleBuilder {
         self
     }
 
-    /// Build the OpenAI-compatible client
-    pub async fn build(
+    /// Convert the builder into the canonical OpenAI-compatible config.
+    pub fn into_config(
         self,
-    ) -> Result<crate::providers::openai_compatible::OpenAiCompatibleClient, LlmError> {
-        // Create adapter from the OpenAI-compatible built-in provider config.
-        //
-        // This avoids coupling the provider layer to the global registry at runtime;
-        // registry-backed composition should live in the registry layer (or injected).
+    ) -> Result<crate::providers::openai_compatible::OpenAiCompatibleConfig, LlmError> {
         let provider_config =
             crate::providers::openai_compatible::config::get_provider_config(&self.provider_id)
                 .ok_or_else(|| {
@@ -454,7 +463,6 @@ impl OpenAiCompatibleBuilder {
                     ))
                 })?;
 
-        // Step 1: Get API key (explicit > configured envs > `{PROVIDER}_API_KEY`).
         let api_key = crate::utils::builder_helpers::get_api_key_with_envs(
             self.api_key,
             &self.provider_id,
@@ -477,13 +485,11 @@ impl OpenAiCompatibleBuilder {
         let adapter: Arc<dyn crate::providers::openai_compatible::ProviderAdapter> =
             Arc::from(adapter);
 
-        // Resolve base URL (custom override first, then adapter default)
         let base_url = crate::utils::builder_helpers::resolve_base_url(
             self.base_url.clone(),
             adapter.base_url(),
         );
 
-        // Create configuration
         let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
             &self.provider_id,
             &api_key,
@@ -491,13 +497,10 @@ impl OpenAiCompatibleBuilder {
             adapter,
         );
 
-        // Get effective model using shared helper function
         let effective_model_raw = crate::utils::builder_helpers::get_effective_model(
             &self.common_params.model,
             &self.provider_id,
         );
-
-        // Normalize aliases using shared helper function
         let effective_model = crate::utils::builder_helpers::normalize_model_id(
             &self.provider_id,
             &effective_model_raw,
@@ -507,13 +510,9 @@ impl OpenAiCompatibleBuilder {
             config = config.with_model(&effective_model);
         }
 
-        // Set common parameters
         config = config.with_common_params(self.common_params);
 
-        // Merge HTTP configurations
         let mut final_http_config = self.http_config;
-
-        // Apply base builder HTTP settings
         if let Some(timeout) = self.base.timeout {
             final_http_config.timeout = Some(timeout);
         }
@@ -526,8 +525,6 @@ impl OpenAiCompatibleBuilder {
         if let Some(proxy) = self.base.proxy {
             final_http_config.proxy = Some(proxy);
         }
-
-        // Merge headers from base builder
         for (key, value) in self.base.default_headers {
             final_http_config.headers.insert(key, value);
         }
@@ -537,35 +534,223 @@ impl OpenAiCompatibleBuilder {
             config = config.with_http_transport(transport);
         }
 
-        // Save model before moving config (may still be empty for truly unknown providers)
         let model_id = config.model.clone();
+        let mut interceptors = self.http_interceptors;
+        if self.http_debug {
+            interceptors.push(Arc::new(LoggingInterceptor));
+        }
+        let mut middlewares =
+            crate::execution::middleware::build_auto_middlewares_vec(&self.provider_id, &model_id);
+        middlewares.extend(self.extra_model_middlewares);
 
-        // Create client with or without custom HTTP client
-        let mut client = if let Some(http_client) = self.base.http_client {
+        Ok(config
+            .with_http_interceptors(interceptors)
+            .with_model_middlewares(middlewares))
+    }
+
+    /// Build the OpenAI-compatible client
+    pub async fn build(
+        self,
+    ) -> Result<crate::providers::openai_compatible::OpenAiCompatibleClient, LlmError> {
+        let http_client_override = self.base.http_client.clone();
+        let retry_options = self.retry_options.clone();
+        let config = self.into_config()?;
+
+        let mut client = if let Some(http_client) = http_client_override {
+            let http_interceptors = config.http_interceptors.clone();
+            let model_middlewares = config.model_middlewares.clone();
             crate::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
                 config,
                 http_client,
             )
             .await?
+            .with_http_interceptors(http_interceptors)
+            .with_model_middlewares(model_middlewares)
         } else {
-            crate::providers::openai_compatible::OpenAiCompatibleClient::new(config).await?
+            crate::providers::openai_compatible::OpenAiCompatibleClient::from_config(config).await?
         };
 
-        client.set_retry_options(self.retry_options.clone());
-        // Install interceptors
-        let mut interceptors = self.http_interceptors;
-        if self.http_debug {
-            interceptors.push(Arc::new(LoggingInterceptor));
-        }
-        if !interceptors.is_empty() {
-            client = client.with_http_interceptors(interceptors);
-        }
-
-        // Install automatic middlewares based on provider and model
-        let middlewares =
-            crate::execution::middleware::build_auto_middlewares_vec(&self.provider_id, &model_id);
-        client = client.with_model_middlewares(middlewares);
-
+        client.set_retry_options(retry_options);
         Ok(client)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution::middleware::language_model::LanguageModelMiddleware;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    #[derive(Clone, Default)]
+    struct NoopMiddleware;
+
+    impl LanguageModelMiddleware for NoopMiddleware {}
+
+    #[test]
+    fn openai_compatible_builder_into_config_converges() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .temperature(0.4)
+            .max_tokens(256)
+            .top_p(0.9)
+            .stop(vec!["END"])
+            .seed(7)
+            .reasoning(true)
+            .reasoning_budget(2048)
+            .timeout(Duration::from_secs(15))
+            .http_debug(true)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.provider_id, "deepseek");
+        assert_eq!(config.model, "deepseek-chat");
+        assert_eq!(config.common_params.temperature, Some(0.4));
+        assert_eq!(config.common_params.max_tokens, Some(256));
+        assert_eq!(config.common_params.top_p, Some(0.9));
+        assert_eq!(
+            config.common_params.stop_sequences,
+            Some(vec!["END".to_string()])
+        );
+        assert_eq!(config.common_params.seed, Some(7));
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                crate::providers::openai_compatible::RequestType::Chat,
+            )
+            .expect("transform request params");
+        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(15)));
+        assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn openai_compatible_builder_into_config_matches_manual_compatible_config() {
+        let builder_config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .temperature(0.4)
+            .max_tokens(256)
+            .top_p(0.9)
+            .stop(vec!["END"])
+            .seed(7)
+            .reasoning(true)
+            .reasoning_budget(2048)
+            .timeout(Duration::from_secs(15))
+            .http_debug(true)
+            .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
+            .into_config()
+            .expect("builder config");
+
+        let provider = crate::providers::openai_compatible::get_provider_config("deepseek")
+            .expect("provider config");
+        let adapter =
+            Arc::new(crate::providers::openai_compatible::ConfigurableAdapter::new(provider));
+        let mut http_config = crate::types::HttpConfig::default();
+        http_config.timeout = Some(Duration::from_secs(15));
+        let manual_config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_temperature(0.4)
+        .with_max_tokens(256)
+        .with_top_p(0.9)
+        .with_stop_sequences(vec!["END".to_string()])
+        .with_seed(7)
+        .with_reasoning(true)
+        .with_reasoning_budget(2048)
+        .with_http_config(http_config)
+        .with_http_interceptors(vec![Arc::new(
+            crate::execution::http::interceptor::LoggingInterceptor,
+        )])
+        .with_model_middlewares({
+            let mut middlewares = crate::execution::middleware::build_auto_middlewares_vec(
+                "deepseek",
+                "deepseek-chat",
+            );
+            middlewares.push(Arc::new(NoopMiddleware));
+            middlewares
+        });
+
+        assert_eq!(builder_config.provider_id, manual_config.provider_id);
+        assert_eq!(builder_config.base_url, manual_config.base_url);
+        assert_eq!(builder_config.model, manual_config.model);
+        assert_eq!(
+            builder_config.common_params.temperature,
+            manual_config.common_params.temperature
+        );
+        assert_eq!(
+            builder_config.common_params.max_tokens,
+            manual_config.common_params.max_tokens
+        );
+        assert_eq!(
+            builder_config.common_params.top_p,
+            manual_config.common_params.top_p
+        );
+        assert_eq!(
+            builder_config.common_params.stop_sequences,
+            manual_config.common_params.stop_sequences
+        );
+        assert_eq!(
+            builder_config.common_params.seed,
+            manual_config.common_params.seed
+        );
+        let mut builder_params = serde_json::json!({});
+        builder_config
+            .adapter
+            .transform_request_params(
+                &mut builder_params,
+                &builder_config.model,
+                crate::providers::openai_compatible::RequestType::Chat,
+            )
+            .expect("builder transform request params");
+        let mut manual_params = serde_json::json!({});
+        manual_config
+            .adapter
+            .transform_request_params(
+                &mut manual_params,
+                &manual_config.model,
+                crate::providers::openai_compatible::RequestType::Chat,
+            )
+            .expect("manual transform request params");
+        assert_eq!(builder_params, manual_params);
+        assert_eq!(
+            builder_config.http_config.timeout,
+            manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_interceptors.len(),
+            manual_config.http_interceptors.len()
+        );
+        assert_eq!(
+            builder_config.model_middlewares.len(),
+            manual_config.model_middlewares.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_builder_build_preserves_http_client_override_and_retry_options() {
+        let client = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .with_http_config(crate::types::HttpConfig {
+                proxy: Some("not-a-url".to_string()),
+                ..Default::default()
+            })
+            .with_http_client(reqwest::Client::new())
+            .with_retry(RetryOptions::default())
+            .build()
+            .await
+            .expect("build client with explicit http client");
+
+        assert!(client.retry_options().is_some());
     }
 }

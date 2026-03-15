@@ -1,8 +1,12 @@
 use super::OpenAiClient;
 use crate::error::LlmError;
 use crate::traits::AudioCapability;
-use crate::types::AudioTranslationRequest;
+use crate::types::{
+    AudioStream, AudioStreamEvent, AudioTranslationRequest, SttRequest, TtsRequest,
+};
 use async_trait::async_trait;
+use futures_util::StreamExt;
+use std::collections::HashMap;
 
 #[async_trait]
 impl AudioCapability for OpenAiClient {
@@ -19,7 +23,7 @@ impl AudioCapability for OpenAiClient {
         use crate::execution::executors::audio::AudioExecutor;
 
         let exec = self.build_audio_executor();
-        let mut request = request;
+        let mut request = request.with_model_if_missing(self.common_params.model.clone());
         self.merge_default_provider_options_map(&mut request.provider_options_map);
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
 
@@ -32,6 +36,10 @@ impl AudioCapability for OpenAiClient {
         })
     }
 
+    async fn text_to_speech_stream(&self, request: TtsRequest) -> Result<AudioStream, LlmError> {
+        self.tts_sse_stream(request).await
+    }
+
     async fn speech_to_text(
         &self,
         request: crate::types::SttRequest,
@@ -39,7 +47,7 @@ impl AudioCapability for OpenAiClient {
         use crate::execution::executors::audio::AudioExecutor;
 
         let exec = self.build_audio_executor();
-        let mut request = request;
+        let mut request = request.with_model_if_missing(self.common_params.model.clone());
         self.merge_default_provider_options_map(&mut request.provider_options_map);
         let result = AudioExecutor::stt(&*exec, request).await?;
         let raw = result.raw;
@@ -91,6 +99,112 @@ impl AudioCapability for OpenAiClient {
         })
     }
 
+    async fn speech_to_text_stream(&self, request: SttRequest) -> Result<AudioStream, LlmError> {
+        let mut stream = self.stt_sse_stream(request).await?;
+
+        let adapted = async_stream::stream! {
+            while let Some(item) = stream.next().await {
+                match item {
+                    Ok(super::transcription_streaming::OpenAiTranscriptionStreamEvent::TextDelta {
+                        delta,
+                        logprobs,
+                    }) => {
+                        let mut metadata = HashMap::new();
+                        metadata.insert("provider".to_string(), serde_json::json!("openai"));
+                        metadata.insert(
+                            "event_type".to_string(),
+                            serde_json::json!("transcript.text.delta"),
+                        );
+                        metadata.insert("text_delta".to_string(), serde_json::json!(delta));
+                        if let Some(logprobs) = logprobs {
+                            metadata.insert("logprobs".to_string(), logprobs);
+                        }
+                        yield Ok(AudioStreamEvent::Metadata {
+                            sample_rate: None,
+                            duration: None,
+                            metadata,
+                        });
+                    }
+                    Ok(super::transcription_streaming::OpenAiTranscriptionStreamEvent::Segment {
+                        id,
+                        start,
+                        end,
+                        text,
+                        speaker,
+                    }) => {
+                        let mut metadata = HashMap::new();
+                        metadata.insert("provider".to_string(), serde_json::json!("openai"));
+                        metadata.insert(
+                            "event_type".to_string(),
+                            serde_json::json!("transcript.text.segment"),
+                        );
+                        metadata.insert(
+                            "segment".to_string(),
+                            serde_json::json!({
+                                "id": id,
+                                "start": start,
+                                "end": end,
+                                "text": text,
+                                "speaker": speaker,
+                            }),
+                        );
+                        yield Ok(AudioStreamEvent::Metadata {
+                            sample_rate: None,
+                            duration: None,
+                            metadata,
+                        });
+                    }
+                    Ok(super::transcription_streaming::OpenAiTranscriptionStreamEvent::Done {
+                        text,
+                        usage,
+                        logprobs,
+                    }) => {
+                        let mut metadata = HashMap::new();
+                        metadata.insert("provider".to_string(), serde_json::json!("openai"));
+                        metadata.insert(
+                            "event_type".to_string(),
+                            serde_json::json!("transcript.text.done"),
+                        );
+                        if let Some(text) = text {
+                            metadata.insert("text".to_string(), serde_json::json!(text));
+                        }
+                        if let Some(usage) = usage {
+                            metadata.insert("usage".to_string(), usage);
+                        }
+                        if let Some(logprobs) = logprobs {
+                            metadata.insert("logprobs".to_string(), logprobs);
+                        }
+                        yield Ok(AudioStreamEvent::Done {
+                            duration: None,
+                            metadata,
+                        });
+                        return;
+                    }
+                    Ok(super::transcription_streaming::OpenAiTranscriptionStreamEvent::Custom {
+                        event_type,
+                        data,
+                    }) => {
+                        let mut metadata = HashMap::new();
+                        metadata.insert("provider".to_string(), serde_json::json!("openai"));
+                        metadata.insert("event_type".to_string(), serde_json::json!(event_type));
+                        metadata.insert("data".to_string(), data);
+                        yield Ok(AudioStreamEvent::Metadata {
+                            sample_rate: None,
+                            duration: None,
+                            metadata,
+                        });
+                    }
+                    Err(err) => {
+                        yield Err(err);
+                        return;
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(adapted))
+    }
+
     async fn translate_audio(
         &self,
         request: AudioTranslationRequest,
@@ -104,7 +218,7 @@ impl AudioCapability for OpenAiClient {
         let config = self.http_wiring().config(spec);
 
         // Allow users to pass either raw bytes or a file path (mirrors the STT executor behavior).
-        let mut req = request;
+        let mut req = request.with_model_if_missing(self.common_params.model.clone());
         self.merge_default_provider_options_map(&mut req.provider_options_map);
         if req.audio_data.is_none()
             && let Some(path) = req.file_path.as_deref()

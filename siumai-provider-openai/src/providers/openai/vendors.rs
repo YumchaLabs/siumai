@@ -18,6 +18,10 @@ impl OpenAiVendorId {
     pub const FIREWORKS: Self = Self("fireworks");
     pub const GITHUB_COPILOT: Self = Self("github_copilot");
     pub const PERPLEXITY: Self = Self("perplexity");
+    pub const MISTRAL: Self = Self("mistral");
+    pub const JINA: Self = Self("jina");
+    pub const VOYAGEAI: Self = Self("voyageai");
+    pub const INFINI: Self = Self("infini");
 
     pub const fn as_str(self) -> &'static str {
         self.0

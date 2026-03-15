@@ -211,6 +211,90 @@ impl OpenAiConfig {
         self
     }
 
+    /// Set the top-p sampling value.
+    pub const fn with_top_p(mut self, top_p: f64) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
+    /// Set the stop sequences.
+    pub fn with_stop_sequences(mut self, sequences: Vec<String>) -> Self {
+        self.common_params.stop_sequences = Some(sequences);
+        self
+    }
+
+    /// Set the deterministic seed.
+    pub const fn with_seed(mut self, seed: u64) -> Self {
+        self.common_params.seed = Some(seed);
+        self
+    }
+
+    /// Replace the full legacy OpenAI parameter block.
+    pub fn with_openai_params(mut self, params: OpenAiParams) -> Self {
+        self.openai_params = params;
+        self
+    }
+
+    /// Set the response format.
+    pub fn with_response_format(mut self, format: ResponseFormat) -> Self {
+        self.openai_params.response_format = Some(format);
+        self
+    }
+
+    /// Set the tool choice strategy.
+    pub fn with_tool_choice(mut self, choice: ToolChoice) -> Self {
+        self.openai_params.tool_choice = Some(choice);
+        self
+    }
+
+    /// Set the frequency penalty.
+    pub const fn with_frequency_penalty(mut self, penalty: f32) -> Self {
+        self.openai_params.frequency_penalty = Some(penalty);
+        self
+    }
+
+    /// Set the presence penalty.
+    pub const fn with_presence_penalty(mut self, penalty: f32) -> Self {
+        self.openai_params.presence_penalty = Some(penalty);
+        self
+    }
+
+    /// Set whether parallel tool calls are allowed.
+    pub const fn with_parallel_tool_calls(mut self, enabled: bool) -> Self {
+        self.openai_params.parallel_tool_calls = Some(enabled);
+        self
+    }
+
+    /// Merge default OpenAI provider options.
+    pub fn with_provider_options(mut self, options: serde_json::Value) -> Self {
+        let mut overrides = ProviderOptionsMap::new();
+        overrides.insert("openai", options);
+        self.provider_options_map.merge_overrides(overrides);
+        self
+    }
+
+    /// Replace the full provider options map.
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Configure whether Responses API is enabled by default.
+    pub fn with_use_responses_api(mut self, enabled: bool) -> Self {
+        self = self.with_provider_options(serde_json::json!({
+            "responsesApi": { "enabled": enabled }
+        }));
+        self
+    }
+
+    /// Configure the default previous response id for Responses API chaining.
+    pub fn with_responses_previous_response_id<S: Into<String>>(mut self, id: S) -> Self {
+        self = self.with_provider_options(serde_json::json!({
+            "responsesApi": { "previousResponseId": id.into() }
+        }));
+        self
+    }
+
     /// Get the authorization header value.
     ///
     /// # Returns
@@ -376,5 +460,55 @@ mod tests {
             Some(&"org-123".to_string())
         );
         assert_eq!(headers.get("OpenAI-Project"), Some(&"proj-456".to_string()));
+    }
+
+    #[test]
+    fn test_openai_specific_fluent_setters() {
+        let config = OpenAiConfig::new("test-key")
+            .with_model("gpt-4o-mini")
+            .with_top_p(0.8)
+            .with_stop_sequences(vec!["END".to_string()])
+            .with_seed(7)
+            .with_response_format(ResponseFormat::JsonObject)
+            .with_tool_choice(ToolChoice::String("required".to_string()))
+            .with_frequency_penalty(0.5)
+            .with_presence_penalty(-0.25)
+            .with_parallel_tool_calls(true)
+            .with_use_responses_api(true)
+            .with_responses_previous_response_id("resp_123")
+            .with_provider_options(serde_json::json!({ "custom": { "enabled": true } }));
+
+        assert_eq!(config.common_params.model, "gpt-4o-mini");
+        assert_eq!(config.common_params.top_p, Some(0.8));
+        assert_eq!(
+            config.common_params.stop_sequences.as_deref(),
+            Some(&["END".to_string()][..])
+        );
+        assert_eq!(config.common_params.seed, Some(7));
+        assert!(matches!(
+            config.openai_params.response_format,
+            Some(ResponseFormat::JsonObject)
+        ));
+        assert!(matches!(
+            config.openai_params.tool_choice,
+            Some(ToolChoice::String(ref choice)) if choice == "required"
+        ));
+        assert_eq!(config.openai_params.frequency_penalty, Some(0.5));
+        assert_eq!(config.openai_params.presence_penalty, Some(-0.25));
+        assert_eq!(config.openai_params.parallel_tool_calls, Some(true));
+
+        let openai_options = config
+            .provider_options_map
+            .get("openai")
+            .expect("openai provider options");
+        assert_eq!(
+            openai_options["responsesApi"]["enabled"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            openai_options["responsesApi"]["previousResponseId"],
+            serde_json::json!("resp_123")
+        );
+        assert_eq!(openai_options["custom"]["enabled"], serde_json::json!(true));
     }
 }

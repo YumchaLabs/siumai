@@ -3,7 +3,10 @@
 //! This module contains centralized configuration for all OpenAI-compatible providers.
 //! Inspired by Cherry Studio's provider configuration system.
 
-use crate::standards::openai::compat::provider_registry::{ProviderConfig, ProviderFieldMappings};
+use crate::providers::openai_compatible::ProviderAdapter;
+use crate::standards::openai::compat::provider_registry::{
+    ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+};
 use std::collections::HashMap;
 
 /// Get all built-in provider configurations
@@ -57,6 +60,10 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
                 "rerank".to_string(),
                 "embedding".to_string(),
                 "image_generation".to_string(),
+                // SiliconFlow documents OpenAI-compatible TTS/STT endpoints:
+                // `/audio/speech` and `/audio/transcriptions`.
+                "speech".to_string(),
+                "transcription".to_string(),
             ],
             default_model: Some("deepseek-ai/DeepSeek-V3".to_string()),
             supports_reasoning: true,
@@ -102,6 +109,10 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
                 "vision".to_string(),
                 "embedding".to_string(),
                 "image_generation".to_string(),
+                // Together documents OpenAI-compatible `/audio/speech`
+                // and `/audio/transcriptions` endpoints.
+                "speech".to_string(),
+                "transcription".to_string(),
             ],
             default_model: Some("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo".to_string()),
             supports_reasoning: false,
@@ -119,11 +130,14 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
             base_url: "https://api.fireworks.ai/inference/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
             // Fireworks documents OpenAI-compatible `/chat/completions` and `/embeddings`.
+            // It also documents a dedicated audio host (`https://audio.fireworks.ai/v1`)
+            // for OpenAI-style `/audio/transcriptions`, so we enroll transcription only.
             // Note: `/responses` is documented but currently out-of-scope for Siumai's compat preset.
             capabilities: vec![
                 "tools".to_string(),
                 "vision".to_string(),
                 "embedding".to_string(),
+                "transcription".to_string(),
             ],
             default_model: Some("accounts/fireworks/models/llama-v3p1-8b-instruct".to_string()),
             supports_reasoning: false,
@@ -686,7 +700,9 @@ pub fn list_provider_ids() -> Vec<String> {
 /// Check if a provider supports a specific capability
 pub fn provider_supports_capability(provider_id: &str, capability: &str) -> bool {
     if let Some(config) = get_provider_config(provider_id) {
-        config.capabilities.contains(&capability.to_string())
+        ConfigurableAdapter::new(config)
+            .capabilities()
+            .supports(capability)
     } else {
         false
     }
@@ -738,10 +754,25 @@ mod tests {
             "siliconflow",
             "image_generation"
         ));
+        assert!(provider_supports_capability("siliconflow", "speech"));
+        assert!(provider_supports_capability("siliconflow", "transcription"));
+        assert!(provider_supports_capability("siliconflow", "audio"));
         assert!(provider_supports_capability("together", "embedding"));
         assert!(provider_supports_capability("together", "image_generation"));
+        assert!(provider_supports_capability("together", "speech"));
+        assert!(provider_supports_capability("together", "transcription"));
+        assert!(provider_supports_capability("together", "audio"));
         assert!(provider_supports_capability("mistral", "embedding"));
         assert!(!provider_supports_capability("groq", "vision"));
+        assert!(!provider_supports_capability("openrouter", "speech"));
+        assert!(!provider_supports_capability("openrouter", "transcription"));
+        assert!(!provider_supports_capability("openrouter", "audio"));
+        assert!(!provider_supports_capability("xai", "speech"));
+        assert!(!provider_supports_capability("xai", "transcription"));
+        assert!(!provider_supports_capability("xai", "audio"));
+        assert!(!provider_supports_capability("fireworks", "speech"));
+        assert!(provider_supports_capability("fireworks", "transcription"));
+        assert!(provider_supports_capability("fireworks", "audio"));
     }
 
     #[test]

@@ -137,6 +137,47 @@ impl OpenAiClient {
         &self.base_url
     }
 
+    fn resource_config(&self) -> super::OpenAiConfig {
+        super::OpenAiConfig {
+            api_key: self.api_key.clone(),
+            base_url: self.base_url.clone(),
+            organization: self.organization.clone(),
+            project: self.project.clone(),
+            common_params: self.common_params.clone(),
+            openai_params: self.openai_params.clone(),
+            provider_options_map: self.default_provider_options_map.clone(),
+            http_config: self.http_config.clone(),
+            http_transport: self.http_transport.clone(),
+            http_interceptors: self.http_interceptors.clone(),
+            model_middlewares: self.model_middlewares.clone(),
+        }
+    }
+
+    /// Get a provider-specific files client.
+    pub fn files(&self) -> super::OpenAiFiles {
+        super::OpenAiFiles::new(
+            self.resource_config(),
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
+
+    /// Get a provider-specific models client.
+    pub fn models(&self) -> super::OpenAiModels {
+        self.models_capability.clone()
+    }
+
+    /// Get a provider-specific moderation client.
+    pub fn moderation(&self) -> super::OpenAiModeration {
+        super::OpenAiModeration::new(self.resource_config(), self.http_client.clone())
+    }
+
+    /// Get a provider-specific rerank client.
+    pub fn rerank(&self) -> super::OpenAiRerank {
+        self.rerank_capability.clone()
+    }
+
     /// Construct an `OpenAiClient` from an `OpenAiConfig` (config-first construction).
     ///
     /// This is the recommended construction style for new code that does not want to
@@ -353,7 +394,6 @@ impl OpenAiClient {
         }
         let spec = Arc::new(spec);
         let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
 
         // Provider-client defaults.
         //
@@ -466,19 +506,7 @@ impl OpenAiClient {
                 },
             ));
 
-        let before_send_hook = match (client_defaults_hook, before_send_hook) {
-            (None, None) => None,
-            (Some(h), None) | (None, Some(h)) => Some(h),
-            (Some(defaults), Some(spec_hook)) => {
-                let hook: crate::execution::executors::BeforeSendHook = Arc::new(
-                    move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-                        let out = defaults(body)?;
-                        spec_hook(&out)
-                    },
-                );
-                Some(hook)
-            }
-        };
+        let before_send_hook = client_defaults_hook;
 
         let mut builder = ChatExecutorBuilder::new("openai", self.http_client.clone())
             .with_spec(spec)
@@ -694,6 +722,16 @@ impl LlmProvider for OpenAiClient {
     }
 }
 
+impl crate::traits::ModelMetadata for OpenAiClient {
+    fn provider_id(&self) -> &str {
+        "openai"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.common_params.model
+    }
+}
+
 impl LlmClient for OpenAiClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         LlmProvider::provider_id(self)
@@ -732,7 +770,15 @@ impl LlmClient for OpenAiClient {
         Some(self)
     }
 
+    fn as_speech_extras(&self) -> Option<&dyn crate::traits::SpeechExtras> {
+        Some(self)
+    }
+
     fn as_transcription_capability(&self) -> Option<&dyn crate::traits::TranscriptionCapability> {
+        Some(self)
+    }
+
+    fn as_transcription_extras(&self) -> Option<&dyn crate::traits::TranscriptionExtras> {
         Some(self)
     }
 
@@ -765,11 +811,39 @@ impl LlmClient for OpenAiClient {
 mod tests {
     use super::*;
     use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamResponse,
+    };
     use crate::execution::transformers::request::RequestTransformer;
     use crate::providers::openai::OpenAiConfig;
     use crate::providers::openai::ext::OpenAiChatRequestExt;
     use crate::providers::openai::transformers;
+    use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct DummyTransport;
+
+    #[async_trait]
+    impl HttpTransport for DummyTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "dummy transport execute_json".to_string(),
+            ))
+        }
+
+        async fn execute_stream(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "dummy transport execute_stream".to_string(),
+            ))
+        }
+    }
 
     // Local helpers to construct provider-defined tools for tests without depending
     // on the `siumai::hosted_tools` helper module.
@@ -828,6 +902,46 @@ mod tests {
         assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("openai"));
         assert!(llm.as_chat_capability().is_some());
         assert!(llm.capabilities().chat);
+    }
+
+    #[test]
+    fn openai_client_resource_accessors_preserve_runtime_configuration() {
+        let mut client = OpenAiClient::from_config(
+            OpenAiConfig::new("test-key")
+                .with_base_url("https://example.com/custom/v1")
+                .with_model("gpt-4o-mini")
+                .with_organization("org-123")
+                .with_project("proj-456")
+                .with_http_transport(Arc::new(DummyTransport)),
+        )
+        .expect("from_config ok");
+        client.set_retry_options(Some(crate::retry_api::RetryOptions::backoff()));
+
+        let files = client.files();
+        let models = client.models();
+        let moderation = client.moderation();
+        let rerank = client.rerank();
+
+        assert!(
+            files
+                .get_supported_purposes()
+                .iter()
+                .any(|v| v == "assistants")
+        );
+        assert_eq!(models.base_url, "https://example.com/custom/v1");
+        assert_eq!(models.organization.as_deref(), Some("org-123"));
+        assert_eq!(models.project.as_deref(), Some("proj-456"));
+        assert!(models.http_transport.is_some());
+        assert!(
+            moderation
+                .get_supported_models()
+                .iter()
+                .any(|v| v == "omni-moderation-latest")
+        );
+        assert_eq!(rerank.base_url, "https://example.com/custom/v1");
+        assert_eq!(rerank.organization.as_deref(), Some("org-123"));
+        assert_eq!(rerank.project.as_deref(), Some("proj-456"));
+        assert!(rerank.http_transport.is_some());
     }
 
     #[test]
@@ -1362,6 +1476,102 @@ mod tests {
     }
 
     #[test]
+    fn chat_stream_request_forces_stream_shape_on_chat_completions_request_path() {
+        let cfg = OpenAiConfig::new("test-key")
+            .with_model("gpt-4o-mini")
+            .with_use_responses_api(false);
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http);
+
+        struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                _rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+
+        let request = crate::types::ChatRequest::builder()
+            .model("gpt-4o-mini")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option("openai", serde_json::json!({ "logprobs": 3 }));
+
+        let err = match futures::executor::block_on(client.chat_stream_request(request)) {
+            Ok(_) => panic!("chat_stream_request should be intercepted before network send"),
+            Err(err) => err,
+        };
+        match err {
+            LlmError::InvalidParameter(s) => assert_eq!(s, "stop"),
+            other => panic!("unexpected: {:?}", other),
+        }
+
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        assert_eq!(body["stream"], serde_json::json!(true));
+        assert_eq!(
+            body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
+        assert_eq!(body["logprobs"], serde_json::json!(true));
+        assert_eq!(body["top_logprobs"], serde_json::json!(3));
+    }
+
+    #[test]
+    fn chat_stream_request_forces_stream_shape_on_responses_request_path() {
+        let cfg = OpenAiConfig::new("test-key").with_model("gpt-4.1-mini");
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http);
+
+        struct Capture(std::sync::Arc<std::sync::Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                _rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![std::sync::Arc::new(cap)]);
+
+        let request = crate::types::ChatRequest::builder()
+            .model("gpt-4.1-mini")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build();
+
+        let err = match futures::executor::block_on(client.chat_stream_request(request)) {
+            Ok(_) => panic!("chat_stream_request should be intercepted before network send"),
+            Err(err) => err,
+        };
+        match err {
+            LlmError::InvalidParameter(s) => assert_eq!(s, "stop"),
+            other => panic!("unexpected: {:?}", other),
+        }
+
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        assert_eq!(body["stream"], serde_json::json!(true));
+        assert_eq!(
+            body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
+        assert_eq!(body["model"], serde_json::json!("gpt-4.1-mini"));
+    }
+
+    #[test]
     fn test_responses_api_extended_params() {
         // Test that all new ResponsesApiConfig parameters are correctly injected
         let config = OpenAiConfig::new("test-key")
@@ -1396,13 +1606,13 @@ mod tests {
         let request = crate::types::ChatRequest::new(vec![
             crate::types::ChatMessage::user("Test message").build(),
         ])
-        .with_response_format(crate::types::chat::ResponseFormat::Json {
-            schema: serde_json::json!({
+        .with_response_format(crate::types::chat::ResponseFormat::json_schema(
+            serde_json::json!({
                 "type": "object",
                 "properties": { "ok": { "type": "boolean" } },
                 "required": ["ok"]
             }),
-        })
+        ))
         .with_openai_options(
             OpenAiOptions::new().with_responses_api(
                 ResponsesApiConfig::new()

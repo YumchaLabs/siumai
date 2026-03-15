@@ -21,7 +21,8 @@ use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, EmbeddingCapability, FileManagementCapability,
-    ImageGenerationCapability, ProviderCapabilities, SpeechCapability, TranscriptionCapability,
+    ImageGenerationCapability, ModelMetadata, ProviderCapabilities, SpeechCapability, SpeechExtras,
+    TranscriptionCapability, TranscriptionExtras,
 };
 use crate::types::{
     AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse,
@@ -77,10 +78,18 @@ impl AzureOpenAiClient {
     /// This is the recommended construction style for new code that does not want to
     /// depend on the unified builder surface.
     pub fn from_config(config: AzureOpenAiConfig) -> Result<Self, LlmError> {
-        let http_interceptors = config.http_interceptors.clone();
-        let model_middlewares = config.model_middlewares.clone();
         let http_client =
             crate::execution::http::client::build_http_client_from_config(&config.http_config)?;
+        Self::with_http_client(config, http_client)
+    }
+
+    /// Construct an `AzureOpenAiClient` from config with an explicit HTTP client.
+    pub fn with_http_client(
+        config: AzureOpenAiConfig,
+        http_client: reqwest::Client,
+    ) -> Result<Self, LlmError> {
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
         Ok(Self::new(config, http_client)?
             .with_http_interceptors(http_interceptors)
             .with_model_middlewares(model_middlewares))
@@ -137,7 +146,6 @@ impl AzureOpenAiClient {
         let spec = self.build_spec();
 
         let bundle = spec.choose_chat_transformers(request, &ctx);
-        let before_send_hook = spec.chat_before_send(request, &ctx);
 
         let mut builder = ChatExecutorBuilder::new("azure", self.http_client.clone())
             .with_spec(spec)
@@ -149,10 +157,6 @@ impl AzureOpenAiClient {
 
         if let Some(transport) = self.config.http_transport.clone() {
             builder = builder.with_transport(transport);
-        }
-
-        if let Some(hook) = before_send_hook {
-            builder = builder.with_before_send(hook);
         }
         if let Some(retry) = self.retry_options.clone() {
             builder = builder.with_retry_options(retry);
@@ -241,6 +245,23 @@ impl AzureOpenAiClient {
         builder.build()
     }
 
+    fn prepare_chat_request(
+        &self,
+        mut request: ChatRequest,
+        stream: bool,
+    ) -> Result<ChatRequest, LlmError> {
+        if request.common_params.model.trim().is_empty() {
+            request.common_params.model = self.config.common_params.model.clone();
+        }
+        if request.common_params.model.trim().is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "Azure OpenAI request requires a model (deployment id)".to_string(),
+            ));
+        }
+        request.stream = stream;
+        Ok(request)
+    }
+
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
@@ -284,29 +305,13 @@ impl ChatCapability for AzureOpenAiClient {
         self.chat_stream_request(req).await
     }
 
-    async fn chat_request(&self, mut request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        if request.common_params.model.trim().is_empty() {
-            request.common_params.model = self.config.common_params.model.clone();
-        }
-        if request.common_params.model.trim().is_empty() {
-            return Err(LlmError::InvalidParameter(
-                "Azure OpenAI request requires a model (deployment id)".to_string(),
-            ));
-        }
-        request.stream = false;
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let request = self.prepare_chat_request(request, false)?;
         self.chat_request_via_spec(request).await
     }
 
-    async fn chat_stream_request(&self, mut request: ChatRequest) -> Result<ChatStream, LlmError> {
-        if request.common_params.model.trim().is_empty() {
-            request.common_params.model = self.config.common_params.model.clone();
-        }
-        if request.common_params.model.trim().is_empty() {
-            return Err(LlmError::InvalidParameter(
-                "Azure OpenAI request requires a model (deployment id)".to_string(),
-            ));
-        }
-        request.stream = true;
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        let request = self.prepare_chat_request(request, true)?;
         self.chat_stream_request_via_spec(request).await
     }
 }
@@ -424,6 +429,16 @@ impl FileManagementCapability for AzureOpenAiClient {
     }
 }
 
+impl ModelMetadata for AzureOpenAiClient {
+    fn provider_id(&self) -> &str {
+        "azure"
+    }
+
+    fn model_id(&self) -> &str {
+        &self.config.common_params.model
+    }
+}
+
 impl LlmClient for AzureOpenAiClient {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("azure")
@@ -464,7 +479,15 @@ impl LlmClient for AzureOpenAiClient {
         Some(self)
     }
 
+    fn as_speech_extras(&self) -> Option<&dyn SpeechExtras> {
+        Some(self)
+    }
+
     fn as_transcription_capability(&self) -> Option<&dyn TranscriptionCapability> {
+        Some(self)
+    }
+
+    fn as_transcription_extras(&self) -> Option<&dyn TranscriptionExtras> {
         Some(self)
     }
 
@@ -487,6 +510,49 @@ mod tests {
             .with_base_url("https://example.openai.azure.com/openai")
             .with_model("deployment-id");
         let client = AzureOpenAiClient::from_config(cfg).expect("from_config ok");
-        assert_eq!(client.provider_id(), std::borrow::Cow::Borrowed("azure"));
+        assert_eq!(
+            siumai_core::client::LlmClient::provider_id(&client),
+            std::borrow::Cow::Borrowed("azure")
+        );
+    }
+
+    #[test]
+    fn prepare_chat_request_for_stream_sets_stream_and_fills_default_model() {
+        let cfg = AzureOpenAiConfig::new("test-key")
+            .with_base_url("https://example.openai.azure.com/openai")
+            .with_model("deployment-id");
+        let client = AzureOpenAiClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, true)
+            .expect("prepare stream request");
+
+        assert!(prepared.stream);
+        assert_eq!(prepared.common_params.model, "deployment-id");
+    }
+
+    #[test]
+    fn prepare_chat_request_for_non_stream_clears_stream_and_preserves_explicit_model() {
+        let cfg = AzureOpenAiConfig::new("test-key")
+            .with_base_url("https://example.openai.azure.com/openai")
+            .with_model("deployment-id");
+        let client = AzureOpenAiClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .model("explicit-deployment-id")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .stream(true)
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, false)
+            .expect("prepare non-stream request");
+
+        assert!(!prepared.stream);
+        assert_eq!(prepared.common_params.model, "explicit-deployment-id");
     }
 }

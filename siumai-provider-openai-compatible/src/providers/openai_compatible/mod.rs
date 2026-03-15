@@ -30,6 +30,7 @@ pub mod providers;
 pub mod builder;
 pub mod config;
 pub mod default_models;
+pub mod ext;
 pub mod middleware;
 pub mod openai_client;
 pub mod spec;
@@ -63,6 +64,11 @@ pub mod registry {
 pub use providers::models::{deepseek, groq, moonshot, openrouter, siliconflow, xai};
 
 // Re-export new adapter system
+pub use crate::provider_options::{
+    OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchContextSize,
+    PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
+    PerplexityWebSearchOptions,
+};
 pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
 };
@@ -70,6 +76,12 @@ pub use adapter::{ProviderAdapter, ProviderCompatibility};
 pub use builder::OpenAiCompatibleBuilder;
 pub use config::{
     get_builtin_providers, get_provider_config, list_provider_ids, provider_supports_capability,
+};
+pub use ext::{
+    OpenRouterChatRequestExt, OpenRouterChatResponseExt, OpenRouterContentPartExt,
+    OpenRouterContentPartMetadata, OpenRouterMetadata, OpenRouterSource, OpenRouterSourceExt,
+    OpenRouterSourceMetadata, PerplexityChatRequestExt, PerplexityChatResponseExt, PerplexityImage,
+    PerplexityMetadata, PerplexityUsage,
 };
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;

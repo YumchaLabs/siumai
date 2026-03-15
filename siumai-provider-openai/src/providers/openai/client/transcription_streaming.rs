@@ -69,7 +69,8 @@ impl OpenAiClient {
             Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
 
         // Allow users to pass either raw bytes or a file path.
-        let mut request = request;
+        let mut request = request.with_model_if_missing(self.common_params.model.clone());
+        self.merge_default_provider_options_map(&mut request.provider_options_map);
         if request.audio_data.is_none()
             && let Some(path) = request.file_path.as_deref()
         {

@@ -713,14 +713,27 @@ impl ProviderSpec for OpenAiSpec {
             // or Chat Completions `response_format`.
             if let Some(fmt) = &request_response_format {
                 match fmt {
-                    crate::types::chat::ResponseFormat::Json { schema } => {
+                    crate::types::chat::ResponseFormat::Json {
+                        schema,
+                        name,
+                        description,
+                        strict,
+                    } => {
+                        let strict = strict.unwrap_or(strict_json_schema);
+                        let name = name.as_deref().unwrap_or("response");
                         if use_responses_api {
-                            let format = serde_json::json!({
+                            let mut format = serde_json::json!({
                                 "type": "json_schema",
-                                "strict": strict_json_schema,
-                                "name": "response",
+                                "strict": strict,
+                                "name": name,
                                 "schema": schema,
                             });
+                            if let Some(desc) = description.as_deref()
+                                && !desc.trim().is_empty()
+                                && let Some(obj) = format.as_object_mut()
+                            {
+                                obj.insert("description".to_string(), serde_json::json!(desc));
+                            }
 
                             if let Some(text_obj) = out.get_mut("text") {
                                 if let Some(text_map) = text_obj.as_object_mut() {
@@ -729,15 +742,28 @@ impl ProviderSpec for OpenAiSpec {
                             } else {
                                 out["text"] = serde_json::json!({ "format": format });
                             }
-                        } else if out.get("response_format").is_none() {
+                        } else {
+                            // Request-level responseFormat must win over any pre-existing
+                            // `response_format` injected by protocol transformers or other layers,
+                            // because this mapping also depends on provider config defaults.
                             out["response_format"] = serde_json::json!({
                                 "type": "json_schema",
                                 "json_schema": {
-                                    "name": "response",
+                                    "name": name,
                                     "schema": schema,
-                                    "strict": strict_json_schema
+                                    "strict": strict
                                 }
                             });
+
+                            if let Some(desc) = description.as_deref()
+                                && !desc.trim().is_empty()
+                                && let Some(obj) = out
+                                    .get_mut("response_format")
+                                    .and_then(|v| v.get_mut("json_schema"))
+                                    .and_then(|v| v.as_object_mut())
+                            {
+                                obj.insert("description".to_string(), serde_json::json!(desc));
+                            }
                         }
                     }
                 }

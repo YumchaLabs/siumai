@@ -13,5 +13,8 @@ mod macros;
 
 pub use siumai_protocol_openai::*;
 
+/// Provider-owned typed option structs for OpenAI-compatible vendors.
+pub mod provider_options;
+
 /// OpenAI-compatible providers (vendor presets, adapter registry, client).
 pub mod providers;

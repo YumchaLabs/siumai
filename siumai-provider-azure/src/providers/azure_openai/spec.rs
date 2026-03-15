@@ -113,6 +113,73 @@ impl AzureOpenAiSpec {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
     }
+
+    fn provider_options_object<'a>(
+        &self,
+        req: &'a ChatRequest,
+    ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+        req.provider_option("openai")
+            .or_else(|| req.provider_option("azure"))
+            .or_else(|| req.provider_option(self.id()))
+            .and_then(|value| value.as_object())
+    }
+
+    fn force_reasoning(&self, req: &ChatRequest) -> bool {
+        self.provider_options_object(req)
+            .and_then(|obj| {
+                obj.get("forceReasoning")
+                    .or_else(|| obj.get("force_reasoning"))
+            })
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false)
+    }
+
+    fn is_reasoning_model(&self, model: &str) -> bool {
+        let model = model.trim().to_ascii_lowercase();
+        if model.is_empty() {
+            return false;
+        }
+
+        model.starts_with("o1")
+            || model.starts_with("o3")
+            || model.starts_with("o4")
+            || model.starts_with("gpt-5")
+            || model.contains("codex")
+            || model.contains("computer-use-preview")
+    }
+
+    fn reasoning_effort(&self, req: &ChatRequest) -> Option<String> {
+        self.provider_options_object(req)
+            .and_then(|obj| {
+                obj.get("reasoningEffort")
+                    .or_else(|| obj.get("reasoning_effort"))
+            })
+            .and_then(|value| value.as_str())
+            .map(ToString::to_string)
+    }
+
+    fn responses_reasoning_summary(&self, req: &ChatRequest) -> Option<String> {
+        let obj = self.provider_options_object(req)?;
+        let responses_api = obj
+            .get("responsesApi")
+            .or_else(|| obj.get("responses_api"))?
+            .as_object()?;
+        responses_api
+            .get("reasoningSummary")
+            .or_else(|| responses_api.get("reasoning_summary"))
+            .and_then(|value| value.as_str())
+            .map(ToString::to_string)
+    }
+
+    fn strict_json_schema(&self, req: &ChatRequest) -> bool {
+        self.provider_options_object(req)
+            .and_then(|obj| {
+                obj.get("strictJsonSchema")
+                    .or_else(|| obj.get("strict_json_schema"))
+            })
+            .and_then(|value| value.as_bool())
+            .unwrap_or(true)
+    }
 }
 
 fn build_azure_openai_json_headers(ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
@@ -378,6 +445,107 @@ impl ProviderSpec for AzureOpenAiSpec {
                 spec.choose_chat_transformers(req, ctx)
             }
         }
+    }
+
+    fn chat_before_send(
+        &self,
+        req: &ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
+        let is_reasoning_model =
+            self.force_reasoning(req) || self.is_reasoning_model(&req.common_params.model);
+        if !is_reasoning_model {
+            return None;
+        }
+
+        let reasoning_effort = self.reasoning_effort(req);
+        let reasoning_summary = if matches!(self.chat_mode, AzureChatMode::Responses) {
+            self.responses_reasoning_summary(req)
+        } else {
+            None
+        };
+        let request_response_format = req.response_format.clone();
+        let strict_json_schema = self.strict_json_schema(req);
+
+        if reasoning_effort.is_none()
+            && reasoning_summary.is_none()
+            && request_response_format.is_none()
+        {
+            return None;
+        }
+
+        let chat_mode = self.chat_mode;
+        Some(Arc::new(move |body: &serde_json::Value| {
+            let mut out = body.clone();
+
+            match chat_mode {
+                AzureChatMode::Responses => {
+                    if let Some(ref fmt) = request_response_format {
+                        match fmt {
+                            crate::types::chat::ResponseFormat::Json {
+                                schema,
+                                name,
+                                description,
+                                strict,
+                            } => {
+                                let strict = strict.unwrap_or(strict_json_schema);
+                                let name = name.as_deref().unwrap_or("response");
+                                let mut format = serde_json::json!({
+                                    "type": "json_schema",
+                                    "strict": strict,
+                                    "name": name,
+                                    "schema": schema,
+                                });
+                                if let Some(desc) = description.as_deref()
+                                    && !desc.trim().is_empty()
+                                    && let Some(obj) = format.as_object_mut()
+                                {
+                                    obj.insert(
+                                        "description".to_string(),
+                                        serde_json::Value::String(desc.to_string()),
+                                    );
+                                }
+
+                                if let Some(text_obj) = out.get_mut("text") {
+                                    if let Some(map) = text_obj.as_object_mut() {
+                                        map.insert("format".to_string(), format);
+                                    }
+                                } else {
+                                    out["text"] = serde_json::json!({ "format": format });
+                                }
+                            }
+                        }
+                    }
+
+                    if let Some(ref effort) = reasoning_effort {
+                        if let Some(reasoning_obj) = out.get_mut("reasoning") {
+                            if let Some(map) = reasoning_obj.as_object_mut() {
+                                map.insert("effort".to_string(), serde_json::json!(effort));
+                            }
+                        } else {
+                            out["reasoning"] = serde_json::json!({ "effort": effort });
+                        }
+                    }
+
+                    if let Some(ref summary) = reasoning_summary {
+                        if let Some(reasoning_obj) = out.get_mut("reasoning") {
+                            if let Some(map) = reasoning_obj.as_object_mut() {
+                                map.insert("summary".to_string(), serde_json::json!(summary));
+                            }
+                        } else {
+                            out["reasoning"] = serde_json::json!({ "summary": summary });
+                        }
+                    }
+                }
+                AzureChatMode::ChatCompletions => {
+                    if let Some(ref effort) = reasoning_effort {
+                        out["reasoning_effort"] = serde_json::json!(effort);
+                    }
+                }
+            }
+
+            Ok(out)
+        }))
     }
 
     fn embedding_url(&self, req: &EmbeddingRequest, ctx: &ProviderContext) -> String {

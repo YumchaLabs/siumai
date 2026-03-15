@@ -141,6 +141,7 @@ impl OpenAiClient {
     ) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
         let mut request = request;
+        request.stream = true;
         self.merge_default_provider_options_map(&mut request.provider_options_map);
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
