@@ -58,21 +58,42 @@ Required lanes:
      - `togetherai`
      - `bedrock`
 
-3. `provider-package-build-matrix`
+3. `pr-provider-contracts`
+   - provider-scoped, no-network `cargo nextest` lanes for the top-level `siumai` facade
+   - validates one representative contract bundle per provider without requiring `all-features`
+   - current profiles:
+     - `openai-native`
+     - `openai-compat`
+     - `azure`
+     - `anthropic`
+     - `google`
+     - `google-vertex`
+     - `ollama`
+     - `xai`
+     - `groq`
+     - `minimaxi`
+     - `deepseek`
+     - `cohere`
+     - `togetherai`
+     - `bedrock`
+
+4. `provider-package-build-matrix`
    - compile each provider package directly with its own feature gate
    - protects provider-owned public surfaces that the facade does not compile exhaustively
    - also covers compatibility packages such as:
      - `siumai-provider-openai-compatible`
      - `siumai-provider-anthropic-compatible`
 
-4. `pr-facade-guardrails`
+5. `pr-facade-guardrails`
    - compile all `siumai` examples under `all-providers`
    - run `public_surface_imports_test`
 
 Acceptance rule:
 
-- a provider migration is not considered operationally complete until it is present in both the
-  facade feature smoke lane and the direct provider-package build lane
+- a provider migration is not considered operationally complete until it is present in:
+  - the facade feature smoke lane
+  - the provider contract lane
+  - the direct provider-package build lane
 
 ### Tier 2 - Mainline / merge validation
 
@@ -114,7 +135,7 @@ Use the following mapping when deciding where to add validation:
 | Surface | Primary validation | Secondary validation |
 |---|---|---|
 | `siumai-provider-*` provider-owned surface | `provider-package-build-matrix` | provider-local tests / examples |
-| `siumai` facade single-provider feature | `pr-provider-smoke` / `feature-build-matrix` | top-level no-network tests |
+| `siumai` facade single-provider feature | `pr-provider-smoke` / `pr-provider-contracts` / `feature-build-matrix` | top-level no-network tests |
 | `siumai` public examples and exports | `pr-facade-guardrails` | docs review |
 | `siumai-extras` optional integration layers | `extras-build-matrix` | focused crate tests |
 

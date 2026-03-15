@@ -53,6 +53,39 @@ Notes:
 - The `all-providers` smoke/test-fast presets now also include the focused provider packages
   `deepseek`, `cohere`, `togetherai`, and `bedrock`.
 
+### `test-provider-contracts.sh`
+
+Runs the provider-scoped no-network contract matrix for the top-level `siumai` facade.
+
+```bash
+# Run the full contract matrix
+./scripts/test-provider-contracts.sh
+
+# Run one provider lane
+./scripts/test-provider-contracts.sh google-vertex
+./scripts/test-provider-contracts.sh bedrock
+```
+
+Notes:
+
+- This is the local mirror of the PR provider contract CI matrix.
+- The script prefers `cargo nextest`; if unavailable, it falls back to `cargo test`.
+- Current profiles cover:
+  - `openai-native`
+  - `openai-compat`
+  - `azure`
+  - `anthropic`
+  - `google`
+  - `google-vertex`
+  - `ollama`
+  - `xai`
+  - `groq`
+  - `minimaxi`
+  - `deepseek`
+  - `cohere`
+  - `togetherai`
+  - `bedrock`
+
 ## 🧪 Integration Test Scripts
 
 ### `run_integration_tests.sh` (Linux/macOS)

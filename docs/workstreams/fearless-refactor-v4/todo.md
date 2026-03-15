@@ -893,6 +893,7 @@ Status legend:
 - [x] Add a validation matrix and wire CI gates to package boundaries.
   - `validation-matrix.md` now defines Tier 0 / Tier 1 / Tier 2 / Tier 3 validation lanes so the post-refactor phase is governed by explicit package-boundary gates instead of only ad hoc full-workspace runs.
   - PR CI now compiles the `siumai` facade under every first-class provider feature (`openai`, `azure`, `anthropic`, `google`, `google-vertex`, `ollama`, `xai`, `groq`, `minimaxi`, `deepseek`, `cohere`, `togetherai`, `bedrock`) instead of only the earlier narrow subset.
+  - PR CI now also runs provider-scoped no-network nextest bundles for those same facade lanes, including a separate `openai-compat` vendor/preset lane so compile-only feature smoke is backed by executable request/response contract coverage.
   - CI now also compiles each provider package directly under its own feature gate, including the compatibility packages, so provider-owned public surfaces can no longer regress silently behind the top-level facade build.
   - Local smoke/test scripts now follow that same matrix more closely by including the OpenAI-compatible package plus the focused provider packages in the `openai-compatible` / `all-providers` presets.
 

@@ -338,6 +338,7 @@ The V4 test pyramid now maps into explicit CI lanes:
 
 - **PR safety net**: fast core tests plus minimal facade checks
 - **Facade feature smoke**: one feature-minimal build per first-class provider
+- **Provider contract matrix**: one no-network nextest bundle per provider-facing facade lane
 - **Provider package build matrix**: direct compile coverage for each `siumai-provider-*` crate
 - **Public guardrails**: `public_surface_imports_test` plus example compilation
 - **Mainline heavy lane**: `cargo nextest run --profile ci --all-features --workspace`

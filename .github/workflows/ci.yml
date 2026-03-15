@@ -115,6 +115,50 @@ jobs:
       - name: Cargo check (siumai facade + tests)
         run: cargo check -p siumai --no-default-features --features ${{ matrix.features }} --lib --tests
 
+  pr-provider-contracts:
+    name: PR Provider Contract Matrix (${{ matrix.profile }})
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    env:
+      CARGO_INCREMENTAL: 0
+      CARGO_PROFILE_DEV_DEBUG: 0
+      RUSTFLAGS: "-C debuginfo=0"
+    strategy:
+      fail-fast: false
+      matrix:
+        profile:
+          - openai-native
+          - openai-compat
+          - azure
+          - anthropic
+          - google
+          - google-vertex
+          - ollama
+          - xai
+          - groq
+          - minimaxi
+          - deepseek
+          - cohere
+          - togetherai
+          - bedrock
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+
+      - name: Run provider contract tests
+        run: bash ./scripts/test-provider-contracts.sh ${{ matrix.profile }}
+
   provider-package-build-matrix:
     name: Provider Package Build Matrix (${{ matrix.name }})
     runs-on: ubuntu-latest

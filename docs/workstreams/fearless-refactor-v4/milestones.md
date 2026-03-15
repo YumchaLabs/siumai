@@ -1331,6 +1331,7 @@ Notes:
 
 - The post-refactor validation phase now has an explicit `validation-matrix.md` document that maps local smoke loops, PR gates, merge-time heavy lanes, and release readiness checks.
 - CI now validates the split package topology more directly: PRs compile `siumai` under every first-class provider feature, and a dedicated provider-package build matrix compiles each `siumai-provider-*` crate under its own feature gate.
+- PR CI now also runs provider-scoped no-network facade contract bundles, so each first-class provider lane has executable request/response coverage instead of compile-only smoke.
 - `pr-facade-guardrails` continues to compile `siumai` examples under `all-providers` and run `public_surface_imports_test`, so the example tree and public export paths remain part of the release gate rather than informal follow-up work.
 
 
