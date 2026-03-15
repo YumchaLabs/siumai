@@ -155,6 +155,11 @@ If you want a high-level capability matrix instead, see `docs/alignment/provider
 **Tests**
 - `siumai/tests/anthropic_vertex_models_test.rs`
 - `siumai/tests/streaming/siumai_interceptor_request_assert_test.rs`
+- `siumai/tests/anthropic_vertex_builder_alignment_test.rs`
+- `siumai/tests/provider_public_path_parity_test.rs`
+
+**Example**
+- `siumai/examples/04-provider-specific/google/vertex_anthropic_chat.rs`
 
 ## Gemini (Google Generative AI: GenerateContent)
 

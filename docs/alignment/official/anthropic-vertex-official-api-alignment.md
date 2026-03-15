@@ -71,6 +71,24 @@ From official examples:
   - `siumai-provider-google-vertex/src/providers/anthropic_vertex/spec.rs` (`build_headers`)
 - Note:
   - Vertex Anthropic uses standard Google auth; it does **not** use `x-api-key` / `anthropic-version` headers.
+  - Current public construction paths are:
+    - `Provider::anthropic_vertex()`
+    - `Siumai::builder().anthropic_vertex()`
+    - `provider_ext::anthropic_vertex::VertexAnthropicConfig`
+    - unified Google auth aliases on `Siumai::builder()`:
+      - `with_google_token_provider(...)`
+      - `with_google_adc()`
+      - `with_vertex_token_provider(...)`
+      - `with_vertex_adc()`
+  - Current recommended auth flow is:
+    - provide a Google Bearer token explicitly via `Authorization: Bearer ...`, or
+    - attach a token provider (for example ADC) on the provider-owned builder/config surface
+    - let runtime context construction inject the final `Authorization` header when needed
+  - `VertexAnthropicConfig` now owns a token-provider field, so enterprise Vertex auth can follow
+    the same lazy Bearer-token injection model as the main Google Vertex client.
+  - Registry/shared-builder wiring now resolves Google-family auth through a neutral `google_token_provider`
+    field with backward-compatible fallback from `gemini_token_provider`, so Anthropic-on-Vertex no longer
+    depends on Gemini-specific naming inside shared construction paths.
 
 ## Request body differences vs native Anthropic Messages
 
@@ -97,6 +115,8 @@ Siumai reuses the Anthropic SSE event mapping to parse and serialize streaming e
 
 - Anthropic on Vertex (RawPredict + streamRawPredict) is treated as **Green** for official correctness:
   base URL composition, auth headers, request body shaping (`anthropic_version`), and streaming behavior.
+- Public provider-owned construction is now also **Green**:
+  builder/config/registry/public-path parity all converge on the same transport-boundary request shape.
 
 ## Non-applicable native Anthropic endpoints
 

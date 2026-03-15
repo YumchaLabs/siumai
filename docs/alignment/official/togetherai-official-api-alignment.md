@@ -57,3 +57,39 @@ See: `TogetherAiRerankRequestTransformer` in `siumai-provider-togetherai/src/sta
 ## Status
 
 - TogetherAI rerank is treated as **Green** for fixture parity and endpoint/header correctness.
+
+## Shared OpenAI-compatible audio track
+
+The TogetherAI provider also exposes OpenAI-compatible audio endpoints on the shared compat runtime path.
+
+### Sources (TogetherAI audio docs)
+
+- Speech: <https://docs.together.ai/reference/audio-speech>
+- Audio transcriptions: <https://docs.together.ai/reference/audio-transcriptions>
+
+### Siumai implementation
+
+- Preset config: `siumai-provider-openai-compatible/src/providers/openai_compatible/config.rs` (`together`)
+- Shared protocol family: `siumai-protocol-openai/src/standards/openai/*`
+
+### Base URL + endpoints (official)
+
+- Base URL: `https://api.together.xyz/v1`
+- Speech: `POST /audio/speech`
+- Audio transcriptions: `POST /audio/transcriptions`
+
+### Siumai mapping
+
+- The shared OpenAI-compatible preset keeps Together on the documented base URL and maps speech/transcription through the shared audio spec/executor stack.
+
+### Tests (how correctness is locked down)
+
+- `siumai-provider-openai-compatible/src/providers/openai_compatible/openai_client.rs`
+- `siumai-registry/src/registry/factories/contract_tests.rs`
+
+- Together speech/transcription capability enrollment is locked on the OpenAI-compatible factory path.
+- Together now also has direct no-network transport-boundary coverage for both `/audio/speech` request shaping and `/audio/transcriptions` multipart upload shaping.
+
+### Status
+
+- TogetherAI shared-compat audio is treated as **Green** for factory capability routing plus direct request-shape parity on both `/audio/speech` and `/audio/transcriptions`.
