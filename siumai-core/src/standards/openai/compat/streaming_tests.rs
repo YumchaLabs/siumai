@@ -1,6 +1,10 @@
-use super::adapter::OpenAiStandardAdapter;
+use super::adapter::{OpenAiStandardAdapter, ProviderAdapter};
 use super::openai_config::OpenAiCompatibleConfig;
+use super::provider_registry::{ConfigurableAdapter, ProviderConfig};
 use super::streaming::OpenAiCompatibleEventConverter;
+use super::transformers::CompatResponseTransformer;
+use crate::execution::transformers::response::ResponseTransformer;
+use crate::streaming::StreamProcessor;
 use crate::streaming::{ChatStreamEvent, SseEventConverter, SseStreamExt};
 use eventsource_stream::Event;
 use futures_util::StreamExt;
@@ -14,6 +18,352 @@ fn make_converter() -> OpenAiCompatibleEventConverter {
     let cfg = OpenAiCompatibleConfig::new("openai", "sk-test", &base, adapter.clone())
         .with_model("gpt-4o-mini");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
+}
+
+#[tokio::test]
+async fn streaming_tool_calls_match_non_streaming_tool_calls() {
+    let base = "https://api.openai.com/v1".to_string();
+    let adapter = Arc::new(OpenAiStandardAdapter {
+        base_url: base.clone(),
+    });
+    let cfg = OpenAiCompatibleConfig::new("openai", "sk-test", &base, adapter.clone())
+        .with_model("gpt-4o-mini");
+
+    let conv = OpenAiCompatibleEventConverter::new(cfg.clone(), adapter.clone());
+    let tx = CompatResponseTransformer {
+        config: cfg,
+        adapter,
+    };
+
+    let raw = serde_json::json!({
+        "id": "chatcmpl_1",
+        "model": "gpt-4o-mini",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "lookup",
+                                "arguments": "{\"q\":\"rust\"}"
+                            }
+                        }
+                    ]
+                },
+                "finish_reason": "tool_calls"
+            }
+        ]
+    });
+
+    let non_stream = tx
+        .transform_chat_response(&raw)
+        .expect("non-stream transform");
+    assert_eq!(
+        non_stream.finish_reason,
+        Some(crate::types::FinishReason::ToolCalls)
+    );
+    assert_eq!(non_stream.tool_calls().len(), 1);
+
+    let mut sp = StreamProcessor::new();
+    let mut finish_reason = None;
+
+    let stream_events = vec![
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"lookup","arguments":""}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\": \""}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"rust\"}"}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    ];
+
+    for e in stream_events {
+        for ev in conv.convert_event(e).await.into_iter().flatten() {
+            match ev {
+                ChatStreamEvent::StreamEnd { response } => {
+                    finish_reason = response.finish_reason;
+                }
+                other => {
+                    let _ = sp.process_event(other);
+                }
+            }
+        }
+    }
+
+    let streaming = sp.build_final_response_with_finish_reason(finish_reason);
+    assert_eq!(
+        streaming.finish_reason,
+        Some(crate::types::FinishReason::ToolCalls)
+    );
+    assert_eq!(streaming.tool_calls().len(), 1);
+
+    let a = non_stream.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    let b = streaming.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    assert_eq!(b.tool_call_id, a.tool_call_id);
+    assert_eq!(b.tool_name, a.tool_name);
+    assert_eq!(b.arguments, a.arguments);
+}
+
+#[tokio::test]
+async fn xai_runtime_provider_streaming_tool_calls_match_non_streaming_tool_calls() {
+    let base = "https://api.x.ai/v1".to_string();
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "xai".to_string(),
+        name: "xAI".to_string(),
+        base_url: base.clone(),
+        field_mappings: Default::default(),
+        capabilities: vec!["tools".to_string()],
+        default_model: None,
+        supports_reasoning: true,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+    let cfg = OpenAiCompatibleConfig::new("xai", "sk-test", &base, adapter.clone())
+        .with_model("grok-3-mini");
+
+    let conv = OpenAiCompatibleEventConverter::new(cfg.clone(), adapter.clone());
+    let tx = CompatResponseTransformer {
+        config: cfg,
+        adapter,
+    };
+
+    let raw = serde_json::json!({
+        "id": "chatcmpl_1",
+        "model": "grok-3-mini",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": "{\"city\":\"Tokyo\"}"
+                            }
+                        }
+                    ]
+                },
+                "finish_reason": "tool_calls"
+            }
+        ]
+    });
+
+    let non_stream = tx
+        .transform_chat_response(&raw)
+        .expect("non-stream transform");
+    assert_eq!(
+        non_stream.finish_reason,
+        Some(crate::types::FinishReason::ToolCalls)
+    );
+    assert_eq!(non_stream.tool_calls().len(), 1);
+
+    let mut sp = StreamProcessor::new();
+    let mut finish_reason = None;
+
+    let stream_events = vec![
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"get_weather","arguments":""}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\""}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"Tokyo\"}"}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    ];
+
+    for e in stream_events {
+        for ev in conv.convert_event(e).await.into_iter().flatten() {
+            match ev {
+                ChatStreamEvent::StreamEnd { response } => {
+                    finish_reason = response.finish_reason;
+                }
+                other => {
+                    let _ = sp.process_event(other);
+                }
+            }
+        }
+    }
+
+    let streaming = sp.build_final_response_with_finish_reason(finish_reason);
+    assert_eq!(
+        streaming.finish_reason,
+        Some(crate::types::FinishReason::ToolCalls)
+    );
+    assert_eq!(streaming.tool_calls().len(), 1);
+
+    let a = non_stream.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    let b = streaming.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    assert_eq!(b.tool_call_id, a.tool_call_id);
+    assert_eq!(b.tool_name, a.tool_name);
+    assert_eq!(b.arguments, a.arguments);
+}
+
+#[tokio::test]
+async fn deepseek_runtime_provider_streaming_tool_calls_match_non_streaming_tool_calls() {
+    let base = "https://api.deepseek.com/v1".to_string();
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "deepseek".to_string(),
+        name: "DeepSeek".to_string(),
+        base_url: base.clone(),
+        field_mappings: Default::default(),
+        capabilities: vec!["tools".to_string()],
+        default_model: None,
+        supports_reasoning: true,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+    let cfg = OpenAiCompatibleConfig::new("deepseek", "sk-test", &base, adapter.clone())
+        .with_model("deepseek-chat");
+
+    let conv = OpenAiCompatibleEventConverter::new(cfg.clone(), adapter.clone());
+    let tx = CompatResponseTransformer {
+        config: cfg,
+        adapter,
+    };
+
+    let raw = serde_json::json!({
+        "id": "chatcmpl_1",
+        "model": "deepseek-chat",
+        "choices": [
+            {
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": "{\"city\":\"Tokyo\"}"
+                            }
+                        }
+                    ]
+                },
+                "finish_reason": "tool_calls"
+            }
+        ]
+    });
+
+    let non_stream = tx
+        .transform_chat_response(&raw)
+        .expect("non-stream transform");
+    assert_eq!(
+        non_stream.finish_reason,
+        Some(crate::types::FinishReason::ToolCalls)
+    );
+    assert_eq!(non_stream.tool_calls().len(), 1);
+
+    let mut sp = StreamProcessor::new();
+    let mut finish_reason = None;
+
+    let stream_events = vec![
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"get_weather","arguments":""}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":\""}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"Tokyo\"}"}}]}}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    ];
+
+    for e in stream_events {
+        for ev in conv.convert_event(e).await.into_iter().flatten() {
+            match ev {
+                ChatStreamEvent::StreamEnd { response } => {
+                    finish_reason = response.finish_reason;
+                }
+                other => {
+                    let _ = sp.process_event(other);
+                }
+            }
+        }
+    }
+
+    let streaming = sp.build_final_response_with_finish_reason(finish_reason);
+    assert_eq!(
+        streaming.finish_reason,
+        Some(crate::types::FinishReason::ToolCalls)
+    );
+    assert_eq!(streaming.tool_calls().len(), 1);
+
+    let a = non_stream.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    let b = streaming.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    assert_eq!(b.tool_call_id, a.tool_call_id);
+    assert_eq!(b.tool_name, a.tool_name);
+    assert_eq!(b.arguments, a.arguments);
 }
 
 #[tokio::test]

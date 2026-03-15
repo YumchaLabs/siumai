@@ -40,6 +40,7 @@ pub(super) struct OpenAiResponsesSerializeState {
     pub(super) message_scaffold_emitted: bool,
     pub(super) message_text: String,
     pub(super) message_annotation_index: u64,
+    pub(super) message_annotations: Vec<serde_json::Value>,
 
     pub(super) reasoning_item_id: Option<String>,
     pub(super) reasoning_output_index: Option<u64>,

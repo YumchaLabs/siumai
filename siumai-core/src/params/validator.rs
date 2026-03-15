@@ -223,6 +223,9 @@ impl EnhancedParameterValidator {
             ProviderType::OpenAi => model.starts_with("gpt-") || model.starts_with("o1-"),
             ProviderType::Anthropic => model.starts_with("claude-"),
             ProviderType::Gemini => model.starts_with("gemini-"),
+            ProviderType::DeepSeek => {
+                matches!(model, "chat" | "reasoner") || model.starts_with("deepseek-")
+            }
             ProviderType::XAI => model.starts_with("grok-"),
             ProviderType::Ollama => true, // Ollama supports various models
             ProviderType::Custom(_) => true,
@@ -254,6 +257,7 @@ impl EnhancedParameterValidator {
             }
             ProviderType::Anthropic => Some("claude-3-5-sonnet-20241022".to_string()),
             ProviderType::Gemini => Some("gemini-1.5-pro".to_string()),
+            ProviderType::DeepSeek => Some("deepseek-chat".to_string()),
             ProviderType::XAI => Some("grok-beta".to_string()),
             ProviderType::Ollama => Some("llama3.2:latest".to_string()),
             ProviderType::Custom(_) => None,
@@ -267,6 +271,7 @@ impl EnhancedParameterValidator {
             ProviderType::OpenAi => 4,
             ProviderType::Anthropic => 5,
             ProviderType::Gemini => 5,
+            ProviderType::DeepSeek => 4,
             ProviderType::XAI => 4,
             ProviderType::Ollama => 10,
             ProviderType::Custom(_) => 10,

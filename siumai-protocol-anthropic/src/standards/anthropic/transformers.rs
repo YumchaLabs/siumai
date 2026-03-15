@@ -208,7 +208,7 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 // Vercel-aligned: request-level `responseFormat: { type: "json", schema }`
                 // uses `output_format` for supported models, otherwise falls back to a reserved
                 // `json` tool + tool_choice.
-                if let Some(crate::types::chat::ResponseFormat::Json { schema }) =
+                if let Some(crate::types::chat::ResponseFormat::Json { schema, .. }) =
                     &req.response_format
                 {
                     fn supports_native_output_format(model: &str) -> bool {
@@ -571,6 +571,7 @@ impl ResponseTransformer for AnthropicResponseTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_metadata::anthropic::AnthropicChatResponseExt;
     use crate::types::MessageContent;
 
     #[test]
@@ -592,14 +593,8 @@ mod tests {
 
         let resp = tx.transform_chat_response(&raw).unwrap();
         assert!(matches!(resp.content, MessageContent::MultiModal(_)));
-        let meta = resp.provider_metadata.unwrap();
-        assert_eq!(
-            meta.get("anthropic")
-                .unwrap()
-                .get("thinking_signature")
-                .unwrap(),
-            "sig"
-        );
+        let meta = resp.anthropic_metadata().expect("anthropic metadata");
+        assert_eq!(meta.thinking_signature.as_deref(), Some("sig"));
     }
 
     #[test]
@@ -620,13 +615,171 @@ mod tests {
         });
 
         let resp = tx.transform_chat_response(&raw).unwrap();
-        let meta = resp.provider_metadata.unwrap();
+        let meta = resp.anthropic_metadata().expect("anthropic metadata");
+        assert_eq!(meta.redacted_thinking_data.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn anthropic_chat_response_maps_tool_use_blocks_into_content_parts() {
+        let tx = AnthropicResponseTransformer;
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-7-sonnet-latest",
+            "stop_reason": "tool_use",
+            "stop_sequence": null,
+            "usage": { "input_tokens": 1, "output_tokens": 2 },
+            "content": [
+                { "type": "tool_use", "id": "toolu_1", "name": "weather", "input": { "city": "Tokyo" } }
+            ]
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        assert_eq!(resp.finish_reason, Some(FinishReason::ToolCalls));
+
+        assert!(
+            matches!(resp.content, MessageContent::MultiModal(_)),
+            "expected multimodal content for tool calls"
+        );
+        let calls = resp.tool_calls();
+        assert_eq!(calls.len(), 1);
+
+        let info = calls[0].as_tool_call().expect("tool call info");
+        assert_eq!(info.tool_call_id, "toolu_1");
+        assert_eq!(info.tool_name, "weather");
+        assert_eq!(info.arguments, &serde_json::json!({ "city": "Tokyo" }));
+        assert_eq!(info.provider_executed.copied(), None);
+    }
+
+    #[test]
+    fn reserved_json_tool_response_is_mapped_to_text_and_stop() {
+        let tx = AnthropicResponseTransformer;
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-7-sonnet-latest",
+            "stop_reason": "tool_use",
+            "stop_sequence": null,
+            "usage": { "input_tokens": 1, "output_tokens": 2 },
+            "content": [
+                { "type": "tool_use", "id": "toolu_1", "name": "json", "input": { "value": "ok", "a": 1 } }
+            ]
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        assert_eq!(resp.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(resp.content_text(), Some(r#"{"a":1,"value":"ok"}"#));
+        assert!(
+            resp.tool_calls().is_empty(),
+            "reserved json tool should not surface as tool call"
+        );
+    }
+
+    #[test]
+    fn tool_result_message_is_serialized_as_anthropic_tool_result_block() {
+        let tx = AnthropicRequestTransformer::default();
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![
+                crate::types::ChatMessage::tool_result_json(
+                    "toolu_1",
+                    "weather",
+                    serde_json::json!({ "temperature": 18 }),
+                )
+                .build(),
+            ])
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        let msgs = body["messages"].as_array().expect("messages array");
+        assert_eq!(msgs.len(), 1);
+
+        assert_eq!(msgs[0]["role"], "user");
+        let content = msgs[0]["content"].as_array().expect("content array");
+        assert_eq!(content.len(), 1);
+        assert_eq!(content[0]["type"], "tool_result");
+        assert_eq!(content[0]["tool_use_id"], "toolu_1");
+        assert_eq!(content[0]["is_error"], serde_json::json!(false));
+        assert!(
+            content[0]["content"].is_string(),
+            "Anthropic tool_result content must be string or blocks"
+        );
+    }
+
+    #[test]
+    fn response_format_json_schema_uses_output_format_on_supported_models() {
+        use crate::types::chat::ResponseFormat;
+
+        let tx = AnthropicRequestTransformer::default();
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .model("claude-sonnet-4-5-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()))
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
         assert_eq!(
-            meta.get("anthropic")
-                .unwrap()
-                .get("redacted_thinking_data")
-                .unwrap(),
-            "abc123"
+            body.get("output_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "schema": schema
+            }))
+        );
+        assert!(
+            body.get("tools").is_none(),
+            "output_format path should not inject the reserved json tool"
+        );
+    }
+
+    #[test]
+    fn response_format_json_schema_falls_back_to_reserved_json_tool_on_unsupported_models() {
+        use crate::types::chat::ResponseFormat;
+
+        let tx = AnthropicRequestTransformer::default();
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()))
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert!(
+            body.get("output_format").is_none(),
+            "unsupported models should not use output_format"
+        );
+
+        let tools = body
+            .get("tools")
+            .and_then(|v| v.as_array())
+            .expect("expected tools array");
+        assert!(tools.iter().any(|t| {
+            t.get("name").and_then(|v| v.as_str()) == Some("json")
+                && t.get("input_schema") == Some(&schema)
+        }));
+
+        assert_eq!(
+            body.get("tool_choice"),
+            Some(&serde_json::json!({
+                "type": "any",
+                "disable_parallel_tool_use": true
+            }))
         );
     }
 
@@ -748,9 +901,9 @@ mod tests {
         let req = ChatRequest::builder()
             .model("claude-sonnet-4-5")
             .messages(vec![crate::types::ChatMessage::user("hi").build()])
-            .response_format(crate::types::chat::ResponseFormat::Json {
-                schema: serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}),
-            })
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}),
+            ))
             .provider_option(
                 "anthropic",
                 serde_json::json!({ "structuredOutputMode": "jsonTool" }),
@@ -782,9 +935,9 @@ mod tests {
                 "Get weather",
                 serde_json::json!({"type":"object","properties":{"q":{"type":"string"}}}),
             )])
-            .response_format(crate::types::chat::ResponseFormat::Json {
-                schema: serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}),
-            })
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}),
+            ))
             .build();
 
         let body = tx.transform_chat(&req).expect("transform");

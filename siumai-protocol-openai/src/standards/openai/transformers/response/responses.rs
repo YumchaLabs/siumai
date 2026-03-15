@@ -1389,5 +1389,135 @@ mod tests {
         );
         assert!(sources.iter().any(|s| s.url == "https://www.rust-lang.org"));
         assert!(sources.iter().any(|s| s.source_type == "document"));
+        let document = sources
+            .iter()
+            .find(|s| s.source_type == "document")
+            .expect("document source present");
+        let source_meta =
+            crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(document)
+                .expect("typed source metadata");
+        assert_eq!(source_meta.file_id.as_deref(), Some("file_123"));
+        assert!(source_meta.container_id.is_none());
+        assert!(source_meta.index.is_none());
+    }
+
+    #[test]
+    fn responses_transformer_surfaces_reasoning_content_part_metadata() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_reasoning_1",
+                "model": "o4-mini",
+                "output": [
+                    {
+                        "type": "reasoning",
+                        "id": "rs_1",
+                        "encrypted_content": "enc_payload_123",
+                        "summary": [
+                            {
+                                "type": "summary_text",
+                                "text": "Let me think."
+                            }
+                        ]
+                    }
+                ],
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 2,
+                    "output_tokens_details": {
+                        "reasoning_tokens": 1
+                    },
+                    "total_tokens": 3
+                },
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+        let reasoning = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::Reasoning { .. }))
+            .expect("expected reasoning part");
+
+        let meta =
+            crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(reasoning)
+                .expect("openai content part metadata");
+        assert_eq!(meta.item_id.as_deref(), Some("rs_1"));
+        assert_eq!(
+            meta.reasoning_encrypted_content.as_deref(),
+            Some("enc_payload_123")
+        );
+    }
+
+    #[test]
+    fn responses_transformer_surfaces_typed_source_metadata_for_container_and_file_path() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_sources_2",
+                "model": "gpt-4.1",
+                "output": [
+                    {
+                        "type": "message",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "See attached files.",
+                                "annotations": [
+                                    {
+                                        "type": "container_file_citation",
+                                        "file_id": "file_container_1",
+                                        "container_id": "container_42",
+                                        "index": 3,
+                                        "filename": "bundle.txt",
+                                        "quote": "Bundle"
+                                    },
+                                    {
+                                        "type": "file_path",
+                                        "file_id": "file_path_9",
+                                        "index": 5,
+                                        "filename": "artifact.bin"
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "usage": { "input_tokens": 1, "output_tokens": 2, "total_tokens": 3 },
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&resp)
+            .expect("openai metadata present");
+        let sources = meta.sources.expect("sources present");
+
+        let container_source = sources
+            .iter()
+            .find(|source| source.url == "file_container_1")
+            .expect("container citation source present");
+        let container_meta =
+            crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(container_source)
+                .expect("typed container source metadata");
+        assert_eq!(container_meta.file_id.as_deref(), Some("file_container_1"));
+        assert_eq!(container_meta.container_id.as_deref(), Some("container_42"));
+        assert_eq!(container_meta.index, Some(3));
+
+        let file_path_source = sources
+            .iter()
+            .find(|source| source.url == "file_path_9")
+            .expect("file path source present");
+        let file_path_meta =
+            crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(file_path_source)
+                .expect("typed file path source metadata");
+        assert_eq!(file_path_meta.file_id.as_deref(), Some("file_path_9"));
+        assert!(file_path_meta.container_id.is_none());
+        assert_eq!(file_path_meta.index, Some(5));
+        assert_eq!(
+            file_path_source.media_type.as_deref(),
+            Some("application/octet-stream")
+        );
     }
 }

@@ -45,6 +45,7 @@ jsonwebtoken = { version = "10", default-features = false, features = ["rust_cry
 
 # HTTP client
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "form", "stream", "multipart", "gzip", "brotli"] }
+http = "1"
 
 # Async runtime
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "time", "sync", "fs", "io-util", "net", "process"] }

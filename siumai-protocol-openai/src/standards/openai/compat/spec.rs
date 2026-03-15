@@ -1,6 +1,6 @@
 use crate::core::{
-    ChatTransformers, EmbeddingTransformers, ImageTransformers, ProviderContext, ProviderSpec,
-    RerankTransformers,
+    AudioTransformer as AudioTransformerBundle, ChatTransformers, EmbeddingTransformers,
+    ImageTransformers, ProviderContext, ProviderSpec, RerankTransformers,
 };
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
@@ -12,7 +12,8 @@ fn provider_options_map_merge_hook(
     provider_id: &str,
     map: &crate::types::ProviderOptionsMap,
 ) -> Option<crate::execution::executors::BeforeSendHook> {
-    let value = map.get(provider_id)?;
+    let provider_id = provider_id.to_string();
+    let value = map.get(&provider_id)?;
     let mut obj = value.as_object()?.clone();
 
     fn rename_field(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
@@ -50,18 +51,35 @@ fn provider_options_map_merge_hook(
         }
     }
 
+    fn normalize_deepseek_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+        rename_field(obj, "enableReasoning", "enable_reasoning");
+        rename_field(obj, "reasoningBudget", "reasoning_budget");
+    }
+
     if provider_id == "xai" {
         rename_field(&mut obj, "reasoningEffort", "reasoning_effort");
         rename_field(&mut obj, "searchParameters", "search_parameters");
         if let Some(v) = obj.get_mut("search_parameters") {
             normalize_xai_search_parameters(v);
         }
+    } else if provider_id == "deepseek" {
+        normalize_deepseek_options(&mut obj);
     }
     let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
         let mut out = body.clone();
         if let Some(body_obj) = out.as_object_mut() {
             for (k, v) in &obj {
+                if matches!(k.as_str(), "response_format" | "tool_choice")
+                    && body_obj.contains_key(k)
+                {
+                    continue;
+                }
                 body_obj.insert(k.clone(), v.clone());
+            }
+
+            if provider_id == "xai" {
+                body_obj.remove("stop");
+                body_obj.remove("stream_options");
             }
         }
         Ok(out)
@@ -168,6 +186,31 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         ctx: &ProviderContext,
     ) -> String {
         self.image_spec().image_url(req, ctx)
+    }
+
+    fn choose_audio_transformer(&self, ctx: &ProviderContext) -> AudioTransformerBundle {
+        AudioTransformerBundle {
+            transformer: Arc::new(
+                crate::standards::openai::audio::OpenAiAudioTransformerWithProviderId::new(
+                    ctx.provider_id.clone(),
+                ),
+            ),
+        }
+    }
+
+    fn audio_base_url(&self, ctx: &ProviderContext) -> String {
+        let ctx_base = ctx.base_url.trim_end_matches('/');
+        let adapter_base = self.adapter.base_url().trim_end_matches('/');
+
+        if ctx_base != adapter_base {
+            return ctx_base.to_string();
+        }
+
+        self.adapter
+            .audio_base_url()
+            .unwrap_or(adapter_base)
+            .trim_end_matches('/')
+            .to_string()
     }
 
     fn rerank_url(&self, req: &RerankRequest, ctx: &ProviderContext) -> String {
@@ -378,6 +421,94 @@ mod tests {
     };
 
     #[test]
+    fn openai_compatible_audio_transformer_uses_openai_audio_endpoints() {
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "compat-audio".to_string(),
+                name: "Compat Audio".to_string(),
+                base_url: "https://api.compat.example/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["speech".into(), "transcription".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "compat-audio".to_string(),
+            "https://api.compat.example/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let transformer = spec.choose_audio_transformer(&ctx).transformer;
+
+        assert!(spec.capabilities().supports("audio"));
+        assert!(spec.capabilities().supports("speech"));
+        assert!(spec.capabilities().supports("transcription"));
+        assert_eq!(transformer.provider_id(), "compat-audio");
+        assert_eq!(transformer.tts_endpoint(), "/audio/speech");
+        assert_eq!(transformer.stt_endpoint(), "/audio/transcriptions");
+    }
+
+    #[test]
+    fn openai_compatible_audio_uses_provider_audio_base_by_default() {
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "fireworks".to_string(),
+                name: "Fireworks AI".to_string(),
+                base_url: "https://api.fireworks.ai/inference/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["transcription".into()],
+                default_model: Some("whisper-v3".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "fireworks".to_string(),
+            "https://api.fireworks.ai/inference/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        assert_eq!(spec.audio_base_url(&ctx), "https://audio.fireworks.ai/v1");
+        assert!(spec.capabilities().supports("transcription"));
+        assert!(spec.capabilities().supports("audio"));
+        assert!(!spec.capabilities().supports("speech"));
+    }
+
+    #[test]
+    fn openai_compatible_audio_base_url_prefers_explicit_ctx_override() {
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "fireworks".to_string(),
+                name: "Fireworks AI".to_string(),
+                base_url: "https://api.fireworks.ai/inference/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["transcription".into()],
+                default_model: Some("whisper-v3".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "fireworks".to_string(),
+            "http://127.0.0.1:12345/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        assert_eq!(spec.audio_base_url(&ctx), "http://127.0.0.1:12345/v1");
+    }
+
+    #[test]
     fn openai_compatible_custom_provider_options_are_keyed_by_runtime_provider_id() {
         let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
             ProviderConfig {
@@ -419,5 +550,431 @@ mod tests {
             out.get("some_vendor_param"),
             Some(&serde_json::Value::Bool(true))
         );
+    }
+
+    #[test]
+    fn openai_compatible_deepseek_runtime_provider_preserves_response_format_json_schema() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_deepseek_runtime_provider_preserves_tool_choice_none_and_tool_call_response_mapping()
+     {
+        use crate::core::ProviderSpec;
+        use crate::types::{FinishReason, Tool, ToolChoice};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::None)
+            .build()
+            .with_provider_option(
+                "deepseek",
+                serde_json::json!({
+                    "tool_choice": "auto"
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+        assert_eq!(body.get("tool_choice"), Some(&serde_json::json!("none")));
+
+        let raw = serde_json::json!({
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"city\":\"Tokyo\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = bundle
+            .response
+            .transform_chat_response(&raw)
+            .expect("transform response");
+        assert_eq!(resp.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(resp.tool_calls().len(), 1);
+        let call = resp.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(call.tool_call_id, "call_1");
+        assert_eq!(call.tool_name, "get_weather");
+        assert_eq!(call.arguments, &serde_json::json!({ "city": "Tokyo" }));
+    }
+
+    #[test]
+    fn openai_compatible_deepseek_runtime_provider_normalizes_reasoning_options_and_preserves_stable_fields()
+     {
+        use crate::core::ProviderSpec;
+        use crate::types::{Tool, ToolChoice, chat::ResponseFormat};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::None)
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build()
+            .with_provider_option(
+                "deepseek",
+                serde_json::json!({
+                    "enableReasoning": true,
+                    "reasoningBudget": 2048,
+                    "response_format": { "type": "json_object" },
+                    "tool_choice": "auto"
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
+        assert!(body.get("enableReasoning").is_none());
+        assert!(body.get("reasoningBudget").is_none());
+        assert_eq!(body.get("tool_choice"), Some(&serde_json::json!("none")));
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_xai_runtime_provider_preserves_response_format_json_schema() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "xai".to_string(),
+                name: "xAI".to_string(),
+                base_url: "https://api.x.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "xai".to_string(),
+            "https://api.x.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = crate::types::ChatRequest::builder()
+            .model("grok-3-mini")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_xai_runtime_provider_keeps_stable_response_format_against_raw_provider_options()
+     {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "xai".to_string(),
+                name: "xAI".to_string(),
+                base_url: "https://api.x.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "xai".to_string(),
+            "https://api.x.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let req = crate::types::ChatRequest::builder()
+            .model("grok-3-mini")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .stop_sequences(vec!["END".to_string()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build()
+            .with_provider_option(
+                "xai",
+                serde_json::json!({
+                    "response_format": { "type": "json_object" },
+                    "reasoningEffort": "high"
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert!(body.get("stop").is_none());
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_xai_runtime_provider_preserves_tool_choice_none_and_tool_call_response_mapping()
+     {
+        use crate::core::ProviderSpec;
+        use crate::types::{FinishReason, Tool, ToolChoice};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "xai".to_string(),
+                name: "xAI".to_string(),
+                base_url: "https://api.x.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "xai".to_string(),
+            "https://api.x.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("grok-3-mini")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::None)
+            .build()
+            .with_provider_option(
+                "xai",
+                serde_json::json!({
+                    "tool_choice": "auto"
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+        assert_eq!(body.get("tool_choice"), Some(&serde_json::json!("none")));
+
+        let raw = serde_json::json!({
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "grok-3-mini",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"city\":\"Tokyo\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = bundle
+            .response
+            .transform_chat_response(&raw)
+            .expect("transform response");
+        assert_eq!(resp.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(resp.tool_calls().len(), 1);
+        let call = resp.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(call.tool_call_id, "call_1");
+        assert_eq!(call.tool_name, "get_weather");
+        assert_eq!(call.arguments, &serde_json::json!({ "city": "Tokyo" }));
     }
 }

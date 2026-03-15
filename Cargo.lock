@@ -2983,6 +2983,7 @@ dependencies = [
  "eventsource-stream",
  "futures",
  "futures-util",
+ "http",
  "infer",
  "jsonrepair",
  "jsonwebtoken",
@@ -3489,12 +3490,14 @@ dependencies = [
  "futures-util",
  "infer",
  "lru",
+ "mockito",
  "once_cell",
  "rand 0.8.5",
  "reqwest 0.13.2",
  "secrecy",
  "serde",
  "serde_json",
+ "siumai-core",
  "siumai-protocol-openai",
  "thiserror 2.0.18",
  "tokio",
@@ -3589,6 +3592,7 @@ dependencies = [
  "siumai-provider-anthropic",
  "siumai-provider-azure",
  "siumai-provider-cohere",
+ "siumai-provider-deepseek",
  "siumai-provider-gemini",
  "siumai-provider-google-vertex",
  "siumai-provider-groq",
@@ -3604,6 +3608,7 @@ dependencies = [
  "tokio-test",
  "tracing",
  "uuid",
+ "wiremock",
 ]
 
 [[package]]

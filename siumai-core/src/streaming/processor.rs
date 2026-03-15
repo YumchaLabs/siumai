@@ -73,6 +73,7 @@ pub struct StreamProcessor {
     tool_call_order: Vec<String>,                 // Track order of tool calls for consistent output
     thinking_buffer: String,
     current_usage: Option<Usage>,
+    final_provider_metadata: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
     config: StreamProcessorConfig,
 }
 
@@ -96,6 +97,7 @@ impl StreamProcessor {
             tool_call_order: Vec::new(),
             thinking_buffer: String::new(),
             current_usage: None,
+            final_provider_metadata: None,
             config,
         }
     }
@@ -115,9 +117,21 @@ impl StreamProcessor {
             ChatStreamEvent::ThinkingDelta { delta } => self.process_thinking_delta(delta),
             ChatStreamEvent::UsageUpdate { usage } => self.process_usage_update(usage),
             ChatStreamEvent::StreamStart { metadata } => ProcessedEvent::StreamStart { metadata },
-            ChatStreamEvent::StreamEnd { response } => ProcessedEvent::StreamEnd {
-                response: Box::new(response),
-            },
+            ChatStreamEvent::StreamEnd { response } => {
+                if let Some(usage) = response.usage.clone() {
+                    self.current_usage = Some(usage);
+                }
+                if let Some(provider_metadata) = response.provider_metadata.clone() {
+                    if let Some(current) = self.final_provider_metadata.as_mut() {
+                        merge_nested_provider_metadata(current, provider_metadata);
+                    } else {
+                        self.final_provider_metadata = Some(provider_metadata);
+                    }
+                }
+                ProcessedEvent::StreamEnd {
+                    response: Box::new(response),
+                }
+            }
             ChatStreamEvent::Error { error } => ProcessedEvent::Error {
                 error: LlmError::InternalError(error),
             },
@@ -361,12 +375,14 @@ impl StreamProcessor {
         };
 
         // Convert to nested provider_metadata structure
-        let provider_metadata = if !stream_metadata.is_empty() {
-            let mut meta = HashMap::new();
-            meta.insert("stream".to_string(), stream_metadata);
-            Some(meta)
-        } else {
+        let mut provider_metadata = self.final_provider_metadata.clone().unwrap_or_default();
+        if !stream_metadata.is_empty() {
+            provider_metadata.insert("stream".to_string(), stream_metadata);
+        }
+        let provider_metadata = if provider_metadata.is_empty() {
             None
+        } else {
+            Some(provider_metadata)
         };
 
         ChatResponse {
@@ -381,6 +397,15 @@ impl StreamProcessor {
             warnings: None,
             provider_metadata,
         }
+    }
+}
+
+fn merge_nested_provider_metadata(
+    target: &mut HashMap<String, HashMap<String, serde_json::Value>>,
+    source: HashMap<String, HashMap<String, serde_json::Value>>,
+) {
+    for (provider, metadata) in source {
+        target.entry(provider).or_default().extend(metadata);
     }
 }
 
@@ -482,6 +507,42 @@ mod tests {
         let b = sp.tool_calls.get("id1").unwrap();
         assert!(b.arguments.len() <= 8);
         assert!(called.load(std::sync::atomic::Ordering::Relaxed));
+    }
+
+    #[test]
+    fn stream_end_response_updates_final_usage_and_provider_metadata() {
+        let mut sp = StreamProcessor::new();
+        let response = ChatResponse {
+            id: None,
+            content: MessageContent::Text("hello".to_string()),
+            model: None,
+            usage: Some(Usage::new(3, 5)),
+            finish_reason: Some(FinishReason::Stop),
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            warnings: None,
+            provider_metadata: Some(HashMap::from([(
+                "perplexity".to_string(),
+                HashMap::from([(
+                    "usage".to_string(),
+                    serde_json::json!({ "citation_tokens": 1 }),
+                )]),
+            )])),
+        };
+
+        let _ = sp.process_event(ChatStreamEvent::StreamEnd { response });
+        let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::Stop));
+
+        assert_eq!(
+            final_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            Some(8)
+        );
+        let metadata = final_resp.provider_metadata.expect("provider metadata");
+        assert_eq!(
+            metadata["perplexity"]["usage"]["citation_tokens"],
+            serde_json::json!(1)
+        );
     }
 
     #[test]

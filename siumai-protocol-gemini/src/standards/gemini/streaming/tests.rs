@@ -1,6 +1,9 @@
 use super::*;
+use crate::execution::transformers::response::ResponseTransformer;
+use crate::standards::gemini::transformers::GeminiResponseTransformer;
 use crate::standards::gemini::types::GeminiConfig;
 use crate::streaming::SseEventConverter;
+use crate::streaming::StreamProcessor;
 use crate::types::{ChatResponse, FinishReason, MessageContent, Usage};
 
 fn create_test_config() -> GeminiConfig {
@@ -126,6 +129,70 @@ async fn test_gemini_finish_reason_tool_calls_when_stop_with_function_call() {
     } else {
         panic!("Expected StreamEnd event in results: {:?}", result);
     }
+}
+
+#[tokio::test]
+async fn streaming_tool_calls_match_non_streaming_tool_calls() {
+    let cfg = create_test_config();
+    let converter = GeminiEventConverter::new(cfg.clone());
+    let tx = GeminiResponseTransformer { config: cfg };
+
+    let raw = serde_json::json!({
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                    ]
+                },
+                "finishReason": "STOP"
+            }
+        ],
+        "modelVersion": "gemini-2.0-flash-exp"
+    });
+
+    let non_stream = tx
+        .transform_chat_response(&raw)
+        .expect("non-stream transform");
+    assert_eq!(non_stream.finish_reason, Some(FinishReason::ToolCalls));
+    assert_eq!(non_stream.tool_calls().len(), 1);
+
+    let event = eventsource_stream::Event {
+        event: "".to_string(),
+        data: raw.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let mut sp = StreamProcessor::new();
+    let mut finish_reason = None;
+
+    for ev in converter.convert_event(event).await.into_iter().flatten() {
+        match ev {
+            ChatStreamEvent::StreamEnd { response } => {
+                finish_reason = response.finish_reason;
+            }
+            other => {
+                let _ = sp.process_event(other);
+            }
+        }
+    }
+
+    let streaming = sp.build_final_response_with_finish_reason(finish_reason);
+    assert_eq!(streaming.finish_reason, Some(FinishReason::ToolCalls));
+    assert_eq!(streaming.tool_calls().len(), 1);
+
+    let a = non_stream.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    let b = streaming.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+
+    assert_eq!(b.tool_name, a.tool_name);
+    assert_eq!(b.arguments, a.arguments);
+    assert!(b.tool_call_id.starts_with("call_"));
+    assert!(a.tool_call_id.starts_with("call_"));
 }
 
 #[tokio::test]

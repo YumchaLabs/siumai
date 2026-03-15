@@ -62,11 +62,29 @@ pub trait LlmClient: Send + Sync {
         None
     }
 
+    /// Get as speech extras capability if supported (non-unified surface)
+    ///
+    /// Returns None by default. Providers that support speech-family extras
+    /// such as streaming TTS or voice listing should override this method to
+    /// return Some(self).
+    fn as_speech_extras(&self) -> Option<&dyn SpeechExtras> {
+        None
+    }
+
     /// Get as transcription (STT) capability if supported
     ///
     /// Returns None by default. Providers that support speech-to-text
     /// should override this method to return Some(self).
     fn as_transcription_capability(&self) -> Option<&dyn TranscriptionCapability> {
+        None
+    }
+
+    /// Get as transcription extras capability if supported (non-unified surface)
+    ///
+    /// Returns None by default. Providers that support transcription-family
+    /// extras such as streaming STT, translation, or language listing should
+    /// override this method to return Some(self).
+    fn as_transcription_extras(&self) -> Option<&dyn TranscriptionExtras> {
         None
     }
 
@@ -152,17 +170,17 @@ pub trait LlmClient: Send + Sync {
 /// such as pooling or dynamic provider switching.
 ///
 /// ## Usage
-/// Most users should use the Builder pattern instead:
+/// Most users should prefer the Rust-first family APIs with registry-first or config-first
+/// construction; `Siumai::builder()` remains available as a compatibility convenience:
 /// ```rust,no_run
 /// use siumai::prelude::*;
 ///
 /// async fn example() -> Result<(), Box<dyn std::error::Error>> {
-///     // Preferred approach
-///     let client = Siumai::builder()
-///         .openai()
-///         .api_key("key")
-///         .build()
-///         .await?;
+///     let model = registry::global().language_model("openai:gpt-4o-mini")?;
+///     let request = ChatRequest::new(vec![user!("Hello")]);
+///     let _response =
+///         siumai::text::generate(&model, request, siumai::text::GenerateOptions::default())
+///             .await?;
 ///     Ok(())
 /// }
 /// ```
@@ -329,9 +347,10 @@ impl dyn LlmClient {
 // UnifiedLlmClient has been removed as it was redundant with ClientWrapper.
 //
 // Use these alternatives instead:
-// - Siumai::builder() for unified interface (recommended for most users)
+// - registry-first + family APIs (`siumai::text::*`, `embedding::*`, etc.) for normal usage
+// - config-first provider clients for provider-owned setup
+// - `Siumai::builder()` only as a compatibility/convenience surface
 // - ClientWrapper for dynamic dispatch (used internally)
-// - Provider-specific clients for advanced features
 
 // UnifiedLlmClient implementation removed - use ClientWrapper directly or Siumai::builder()
 
@@ -374,8 +393,16 @@ impl LlmClient for ClientWrapper {
         self.client().as_speech_capability()
     }
 
+    fn as_speech_extras(&self) -> Option<&dyn SpeechExtras> {
+        self.client().as_speech_extras()
+    }
+
     fn as_transcription_capability(&self) -> Option<&dyn TranscriptionCapability> {
         self.client().as_transcription_capability()
+    }
+
+    fn as_transcription_extras(&self) -> Option<&dyn TranscriptionExtras> {
+        self.client().as_transcription_extras()
     }
 
     #[allow(deprecated)]

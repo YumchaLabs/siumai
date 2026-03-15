@@ -272,10 +272,130 @@ impl crate::streaming::JsonEventConverter for MiddlewareJsonConverter {
         })
     }
 
+    fn handle_stream_end(&self) -> Option<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        match self.convert.handle_stream_end() {
+            Some(Ok(ev)) => {
+                match crate::execution::middleware::language_model::apply_stream_event_chain(
+                    &self.middlewares,
+                    &self.req,
+                    ev,
+                )
+                .map(|mut v| v.pop())
+                {
+                    Ok(Some(last)) => Some(Ok(last)),
+                    Ok(None) => None,
+                    Err(e) => Some(Err(e)),
+                }
+            }
+            Some(Err(e)) => Some(Err(e)),
+            None => None,
+        }
+    }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        let raw = self.convert.handle_stream_end_events();
+        let mut out = Vec::new();
+        for item in raw.into_iter() {
+            match item {
+                Ok(ev) => {
+                    match crate::execution::middleware::language_model::apply_stream_event_chain(
+                        &self.middlewares,
+                        &self.req,
+                        ev,
+                    ) {
+                        Ok(list) => out.extend(list.into_iter().map(Ok)),
+                        Err(e) => out.push(Err(e)),
+                    }
+                }
+                Err(e) => out.push(Err(e)),
+            }
+        }
+        out
+    }
+
     fn serialize_event(
         &self,
         event: &crate::streaming::ChatStreamEvent,
     ) -> Result<Vec<u8>, LlmError> {
         self.convert.serialize_event(event)
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::MiddlewareJsonConverter;
+    use crate::error::LlmError;
+    use crate::execution::middleware::language_model::LanguageModelMiddleware;
+    use crate::streaming::{ChatStreamEvent, JsonEventConverter};
+    use crate::types::{ChatRequest, ChatResponse, FinishReason};
+    use serde_json::json;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    struct MultiEndJsonConverter;
+
+    impl JsonEventConverter for MultiEndJsonConverter {
+        fn convert_json<'a>(
+            &'a self,
+            _json_data: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
+        {
+            Box::pin(async { vec![] })
+        }
+
+        fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+            vec![Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::empty_with_finish_reason(FinishReason::Stop),
+            })]
+        }
+    }
+
+    struct ExpandEndMiddleware;
+
+    impl LanguageModelMiddleware for ExpandEndMiddleware {
+        fn on_stream_event(
+            &self,
+            _req: &ChatRequest,
+            ev: ChatStreamEvent,
+        ) -> Result<Vec<ChatStreamEvent>, LlmError> {
+            match ev {
+                ChatStreamEvent::StreamEnd { response } => Ok(vec![
+                    ChatStreamEvent::Custom {
+                        event_type: "middleware:before-end".to_string(),
+                        data: json!({"expanded": true}),
+                    },
+                    ChatStreamEvent::StreamEnd { response },
+                ]),
+                other => Ok(vec![other]),
+            }
+        }
+    }
+
+    #[test]
+    fn middleware_json_converter_expands_end_events() {
+        let converter = MiddlewareJsonConverter {
+            middlewares: vec![Arc::new(ExpandEndMiddleware)],
+            req: ChatRequest::new(vec![]),
+            convert: Arc::new(MultiEndJsonConverter),
+        };
+
+        let events = converter.handle_stream_end_events();
+        assert_eq!(events.len(), 2);
+
+        match &events[0] {
+            Ok(ChatStreamEvent::Custom { event_type, data }) => {
+                assert_eq!(event_type, "middleware:before-end");
+                assert_eq!(data["expanded"], true);
+            }
+            other => panic!("unexpected first event: {other:?}"),
+        }
+
+        match &events[1] {
+            Ok(ChatStreamEvent::StreamEnd { response }) => {
+                assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+            }
+            other => panic!("unexpected second event: {other:?}"),
+        }
     }
 }

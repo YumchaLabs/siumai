@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 
 use crate::error::LlmError;
-use crate::traits::TranscriptionCapability;
+use crate::traits::{ModelMetadata, TranscriptionCapability};
 use crate::types::{SttRequest, SttResponse};
 
 /// V3 interface for transcription models.
@@ -15,6 +15,12 @@ pub trait TranscriptionModelV3: Send + Sync {
     /// Transcribe audio into text.
     async fn transcribe(&self, request: SttRequest) -> Result<SttResponse, LlmError>;
 }
+
+/// Stable transcription-model contract for the V4 refactor spike.
+pub trait TranscriptionModel: TranscriptionModelV3 + ModelMetadata + Send + Sync {}
+
+impl<T> TranscriptionModel for T where T: TranscriptionModelV3 + ModelMetadata + Send + Sync + ?Sized
+{}
 
 /// Adapter: any `TranscriptionCapability` can be used as a `TranscriptionModelV3`.
 #[async_trait]
@@ -30,9 +36,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::ModelSpecVersion;
     use std::collections::HashMap;
 
     struct FakeTranscription;
+
+    impl crate::traits::ModelMetadata for FakeTranscription {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "fake-transcription"
+        }
+    }
 
     #[async_trait]
     impl TranscriptionCapability for FakeTranscription {
@@ -55,5 +72,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.text, "ok");
+    }
+
+    #[test]
+    fn transcription_model_trait_includes_metadata() {
+        let model = FakeTranscription;
+
+        fn assert_transcription_model<M>(model: &M)
+        where
+            M: TranscriptionModel + ?Sized,
+        {
+            assert_eq!(crate::traits::ModelMetadata::provider_id(model), "fake");
+            assert_eq!(
+                crate::traits::ModelMetadata::model_id(model),
+                "fake-transcription"
+            );
+            assert_eq!(
+                crate::traits::ModelMetadata::specification_version(model),
+                ModelSpecVersion::V1
+            );
+        }
+
+        assert_transcription_model(&model);
     }
 }

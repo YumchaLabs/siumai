@@ -6,6 +6,8 @@
 //! Notes:
 //! - The user-facing unified builder lives in `siumai-registry` (`provider::SiumaiBuilder`) and is
 //!   re-exported by the `siumai` facade as `Siumai::builder()`.
+//! - That facade builder is a compatibility/convenience surface; new public guidance prefers
+//!   registry-first family APIs or provider-owned config-first construction.
 //! - Provider builders should consume `BuilderBase` (a provider-agnostic snapshot of unified HTTP
 //!   config/interceptor settings) to avoid circular dependencies.
 

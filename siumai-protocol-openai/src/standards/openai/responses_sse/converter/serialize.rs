@@ -473,6 +473,7 @@ pub(super) fn serialize_event(
                 }
             };
 
+            let annotations = state.message_annotations.clone();
             let mut output: Vec<serde_json::Value> = Vec::new();
             output.extend(function_outputs);
 
@@ -501,7 +502,7 @@ pub(super) fn serialize_event(
                     "part": {
                         "type": "output_text",
                         "text": final_text,
-                        "annotations": [],
+                        "annotations": annotations.clone(),
                     }
                 });
                 out.extend_from_slice(&sse_event_frame("response.content_part.done", &part_done)?);
@@ -516,7 +517,7 @@ pub(super) fn serialize_event(
                         "status": "completed",
                         "role": "assistant",
                         "content": [
-                            { "type": "output_text", "text": final_text, "annotations": [] }
+                            { "type": "output_text", "text": final_text, "annotations": annotations.clone() }
                         ]
                     }
                 });
@@ -1219,6 +1220,7 @@ pub(super) fn serialize_event(
                     let annotation_index = state.message_annotation_index;
                     state.message_annotation_index =
                         state.message_annotation_index.saturating_add(1);
+                    state.message_annotations.push(annotation.clone());
 
                     let payload = serde_json::json!({
                         "type": "response.output_text.annotation.added",
@@ -1343,6 +1345,7 @@ pub(super) fn serialize_event(
                     // Close message output (best-effort): emit output_text.done + content_part.done + output_item.done.
                     let final_text = state.message_text.clone();
 
+                    let annotations = state.message_annotations.clone();
                     let mut output: Vec<serde_json::Value> = Vec::new();
                     output.extend(function_outputs);
 
@@ -1371,7 +1374,7 @@ pub(super) fn serialize_event(
                             "part": {
                                 "type": "output_text",
                                 "text": final_text,
-                                "annotations": [],
+                                "annotations": annotations.clone(),
                             }
                         });
                         out.extend_from_slice(&sse_event_frame(
@@ -1389,7 +1392,7 @@ pub(super) fn serialize_event(
                                 "status": "completed",
                                 "role": "assistant",
                                 "content": [
-                                    { "type": "output_text", "text": final_text, "annotations": [] }
+                                    { "type": "output_text", "text": final_text, "annotations": annotations.clone() }
                                 ]
                             }
                         });

@@ -594,10 +594,7 @@ impl StreamFactory {
             .flat_map(futures::stream::iter)
             // Chain the end-of-stream event
             .chain(futures::stream::iter(
-                end_converter
-                    .handle_stream_end()
-                    .into_iter()
-                    .collect::<Vec<_>>(),
+                end_converter.handle_stream_end_events(),
             ));
 
         Ok(Box::pin(chat_stream))
@@ -641,5 +638,95 @@ impl StreamFactory {
 
         // Reuse SSE/JSON fallback converter for consistency
         Self::stream_from_response_with_sse_fallback("", response, converter).await
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::StreamFactory;
+    use crate::error::LlmError;
+    use crate::streaming::{ChatStreamEvent, JsonEventConverter};
+    use crate::types::{ChatResponse, FinishReason};
+    use futures_util::StreamExt;
+    use serde_json::json;
+    use std::future::Future;
+    use std::pin::Pin;
+
+    #[derive(Clone)]
+    struct MultiEndJsonConverter;
+
+    impl JsonEventConverter for MultiEndJsonConverter {
+        fn convert_json<'a>(
+            &'a self,
+            json_data: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
+        {
+            Box::pin(async move {
+                let value: serde_json::Value =
+                    serde_json::from_str(json_data).expect("valid JSON line");
+                vec![Ok(ChatStreamEvent::ContentDelta {
+                    delta: value["delta"].as_str().expect("delta string").to_string(),
+                    index: None,
+                })]
+            })
+        }
+
+        fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+            vec![
+                Ok(ChatStreamEvent::Custom {
+                    event_type: "test:end".to_string(),
+                    data: json!({"phase": "done"}),
+                }),
+                Ok(ChatStreamEvent::StreamEnd {
+                    response: ChatResponse::empty_with_finish_reason(FinishReason::Stop),
+                }),
+            ]
+        }
+    }
+
+    #[tokio::test]
+    async fn reqwest_json_stream_emits_multiple_end_events() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/json-stream")
+            .with_status(200)
+            .with_header("content-type", "application/x-ndjson")
+            .with_body("{\"delta\":\"hello\"}\n")
+            .create_async()
+            .await;
+
+        let response = reqwest::Client::new()
+            .get(format!("{}/json-stream", server.url()))
+            .send()
+            .await
+            .expect("response should be created");
+
+        let stream = StreamFactory::create_json_stream(response, MultiEndJsonConverter)
+            .await
+            .expect("stream should be created");
+
+        let events = stream.collect::<Vec<_>>().await;
+        assert_eq!(events.len(), 3);
+
+        match &events[0] {
+            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => assert_eq!(delta, "hello"),
+            other => panic!("unexpected first event: {other:?}"),
+        }
+
+        match &events[1] {
+            Ok(ChatStreamEvent::Custom { event_type, data }) => {
+                assert_eq!(event_type, "test:end");
+                assert_eq!(data["phase"], "done");
+            }
+            other => panic!("unexpected second event: {other:?}"),
+        }
+
+        match &events[2] {
+            Ok(ChatStreamEvent::StreamEnd { response }) => {
+                assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+            }
+            other => panic!("unexpected third event: {other:?}"),
+        }
+
+        mock.assert_async().await;
     }
 }

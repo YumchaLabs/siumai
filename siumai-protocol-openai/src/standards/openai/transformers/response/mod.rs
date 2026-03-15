@@ -220,6 +220,62 @@ mod moderation_tests {
     }
 }
 
+#[cfg(test)]
+mod tool_loop_tests {
+    use super::*;
+    use crate::execution::transformers::response::ResponseTransformer;
+    use crate::types::MessageContent;
+
+    #[test]
+    fn openai_chat_response_maps_tool_calls_into_content_parts() {
+        let raw = serde_json::json!({
+            "id": "chatcmpl_1",
+            "model": "gpt-4.1-mini",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [
+                            {
+                                "id": "call_1",
+                                "type": "function",
+                                "function": {
+                                    "name": "weather",
+                                    "arguments": "{\"city\":\"Tokyo\"}"
+                                }
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls"
+                }
+            ],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let tx = OpenAiResponseTransformer;
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        assert_eq!(
+            resp.finish_reason,
+            Some(crate::types::FinishReason::ToolCalls)
+        );
+
+        assert!(
+            matches!(resp.content, MessageContent::MultiModal(_)),
+            "expected multimodal content for tool calls"
+        );
+        let calls = resp.tool_calls();
+        assert_eq!(calls.len(), 1);
+
+        let info = calls[0].as_tool_call().expect("tool call info");
+        assert_eq!(info.tool_call_id, "call_1");
+        assert_eq!(info.tool_name, "weather");
+        assert_eq!(info.arguments, &serde_json::json!({ "city": "Tokyo" }));
+        assert_eq!(info.provider_executed.copied(), None);
+    }
+}
+
 /// Extract thinking content from multiple possible field names with priority order
 /// Priority order: reasoning_content > thinking > reasoning
 pub fn extract_thinking_from_multiple_fields(value: &serde_json::Value) -> Option<String> {

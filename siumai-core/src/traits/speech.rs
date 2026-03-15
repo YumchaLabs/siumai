@@ -52,3 +52,41 @@ where
         AudioCapability::get_voices(self).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::AudioCapability;
+    use crate::types::AudioFeature;
+    use std::collections::HashMap;
+
+    struct FakeLegacyAudio;
+
+    #[async_trait]
+    impl AudioCapability for FakeLegacyAudio {
+        fn supported_features(&self) -> &[AudioFeature] {
+            &[]
+        }
+
+        async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
+            Ok(TtsResponse {
+                audio_data: request.text.into_bytes(),
+                format: "pcm".to_string(),
+                duration: None,
+                sample_rate: None,
+                metadata: HashMap::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_audio_capability_adapts_into_speech_capability() {
+        let model = FakeLegacyAudio;
+        let response = SpeechCapability::tts(&model, TtsRequest::new("hello".to_string()))
+            .await
+            .expect("audio adapter should provide speech capability");
+
+        assert_eq!(response.audio_data, b"hello");
+        assert_eq!(response.format, "pcm");
+    }
+}

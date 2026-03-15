@@ -184,6 +184,8 @@ mod files_tests {
             token_provider: None,
             http_transport: None,
             provider_metadata_key: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
         }
     }
 

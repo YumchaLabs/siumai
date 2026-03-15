@@ -29,11 +29,13 @@
 //! - **`ChatCapability`** - Chat completion capability
 //! - **`EmbeddingCapability`** - Embedding generation capability
 //! - **`VisionCapability`** - Vision/image analysis capability
-//! - **`AudioCapability`** - Audio processing capability
+//! - **`SpeechCapability`** - Speech/TTS capability
+//! - **`TranscriptionCapability`** - Transcription/STT capability
 //! - **`ImageGenerationCapability`** - Image generation capability
 //! - **`FileManagementCapability`** - File management capability
 //! - **`ModerationCapability`** - Content moderation capability
 //! - **`RerankCapability`** - Document reranking capability
+//! - **`AudioCapability`** - Compatibility-only catch-all for transitional audio code
 //!
 //! ### Client Abstractions
 //! - **`LlmClient`** - Unified client trait for all providers

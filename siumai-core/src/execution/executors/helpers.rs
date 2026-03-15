@@ -7,7 +7,10 @@
 
 use crate::error::LlmError;
 use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
-use reqwest::header::HeaderMap;
+use crate::execution::http::transport::{HttpTransportStreamBody, HttpTransportStreamResponse};
+use futures_util::StreamExt;
+use reqwest::ResponseBuilderExt;
+use reqwest::header::{CONTENT_LENGTH, CONTENT_TYPE, HeaderMap, HeaderValue};
 use std::sync::Arc;
 
 // Build-safe header extraction from a `RequestBuilder`.
@@ -53,6 +56,82 @@ pub(crate) fn apply_before_send_interceptors(
         out = it.on_before_send(ctx, out, body, &cloned)?;
     }
     Ok(out)
+}
+
+// Materialize a reqwest multipart form into raw bytes for custom transports.
+//
+// Returns
+// - The fully encoded multipart body bytes.
+// - The matching `Content-Type` header value with boundary.
+//
+// Errors
+// - Multipart stream errors are surfaced as `LlmError::HttpError`.
+pub(crate) async fn build_multipart_body(
+    form: reqwest::multipart::Form,
+) -> Result<(Vec<u8>, String), LlmError> {
+    let boundary = form.boundary().to_string();
+    let mut body = Vec::new();
+    let mut stream = form.into_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| LlmError::HttpError(e.to_string()))?;
+        body.extend_from_slice(&chunk);
+    }
+
+    Ok((body, format!("multipart/form-data; boundary={boundary}")))
+}
+
+// Inject the final multipart content headers into an outgoing header map.
+//
+// Notes
+// - Existing values are replaced because multipart content metadata must match
+//   the encoded body bytes that will be sent through the transport.
+pub(crate) fn with_multipart_content_headers(
+    mut headers: HeaderMap,
+    content_type: &str,
+    content_length: usize,
+) -> Result<HeaderMap, LlmError> {
+    let content_type =
+        HeaderValue::from_str(content_type).map_err(|e| LlmError::HttpError(e.to_string()))?;
+    let content_length = HeaderValue::from_str(&content_length.to_string())
+        .map_err(|e| LlmError::HttpError(e.to_string()))?;
+    headers.insert(CONTENT_TYPE, content_type);
+    headers.insert(CONTENT_LENGTH, content_length);
+    Ok(headers)
+}
+
+// Convert a custom transport streaming response into a `reqwest::Response`.
+//
+// Notes
+// - This is intentionally used only as an adapter for higher-level helpers
+//   that already expect a raw `reqwest::Response` surface (`headers()`, `text()`,
+//   `bytes_stream()`, etc.).
+// - Interceptor `on_response` hooks remain skipped on the custom-transport path.
+pub(crate) fn response_from_stream_transport(
+    url: &str,
+    response: HttpTransportStreamResponse,
+) -> Result<reqwest::Response, LlmError> {
+    let parsed_url = reqwest::Url::parse(url).map_err(|e| {
+        LlmError::InvalidParameter(format!("Invalid URL '{url}' for transport response: {e}"))
+    })?;
+
+    let mut builder = http::Response::builder()
+        .status(response.status)
+        .url(parsed_url);
+    for (name, value) in &response.headers {
+        builder = builder.header(name, value);
+    }
+
+    let body = match response.body {
+        HttpTransportStreamBody::Full(bytes) => reqwest::Body::from(bytes),
+        HttpTransportStreamBody::Stream(stream) => reqwest::Body::wrap_stream(stream),
+    };
+
+    let response = builder
+        .body(body)
+        .map_err(|e| LlmError::HttpError(format!("Failed to build transport response: {e}")))?;
+
+    Ok(reqwest::Response::from(response))
 }
 
 // Retry once with rebuilt headers using a caller-provided builder closure.

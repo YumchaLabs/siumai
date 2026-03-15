@@ -369,7 +369,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                         .and_then(|v| v.as_object_mut())
                     {
                         match fmt {
-                            crate::types::ResponseFormat::Json { schema } => {
+                            crate::types::ResponseFormat::Json { schema, .. } => {
                                 obj.insert(
                                     "responseMimeType".to_string(),
                                     serde_json::json!("application/json"),
@@ -830,6 +830,38 @@ mod tests_gemini_rules {
     }
 
     #[test]
+    fn tool_result_message_is_serialized_as_function_response_part() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let req = ChatRequest::builder()
+            .model("gemini-2.5-flash")
+            .messages(vec![
+                ChatMessage::tool_result_text("call_1", "search", "ok").build(),
+            ])
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        let contents = body["contents"].as_array().expect("contents array");
+        assert_eq!(contents.len(), 1);
+        assert_eq!(contents[0]["role"], "user");
+
+        let parts = contents[0]["parts"].as_array().expect("parts array");
+        assert_eq!(parts.len(), 1);
+
+        let fr = parts[0]
+            .get("functionResponse")
+            .expect("functionResponse part");
+        assert_eq!(fr["name"], "search");
+        assert_eq!(
+            fr["response"],
+            serde_json::json!({ "name": "search", "content": "ok" })
+        );
+    }
+
+    #[test]
     fn provider_options_cached_content_is_mapped() {
         let cfg = GeminiConfig::default()
             .with_model("gemini-1.5-flash".into())
@@ -883,6 +915,33 @@ mod tests_gemini_rules {
             body["generationConfig"]["audioTimestamp"],
             serde_json::json!(true)
         );
+    }
+
+    #[test]
+    fn provider_options_logprobs_fields_are_mapped_to_generation_config() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "responseLogprobs": true,
+                "logprobs": 3
+            }),
+        );
+
+        let body = tx.transform_chat(&req).expect("transform");
+
+        assert_eq!(
+            body["generationConfig"]["responseLogprobs"],
+            serde_json::json!(true)
+        );
+        assert_eq!(body["generationConfig"]["logprobs"], serde_json::json!(3));
+        assert!(body["generationConfig"].get("response_logprobs").is_none());
     }
 
     #[test]
@@ -940,6 +999,97 @@ mod tests_gemini_rules {
             body["generationConfig"]["responseMimeType"],
             serde_json::json!("application/json")
         );
+    }
+
+    #[test]
+    fn provider_options_response_json_schema_is_mapped_to_generation_config() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "responseJsonSchema": {
+                    "type": "object",
+                    "properties": {
+                        "answer": { "type": "string" }
+                    },
+                    "required": ["answer"]
+                }
+            }),
+        );
+
+        let body = tx.transform_chat(&req).expect("transform");
+
+        assert_eq!(
+            body["generationConfig"]["responseJsonSchema"]["type"],
+            serde_json::json!("object")
+        );
+        assert_eq!(
+            body["generationConfig"]["responseJsonSchema"]["properties"]["answer"]["type"],
+            serde_json::json!("string")
+        );
+        assert!(
+            body["generationConfig"]
+                .get("response_json_schema")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn provider_options_retrieval_and_image_fields_are_mapped_to_expected_locations() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "retrievalConfig": {
+                    "latLng": {
+                        "latitude": 22.3193,
+                        "longitude": 114.1694
+                    }
+                },
+                "mediaResolution": "MEDIA_RESOLUTION_MEDIUM",
+                "imageConfig": {
+                    "aspectRatio": "16:9",
+                    "imageSize": "1536x1024"
+                }
+            }),
+        );
+
+        let body = tx.transform_chat(&req).expect("transform");
+
+        assert_eq!(
+            body["toolConfig"]["retrievalConfig"]["latLng"]["latitude"],
+            serde_json::json!(22.3193)
+        );
+        assert_eq!(
+            body["toolConfig"]["retrievalConfig"]["latLng"]["longitude"],
+            serde_json::json!(114.1694)
+        );
+        assert_eq!(
+            body["generationConfig"]["mediaResolution"],
+            serde_json::json!("MEDIA_RESOLUTION_MEDIUM")
+        );
+        assert_eq!(
+            body["generationConfig"]["imageConfig"]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(
+            body["generationConfig"]["imageConfig"]["imageSize"],
+            serde_json::json!("1536x1024")
+        );
+        assert!(body["toolConfig"].get("retrieval_config").is_none());
+        assert!(body["generationConfig"].get("image_config").is_none());
     }
 
     #[test]
@@ -1078,6 +1228,33 @@ mod tests_gemini_rules {
     }
 
     #[test]
+    fn tool_choice_none_emits_mode_none_tool_config_for_function_tools() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let req = ChatRequest::builder()
+            .model("gemini-2.5-flash")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(crate::types::ToolChoice::None)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("toolConfig"),
+            Some(&serde_json::json!({
+                "functionCallingConfig": { "mode": "NONE" }
+            }))
+        );
+    }
+
+    #[test]
     fn response_format_json_sets_response_mime_type_and_schema() {
         let cfg = GeminiConfig::default()
             .with_model("gemini-2.5-flash".into())
@@ -1086,13 +1263,13 @@ mod tests_gemini_rules {
 
         let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
         req.common_params.model = "gemini-2.5-flash".to_string();
-        req.response_format = Some(crate::types::ResponseFormat::Json {
-            schema: serde_json::json!({
+        req.response_format = Some(crate::types::ResponseFormat::json_schema(
+            serde_json::json!({
                 "type": "object",
                 "properties": { "a": { "type": "string" } },
                 "required": ["a"]
             }),
-        });
+        ));
 
         let body = tx.transform_chat(&req).expect("transform");
         assert_eq!(
@@ -1111,13 +1288,13 @@ mod tests_gemini_rules {
 
         let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
         req.common_params.model = "gemini-2.5-flash".to_string();
-        req.response_format = Some(crate::types::ResponseFormat::Json {
-            schema: serde_json::json!({
+        req.response_format = Some(crate::types::ResponseFormat::json_schema(
+            serde_json::json!({
                 "type": "object",
                 "properties": { "a": { "type": "string" } },
                 "required": ["a"]
             }),
-        });
+        ));
         let req = req.with_provider_option(
             "google",
             serde_json::json!({
@@ -1131,5 +1308,85 @@ mod tests_gemini_rules {
             serde_json::json!("application/json")
         );
         assert!(body["generationConfig"].get("responseSchema").is_none());
+    }
+
+    #[test]
+    fn response_format_json_overrides_provider_mime_and_prefers_response_schema() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        req.response_format = Some(crate::types::ResponseFormat::json_schema(
+            serde_json::json!({
+                "type": "object",
+                "properties": { "answer": { "type": "string" } },
+                "required": ["answer"]
+            }),
+        ));
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "responseMimeType": "text/plain",
+                "responseJsonSchema": {
+                    "type": "object",
+                    "properties": { "legacy": { "type": "number" } }
+                },
+                "structuredOutputs": true
+            }),
+        );
+
+        let body = tx.transform_chat(&req).expect("transform");
+
+        assert_eq!(
+            body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(body["generationConfig"].get("responseSchema").is_some());
+        assert!(body["generationConfig"].get("responseJsonSchema").is_none());
+    }
+
+    #[test]
+    fn response_format_json_preserves_legacy_response_json_schema_when_structured_outputs_disabled()
+    {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        req.response_format = Some(crate::types::ResponseFormat::json_schema(
+            serde_json::json!({
+                "type": "object",
+                "properties": { "answer": { "type": "string" } },
+                "required": ["answer"]
+            }),
+        ));
+        let req = req.with_provider_option(
+            "gemini",
+            serde_json::json!({
+                "responseMimeType": "text/plain",
+                "responseJsonSchema": {
+                    "type": "object",
+                    "properties": { "legacy": { "type": "number" } }
+                },
+                "structuredOutputs": false
+            }),
+        );
+
+        let body = tx.transform_chat(&req).expect("transform");
+
+        assert_eq!(
+            body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(body["generationConfig"].get("responseSchema").is_none());
+        assert_eq!(
+            body["generationConfig"]["responseJsonSchema"]["properties"]["legacy"]["type"],
+            serde_json::json!("number")
+        );
     }
 }

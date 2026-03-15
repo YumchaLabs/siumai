@@ -17,6 +17,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use super::adapter::ProviderAdapter;
+use super::metadata::{
+    NestedProviderMetadata, extract_provider_metadata, merge_nested_provider_metadata,
+};
 use super::openai_config::OpenAiCompatibleConfig;
 
 #[derive(Debug, Default, Clone)]
@@ -105,6 +108,10 @@ pub struct OpenAiCompatibleEventConverter {
     accumulated_content: Arc<tokio::sync::Mutex<String>>,
     // Track whether we have emitted any ContentDelta to avoid duplicate injection
     emitted_content: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    // Track the latest usage snapshot so StreamEnd can carry final usage.
+    latest_usage: Arc<std::sync::Mutex<Option<Usage>>>,
+    // Track provider-specific metadata gathered across chunks.
+    latest_provider_metadata: Arc<std::sync::Mutex<Option<NestedProviderMetadata>>>,
 
     parse_state: Arc<std::sync::Mutex<OpenAiCompatParseState>>,
 
@@ -122,6 +129,8 @@ impl OpenAiCompatibleEventConverter {
             state_tracker: StreamStateTracker::new(),
             accumulated_content: Arc::new(tokio::sync::Mutex::new(String::new())),
             emitted_content: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            latest_usage: Arc::new(std::sync::Mutex::new(None)),
+            latest_provider_metadata: Arc::new(std::sync::Mutex::new(None)),
             parse_state: Arc::new(std::sync::Mutex::new(OpenAiCompatParseState::default())),
             serialize_state: Arc::new(std::sync::Mutex::new(OpenAiCompatSerializeState::default())),
             v3_unsupported_part_behavior: V3UnsupportedPartBehavior::Drop,
@@ -237,7 +246,17 @@ impl OpenAiCompatibleEventConverter {
 
         // Usage updates (optional)
         if let Some(usage) = self.extract_usage_from_json(json) {
+            *self.latest_usage.lock().unwrap() = Some(usage.clone());
             builder = builder.add_usage_update(usage);
+        }
+
+        if let Some(provider_metadata) = extract_provider_metadata(&self.config.provider_id, json) {
+            let mut latest = self.latest_provider_metadata.lock().unwrap();
+            if let Some(current) = latest.as_mut() {
+                merge_nested_provider_metadata(current, provider_metadata);
+            } else {
+                *latest = Some(provider_metadata);
+            }
         }
 
         // Detect finish_reason in choices to close stream even if server omits [DONE]
@@ -275,13 +294,21 @@ impl OpenAiCompatibleEventConverter {
                 id: None,
                 model: None,
                 content: MessageContent::Text(text),
-                usage: None,
+                usage: self
+                    .latest_usage
+                    .lock()
+                    .ok()
+                    .and_then(|usage| usage.clone()),
                 finish_reason: crate::standards::openai::utils::parse_finish_reason(Some(reason)),
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
-                provider_metadata: None,
+                provider_metadata: self
+                    .latest_provider_metadata
+                    .lock()
+                    .ok()
+                    .and_then(|meta| meta.clone()),
             };
             builder = builder.add_stream_end(response);
         }
@@ -662,7 +689,6 @@ impl OpenAiCompatibleEventConverter {
         })
     }
 
-    /// Extract usage info from raw JSON
     fn extract_usage_from_json(&self, json: &serde_json::Value) -> Option<Usage> {
         let usage = json.get("usage")?;
         if usage.is_null() {
@@ -755,13 +781,21 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     .map(|g| g.clone())
                     .unwrap_or_default(),
             ),
-            usage: None,
+            usage: self
+                .latest_usage
+                .lock()
+                .ok()
+                .and_then(|usage| usage.clone()),
             finish_reason: Some(FinishReason::Unknown),
             audio: None,
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
-            provider_metadata: None,
+            provider_metadata: self
+                .latest_provider_metadata
+                .lock()
+                .ok()
+                .and_then(|meta| meta.clone()),
         };
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
@@ -1179,6 +1213,83 @@ mod tests {
                 .any(|v| v["choices"][0]["delta"]["tool_calls"][0]["id"] == "call_1"),
             "expected tool_calls from loose tool-call: {frames:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn perplexity_streaming_emits_stream_end_with_usage_and_provider_metadata() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "perplexity".to_string(),
+            name: "Perplexity".to_string(),
+            base_url: "https://api.perplexity.ai".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("sonar".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "perplexity",
+            "sk-test",
+            "https://api.perplexity.ai",
+            adapter.clone(),
+        )
+        .with_model("sonar");
+
+        let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+        let first = Event {
+            event: "".to_string(),
+            data: r#"{"id":"1","model":"sonar","created":1718345013,"citations":["https://example.com/rust"],"choices":[{"index":0,"delta":{"content":"Rust","role":"assistant"},"finish_reason":null}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+        let r1 = converter.convert_event(first).await;
+        assert!(r1.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "Rust"
+        )));
+
+        let final_chunk = Event {
+            event: "".to_string(),
+            data: r#"{"id":"1","model":"sonar","created":1718345013,"choices":[{"index":0,"delta":{"content":" ecosystem","role":null},"finish_reason":"stop"}],"images":[{"image_url":"https://images.example.com/rust.png","origin_url":"https://example.com/rust","height":900,"width":1600}],"usage":{"prompt_tokens":11,"completion_tokens":17,"total_tokens":28,"citation_tokens":7,"num_search_queries":2,"reasoning_tokens":3}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+        let r2 = converter.convert_event(final_chunk).await;
+        assert!(r2.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::UsageUpdate { usage })
+                if usage.prompt_tokens == 11
+                    && usage.completion_tokens == 17
+                    && usage.total_tokens == 28
+        )));
+
+        let end = r2
+            .iter()
+            .find_map(|event| match event {
+                Ok(ChatStreamEvent::StreamEnd { response }) => Some(response),
+                _ => None,
+            })
+            .expect("stream end event");
+        assert_eq!(end.usage.as_ref().map(|usage| usage.total_tokens), Some(28));
+        let metadata = end.provider_metadata.as_ref().expect("provider metadata");
+        let perplexity = metadata.get("perplexity").expect("perplexity metadata");
+        assert_eq!(
+            perplexity.get("citations"),
+            Some(&serde_json::json!(["https://example.com/rust"]))
+        );
+        assert_eq!(perplexity["usage"]["citation_tokens"], serde_json::json!(7));
+        assert_eq!(
+            perplexity["usage"]["num_search_queries"],
+            serde_json::json!(2)
+        );
+        assert_eq!(
+            perplexity["images"][0]["image_url"],
+            serde_json::json!("https://images.example.com/rust.png")
+        );
+        assert!(converter.handle_stream_end().is_none());
     }
 
     #[tokio::test]

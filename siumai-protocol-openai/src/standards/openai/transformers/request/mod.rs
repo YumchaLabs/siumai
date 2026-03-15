@@ -62,6 +62,25 @@ impl RequestTransformer for OpenAiRequestTransformer {
                     body["stop_sequences"] = serde_json::json!(stops);
                 }
 
+                if let Some(fmt) = &req.response_format {
+                    let strict_json_schema = req
+                        .provider_options_map
+                        .get("openai")
+                        .and_then(|v| v.as_object())
+                        .and_then(|o| {
+                            o.get("strictJsonSchema")
+                                .or_else(|| o.get("strict_json_schema"))
+                        })
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true);
+
+                    body["response_format"] =
+                        crate::standards::openai::utils::convert_chat_completions_response_format(
+                            fmt,
+                            strict_json_schema,
+                        );
+                }
+
                 let messages = convert_messages(&req.messages)?;
                 body["messages"] = serde_json::to_value(messages)?;
 
@@ -399,6 +418,104 @@ mod tests_openai_rules {
         // max_tokens should be moved to max_completion_tokens
         assert!(body.get("max_tokens").is_none());
         assert_eq!(body["max_completion_tokens"], serde_json::json!(123));
+    }
+
+    #[test]
+    fn tool_choice_none_is_emitted_when_function_tools_are_present() {
+        use crate::types::{ChatMessage, Tool, ToolChoice};
+
+        let tx = OpenAiRequestTransformer;
+        let req = ChatRequest::builder()
+            .model("gpt-4.1-mini")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::None)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(body["tool_choice"], serde_json::json!("none"));
+    }
+
+    #[test]
+    fn tool_result_message_is_emitted_as_openai_tool_message() {
+        use crate::types::ChatMessage;
+
+        let tx = OpenAiRequestTransformer;
+        let req = ChatRequest::builder()
+            .model("gpt-4.1-mini")
+            .messages(vec![
+                ChatMessage::user("hi").build(),
+                ChatMessage::tool_result_json(
+                    "call_1",
+                    "weather",
+                    serde_json::json!({ "temperature": 18 }),
+                )
+                .build(),
+            ])
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        let messages = body["messages"].as_array().expect("messages array");
+        assert_eq!(messages.len(), 2);
+
+        assert_eq!(messages[0]["role"], "user");
+        assert_eq!(messages[1]["role"], "tool");
+        assert_eq!(messages[1]["tool_call_id"], "call_1");
+        assert_eq!(
+            messages[1]["content"],
+            serde_json::json!(
+                serde_json::to_string(&serde_json::json!({ "temperature": 18 })).unwrap()
+            )
+        );
+
+        // Ensure OpenAI format stays string-only for tool messages (Vercel parity).
+        assert!(matches!(
+            messages[1]["content"],
+            serde_json::Value::String(_)
+        ));
+    }
+
+    #[test]
+    fn response_format_json_schema_is_mapped_like_vercel() {
+        use crate::types::ChatMessage;
+        use crate::types::chat::ResponseFormat;
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let tx = OpenAiRequestTransformer;
+        let req = ChatRequest::builder()
+            .model("gpt-4o-mini")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(
+                ResponseFormat::json_schema(schema.clone())
+                    .with_name("mySchema")
+                    .with_description("desc"),
+            )
+            .provider_option("openai", serde_json::json!({ "strictJsonSchema": false }))
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "mySchema",
+                    "schema": schema,
+                    "strict": false,
+                    "description": "desc"
+                }
+            }))
+        );
     }
 }
 

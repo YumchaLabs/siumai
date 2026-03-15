@@ -10,6 +10,7 @@ use async_trait::async_trait;
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::traits::ChatCapability;
+use crate::traits::ModelMetadata;
 use crate::types::{ChatRequest, ChatResponse};
 
 /// Canonical request type for the text family.
@@ -40,6 +41,14 @@ pub trait TextModelV3: Send + Sync {
     async fn stream_with_cancel(&self, request: TextRequest) -> Result<TextStreamHandle, LlmError>;
 }
 
+/// Stable language-model contract for the V4 refactor spike.
+///
+/// This trait intentionally builds on the existing text-family interface while adding
+/// shared model metadata. It is a minimal bridge toward a family-model-centered design.
+pub trait LanguageModel: TextModelV3 + ModelMetadata + Send + Sync {}
+
+impl<T> LanguageModel for T where T: TextModelV3 + ModelMetadata + Send + Sync + ?Sized {}
+
 /// Adapter: any `ChatCapability` can be used as a `TextModelV3`.
 #[async_trait]
 impl<T> TextModelV3 for T
@@ -63,11 +72,22 @@ where
 mod tests {
     use super::*;
     use crate::streaming::ChatStream;
+    use crate::traits::ModelSpecVersion;
     use crate::types::{ChatMessage, ChatStreamEvent, MessageContent};
     use async_trait::async_trait;
     use futures::StreamExt;
 
     struct FakeChat;
+
+    impl crate::traits::ModelMetadata for FakeChat {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "fake-chat"
+        }
+    }
 
     #[async_trait]
     impl ChatCapability for FakeChat {
@@ -149,5 +169,17 @@ mod tests {
 
         let items: Vec<_> = handle.stream.collect().await;
         assert!(!items.is_empty());
+    }
+
+    #[test]
+    fn language_model_marker_exposes_metadata() {
+        fn assert_language_model<M: LanguageModel + ?Sized>(model: &M) {
+            assert_eq!(model.provider_id(), "fake");
+            assert_eq!(model.model_id(), "fake-chat");
+            assert_eq!(model.specification_version(), ModelSpecVersion::V1);
+        }
+
+        let model = FakeChat;
+        assert_language_model(&model);
     }
 }

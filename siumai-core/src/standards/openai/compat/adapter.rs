@@ -214,6 +214,13 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// The base URL for API requests
     fn base_url(&self) -> &str;
 
+    /// Get the default audio base URL for this provider, if it differs from `base_url()`.
+    ///
+    /// Providers can override this when speech/transcription routes live on a dedicated host.
+    fn audio_base_url(&self) -> Option<&str> {
+        None
+    }
+
     /// Clone the adapter
     ///
     /// This is needed because we store adapters in configurations.

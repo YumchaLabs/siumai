@@ -4,6 +4,7 @@
 //! across non-streaming and streaming paths.
 
 use super::adapter::ProviderAdapter;
+use super::metadata::extract_provider_metadata;
 use super::openai_config::OpenAiCompatibleConfig;
 use super::types::RequestType;
 use crate::error::LlmError;
@@ -18,35 +19,9 @@ use crate::types::{
     ImageGenerationRequest, ImageGenerationResponse, MessageContent, Usage,
 };
 use eventsource_stream::Event;
-use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-
-fn extract_provider_metadata(
-    provider_id: &str,
-    raw: &serde_json::Value,
-) -> Option<HashMap<String, HashMap<String, serde_json::Value>>> {
-    match provider_id {
-        // Perplexity extends the OpenAI-like response schema with extra fields such as
-        // `search_results` and `videos` (see Perplexity OpenAPI spec). These are intentionally
-        // exposed as provider metadata instead of being added to the unified surface.
-        "perplexity" => {
-            let mut meta = HashMap::<String, serde_json::Value>::new();
-            for key in ["search_results", "videos", "citations"] {
-                if let Some(v) = raw.get(key) {
-                    meta.insert(key.to_string(), v.clone());
-                }
-            }
-            if meta.is_empty() {
-                None
-            } else {
-                Some(HashMap::from([(provider_id.to_string(), meta)]))
-            }
-        }
-        _ => None,
-    }
-}
 
 /// Request transformer using OpenAI-compatible adapter
 #[derive(Clone)]

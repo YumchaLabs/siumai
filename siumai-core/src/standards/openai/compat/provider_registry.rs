@@ -77,6 +77,38 @@ impl ConfigurableAdapter {
     }
 }
 
+pub fn provider_capabilities_declare_chat_surface(capabilities: &[String]) -> bool {
+    const NON_CHAT_ONLY_CAPABILITIES: &[&str] = &[
+        "embedding",
+        "rerank",
+        "image_generation",
+        "speech",
+        "transcription",
+        "audio",
+        "tts",
+        "stt",
+    ];
+
+    if capabilities.is_empty() {
+        return true;
+    }
+
+    if capabilities
+        .iter()
+        .any(|cap| matches!(cap.as_str(), "tools" | "vision" | "reasoning"))
+    {
+        return true;
+    }
+
+    !capabilities
+        .iter()
+        .all(|cap| NON_CHAT_ONLY_CAPABILITIES.contains(&cap.as_str()))
+}
+
+pub fn provider_config_declares_chat_surface(config: &ProviderConfig) -> bool {
+    provider_capabilities_declare_chat_surface(&config.capabilities)
+}
+
 impl ProviderAdapter for ConfigurableAdapter {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Owned(self.config.id.clone())
@@ -217,7 +249,22 @@ impl ProviderAdapter for ConfigurableAdapter {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        let mut caps = ProviderCapabilities::new().with_chat().with_streaming();
+        let mut caps = ProviderCapabilities::new();
+        let has_audio = self.config.capabilities.iter().any(|cap| cap == "audio");
+        let has_speech = self
+            .config
+            .capabilities
+            .iter()
+            .any(|cap| matches!(cap.as_str(), "speech" | "tts"));
+        let has_transcription = self
+            .config
+            .capabilities
+            .iter()
+            .any(|cap| matches!(cap.as_str(), "transcription" | "stt"));
+
+        if provider_config_declares_chat_surface(&self.config) {
+            caps = caps.with_chat().with_streaming();
+        }
 
         if self.config.capabilities.contains(&"tools".to_string()) {
             caps = caps.with_tools();
@@ -241,12 +288,29 @@ impl ProviderAdapter for ConfigurableAdapter {
         if self.config.supports_reasoning {
             caps = caps.with_custom_feature("reasoning", true);
         }
+        if has_audio {
+            caps = caps.with_audio();
+        } else {
+            if has_speech {
+                caps = caps.with_speech();
+            }
+            if has_transcription {
+                caps = caps.with_transcription();
+            }
+        }
 
         caps
     }
 
     fn base_url(&self) -> &str {
         &self.config.base_url
+    }
+
+    fn audio_base_url(&self) -> Option<&str> {
+        match self.config.id.as_str() {
+            "fireworks" => Some("https://audio.fireworks.ai/v1"),
+            _ => None,
+        }
     }
 
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
@@ -322,6 +386,103 @@ mod tests {
         assert!(caps.supports("image_generation"));
         assert!(caps.supports("reasoning"));
         assert!(adapter.supports_image_generation());
+    }
+
+    #[test]
+    fn configurable_adapter_capabilities_include_audio_family_aliases() {
+        let cfg = ProviderConfig {
+            id: "audio-test".to_string(),
+            name: "Audio Test".to_string(),
+            base_url: "https://example.invalid/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["tts".to_string(), "stt".to_string()],
+            default_model: None,
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = ConfigurableAdapter::new(cfg);
+        let caps = adapter.capabilities();
+
+        assert!(caps.supports("speech"));
+        assert!(caps.supports("transcription"));
+        assert!(caps.supports("audio"));
+    }
+
+    #[test]
+    fn configurable_adapter_focused_non_text_caps_do_not_imply_chat_surface() {
+        let cfg = ProviderConfig {
+            id: "focused".to_string(),
+            name: "Focused".to_string(),
+            base_url: "https://example.invalid/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["embedding".to_string(), "rerank".to_string()],
+            default_model: None,
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = ConfigurableAdapter::new(cfg);
+        let caps = adapter.capabilities();
+
+        assert!(!caps.supports("chat"));
+        assert!(!caps.supports("streaming"));
+        assert!(caps.supports("embedding"));
+        assert!(caps.supports("rerank"));
+    }
+
+    #[test]
+    fn configurable_adapter_mixed_caps_keep_chat_surface() {
+        let cfg = ProviderConfig {
+            id: "mixed".to_string(),
+            name: "Mixed".to_string(),
+            base_url: "https://example.invalid/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "tools".to_string(),
+                "vision".to_string(),
+                "embedding".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = ConfigurableAdapter::new(cfg);
+        let caps = adapter.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(caps.supports("embedding"));
+    }
+
+    #[test]
+    fn configurable_adapter_fireworks_exposes_transcription_only_audio_base() {
+        let cfg = ProviderConfig {
+            id: "fireworks".to_string(),
+            name: "Fireworks AI".to_string(),
+            base_url: "https://api.fireworks.ai/inference/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["transcription".to_string()],
+            default_model: Some("whisper-v3".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = ConfigurableAdapter::new(cfg);
+        let caps = adapter.capabilities();
+
+        assert!(!caps.supports("speech"));
+        assert!(caps.supports("transcription"));
+        assert!(caps.supports("audio"));
+        assert_eq!(
+            adapter.audio_base_url(),
+            Some("https://audio.fireworks.ai/v1")
+        );
     }
 
     #[test]

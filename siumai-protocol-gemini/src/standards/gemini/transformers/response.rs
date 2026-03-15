@@ -105,6 +105,42 @@ mod tests_gemini_metadata {
     }
 
     #[test]
+    fn gemini_chat_response_maps_function_call_parts_into_tool_call_content_parts() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.0-flash-exp".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                        ]
+                    },
+                    "finishReason": "STOP"
+                }
+            ],
+            "modelVersion": "gemini-2.0-flash-exp"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let calls = resp.tool_calls();
+        assert_eq!(calls.len(), 1);
+
+        let info = calls[0].as_tool_call().expect("tool call info");
+        assert!(
+            info.tool_call_id.starts_with("call_"),
+            "expected generated tool_call_id, got: {}",
+            info.tool_call_id
+        );
+        assert_eq!(info.tool_name, "weather");
+        assert_eq!(info.arguments, &serde_json::json!({ "city": "Tokyo" }));
+        assert_eq!(info.provider_executed.copied(), None);
+    }
+
+    #[test]
     fn gemini_response_exposes_logprobs_in_provider_metadata() {
         let cfg = GeminiConfig::default()
             .with_model("gemini-2.5-flash".into())

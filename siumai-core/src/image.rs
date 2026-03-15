@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 
 use crate::error::LlmError;
-use crate::traits::ImageGenerationCapability;
+use crate::traits::{ImageGenerationCapability, ModelMetadata};
 use crate::types::{ImageGenerationRequest, ImageGenerationResponse};
 
 /// V3 interface for image generation models.
@@ -18,6 +18,11 @@ pub trait ImageModelV3: Send + Sync {
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError>;
 }
+
+/// Stable image-model contract for the V4 refactor spike.
+pub trait ImageModel: ImageModelV3 + ModelMetadata + Send + Sync {}
+
+impl<T> ImageModel for T where T: ImageModelV3 + ModelMetadata + Send + Sync + ?Sized {}
 
 /// Adapter: any `ImageGenerationCapability` can be used as an `ImageModelV3`.
 #[async_trait]
@@ -36,9 +41,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::ModelSpecVersion;
     use std::collections::HashMap;
 
     struct FakeImage;
+
+    impl crate::traits::ModelMetadata for FakeImage {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "fake-image"
+        }
+    }
 
     #[async_trait]
     impl ImageGenerationCapability for FakeImage {
@@ -81,5 +97,24 @@ mod tests {
             resp.images[0].url.as_deref(),
             Some("https://example.com/cat.png")
         );
+    }
+
+    #[test]
+    fn image_model_trait_includes_metadata() {
+        let model = FakeImage;
+
+        fn assert_image_model<M>(model: &M)
+        where
+            M: ImageModel + ?Sized,
+        {
+            assert_eq!(crate::traits::ModelMetadata::provider_id(model), "fake");
+            assert_eq!(crate::traits::ModelMetadata::model_id(model), "fake-image");
+            assert_eq!(
+                crate::traits::ModelMetadata::specification_version(model),
+                ModelSpecVersion::V1
+            );
+        }
+
+        assert_image_model(&model);
     }
 }

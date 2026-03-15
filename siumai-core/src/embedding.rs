@@ -3,13 +3,13 @@
 //! This module provides a Rust-first, family-oriented abstraction for embeddings.
 //! In V3-M2 it is intentionally implemented as an adapter over the existing
 //! `EmbeddingCapability` so we can ship the new surface quickly, then iterate
-//! towards a fully decoupled “family-first” foundation.
+//! towards a fully decoupled family-first foundation.
 
 use async_trait::async_trait;
 use std::collections::HashMap;
 
 use crate::error::LlmError;
-use crate::traits::EmbeddingCapability;
+use crate::traits::{EmbeddingCapability, ModelMetadata};
 use crate::types::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingRequest, EmbeddingResponse,
 };
@@ -26,6 +26,11 @@ pub trait EmbeddingModelV3: Send + Sync {
         requests: BatchEmbeddingRequest,
     ) -> Result<BatchEmbeddingResponse, LlmError>;
 }
+
+/// Stable embedding-model contract for the V4 refactor spike.
+pub trait EmbeddingModel: EmbeddingModelV3 + ModelMetadata + Send + Sync {}
+
+impl<T> EmbeddingModel for T where T: EmbeddingModelV3 + ModelMetadata + Send + Sync + ?Sized {}
 
 /// Adapter: any `EmbeddingCapability` can be used as an `EmbeddingModelV3`.
 #[async_trait]
@@ -47,7 +52,7 @@ where
                 .await
                 .map_err(|e| e.to_string());
             responses.push(result);
-            if requests.batch_options.fail_fast && responses.last().unwrap().is_err() {
+            if requests.batch_options.fail_fast && responses.last().is_some_and(|r| r.is_err()) {
                 break;
             }
         }
@@ -61,9 +66,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::ModelSpecVersion;
 
     struct FakeEmbedding {
         dim: usize,
+    }
+
+    impl crate::traits::ModelMetadata for FakeEmbedding {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "fake-embedding"
+        }
     }
 
     #[async_trait]
@@ -104,6 +120,16 @@ mod tests {
     #[tokio::test]
     async fn adapter_embed_many_respects_fail_fast() {
         struct FailOnSecond;
+
+        impl crate::traits::ModelMetadata for FailOnSecond {
+            fn provider_id(&self) -> &str {
+                "fake"
+            }
+
+            fn model_id(&self) -> &str {
+                "fail-on-second"
+            }
+        }
 
         #[async_trait]
         impl EmbeddingCapability for FailOnSecond {
@@ -150,5 +176,27 @@ mod tests {
         assert_eq!(resp.responses.len(), 2);
         assert!(resp.responses[0].is_ok());
         assert!(resp.responses[1].is_err());
+    }
+
+    #[test]
+    fn embedding_model_trait_includes_metadata() {
+        let model = FakeEmbedding { dim: 3 };
+
+        fn assert_embedding_model<M>(model: &M)
+        where
+            M: EmbeddingModel + ?Sized,
+        {
+            assert_eq!(crate::traits::ModelMetadata::provider_id(model), "fake");
+            assert_eq!(
+                crate::traits::ModelMetadata::model_id(model),
+                "fake-embedding"
+            );
+            assert_eq!(
+                crate::traits::ModelMetadata::specification_version(model),
+                ModelSpecVersion::V1
+            );
+        }
+
+        assert_embedding_model(&model);
     }
 }

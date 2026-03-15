@@ -5,6 +5,7 @@
 #![deny(unsafe_code)]
 
 pub mod adapter;
+pub mod metadata;
 pub mod openai_config;
 pub mod provider_registry;
 pub mod streaming;

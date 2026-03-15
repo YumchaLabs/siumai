@@ -4,6 +4,18 @@ use std::collections::HashMap;
 
 use crate::types::{HttpConfig, ProviderOptionsMap};
 
+fn should_fill_model_slot(slot: Option<&str>, fallback: &str) -> bool {
+    let fallback = fallback.trim();
+    if fallback.is_empty() {
+        return false;
+    }
+
+    match slot {
+        Some(value) => value.trim().is_empty(),
+        None => true,
+    }
+}
+
 /// Text-to-speech request
 #[derive(Debug, Clone)]
 pub struct TtsRequest {
@@ -61,6 +73,15 @@ impl TtsRequest {
     /// Set the model
     pub fn with_model(mut self, model: String) -> Self {
         self.model = Some(model);
+        self
+    }
+
+    /// Set the model only when the request does not already define one.
+    pub fn with_model_if_missing(mut self, model: impl Into<String>) -> Self {
+        let model = model.into();
+        if should_fill_model_slot(self.model.as_deref(), &model) {
+            self.model = Some(model);
+        }
         self
     }
 
@@ -182,6 +203,21 @@ impl SttRequest {
         self
     }
 
+    /// Set the model.
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
+    }
+
+    /// Set the model only when the request does not already define one.
+    pub fn with_model_if_missing(mut self, model: impl Into<String>) -> Self {
+        let model = model.into();
+        if should_fill_model_slot(self.model.as_deref(), &model) {
+            self.model = Some(model);
+        }
+        self
+    }
+
     /// Set audio media type (e.g., "audio/mpeg", "audio/wav")
     pub fn with_media_type(mut self, media_type: String) -> Self {
         self.media_type = Some(media_type);
@@ -288,6 +324,21 @@ impl AudioTranslationRequest {
     /// Set per-request HTTP config (headers, proxy, timeouts, etc.)
     pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
         self.http_config = Some(http_config);
+        self
+    }
+
+    /// Set the model.
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
+    }
+
+    /// Set the model only when the request does not already define one.
+    pub fn with_model_if_missing(mut self, model: impl Into<String>) -> Self {
+        let model = model.into();
+        if should_fill_model_slot(self.model.as_deref(), &model) {
+            self.model = Some(model);
+        }
         self
     }
 

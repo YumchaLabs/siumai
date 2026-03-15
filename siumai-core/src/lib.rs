@@ -23,6 +23,7 @@ pub mod retry_api;
 pub mod speech;
 pub mod standards;
 pub mod streaming;
+pub mod structured_output;
 pub mod text;
 pub mod tooling;
 pub mod tools;

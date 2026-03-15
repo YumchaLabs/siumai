@@ -364,6 +364,67 @@ fn responses_output_text_annotation_added_emits_source() {
         }
         other => panic!("expected Custom source, got {other:?}"),
     }
+
+    let ev = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_text.annotation.added","annotation":{"type":"container_file_citation","file_id":"file_container_1","container_id":"container_42","index":3,"filename":"bundle.txt","quote":"Bundle","start_index":21,"end_index":30}}"#
+            .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+
+    let out = futures::executor::block_on(conv.convert_event(ev));
+    assert_eq!(out.len(), 1);
+    match out[0].as_ref().unwrap() {
+        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+            assert_eq!(event_type, "openai:source");
+            assert_eq!(data["sourceType"], serde_json::json!("document"));
+            assert_eq!(data["url"], serde_json::json!("file_container_1"));
+            assert_eq!(data["filename"], serde_json::json!("bundle.txt"));
+            assert_eq!(data["mediaType"], serde_json::json!("text/plain"));
+            assert_eq!(
+                data["providerMetadata"]["openai"]["containerId"],
+                serde_json::json!("container_42")
+            );
+            assert_eq!(
+                data["providerMetadata"]["openai"]["index"],
+                serde_json::json!(3)
+            );
+        }
+        other => panic!("expected Custom source, got {other:?}"),
+    }
+
+    let ev = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_text.annotation.added","annotation":{"type":"file_path","file_id":"file_path_9","index":5,"filename":"artifact.bin","start_index":31,"end_index":40}}"#
+            .to_string(),
+        id: "4".to_string(),
+        retry: None,
+    };
+
+    let out = futures::executor::block_on(conv.convert_event(ev));
+    assert_eq!(out.len(), 1);
+    match out[0].as_ref().unwrap() {
+        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+            assert_eq!(event_type, "openai:source");
+            assert_eq!(data["sourceType"], serde_json::json!("document"));
+            assert_eq!(data["url"], serde_json::json!("file_path_9"));
+            assert_eq!(data["filename"], serde_json::json!("artifact.bin"));
+            assert_eq!(
+                data["mediaType"],
+                serde_json::json!("application/octet-stream")
+            );
+            assert_eq!(
+                data["providerMetadata"]["openai"]["fileId"],
+                serde_json::json!("file_path_9")
+            );
+            assert_eq!(
+                data["providerMetadata"]["openai"]["index"],
+                serde_json::json!(5)
+            );
+        }
+        other => panic!("expected Custom source, got {other:?}"),
+    }
 }
 
 #[test]
@@ -606,6 +667,55 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
             && v["annotation"]["type"] == serde_json::json!("file_citation")
             && v["annotation"]["file_id"] == serde_json::json!("file_123")
             && v["annotation"]["filename"] == serde_json::json!("notes.txt")
+    }));
+
+    let container_doc_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:source".to_string(),
+            data: serde_json::json!({
+                "type": "source",
+                "sourceType": "document",
+                "id": "ann:doc:file_container_1",
+                "url": "file_container_1",
+                "title": "Bundle",
+                "mediaType": "text/plain",
+                "filename": "bundle.txt",
+                "providerMetadata": { "openai": { "fileId": "file_container_1", "containerId": "container_42", "index": 3 } },
+            }),
+        })
+        .expect("serialize container doc source");
+    let container_doc_frames = parse_sse_frames(&container_doc_bytes);
+    assert!(container_doc_frames.iter().any(|(ev, v)| {
+        ev == "response.output_text.annotation.added"
+            && v["annotation"]["type"] == serde_json::json!("container_file_citation")
+            && v["annotation"]["file_id"] == serde_json::json!("file_container_1")
+            && v["annotation"]["container_id"] == serde_json::json!("container_42")
+            && v["annotation"]["index"] == serde_json::json!(3)
+            && v["annotation"]["filename"] == serde_json::json!("bundle.txt")
+    }));
+
+    let file_path_bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:source".to_string(),
+            data: serde_json::json!({
+                "type": "source",
+                "sourceType": "document",
+                "id": "ann:doc:file_path_9",
+                "url": "file_path_9",
+                "title": "artifact.bin",
+                "mediaType": "application/octet-stream",
+                "filename": "artifact.bin",
+                "providerMetadata": { "openai": { "fileId": "file_path_9", "index": 5 } },
+            }),
+        })
+        .expect("serialize file path source");
+    let file_path_frames = parse_sse_frames(&file_path_bytes);
+    assert!(file_path_frames.iter().any(|(ev, v)| {
+        ev == "response.output_text.annotation.added"
+            && v["annotation"]["type"] == serde_json::json!("file_path")
+            && v["annotation"]["file_id"] == serde_json::json!("file_path_9")
+            && v["annotation"]["index"] == serde_json::json!(5)
+            && v["annotation"]["filename"] == serde_json::json!("artifact.bin")
     }));
 }
 
@@ -1230,6 +1340,121 @@ fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
     let frames = parse_sse_frames(&bytes);
     assert!(frames.iter().any(|(ev, v)| ev == "response.completed"
         && v["response"]["id"] == serde_json::json!("resp_test")));
+}
+
+#[test]
+fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:response-metadata".to_string(),
+            data: serde_json::json!({
+                "type": "response-metadata",
+                "id": "resp_test",
+                "modelId": "gpt-test",
+                "timestamp": "2025-01-01T00:00:00.000Z",
+            }),
+        })
+        .expect("serialize response-metadata");
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:text-delta".to_string(),
+            data: serde_json::json!({
+                "type": "text-delta",
+                "id": "msg_1",
+                "delta": "See files.",
+            }),
+        })
+        .expect("serialize text-delta");
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:source".to_string(),
+            data: serde_json::json!({
+                "type": "source",
+                "sourceType": "document",
+                "id": "ann:doc:file_container_1",
+                "url": "file_container_1",
+                "title": "Bundle",
+                "mediaType": "text/plain",
+                "filename": "bundle.txt",
+                "providerMetadata": { "openai": { "fileId": "file_container_1", "containerId": "container_42", "index": 3 } },
+            }),
+        })
+        .expect("serialize container source");
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:source".to_string(),
+            data: serde_json::json!({
+                "type": "source",
+                "sourceType": "document",
+                "id": "ann:doc:file_path_9",
+                "url": "file_path_9",
+                "title": "artifact.bin",
+                "mediaType": "application/octet-stream",
+                "filename": "artifact.bin",
+                "providerMetadata": { "openai": { "fileId": "file_path_9", "index": 5 } },
+            }),
+        })
+        .expect("serialize file path source");
+
+    let bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:finish".to_string(),
+            data: serde_json::json!({
+                "type": "finish",
+                "finishReason": { "raw": null, "unified": "stop" },
+                "providerMetadata": { "openai": { "responseId": "resp_test" } },
+                "usage": {
+                    "inputTokens": { "total": 3, "cacheRead": 0, "cacheWrite": null, "noCache": 3 },
+                    "outputTokens": { "total": 5, "reasoning": 0, "text": 5 },
+                    "raw": null
+                }
+            }),
+        })
+        .expect("serialize finish");
+
+    let completed = parse_sse_frames(&bytes)
+        .into_iter()
+        .find(|(ev, _)| ev == "response.completed")
+        .map(|(_, value)| value)
+        .expect("response.completed frame");
+
+    let tx = crate::standards::openai::transformers::OpenAiResponsesResponseTransformer::new();
+    let response =
+        crate::execution::transformers::response::ResponseTransformer::transform_chat_response(
+            &tx, &completed,
+        )
+        .expect("transform completed response");
+
+    let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&response)
+        .expect("openai metadata");
+    let sources = meta.sources.expect("sources present");
+
+    let container_source = sources
+        .iter()
+        .find(|source| source.url == "file_container_1")
+        .expect("container source present");
+    let container_meta =
+        crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(container_source)
+            .expect("container source metadata");
+    assert_eq!(container_meta.file_id.as_deref(), Some("file_container_1"));
+    assert_eq!(container_meta.container_id.as_deref(), Some("container_42"));
+    assert_eq!(container_meta.index, Some(3));
+
+    let file_path_source = sources
+        .iter()
+        .find(|source| source.url == "file_path_9")
+        .expect("file path source present");
+    let file_path_meta =
+        crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(file_path_source)
+            .expect("file path source metadata");
+    assert_eq!(file_path_meta.file_id.as_deref(), Some("file_path_9"));
+    assert!(file_path_meta.container_id.is_none());
+    assert_eq!(file_path_meta.index, Some(5));
 }
 
 #[test]

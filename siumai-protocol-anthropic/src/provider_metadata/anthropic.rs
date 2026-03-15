@@ -94,6 +94,14 @@ pub struct AnthropicMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
 
+    /// Thinking signature captured from Anthropic reasoning blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_signature: Option<String>,
+
+    /// Redacted thinking payload captured from Anthropic reasoning blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub redacted_thinking_data: Option<String>,
+
     /// Service tier (when returned by Anthropic).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<String>,
@@ -148,7 +156,35 @@ pub struct AnthropicContainerSkill {
     pub version: Option<String>,
 }
 
+/// Anthropic tool caller information carried on tool-call content parts.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnthropicToolCaller {
+    /// Caller type (for example `direct` or `code_execution_20250825`).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub kind: Option<String>,
+
+    /// Provider tool id when the tool call was triggered programmatically.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "toolId")]
+    pub tool_id: Option<String>,
+}
+
+/// Anthropic-specific metadata attached to `ContentPart::ToolCall`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnthropicToolCallMetadata {
+    /// Tool caller information reported by Anthropic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caller: Option<AnthropicToolCaller>,
+}
+
 impl crate::types::provider_metadata::FromMetadata for AnthropicMetadata {
+    fn from_metadata(
+        metadata: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> Option<Self> {
+        serde_json::from_value(serde_json::to_value(metadata).ok()?).ok()
+    }
+}
+
+impl crate::types::provider_metadata::FromMetadata for AnthropicToolCallMetadata {
     fn from_metadata(
         metadata: &std::collections::HashMap<String, serde_json::Value>,
     ) -> Option<Self> {
@@ -166,5 +202,80 @@ impl AnthropicChatResponseExt for crate::types::ChatResponse {
         use crate::types::provider_metadata::FromMetadata;
         let meta = self.provider_metadata.as_ref()?.get("anthropic")?;
         AnthropicMetadata::from_metadata(meta)
+    }
+}
+
+/// Typed helper for Anthropic metadata extraction from `ContentPart::ToolCall`.
+pub trait AnthropicContentPartExt {
+    fn anthropic_tool_call_metadata(&self) -> Option<AnthropicToolCallMetadata>;
+}
+
+impl AnthropicContentPartExt for crate::types::ContentPart {
+    fn anthropic_tool_call_metadata(&self) -> Option<AnthropicToolCallMetadata> {
+        use crate::types::ContentPart;
+
+        let ContentPart::ToolCall {
+            provider_metadata: Some(metadata),
+            ..
+        } = self
+        else {
+            return None;
+        };
+
+        let meta = metadata.get("anthropic")?;
+        serde_json::from_value(meta.clone()).ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn anthropic_metadata_parses_thinking_replay_fields() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut inner = HashMap::new();
+        inner.insert("thinking_signature".to_string(), serde_json::json!("sig-1"));
+        inner.insert(
+            "redacted_thinking_data".to_string(),
+            serde_json::json!("abc123"),
+        );
+
+        let mut outer = HashMap::new();
+        outer.insert("anthropic".to_string(), inner);
+        resp.provider_metadata = Some(outer);
+
+        let meta = resp.anthropic_metadata().expect("anthropic metadata");
+        assert_eq!(meta.thinking_signature.as_deref(), Some("sig-1"));
+        assert_eq!(meta.redacted_thinking_data.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn anthropic_tool_call_metadata_parses_caller_fields() {
+        let part = crate::types::ContentPart::ToolCall {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "rollDie".to_string(),
+            arguments: serde_json::json!({"player":"player1"}),
+            provider_executed: None,
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({
+                    "caller": {
+                        "type": "code_execution_20250825",
+                        "tool_id": "srvtoolu_1"
+                    }
+                }),
+            )])),
+        };
+
+        let meta = part
+            .anthropic_tool_call_metadata()
+            .expect("anthropic tool call metadata");
+        let caller = meta.caller.expect("caller");
+        assert_eq!(caller.kind.as_deref(), Some("code_execution_20250825"));
+        assert_eq!(caller.tool_id.as_deref(), Some("srvtoolu_1"));
     }
 }

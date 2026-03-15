@@ -131,6 +131,156 @@ impl OpenAiCompatibleConfig {
         Ok(self)
     }
 
+    /// Set temperature.
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
+        self.common_params.temperature = Some(temperature);
+        self
+    }
+
+    /// Set max tokens.
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.common_params.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// Set top-p.
+    pub fn with_top_p(mut self, top_p: f64) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
+    /// Set stop sequences.
+    pub fn with_stop_sequences(mut self, stop_sequences: Vec<String>) -> Self {
+        self.common_params.stop_sequences = Some(stop_sequences);
+        self
+    }
+
+    /// Set deterministic seed.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.common_params.seed = Some(seed);
+        self
+    }
+
+    /// Merge provider-specific request defaults through the adapter layer.
+    pub fn with_provider_specific_config(
+        mut self,
+        params: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        if params.is_empty() {
+            return self;
+        }
+        let adapter = self.adapter.clone_adapter();
+        self.adapter = Arc::from(
+            Box::new(super::adapter::ParamMergingAdapter::new(adapter, params))
+                as Box<dyn ProviderAdapter>,
+        );
+        self
+    }
+
+    /// Add a single provider-specific request default.
+    pub fn with_provider_specific_param(
+        mut self,
+        key: impl Into<String>,
+        value: serde_json::Value,
+    ) -> Self {
+        let mut params = std::collections::HashMap::new();
+        params.insert(key.into(), value);
+        self = self.with_provider_specific_config(params);
+        self
+    }
+
+    /// Enable provider-native thinking mode when supported.
+    pub fn with_thinking(mut self, enable: bool) -> Self {
+        match self.provider_id.as_str() {
+            "siliconflow" => {
+                self = self.with_provider_specific_param(
+                    "enable_thinking",
+                    serde_json::Value::Bool(enable),
+                );
+            }
+            _ => {
+                self = self.with_provider_specific_param(
+                    "enable_reasoning",
+                    serde_json::Value::Bool(enable),
+                );
+            }
+        }
+        self
+    }
+
+    /// Set thinking budget for providers that expose it.
+    pub fn with_thinking_budget(mut self, budget: u32) -> Self {
+        let clamped_budget = budget.clamp(128, 32768);
+        match self.provider_id.as_str() {
+            "siliconflow" => {
+                self = self
+                    .with_provider_specific_param(
+                        "thinking_budget",
+                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
+                    )
+                    .with_provider_specific_param("enable_thinking", serde_json::Value::Bool(true));
+            }
+            _ => {
+                self = self
+                    .with_provider_specific_param(
+                        "reasoning_budget",
+                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
+                    )
+                    .with_provider_specific_param(
+                        "enable_reasoning",
+                        serde_json::Value::Bool(true),
+                    );
+            }
+        }
+        self
+    }
+
+    /// Unified reasoning toggle.
+    pub fn with_reasoning(mut self, enable: bool) -> Self {
+        match self.provider_id.as_str() {
+            "siliconflow" => {
+                self = self.with_provider_specific_param(
+                    "enable_thinking",
+                    serde_json::Value::Bool(enable),
+                );
+            }
+            _ => {
+                self = self.with_provider_specific_param(
+                    "enable_reasoning",
+                    serde_json::Value::Bool(enable),
+                );
+            }
+        }
+        self
+    }
+
+    /// Unified reasoning budget.
+    pub fn with_reasoning_budget(mut self, budget: i32) -> Self {
+        let clamped_budget = budget.clamp(128, 32768) as u32;
+        match self.provider_id.as_str() {
+            "siliconflow" => {
+                self = self
+                    .with_provider_specific_param(
+                        "thinking_budget",
+                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
+                    )
+                    .with_provider_specific_param("enable_thinking", serde_json::Value::Bool(true));
+            }
+            _ => {
+                self = self
+                    .with_provider_specific_param(
+                        "reasoning_budget",
+                        serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
+                    )
+                    .with_provider_specific_param(
+                        "enable_reasoning",
+                        serde_json::Value::Bool(true),
+                    );
+            }
+        }
+        self
+    }
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), LlmError> {
         if self.provider_id.is_empty() {
@@ -371,5 +521,188 @@ mod tests {
         .unwrap();
 
         assert!(config.custom_headers.contains_key("X-Custom"));
+    }
+
+    #[test]
+    fn test_config_fluent_common_params_and_reasoning_defaults() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com",
+            Arc::new(DummyAdapter),
+        )
+        .with_model("deepseek-chat")
+        .with_temperature(0.4)
+        .with_max_tokens(256)
+        .with_top_p(0.9)
+        .with_stop_sequences(vec!["END".to_string()])
+        .with_seed(7)
+        .with_reasoning(true)
+        .with_reasoning_budget(2048);
+
+        assert_eq!(config.model, "deepseek-chat");
+        assert_eq!(config.common_params.model, "deepseek-chat");
+        assert_eq!(config.common_params.temperature, Some(0.4));
+        assert_eq!(config.common_params.max_tokens, Some(256));
+        assert_eq!(config.common_params.top_p, Some(0.9));
+        assert_eq!(
+            config.common_params.stop_sequences,
+            Some(vec!["END".to_string()])
+        );
+        assert_eq!(config.common_params.seed, Some(7));
+
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                super::super::types::RequestType::Chat,
+            )
+            .expect("transform request params");
+        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+    }
+
+    #[test]
+    fn test_config_thinking_budget_maps_for_siliconflow() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "siliconflow",
+            "test-key",
+            "https://api.siliconflow.cn/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_model("deepseek-ai/DeepSeek-V3.1")
+        .with_thinking_budget(8192);
+
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                super::super::types::RequestType::Chat,
+            )
+            .expect("transform request params");
+        assert_eq!(params["enable_thinking"], serde_json::json!(true));
+        assert_eq!(params["thinking_budget"], serde_json::json!(8192));
+    }
+
+    #[test]
+    fn test_config_reasoning_maps_for_openrouter() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://openrouter.ai/api/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "openrouter",
+            "test-key",
+            "https://openrouter.ai/api/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_model("openai/gpt-4o")
+        .with_reasoning(true)
+        .with_reasoning_budget(2048);
+
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                super::super::types::RequestType::Chat,
+            )
+            .expect("transform request params");
+        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
     }
 }

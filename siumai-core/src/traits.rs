@@ -10,7 +10,8 @@
 //! - **`embedding`** - Embedding generation capabilities (`EmbeddingCapability`, `EmbeddingExtensions`)
 //! - **`vision`** - Vision/image analysis capabilities (`VisionCapability`)
 //! - **`image`** - Image generation capabilities (`ImageGenerationCapability`, `ImageExtras`)
-//! - **`audio`** - Audio transcription/generation capabilities (`AudioCapability`)
+//! - **`audio`** - Narrow audio family traits (`SpeechCapability`, `TranscriptionCapability`)
+//!   plus compatibility-only `AudioCapability`
 //! - **`files`** - File management capabilities (`FileManagementCapability`)
 //! - **`moderation`** - Content moderation capabilities (`ModerationCapability`)
 //! - **`rerank`** - Document reranking capabilities (`RerankCapability`)
@@ -43,12 +44,16 @@
 //! - `ChatCapability` - Basic chat completion
 //! - `EmbeddingCapability` - Vector embeddings
 //! - `VisionCapability` - Image analysis and generation
-//! - `AudioCapability` - Audio processing
+//! - `SpeechCapability` - Text-to-speech
+//! - `TranscriptionCapability` - Speech-to-text
 //! - `ImageGenerationCapability` - Image generation
+//! - `AudioCapability` - Compatibility-only catch-all for transitional audio code
 //!
 //! #### Extension Traits
 //! - `ChatExtensions` - Convenience methods for chat (auto-implemented)
 //! - `EmbeddingExtensions` - Convenience methods for embeddings (auto-implemented)
+//! - `SpeechExtras` - Non-unified speech/TTS extras
+//! - `TranscriptionExtras` - Non-unified transcription/translation extras
 //!
 //! ## Design Principles
 //!
@@ -105,6 +110,9 @@ pub use rerank::RerankCapability;
 
 mod capabilities;
 pub use capabilities::ProviderCapabilities;
+
+mod model;
+pub use model::{ModelMetadata, ModelSpecVersion};
 
 mod audio;
 pub use audio::AudioCapability;

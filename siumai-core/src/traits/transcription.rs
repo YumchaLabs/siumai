@@ -69,3 +69,41 @@ where
         AudioCapability::get_supported_languages(self).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::traits::AudioCapability;
+    use crate::types::AudioFeature;
+    use std::collections::HashMap;
+
+    struct FakeLegacyAudio;
+
+    #[async_trait]
+    impl AudioCapability for FakeLegacyAudio {
+        fn supported_features(&self) -> &[AudioFeature] {
+            &[]
+        }
+
+        async fn speech_to_text(&self, _request: SttRequest) -> Result<SttResponse, LlmError> {
+            Ok(SttResponse {
+                text: "legacy shim ok".to_string(),
+                language: None,
+                confidence: None,
+                words: None,
+                duration: None,
+                metadata: HashMap::new(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_audio_capability_adapts_into_transcription_capability() {
+        let model = FakeLegacyAudio;
+        let response = TranscriptionCapability::stt(&model, SttRequest::from_audio(Vec::new()))
+            .await
+            .expect("audio adapter should provide transcription capability");
+
+        assert_eq!(response.text, "legacy shim ok");
+    }
+}

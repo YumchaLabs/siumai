@@ -82,6 +82,7 @@ pub enum ProviderType {
     Anthropic,
     Gemini,
     Ollama,
+    DeepSeek,
     XAI,
     Groq,
     MiniMaxi,
@@ -95,6 +96,7 @@ impl std::fmt::Display for ProviderType {
             Self::Anthropic => write!(f, "anthropic"),
             Self::Gemini => write!(f, "gemini"),
             Self::Ollama => write!(f, "ollama"),
+            Self::DeepSeek => write!(f, "deepseek"),
             Self::XAI => write!(f, "xai"),
             Self::Groq => write!(f, "groq"),
             Self::MiniMaxi => write!(f, "minimaxi"),
@@ -112,6 +114,7 @@ impl ProviderType {
             "anthropic" => Self::Anthropic,
             "gemini" => Self::Gemini,
             "ollama" => Self::Ollama,
+            "deepseek" => Self::DeepSeek,
             "xai" => Self::XAI,
             "groq" => Self::Groq,
             "minimaxi" => Self::MiniMaxi,
@@ -212,4 +215,15 @@ pub struct ResponseMetadata {
     pub provider: String,
     /// Request ID
     pub request_id: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProviderType;
+
+    #[test]
+    fn provider_type_maps_deepseek_name() {
+        assert_eq!(ProviderType::from_name("deepseek"), ProviderType::DeepSeek);
+        assert_eq!(ProviderType::DeepSeek.to_string(), "deepseek");
+    }
 }

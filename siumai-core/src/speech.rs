@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 
 use crate::error::LlmError;
-use crate::traits::SpeechCapability;
+use crate::traits::{ModelMetadata, SpeechCapability};
 use crate::types::{TtsRequest, TtsResponse};
 
 /// V3 interface for speech synthesis models.
@@ -15,6 +15,11 @@ pub trait SpeechModelV3: Send + Sync {
     /// Synthesize audio from text.
     async fn synthesize(&self, request: TtsRequest) -> Result<TtsResponse, LlmError>;
 }
+
+/// Stable speech-model contract for the V4 refactor spike.
+pub trait SpeechModel: SpeechModelV3 + ModelMetadata + Send + Sync {}
+
+impl<T> SpeechModel for T where T: SpeechModelV3 + ModelMetadata + Send + Sync + ?Sized {}
 
 /// Adapter: any `SpeechCapability` can be used as a `SpeechModelV3`.
 #[async_trait]
@@ -30,9 +35,20 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::traits::ModelSpecVersion;
     use std::collections::HashMap;
 
     struct FakeSpeech;
+
+    impl crate::traits::ModelMetadata for FakeSpeech {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "fake-speech"
+        }
+    }
 
     #[async_trait]
     impl SpeechCapability for FakeSpeech {
@@ -54,5 +70,24 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.audio_data, b"hello");
+    }
+
+    #[test]
+    fn speech_model_trait_includes_metadata() {
+        let model = FakeSpeech;
+
+        fn assert_speech_model<M>(model: &M)
+        where
+            M: SpeechModel + ?Sized,
+        {
+            assert_eq!(crate::traits::ModelMetadata::provider_id(model), "fake");
+            assert_eq!(crate::traits::ModelMetadata::model_id(model), "fake-speech");
+            assert_eq!(
+                crate::traits::ModelMetadata::specification_version(model),
+                ModelSpecVersion::V1
+            );
+        }
+
+        assert_speech_model(&model);
     }
 }

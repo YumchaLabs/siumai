@@ -421,6 +421,22 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
                 crate::standards::openai::utils::convert_messages_openai_chat(&messages_input)?;
             body["messages"] = serde_json::to_value(messages)?;
 
+            if let Some(fmt) = &req.response_format {
+                let strict_json_schema = provider_opts
+                    .and_then(|obj| {
+                        obj.get("strictJsonSchema")
+                            .or_else(|| obj.get("strict_json_schema"))
+                    })
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+
+                body["response_format"] =
+                    crate::standards::openai::utils::convert_chat_completions_response_format(
+                        fmt,
+                        strict_json_schema,
+                    );
+            }
+
             if let Some(tools) = &req.tools
                 && !tools.is_empty()
             {
@@ -453,6 +469,51 @@ impl RequestTransformer for OpenAiChatRequestTransformer {
         }
 
         Ok(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::ChatMessage;
+    use crate::types::chat::ResponseFormat;
+
+    #[test]
+    fn openai_chat_request_includes_response_format_json_schema() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = ChatRequest::builder()
+            .model("gpt-4o-mini")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(
+                ResponseFormat::json_schema(schema.clone())
+                    .with_name("mySchema")
+                    .with_description("desc"),
+            )
+            .provider_option("openai", serde_json::json!({ "strictJsonSchema": false }))
+            .build();
+
+        let standard = OpenAiChatStandard::new();
+        let tx = standard.create_transformers("openai");
+        let body = tx.request.transform_chat(&req).expect("transform");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "mySchema",
+                    "schema": schema,
+                    "strict": false,
+                    "description": "desc"
+                }
+            }))
+        );
     }
 }
 

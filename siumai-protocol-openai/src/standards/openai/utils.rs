@@ -404,6 +404,44 @@ pub fn convert_tool_choice(choice: &crate::types::ToolChoice) -> serde_json::Val
     }
 }
 
+/// Convert Siumai response format into the OpenAI Chat Completions `response_format` wire shape.
+///
+/// Vercel AI SDK parity:
+/// - `responseFormat: { type: "json", schema }` => `{ type: "json_schema", json_schema: { name, schema, strict } }`
+pub fn convert_chat_completions_response_format(
+    fmt: &crate::types::chat::ResponseFormat,
+    strict_json_schema: bool,
+) -> serde_json::Value {
+    match fmt {
+        crate::types::chat::ResponseFormat::Json {
+            schema,
+            name,
+            description,
+            strict,
+        } => {
+            let strict = strict.unwrap_or(strict_json_schema);
+            let name = name.as_deref().unwrap_or("response");
+            let mut out = serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": name,
+                    "schema": schema,
+                    "strict": strict,
+                }
+            });
+
+            if let Some(desc) = description.as_deref()
+                && !desc.trim().is_empty()
+                && let Some(obj) = out.get_mut("json_schema").and_then(|v| v.as_object_mut())
+            {
+                obj.insert("description".to_string(), serde_json::json!(desc));
+            }
+
+            out
+        }
+    }
+}
+
 /// Convert Siumai tool choice to OpenAI Responses API wire format.
 ///
 /// Vercel AI SDK mapping (Responses API):
@@ -468,6 +506,61 @@ pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn convert_tool_choice_matches_openai_chat_completions_wire_format() {
+        use crate::types::ToolChoice;
+
+        // auto
+        let out = convert_tool_choice(&ToolChoice::Auto);
+        assert_eq!(out, serde_json::json!("auto"));
+
+        // required
+        let out = convert_tool_choice(&ToolChoice::Required);
+        assert_eq!(out, serde_json::json!("required"));
+
+        // none
+        let out = convert_tool_choice(&ToolChoice::None);
+        assert_eq!(out, serde_json::json!("none"));
+
+        // specific function tool
+        let out = convert_tool_choice(&ToolChoice::tool("weather"));
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "type": "function",
+                "function": { "name": "weather" }
+            })
+        );
+    }
+
+    #[test]
+    fn convert_response_format_maps_json_schema_like_vercel() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+        let fmt = crate::types::chat::ResponseFormat::json_schema(schema.clone())
+            .with_name("mySchema")
+            .with_description("desc")
+            .with_strict(false);
+
+        let out = convert_chat_completions_response_format(&fmt, true);
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "mySchema",
+                    "schema": schema,
+                    "strict": false,
+                    "description": "desc"
+                }
+            })
+        );
+    }
 
     #[test]
     fn responses_tools_map_computer_use_to_preview_type() {

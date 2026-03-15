@@ -1,5 +1,8 @@
-use super::super::params::AnthropicParams;
+use super::super::params::{AnthropicParams, StructuredOutputMode};
 use super::*;
+use crate::execution::transformers::response::ResponseTransformer;
+use crate::provider_metadata::anthropic::AnthropicChatResponseExt;
+use crate::streaming::StreamProcessor;
 use eventsource_stream::Event;
 
 fn create_test_config() -> AnthropicParams {
@@ -174,11 +177,8 @@ async fn test_anthropic_stream_finish_includes_context_management_provider_metad
     let end = end.expect("expected StreamEnd");
 
     let cm = end
-        .provider_metadata
-        .as_ref()
-        .and_then(|m| m.get("anthropic"))
-        .and_then(|m| m.get("contextManagement"))
-        .cloned()
+        .anthropic_metadata()
+        .and_then(|meta| meta.context_management)
         .unwrap_or(serde_json::Value::Null);
     assert_eq!(
         cm["appliedEdits"][0]["clearedToolUses"],
@@ -437,6 +437,169 @@ async fn emits_tool_call_delta_for_local_tool_use_input_json_delta() {
 }
 
 #[tokio::test]
+async fn streaming_tool_calls_match_non_streaming_tool_calls() {
+    let non_stream_raw = serde_json::json!({
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-3-7-sonnet-latest",
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": { "input_tokens": 1, "output_tokens": 2 },
+        "content": [
+            { "type": "tool_use", "id": "toolu_1", "name": "weather", "input": { "city": "Tokyo" } }
+        ]
+    });
+
+    let tx = crate::standards::anthropic::transformers::AnthropicResponseTransformer::default();
+    let non_stream = tx
+        .transform_chat_response(&non_stream_raw)
+        .expect("non-stream transform");
+    assert_eq!(non_stream.finish_reason, Some(FinishReason::ToolCalls));
+    assert_eq!(non_stream.tool_calls().len(), 1);
+
+    let config = create_test_config();
+    let converter = AnthropicEventConverter::new(config);
+    let mut sp = StreamProcessor::new();
+    let mut finish_reason = None;
+
+    let stream_events = vec![
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"weather","input":{}}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Tokyo\"}"}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":1,"output_tokens":1}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_stop"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    ];
+
+    for e in stream_events {
+        for ev in converter.convert_event(e).await.into_iter().flatten() {
+            match ev {
+                ChatStreamEvent::StreamEnd { response } => {
+                    finish_reason = response.finish_reason;
+                }
+                other => {
+                    let _ = sp.process_event(other);
+                }
+            }
+        }
+    }
+
+    let streaming = sp.build_final_response_with_finish_reason(finish_reason);
+    assert_eq!(streaming.finish_reason, Some(FinishReason::ToolCalls));
+    assert_eq!(streaming.tool_calls().len(), 1);
+
+    let a = non_stream.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    let b = streaming.tool_calls()[0]
+        .as_tool_call()
+        .expect("tool call info");
+    assert_eq!(b.tool_name, a.tool_name);
+    assert_eq!(b.arguments, a.arguments);
+    // Anthropic provides stable tool_use ids; keep it invariant across streaming/non-streaming.
+    assert_eq!(b.tool_call_id, a.tool_call_id);
+}
+
+#[tokio::test]
+async fn streaming_reserved_json_tool_matches_non_streaming_structured_output() {
+    let non_stream_raw = serde_json::json!({
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-3-7-sonnet-latest",
+        "stop_reason": "tool_use",
+        "stop_sequence": null,
+        "usage": { "input_tokens": 1, "output_tokens": 2 },
+        "content": [
+            { "type": "tool_use", "id": "toolu_1", "name": "json", "input": { "value": "ok" } }
+        ]
+    });
+
+    let tx = crate::standards::anthropic::transformers::AnthropicResponseTransformer::default();
+    let non_stream = tx
+        .transform_chat_response(&non_stream_raw)
+        .expect("non-stream transform");
+    assert_eq!(non_stream.finish_reason, Some(FinishReason::Stop));
+    assert_eq!(non_stream.content_text(), Some(r#"{"value":"ok"}"#));
+    assert!(non_stream.tool_calls().is_empty());
+
+    let config = create_test_config().with_structured_output_mode(StructuredOutputMode::JsonTool);
+    let converter = AnthropicEventConverter::new(config);
+    let mut sp = StreamProcessor::new();
+    let mut finish_reason = None;
+
+    let stream_events = vec![
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"json","input":{}}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"value\":\"ok\"}"}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":1,"output_tokens":1}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_stop"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    ];
+
+    for e in stream_events {
+        for ev in converter.convert_event(e).await.into_iter().flatten() {
+            match ev {
+                ChatStreamEvent::StreamEnd { response } => {
+                    finish_reason = response.finish_reason;
+                }
+                other => {
+                    let _ = sp.process_event(other);
+                }
+            }
+        }
+    }
+
+    let streaming = sp.build_final_response_with_finish_reason(finish_reason);
+    assert_eq!(streaming.finish_reason, Some(FinishReason::Stop));
+    assert_eq!(streaming.content_text(), Some(r#"{"value":"ok"}"#));
+    assert!(streaming.tool_calls().is_empty());
+}
+
+#[tokio::test]
 async fn captures_thinking_signature_delta_and_exposes_in_stream_end() {
     let config = create_test_config();
     let converter = AnthropicEventConverter::new(config);
@@ -480,14 +643,8 @@ async fn captures_thinking_signature_delta_and_exposes_in_stream_end() {
         .expect("stream end");
     match end.unwrap() {
         ChatStreamEvent::StreamEnd { response } => {
-            let meta = response.provider_metadata.expect("provider_metadata");
-            assert_eq!(
-                meta.get("anthropic")
-                    .unwrap()
-                    .get("thinking_signature")
-                    .unwrap(),
-                &serde_json::json!("sig-1")
-            );
+            let meta = response.anthropic_metadata().expect("anthropic metadata");
+            assert_eq!(meta.thinking_signature.as_deref(), Some("sig-1"));
         }
         _ => unreachable!(),
     }
@@ -528,14 +685,8 @@ async fn captures_redacted_thinking_data_in_stream_end() {
         .expect("stream end");
     match end.unwrap() {
         ChatStreamEvent::StreamEnd { response } => {
-            let meta = response.provider_metadata.expect("provider_metadata");
-            assert_eq!(
-                meta.get("anthropic")
-                    .unwrap()
-                    .get("redacted_thinking_data")
-                    .unwrap(),
-                &serde_json::json!("abc123")
-            );
+            let meta = response.anthropic_metadata().expect("anthropic metadata");
+            assert_eq!(meta.redacted_thinking_data.as_deref(), Some("abc123"));
         }
         _ => unreachable!(),
     }
@@ -611,19 +762,14 @@ async fn accumulates_sources_into_stream_end_provider_metadata() {
         .expect("stream end");
     match end.unwrap() {
         ChatStreamEvent::StreamEnd { response } => {
-            let meta = response.provider_metadata.expect("provider_metadata");
-            let anthropic = meta.get("anthropic").expect("anthropic");
-            let sources = anthropic
-                .get("sources")
-                .and_then(|v| v.as_array())
+            let sources = response
+                .anthropic_metadata()
+                .and_then(|meta| meta.sources)
                 .expect("sources array");
             assert_eq!(sources.len(), 1);
-            assert_eq!(sources[0]["source_type"], serde_json::json!("document"));
-            assert_eq!(
-                sources[0]["media_type"],
-                serde_json::json!("application/pdf")
-            );
-            assert_eq!(sources[0]["filename"], serde_json::json!("a.pdf"));
+            assert_eq!(sources[0].source_type, "document");
+            assert_eq!(sources[0].media_type.as_deref(), Some("application/pdf"));
+            assert_eq!(sources[0].filename.as_deref(), Some("a.pdf"));
         }
         _ => unreachable!(),
     }

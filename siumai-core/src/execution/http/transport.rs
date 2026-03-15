@@ -20,6 +20,15 @@ pub struct HttpTransportRequest {
     pub body: serde_json::Value,
 }
 
+/// Transport-level request data for multipart POST requests.
+#[derive(Debug, Clone)]
+pub struct HttpTransportMultipartRequest {
+    pub ctx: HttpRequestContext,
+    pub url: String,
+    pub headers: HeaderMap,
+    pub body: Vec<u8>,
+}
+
 /// Transport-level response data.
 #[derive(Debug, Clone)]
 pub struct HttpTransportResponse {
@@ -72,18 +81,35 @@ pub struct HttpTransportStreamResponse {
     pub body: HttpTransportStreamBody,
 }
 
-/// Custom HTTP transport for JSON requests.
+/// Custom HTTP transport for JSON and multipart requests.
 ///
 /// Notes:
-/// - This abstraction is currently scoped to non-streaming JSON POST requests.
-/// - Interceptor `on_response` hooks are skipped for custom transports because
-///   we don't have a `reqwest::Response` instance.
+/// - This abstraction is currently scoped to non-streaming JSON/multipart POST
+///   requests plus streaming JSON/multipart POST requests.
+/// - Interceptor `on_response` hooks are skipped for custom transports to keep
+///   transport execution semantics stable and independent from synthesized
+///   response wrappers.
 #[async_trait]
 pub trait HttpTransport: Send + Sync {
     async fn execute_json(
         &self,
         request: HttpTransportRequest,
     ) -> Result<HttpTransportResponse, LlmError>;
+
+    /// Execute a non-streaming multipart POST request.
+    ///
+    /// The request body is provided as fully materialized multipart bytes with
+    /// the final `Content-Type`/`Content-Length` already populated in headers.
+    /// The default implementation returns UnsupportedOperation, so existing
+    /// transports only implementing `execute_json` keep working.
+    async fn execute_multipart(
+        &self,
+        _request: HttpTransportMultipartRequest,
+    ) -> Result<HttpTransportResponse, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Custom transport does not support multipart requests".to_string(),
+        ))
+    }
 
     /// Execute a streaming JSON POST request.
     ///
@@ -96,6 +122,20 @@ pub trait HttpTransport: Send + Sync {
     ) -> Result<HttpTransportStreamResponse, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "Custom transport does not support streaming requests".to_string(),
+        ))
+    }
+
+    /// Execute a streaming multipart POST request.
+    ///
+    /// Providers use this for multipart SSE or progress endpoints such as
+    /// OpenAI transcription streaming. The request body is provided as fully
+    /// materialized multipart bytes with final content headers populated.
+    async fn execute_multipart_stream(
+        &self,
+        _request: HttpTransportMultipartRequest,
+    ) -> Result<HttpTransportStreamResponse, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Custom transport does not support streaming multipart requests".to_string(),
         ))
     }
 }

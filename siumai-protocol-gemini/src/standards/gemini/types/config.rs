@@ -99,6 +99,7 @@ impl GeminiConfig {
     }
     /// Set the model to use
     pub fn with_model(mut self, model: String) -> Self {
+        self.common_params.model = model.clone();
         self.model = model;
         self
     }
@@ -132,6 +133,107 @@ impl GeminiConfig {
         self.common_params.stop_sequences = Some(stop_sequences);
         self
     }
+
+    /// Set top-k.
+    pub fn with_top_k(mut self, top_k: i32) -> Self {
+        let generation_config = self.generation_config.unwrap_or_default().with_top_k(top_k);
+        self.generation_config = Some(generation_config);
+        self
+    }
+
+    /// Set candidate count.
+    pub fn with_candidate_count(mut self, count: i32) -> Self {
+        let generation_config = self
+            .generation_config
+            .unwrap_or_default()
+            .with_candidate_count(count);
+        self.generation_config = Some(generation_config);
+        self
+    }
+
+    /// Enable structured output with JSON schema.
+    pub fn with_json_schema(mut self, schema: serde_json::Value) -> Self {
+        let generation_config = self
+            .generation_config
+            .unwrap_or_default()
+            .with_response_schema(schema)
+            .with_response_mime_type("application/json".to_string());
+        self.generation_config = Some(generation_config);
+        self
+    }
+
+    /// Set thinking budget.
+    pub fn with_thinking_budget(mut self, budget: i32) -> Self {
+        let include_thoughts = budget != 0;
+        let thinking = super::ThinkingConfig {
+            thinking_budget: Some(budget),
+            include_thoughts: Some(include_thoughts),
+            thinking_level: None,
+        };
+        let generation_config = self
+            .generation_config
+            .unwrap_or_default()
+            .with_thinking_config(thinking);
+        self.generation_config = Some(generation_config);
+        self
+    }
+
+    /// Control whether thought summaries are included.
+    pub fn with_thought_summaries(mut self, include: bool) -> Self {
+        let mut thinking = self
+            .generation_config
+            .as_ref()
+            .and_then(|cfg| cfg.thinking_config.clone())
+            .unwrap_or_default();
+        thinking.include_thoughts = Some(include);
+        let generation_config = self
+            .generation_config
+            .unwrap_or_default()
+            .with_thinking_config(thinking);
+        self.generation_config = Some(generation_config);
+        self
+    }
+
+    /// Enable dynamic thinking.
+    pub fn with_dynamic_thinking(mut self) -> Self {
+        let generation_config = self
+            .generation_config
+            .unwrap_or_default()
+            .with_thinking_config(super::ThinkingConfig::dynamic());
+        self.generation_config = Some(generation_config);
+        self
+    }
+
+    /// Unified reasoning toggle.
+    pub fn with_reasoning(mut self, enable: bool) -> Self {
+        let thinking = if enable {
+            super::ThinkingConfig::dynamic()
+        } else {
+            super::ThinkingConfig::disabled()
+        };
+        let generation_config = self
+            .generation_config
+            .unwrap_or_default()
+            .with_thinking_config(thinking);
+        self.generation_config = Some(generation_config);
+        self
+    }
+
+    /// Unified reasoning budget.
+    pub fn with_reasoning_budget(self, budget: i32) -> Self {
+        self.with_thinking_budget(budget)
+    }
+
+    /// Attempt to disable thinking.
+    pub fn with_disable_thinking(mut self) -> Self {
+        let generation_config = self
+            .generation_config
+            .unwrap_or_default()
+            .with_thinking_config(super::ThinkingConfig::disabled());
+        self.generation_config = Some(generation_config);
+        self
+    }
+
     /// Set generation configuration (Gemini-specific: top_k, response_mime_type, etc.)
     pub fn with_generation_config(mut self, config: super::GenerationConfig) -> Self {
         self.generation_config = Some(config);
@@ -337,5 +439,49 @@ impl GeminiEmbeddingRequestExt for crate::types::EmbeddingRequest {
         let mut request = self;
         request.dimensions = Some(dimensions);
         request
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_config_provider_specific_fluent_setters() {
+        let config = GeminiConfig::new("test-key")
+            .with_model("gemini-2.5-pro".to_string())
+            .with_top_k(8)
+            .with_candidate_count(2)
+            .with_json_schema(serde_json::json!({ "type": "object" }))
+            .with_reasoning_budget(2048)
+            .with_thought_summaries(true);
+
+        let generation_config = config.generation_config.expect("generation config");
+        assert_eq!(config.model, "gemini-2.5-pro");
+        assert_eq!(generation_config.top_k, Some(8));
+        assert_eq!(generation_config.candidate_count, Some(2));
+        assert_eq!(
+            generation_config.response_mime_type.as_deref(),
+            Some("application/json")
+        );
+        assert_eq!(
+            generation_config.response_schema,
+            Some(serde_json::json!({ "type": "object" }))
+        );
+        let thinking = generation_config.thinking_config.expect("thinking config");
+        assert_eq!(thinking.thinking_budget, Some(2048));
+        assert_eq!(thinking.include_thoughts, Some(true));
+    }
+
+    #[test]
+    fn gemini_config_reasoning_disable_maps_to_thinking_disabled() {
+        let config = GeminiConfig::new("test-key").with_reasoning(false);
+        let thinking = config
+            .generation_config
+            .expect("generation config")
+            .thinking_config
+            .expect("thinking config");
+        assert_eq!(thinking.thinking_budget, Some(0));
+        assert_eq!(thinking.include_thoughts, Some(false));
     }
 }
