@@ -9,6 +9,9 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::{
+    GroqOptions, GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+};
 use crate::types::{CommonParams, HttpConfig};
 
 /// `Groq` Configuration
@@ -28,6 +31,8 @@ pub struct GroqConfig {
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares applied before provider mapping (chat only).
     pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Provider-specific request defaults merged into chat requests.
+    pub provider_specific_config: std::collections::HashMap<String, serde_json::Value>,
 }
 
 impl std::fmt::Debug for GroqConfig {
@@ -40,6 +45,12 @@ impl std::fmt::Debug for GroqConfig {
 
         if !self.api_key.expose_secret().is_empty() {
             ds.field("has_api_key", &true);
+        }
+        if self.http_transport.is_some() {
+            ds.field("has_http_transport", &true);
+        }
+        if !self.provider_specific_config.is_empty() {
+            ds.field("provider_specific_config", &self.provider_specific_config);
         }
 
         ds.finish()
@@ -71,6 +82,7 @@ impl GroqConfig {
             http_transport: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
+            provider_specific_config: std::collections::HashMap::new(),
         }
     }
 
@@ -156,6 +168,60 @@ impl GroqConfig {
         self
     }
 
+    /// Merge provider-specific request defaults into Groq chat requests.
+    pub fn with_provider_specific_config(
+        mut self,
+        params: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.provider_specific_config
+            .extend(params.into_iter().filter(|(_, value)| !value.is_null()));
+        self
+    }
+
+    /// Add a single provider-specific request default.
+    pub fn with_provider_specific_param(
+        mut self,
+        key: impl Into<String>,
+        value: serde_json::Value,
+    ) -> Self {
+        self.provider_specific_config.insert(key.into(), value);
+        self
+    }
+
+    /// Merge typed Groq options into config defaults.
+    pub fn with_groq_options(mut self, options: GroqOptions) -> Self {
+        if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
+            self.provider_specific_config
+                .extend(obj.into_iter().filter(|(_, value)| !value.is_null()));
+        }
+        self
+    }
+
+    /// Enable or disable logprobs by default.
+    pub fn with_logprobs(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_logprobs(enabled))
+    }
+
+    /// Set top-logprobs by default.
+    pub fn with_top_logprobs(self, count: u32) -> Self {
+        self.with_groq_options(GroqOptions::new().with_top_logprobs(count))
+    }
+
+    /// Set Groq service tier by default.
+    pub fn with_service_tier(self, tier: GroqServiceTier) -> Self {
+        self.with_groq_options(GroqOptions::new().with_service_tier(tier))
+    }
+
+    /// Set Groq reasoning effort by default.
+    pub fn with_reasoning_effort(self, effort: GroqReasoningEffort) -> Self {
+        self.with_groq_options(GroqOptions::new().with_reasoning_effort(effort))
+    }
+
+    /// Set Groq reasoning format by default.
+    pub fn with_reasoning_format(self, format: GroqReasoningFormat) -> Self {
+        self.with_groq_options(GroqOptions::new().with_reasoning_format(format))
+    }
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), LlmError> {
         use secrecy::ExposeSecret;
@@ -204,6 +270,15 @@ impl GroqConfig {
             ));
         }
 
+        if !self.provider_specific_config.is_empty() {
+            let params = serde_json::to_value(&self.provider_specific_config).map_err(|e| {
+                LlmError::ConfigurationError(format!(
+                    "Failed to serialize Groq provider defaults for validation: {e}"
+                ))
+            })?;
+            crate::providers::groq::utils::validate_groq_params(&params)?;
+        }
+
         Ok(())
     }
 
@@ -232,6 +307,7 @@ impl Default for GroqConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_options::{GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier};
 
     #[test]
     fn test_groq_config_creation() {
@@ -293,5 +369,47 @@ mod tests {
             .with_model("playai-tts");
 
         assert_eq!(config.base_url, "https://example.com/openai/v1");
+    }
+
+    #[test]
+    fn test_groq_config_merges_typed_provider_defaults() {
+        let config = GroqConfig::new("test-api-key")
+            .with_model("llama-3.3-70b-versatile")
+            .with_logprobs(true)
+            .with_top_logprobs(2)
+            .with_service_tier(GroqServiceTier::Flex)
+            .with_reasoning_effort(GroqReasoningEffort::Default)
+            .with_reasoning_format(GroqReasoningFormat::Parsed);
+
+        assert_eq!(
+            config.provider_specific_config.get("logprobs"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("top_logprobs"),
+            Some(&serde_json::json!(2))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("service_tier"),
+            Some(&serde_json::json!("flex"))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("reasoning_effort"),
+            Some(&serde_json::json!("default"))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("reasoning_format"),
+            Some(&serde_json::json!("parsed"))
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_groq_config_rejects_invalid_provider_defaults() {
+        let config = GroqConfig::new("test-api-key")
+            .with_model("llama-3.3-70b-versatile")
+            .with_provider_specific_param("service_tier", serde_json::json!("invalid"));
+
+        assert!(config.validate().is_err());
     }
 }

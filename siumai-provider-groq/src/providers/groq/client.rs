@@ -18,7 +18,7 @@ use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo, Tool};
 use async_trait::async_trait;
 use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
 use siumai_provider_openai_compatible::providers::openai_compatible::{
-    ConfigurableAdapter, OpenAiCompatibleConfig, get_provider_config,
+    ConfigurableAdapter, OpenAiCompatibleConfig, ProviderAdapter, get_provider_config,
 };
 use std::sync::Arc;
 
@@ -40,11 +40,21 @@ impl GroqClient {
 
         let http_interceptors = config.http_interceptors.clone();
         let model_middlewares = config.model_middlewares.clone();
+        let provider_specific_config = config.provider_specific_config.clone();
 
         let provider = get_provider_config("groq").ok_or_else(|| {
             LlmError::ConfigurationError("OpenAI-compatible provider config not found: groq".into())
         })?;
-        let adapter = Arc::new(ConfigurableAdapter::new(provider.clone()));
+        let mut adapter: Box<dyn ProviderAdapter> = Box::new(ConfigurableAdapter::new(provider));
+        if !provider_specific_config.is_empty() {
+            adapter = Box::new(
+                siumai_provider_openai_compatible::providers::openai_compatible::adapter::ParamMergingAdapter::new(
+                    adapter,
+                    provider_specific_config,
+                ),
+            );
+        }
+        let adapter: Arc<dyn ProviderAdapter> = Arc::from(adapter);
 
         use secrecy::ExposeSecret;
         let mut openai_cfg = OpenAiCompatibleConfig::new(
@@ -76,11 +86,21 @@ impl GroqClient {
 
         let http_interceptors = config.http_interceptors.clone();
         let model_middlewares = config.model_middlewares.clone();
+        let provider_specific_config = config.provider_specific_config.clone();
 
         let provider = get_provider_config("groq").ok_or_else(|| {
             LlmError::ConfigurationError("OpenAI-compatible provider config not found: groq".into())
         })?;
-        let adapter = Arc::new(ConfigurableAdapter::new(provider.clone()));
+        let mut adapter: Box<dyn ProviderAdapter> = Box::new(ConfigurableAdapter::new(provider));
+        if !provider_specific_config.is_empty() {
+            adapter = Box::new(
+                siumai_provider_openai_compatible::providers::openai_compatible::adapter::ParamMergingAdapter::new(
+                    adapter,
+                    provider_specific_config,
+                ),
+            );
+        }
+        let adapter: Arc<dyn ProviderAdapter> = Arc::from(adapter);
 
         use secrecy::ExposeSecret;
         let mut openai_cfg = OpenAiCompatibleConfig::new(
@@ -420,6 +440,51 @@ mod tests {
                     "strict": true
                 }
             })
+        );
+    }
+
+    #[tokio::test]
+    async fn groq_client_from_config_merges_typed_provider_defaults() {
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl-groq-test",
+            "object": "chat.completion",
+            "created": 1_741_392_000,
+            "model": "llama-3.3-70b-versatile",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "hello"
+                    },
+                    "finish_reason": "stop"
+                }
+            ]
+        }));
+        let cfg = GroqConfig::new("test-key")
+            .with_model("llama-3.3-70b-versatile")
+            .with_http_transport(Arc::new(transport.clone()))
+            .with_logprobs(true)
+            .with_top_logprobs(2)
+            .with_service_tier(GroqServiceTier::Flex)
+            .with_reasoning_effort(GroqReasoningEffort::Default)
+            .with_reasoning_format(GroqReasoningFormat::Parsed);
+        let client = GroqClient::from_config(cfg).await.expect("from_config ok");
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        let _ = client.chat_request(request).await.expect("chat ok");
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(captured.body["logprobs"], serde_json::json!(true));
+        assert_eq!(captured.body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(captured.body["service_tier"], serde_json::json!("flex"));
+        assert_eq!(
+            captured.body["reasoning_effort"],
+            serde_json::json!("default")
+        );
+        assert_eq!(
+            captured.body["reasoning_format"],
+            serde_json::json!("parsed")
         );
     }
 

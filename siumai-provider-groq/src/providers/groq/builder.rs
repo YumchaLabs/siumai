@@ -6,6 +6,9 @@
 use crate::builder::BuilderBase;
 use crate::error::LlmError;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::{
+    GroqOptions, GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+};
 use crate::retry_api::RetryOptions;
 use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder;
 use std::collections::HashMap;
@@ -20,6 +23,7 @@ pub struct GroqBuilder {
     http_client_override: Option<reqwest::Client>,
     retry_options: Option<RetryOptions>,
     extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    provider_specific_config: HashMap<String, serde_json::Value>,
 }
 
 impl GroqBuilder {
@@ -29,6 +33,7 @@ impl GroqBuilder {
             http_client_override: None,
             retry_options: None,
             extra_model_middlewares: Vec::new(),
+            provider_specific_config: HashMap::new(),
         }
     }
 
@@ -154,6 +159,52 @@ impl GroqBuilder {
         self
     }
 
+    pub fn with_provider_specific_config(
+        mut self,
+        params: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.provider_specific_config
+            .extend(params.into_iter().filter(|(_, value)| !value.is_null()));
+        self
+    }
+
+    pub fn with_provider_specific_param(
+        mut self,
+        key: impl Into<String>,
+        value: serde_json::Value,
+    ) -> Self {
+        self.provider_specific_config.insert(key.into(), value);
+        self
+    }
+
+    pub fn with_groq_options(mut self, options: GroqOptions) -> Self {
+        if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
+            self.provider_specific_config
+                .extend(obj.into_iter().filter(|(_, value)| !value.is_null()));
+        }
+        self
+    }
+
+    pub fn logprobs(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_logprobs(enabled))
+    }
+
+    pub fn top_logprobs(self, count: u32) -> Self {
+        self.with_groq_options(GroqOptions::new().with_top_logprobs(count))
+    }
+
+    pub fn service_tier(self, tier: GroqServiceTier) -> Self {
+        self.with_groq_options(GroqOptions::new().with_service_tier(tier))
+    }
+
+    pub fn reasoning_effort(self, effort: GroqReasoningEffort) -> Self {
+        self.with_groq_options(GroqOptions::new().with_reasoning_effort(effort))
+    }
+
+    pub fn reasoning_format(self, format: GroqReasoningFormat) -> Self {
+        self.with_groq_options(GroqOptions::new().with_reasoning_format(format))
+    }
+
     pub fn into_config(self) -> Result<super::GroqConfig, LlmError> {
         let compatible = self.inner.into_config()?;
         let mut config = super::GroqConfig::new(compatible.api_key)
@@ -168,6 +219,9 @@ impl GroqBuilder {
             let mut middlewares = config.model_middlewares.clone();
             middlewares.extend(self.extra_model_middlewares);
             config = config.with_model_middlewares(middlewares);
+        }
+        if !self.provider_specific_config.is_empty() {
+            config = config.with_provider_specific_config(self.provider_specific_config);
         }
         Ok(config)
     }
@@ -190,6 +244,7 @@ impl GroqBuilder {
 mod tests {
     use super::*;
     use crate::execution::middleware::language_model::LanguageModelMiddleware;
+    use crate::provider_options::{GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -212,6 +267,11 @@ mod tests {
             .custom_headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
             .timeout(Duration::from_secs(9))
             .http_debug(true)
+            .logprobs(true)
+            .top_logprobs(2)
+            .service_tier(GroqServiceTier::Flex)
+            .reasoning_effort(GroqReasoningEffort::Default)
+            .reasoning_format(GroqReasoningFormat::Parsed)
             .into_config()
             .expect("into_config ok");
 
@@ -231,6 +291,26 @@ mod tests {
         );
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(9)));
         assert_eq!(config.http_interceptors.len(), 1);
+        assert_eq!(
+            config.provider_specific_config.get("logprobs"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("top_logprobs"),
+            Some(&serde_json::json!(2))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("service_tier"),
+            Some(&serde_json::json!("flex"))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("reasoning_effort"),
+            Some(&serde_json::json!("default"))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("reasoning_format"),
+            Some(&serde_json::json!("parsed"))
+        );
     }
 
     #[test]
@@ -247,6 +327,11 @@ mod tests {
             .custom_headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
             .timeout(Duration::from_secs(9))
             .http_debug(true)
+            .logprobs(true)
+            .top_logprobs(2)
+            .service_tier(GroqServiceTier::Flex)
+            .reasoning_effort(GroqReasoningEffort::Default)
+            .reasoning_format(GroqReasoningFormat::Parsed)
             .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
             .into_config()
             .expect("builder config");
@@ -265,6 +350,11 @@ mod tests {
                 c
             })
             .with_header("x-test", "1")
+            .with_logprobs(true)
+            .with_top_logprobs(2)
+            .with_service_tier(GroqServiceTier::Flex)
+            .with_reasoning_effort(GroqReasoningEffort::Default)
+            .with_reasoning_format(GroqReasoningFormat::Parsed)
             .with_http_interceptors(vec![Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
             )])
@@ -317,6 +407,10 @@ mod tests {
         assert_eq!(
             builder_config.model_middlewares.len(),
             manual_config.model_middlewares.len()
+        );
+        assert_eq!(
+            builder_config.provider_specific_config,
+            manual_config.provider_specific_config
         );
     }
 
