@@ -3,6 +3,7 @@
     feature = "anthropic",
     feature = "google",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
     feature = "minimaxi"
@@ -14,6 +15,7 @@ pub use siumai_registry::provider_catalog::*;
     feature = "anthropic",
     feature = "google",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
     feature = "minimaxi"
@@ -59,6 +61,7 @@ mod no_providers {
     feature = "anthropic",
     feature = "google",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
     feature = "minimaxi"

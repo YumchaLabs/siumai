@@ -9,7 +9,7 @@
 //!
 //! - **Capability Separation**: Uses traits to distinguish different AI capabilities (chat, audio, vision, etc.)
 //! - **Shared Parameters**: AI parameters are shared as much as possible, with extension points for provider-specific parameters.
-//! - **Construction**: Prefer registry/config-first construction; builder-style construction remains available as a compatibility convenience.
+//! - **Construction**: Prefer registry/config-first construction; builder-style construction remains available under `siumai::compat` as a time-bounded compatibility convenience.
 //! - **Type Safety**: Leverages Rust's type system to ensure compile-time safety.
 //! - **HTTP Customization**: Supports passing in a reqwest client and custom HTTP configurations.
 //! - **Library First**: Focuses on core library functionality, avoiding application-layer features.
@@ -130,6 +130,8 @@ pub mod embedding;
 pub mod image;
 pub mod rerank;
 pub mod speech;
+/// Structured output helpers (JSON extraction + parsing).
+pub mod structured_output;
 /// Model families (recommended Rust-first surface).
 pub mod text;
 pub mod transcription;
@@ -137,7 +139,7 @@ pub mod transcription;
 /// Tool runtime (schema + execution binding).
 pub mod tooling;
 
-/// Compatibility surface for legacy, method-style APIs.
+/// Compatibility surface for legacy, method-style APIs (time-bounded).
 pub mod compat;
 
 // Compatibility / internal modules (kept but hidden to reduce accidental coupling).
@@ -300,10 +302,14 @@ pub mod provider_ext {
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["openai"]`).
         pub mod metadata {
             pub use siumai_provider_openai::provider_metadata::openai::{
-                OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource,
+                OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiContentPartMetadata,
+                OpenAiMetadata, OpenAiSource, OpenAiSourceExt, OpenAiSourceMetadata,
             };
         }
-        pub use metadata::{OpenAiChatResponseExt, OpenAiMetadata, OpenAiSource};
+        pub use metadata::{
+            OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiContentPartMetadata, OpenAiMetadata,
+            OpenAiSource, OpenAiSourceExt, OpenAiSourceMetadata,
+        };
 
         /// Typed provider options (`provider_options_map["openai"]`).
         pub mod options {
@@ -366,10 +372,123 @@ pub mod provider_ext {
         };
     }
 
+    #[cfg(feature = "openai")]
+    pub mod openrouter {
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["openrouter"]`).
+        pub mod metadata {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+                OpenRouterChatResponseExt, OpenRouterContentPartExt, OpenRouterContentPartMetadata,
+                OpenRouterMetadata, OpenRouterSource, OpenRouterSourceExt,
+                OpenRouterSourceMetadata,
+            };
+        }
+
+        /// Typed provider options (`provider_options_map["openrouter"]`).
+        pub mod options {
+            pub use siumai_provider_openai_compatible::provider_options::{
+                OpenRouterOptions, OpenRouterTransform,
+            };
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::ext::OpenRouterChatRequestExt;
+        }
+
+        pub use metadata::{
+            OpenRouterChatResponseExt, OpenRouterContentPartExt, OpenRouterContentPartMetadata,
+            OpenRouterMetadata, OpenRouterSource, OpenRouterSourceExt, OpenRouterSourceMetadata,
+        };
+        pub use options::{OpenRouterChatRequestExt, OpenRouterOptions, OpenRouterTransform};
+    }
+
+    #[cfg(feature = "openai")]
+    pub mod perplexity {
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["perplexity"]`).
+        pub mod metadata {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+                PerplexityChatResponseExt, PerplexityImage, PerplexityMetadata, PerplexityUsage,
+            };
+        }
+
+        /// Typed provider options (`provider_options_map["perplexity"]`).
+        pub mod options {
+            pub use siumai_provider_openai_compatible::provider_options::{
+                PerplexityOptions, PerplexitySearchContextSize, PerplexitySearchMode,
+                PerplexitySearchRecencyFilter, PerplexityUserLocation, PerplexityWebSearchOptions,
+            };
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::ext::PerplexityChatRequestExt;
+        }
+
+        pub use metadata::{
+            PerplexityChatResponseExt, PerplexityImage, PerplexityMetadata, PerplexityUsage,
+        };
+        pub use options::{
+            PerplexityChatRequestExt, PerplexityOptions, PerplexitySearchContextSize,
+            PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
+            PerplexityWebSearchOptions,
+        };
+    }
+
+    #[cfg(feature = "bedrock")]
+    pub mod bedrock {
+        pub use siumai_provider_amazon_bedrock::providers::bedrock::{
+            BedrockClient, BedrockConfig,
+        };
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["bedrock"]`).
+        pub mod metadata {
+            pub use siumai_provider_amazon_bedrock::provider_metadata::bedrock::{
+                BedrockChatResponseExt, BedrockMetadata,
+            };
+        }
+
+        /// Typed provider options (`provider_options_map["bedrock"]`).
+        pub mod options {
+            pub use siumai_provider_amazon_bedrock::provider_options::{
+                BedrockChatOptions, BedrockRerankOptions,
+            };
+            pub use siumai_provider_amazon_bedrock::providers::bedrock::{
+                BedrockChatRequestExt, BedrockRerankRequestExt,
+            };
+        }
+
+        pub use metadata::{BedrockChatResponseExt, BedrockMetadata};
+        pub use options::{
+            BedrockChatOptions, BedrockChatRequestExt, BedrockRerankOptions,
+            BedrockRerankRequestExt,
+        };
+    }
+
+    #[cfg(feature = "cohere")]
+    pub mod cohere {
+        pub use siumai_provider_cohere::providers::cohere::{CohereClient, CohereConfig};
+
+        /// Typed provider options (`provider_options_map["cohere"]`).
+        pub mod options {
+            pub use siumai_provider_cohere::provider_options::CohereRerankOptions;
+            pub use siumai_provider_cohere::providers::cohere::CohereRerankRequestExt;
+        }
+
+        pub use options::{CohereRerankOptions, CohereRerankRequestExt};
+    }
+
+    #[cfg(feature = "togetherai")]
+    pub mod togetherai {
+        pub use siumai_provider_togetherai::providers::togetherai::{
+            TogetherAiClient, TogetherAiConfig,
+        };
+
+        /// Typed provider options (`provider_options_map["togetherai"]`).
+        pub mod options {
+            pub use siumai_provider_togetherai::provider_options::TogetherAiRerankOptions;
+            pub use siumai_provider_togetherai::providers::togetherai::TogetherAiRerankRequestExt;
+        }
+
+        pub use options::{TogetherAiRerankOptions, TogetherAiRerankRequestExt};
+    }
+
     #[cfg(feature = "azure")]
     pub mod azure {
         pub use siumai_provider_azure::providers::azure_openai::{
-            AzureChatMode, AzureOpenAiClient, AzureOpenAiConfig, AzureOpenAiSpec, AzureUrlConfig,
+            AzureChatMode, AzureOpenAiBuilder, AzureOpenAiClient, AzureOpenAiConfig,
+            AzureOpenAiSpec, AzureUrlConfig,
         };
     }
 
@@ -398,25 +517,29 @@ pub mod provider_ext {
         pub mod options {
             pub use siumai_provider_anthropic::provider_options::anthropic::{
                 AnthropicCacheControl, AnthropicCacheType, AnthropicOptions,
-                AnthropicResponseFormat, PromptCachingConfig, ThinkingModeConfig,
+                AnthropicResponseFormat, AnthropicStructuredOutputMode, PromptCachingConfig,
+                ThinkingModeConfig,
             };
             pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
         }
         pub use options::{
             AnthropicCacheControl, AnthropicCacheType, AnthropicChatRequestExt, AnthropicOptions,
-            AnthropicResponseFormat, PromptCachingConfig, ThinkingModeConfig,
+            AnthropicResponseFormat, AnthropicStructuredOutputMode, PromptCachingConfig,
+            ThinkingModeConfig,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).
         pub mod metadata {
             pub use siumai_provider_anthropic::provider_metadata::anthropic::{
                 AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-                AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
+                AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse,
+                AnthropicSource, AnthropicToolCallMetadata, AnthropicToolCaller,
             };
         }
         pub use metadata::{
             AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-            AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
+            AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
+            AnthropicToolCallMetadata, AnthropicToolCaller,
         };
 
         /// Non-unified Anthropic extension APIs (request extensions, tool helpers, thinking, etc.).
@@ -483,10 +606,12 @@ pub mod provider_ext {
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["google"]`).
         pub mod metadata {
             pub use siumai_provider_gemini::provider_metadata::gemini::{
-                GeminiChatResponseExt, GeminiMetadata, GeminiSource,
+                GeminiChatResponseExt, GeminiContentPartExt, GeminiMetadata, GeminiSource,
             };
         }
-        pub use metadata::{GeminiChatResponseExt, GeminiMetadata, GeminiSource};
+        pub use metadata::{
+            GeminiChatResponseExt, GeminiContentPartExt, GeminiMetadata, GeminiSource,
+        };
 
         /// Non-unified Gemini extension APIs (escape hatches).
         pub mod ext {
@@ -498,7 +623,8 @@ pub mod provider_ext {
         /// Provider-specific resources not covered by the unified families.
         pub mod resources {
             pub use siumai_provider_gemini::providers::gemini::{
-                GeminiFileSearchStores, GeminiFiles, GeminiModels,
+                GeminiCachedContents, GeminiFileSearchStores, GeminiFiles, GeminiModels,
+                GeminiTokens,
             };
         }
 
@@ -577,19 +703,43 @@ pub mod provider_ext {
     pub mod minimaxi {
         pub use siumai_provider_minimaxi::providers::minimaxi::MinimaxiClient;
 
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["minimaxi"]`).
+        pub mod metadata {
+            pub use siumai_provider_minimaxi::provider_metadata::minimaxi::{
+                MinimaxiChatResponseExt, MinimaxiCitation, MinimaxiCitationsBlock,
+                MinimaxiContentPartExt, MinimaxiMetadata, MinimaxiServerToolUse, MinimaxiSource,
+                MinimaxiToolCallMetadata, MinimaxiToolCaller,
+            };
+        }
+        pub use metadata::{
+            MinimaxiChatResponseExt, MinimaxiCitation, MinimaxiCitationsBlock,
+            MinimaxiContentPartExt, MinimaxiMetadata, MinimaxiServerToolUse, MinimaxiSource,
+            MinimaxiToolCallMetadata, MinimaxiToolCaller,
+        };
+
         /// Typed provider options (`provider_options_map["minimaxi"]`).
         pub mod options {
-            pub use siumai_provider_minimaxi::provider_options::MinimaxiTtsOptions;
+            pub use siumai_provider_minimaxi::provider_options::{
+                MinimaxiOptions, MinimaxiResponseFormat, MinimaxiThinkingModeConfig,
+                MinimaxiTtsOptions,
+            };
+            pub use siumai_provider_minimaxi::providers::minimaxi::ext::MinimaxiChatRequestExt;
             pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts::MinimaxiTtsRequestBuilder;
             pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts_options::MinimaxiTtsRequestExt;
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use options::{MinimaxiTtsOptions, MinimaxiTtsRequestBuilder, MinimaxiTtsRequestExt};
+        pub use options::{
+            MinimaxiChatRequestExt, MinimaxiOptions, MinimaxiResponseFormat,
+            MinimaxiThinkingModeConfig, MinimaxiTtsOptions, MinimaxiTtsRequestBuilder,
+            MinimaxiTtsRequestExt,
+        };
 
         /// Non-unified MiniMaxi extension APIs (escape hatches).
         pub mod ext {
-            pub use siumai_provider_minimaxi::providers::minimaxi::ext::{music, video};
+            pub use siumai_provider_minimaxi::providers::minimaxi::ext::{
+                music, structured_output, thinking, video,
+            };
         }
 
         /// Provider-specific resources not covered by the unified families.
@@ -605,6 +755,15 @@ pub mod provider_ext {
     #[cfg(feature = "ollama")]
     pub mod ollama {
         pub use siumai_provider_ollama::providers::ollama::{OllamaClient, OllamaConfig};
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["ollama"]`).
+        pub mod metadata {
+            pub use siumai_provider_ollama::provider_metadata::ollama::{
+                OllamaChatResponseExt, OllamaMetadata,
+            };
+        }
+
+        pub use metadata::{OllamaChatResponseExt, OllamaMetadata};
 
         /// Typed provider options (`provider_options_map["ollama"]`).
         pub mod options {
@@ -628,14 +787,56 @@ pub mod provider_ext {
 
     #[cfg(feature = "google-vertex")]
     pub mod anthropic_vertex {
-        pub use siumai_provider_google_vertex::providers::anthropic_vertex::client::{
-            VertexAnthropicClient, VertexAnthropicConfig,
+        pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
+            VertexAnthropicBuilder, VertexAnthropicClient, VertexAnthropicConfig,
         };
+    }
+
+    #[cfg(feature = "deepseek")]
+    pub mod deepseek {
+        pub use siumai_provider_deepseek::providers::deepseek::{DeepSeekClient, DeepSeekConfig};
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["deepseek"]`).
+        pub mod metadata {
+            pub use siumai_provider_deepseek::provider_metadata::deepseek::{
+                DeepSeekChatResponseExt, DeepSeekMetadata, DeepSeekSource, DeepSeekSourceExt,
+                DeepSeekSourceMetadata,
+            };
+        }
+
+        pub use metadata::{
+            DeepSeekChatResponseExt, DeepSeekMetadata, DeepSeekSource, DeepSeekSourceExt,
+            DeepSeekSourceMetadata,
+        };
+
+        /// Typed provider options (`provider_options_map["deepseek"]`).
+        pub mod options {
+            pub use siumai_provider_deepseek::providers::deepseek::DeepSeekOptions;
+            pub use siumai_provider_deepseek::providers::deepseek::ext::DeepSeekChatRequestExt;
+        }
+
+        pub use options::{DeepSeekChatRequestExt, DeepSeekOptions};
+
+        /// Non-unified DeepSeek extension APIs (escape hatches).
+        pub mod ext {
+            pub use siumai_provider_deepseek::providers::deepseek::ext::*;
+        }
     }
 
     #[cfg(feature = "xai")]
     pub mod xai {
-        pub use siumai_provider_xai::providers::xai::XaiClient;
+        pub use siumai_provider_xai::providers::xai::{XaiClient, XaiConfig};
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["xai"]`).
+        pub mod metadata {
+            pub use siumai_provider_xai::provider_metadata::xai::{
+                XaiChatResponseExt, XaiMetadata, XaiSource, XaiSourceExt, XaiSourceMetadata,
+            };
+        }
+
+        pub use metadata::{
+            XaiChatResponseExt, XaiMetadata, XaiSource, XaiSourceExt, XaiSourceMetadata,
+        };
 
         /// Vercel-style provider tool factories that return `Tool` directly.
         pub mod provider_tools {
@@ -644,16 +845,19 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["xai"]`).
         pub mod options {
-            pub use siumai_provider_xai::providers::xai::ext::XaiChatRequestExt;
+            pub use siumai_provider_xai::providers::xai::ext::{
+                XaiChatRequestExt, XaiTtsRequestExt,
+            };
             pub use siumai_provider_xai::providers::xai::{
                 SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+                XaiTtsOptions,
             };
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
         pub use options::{
             SearchMode, SearchSource, SearchSourceType, XaiChatRequestExt, XaiOptions,
-            XaiSearchParameters,
+            XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
         };
 
         /// Non-unified xAI extension APIs (escape hatches).
@@ -666,14 +870,30 @@ pub mod provider_ext {
     pub mod groq {
         pub use siumai_provider_groq::providers::groq::{GroqClient, GroqConfig};
 
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["groq"]`).
+        pub mod metadata {
+            pub use siumai_provider_groq::provider_metadata::groq::{
+                GroqChatResponseExt, GroqMetadata, GroqSource, GroqSourceExt, GroqSourceMetadata,
+            };
+        }
+
+        pub use metadata::{
+            GroqChatResponseExt, GroqMetadata, GroqSource, GroqSourceExt, GroqSourceMetadata,
+        };
+
         /// Typed provider options (`provider_options_map["groq"]`).
         pub mod options {
-            pub use siumai_provider_groq::provider_options::GroqOptions;
+            pub use siumai_provider_groq::provider_options::{
+                GroqOptions, GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+            };
             pub use siumai_provider_groq::providers::groq::ext::GroqChatRequestExt;
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
-        pub use options::{GroqChatRequestExt, GroqOptions};
+        pub use options::{
+            GroqChatRequestExt, GroqOptions, GroqReasoningEffort, GroqReasoningFormat,
+            GroqServiceTier,
+        };
 
         /// Non-unified Groq extension APIs (escape hatches).
         pub mod ext {
@@ -715,6 +935,8 @@ pub mod extensions {
     feature = "openai",
     feature = "anthropic",
     feature = "google",
+    feature = "cohere",
+    feature = "togetherai",
     feature = "ollama",
     feature = "xai",
     feature = "groq",
@@ -739,10 +961,15 @@ pub mod prelude {
 
     /// Vercel-aligned unified surface (recommended for new code).
     ///
-    /// This module intentionally exports only the six stable model families:
+    /// This module centers the six stable model families:
     /// Language/Embedding/Image/Reranking/Speech/Transcription.
+    ///
+    /// Compatibility-oriented construction aliases remain source-compatible for now,
+    /// but are hidden from docs and also exposed explicitly under `prelude::compat`.
     pub mod unified {
+        #[doc(hidden)]
         pub use crate::Provider;
+        #[doc(hidden)]
         pub use crate::provider::Siumai;
         pub use crate::retry_api::*;
         pub use crate::tooling;
@@ -751,11 +978,16 @@ pub mod prelude {
         pub use crate::{embedding, image, rerank, speech, text, transcription};
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::error::{ErrorCategory, LlmError};
+        pub use siumai_core::rerank::RerankingModel;
+        pub use siumai_core::speech::SpeechModel;
         pub use siumai_core::streaming::*;
+        pub use siumai_core::text::LanguageModel;
         pub use siumai_core::traits::{
             ChatCapability, EmbeddingCapability, EmbeddingExtensions, ImageGenerationCapability,
-            ProviderCapabilities, RerankCapability, SpeechCapability, TranscriptionCapability,
+            ModelMetadata, ProviderCapabilities, RerankCapability, SpeechCapability,
+            TranscriptionCapability,
         };
+        pub use siumai_core::transcription::TranscriptionModel;
 
         // Core request/response types for the six stable model families.
         pub use siumai_core::types::{
@@ -789,6 +1021,14 @@ pub mod prelude {
             ))]
             pub use crate::registry::{create_registry_with_defaults, global};
         }
+    }
+
+    /// Explicit compatibility prelude for migration-oriented imports.
+    ///
+    /// Prefer `prelude::unified::*` for new code.
+    pub mod compat {
+        pub use crate::Provider;
+        pub use crate::compat::{Siumai, SiumaiBuilder};
     }
 
     /// Non-unified extension capabilities (provider-specific or non-family features).
@@ -842,6 +1082,30 @@ impl Provider {
         )
     }
 
+    /// Create an explicit `OpenAI Responses` client builder.
+    #[cfg(feature = "openai")]
+    pub fn openai_responses() -> siumai_provider_openai::providers::openai::OpenAiBuilder {
+        Self::openai().use_responses_api(true)
+    }
+
+    /// Create an explicit `OpenAI Chat Completions` client builder.
+    #[cfg(feature = "openai")]
+    pub fn openai_chat() -> siumai_provider_openai::providers::openai::OpenAiBuilder {
+        Self::openai().use_responses_api(false)
+    }
+
+    /// Create an `Azure OpenAI` unified builder (Responses API by default).
+    #[cfg(feature = "azure")]
+    pub fn azure() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().azure()
+    }
+
+    /// Create an `Azure OpenAI Chat Completions` unified builder.
+    #[cfg(feature = "azure")]
+    pub fn azure_chat() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().azure_chat()
+    }
+
     /// Create an Anthropic client builder
     #[cfg(feature = "anthropic")]
     pub fn anthropic() -> siumai_provider_anthropic::providers::anthropic::AnthropicBuilder {
@@ -850,10 +1114,34 @@ impl Provider {
         )
     }
 
+    /// Create an Amazon Bedrock client builder
+    #[cfg(feature = "bedrock")]
+    pub fn bedrock() -> siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder {
+        siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
+    }
+
+    /// Create a Cohere client builder
+    #[cfg(feature = "cohere")]
+    pub fn cohere() -> siumai_provider_cohere::providers::cohere::CohereBuilder {
+        siumai_provider_cohere::providers::cohere::CohereBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
+    }
+
     /// Create a Gemini client builder
     #[cfg(feature = "google")]
     pub fn gemini() -> siumai_provider_gemini::providers::gemini::GeminiBuilder {
         siumai_provider_gemini::providers::gemini::GeminiBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
+    }
+
+    /// Create a TogetherAI client builder
+    #[cfg(feature = "togetherai")]
+    pub fn togetherai() -> siumai_provider_togetherai::providers::togetherai::TogetherAiBuilder {
+        siumai_provider_togetherai::providers::togetherai::TogetherAiBuilder::new(
             crate::builder::BuilderBase::default(),
         )
     }
@@ -880,10 +1168,27 @@ impl Provider {
         )
     }
 
+    /// Create a MiniMaxi client builder
+    #[cfg(feature = "minimaxi")]
+    pub fn minimaxi() -> siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder {
+        siumai_provider_minimaxi::providers::minimaxi::MinimaxiBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
+    }
+
     /// Create a Google Vertex client builder
     #[cfg(feature = "google-vertex")]
     pub fn vertex() -> siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder {
         siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
+            crate::builder::BuilderBase::default(),
+        )
+    }
+
+    /// Create an Anthropic on Vertex client builder
+    #[cfg(feature = "google-vertex")]
+    pub fn anthropic_vertex()
+    -> siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder {
+        siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
             crate::builder::BuilderBase::default(),
         )
     }

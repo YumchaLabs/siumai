@@ -9,7 +9,7 @@ use siumai_core::types::HttpConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::image::ImageModelV3;
+pub use siumai_core::image::{ImageModel, ImageModelV3};
 pub use siumai_core::types::{ImageGenerationRequest, ImageGenerationResponse};
 
 /// Options for `image::generate`.

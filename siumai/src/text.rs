@@ -10,7 +10,9 @@ use siumai_core::error::LlmError;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::text::{TextModelV3, TextRequest, TextResponse, TextStream, TextStreamHandle};
+pub use siumai_core::text::{
+    LanguageModel, TextModelV3, TextRequest, TextResponse, TextStream, TextStreamHandle,
+};
 use siumai_core::types::{HttpConfig, Tool, ToolChoice};
 
 /// Options for `text::generate`.

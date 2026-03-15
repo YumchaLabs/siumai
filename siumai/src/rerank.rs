@@ -9,7 +9,7 @@ use siumai_core::types::HttpConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::rerank::RerankModelV3;
+pub use siumai_core::rerank::{RerankModelV3, RerankingModel};
 pub use siumai_core::types::{RerankRequest, RerankResponse};
 
 /// Options for `rerank::rerank`.

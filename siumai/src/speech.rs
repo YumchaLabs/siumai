@@ -9,7 +9,7 @@ use siumai_core::types::HttpConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::speech::SpeechModelV3;
+pub use siumai_core::speech::{SpeechModel, SpeechModelV3};
 pub use siumai_core::types::{TtsRequest, TtsResponse};
 
 /// Options for `speech::synthesize`.

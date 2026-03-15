@@ -10,7 +10,7 @@ use siumai_core::types::HttpConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::embedding::EmbeddingModelV3;
+pub use siumai_core::embedding::{EmbeddingModel, EmbeddingModelV3};
 pub use siumai_core::types::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingRequest, EmbeddingResponse,
 };

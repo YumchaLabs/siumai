@@ -16,9 +16,11 @@ use std::time::Duration;
 /// `siumai-core` stays provider-agnostic.
 pub fn backoff_executor_for_provider(provider: &ProviderType) -> BackoffRetryExecutor {
     let backoff = match provider {
-        ProviderType::OpenAi | ProviderType::XAI | ProviderType::Groq | ProviderType::MiniMaxi => {
-            openai_compat_backoff()
-        }
+        ProviderType::OpenAi
+        | ProviderType::DeepSeek
+        | ProviderType::XAI
+        | ProviderType::Groq
+        | ProviderType::MiniMaxi => openai_compat_backoff(),
         ProviderType::Anthropic => anthropic_backoff(),
         ProviderType::Gemini => google_backoff(),
         ProviderType::Ollama => ollama_backoff(),

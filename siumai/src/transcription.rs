@@ -9,7 +9,7 @@ use siumai_core::types::HttpConfig;
 use std::collections::HashMap;
 use std::time::Duration;
 
-pub use siumai_core::transcription::TranscriptionModelV3;
+pub use siumai_core::transcription::{TranscriptionModel, TranscriptionModelV3};
 pub use siumai_core::types::{SttRequest, SttResponse};
 
 /// Options for `transcription::transcribe`.
