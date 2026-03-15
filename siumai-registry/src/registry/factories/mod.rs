@@ -1,4 +1,4 @@
-//! Provider factory implementations
+﻿//! Provider factory implementations
 //!
 //! Each provider implements the ProviderFactory trait to create clients.
 
@@ -12,9 +12,11 @@
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 use std::sync::Arc;
 
@@ -28,9 +30,11 @@ use std::sync::Arc;
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 use crate::client::LlmClient;
 #[cfg(any(
@@ -43,9 +47,11 @@ use crate::client::LlmClient;
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 use crate::error::LlmError;
 
@@ -62,9 +68,11 @@ use crate::execution::http::client::build_http_client_from_config;
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 use crate::registry::entry::ProviderFactory;
 #[cfg(any(
@@ -77,9 +85,11 @@ use crate::registry::entry::ProviderFactory;
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 use crate::traits::ProviderCapabilities;
 
@@ -92,9 +102,11 @@ use crate::traits::ProviderCapabilities;
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 use crate::registry::entry::BuildContext;
 
@@ -104,11 +116,13 @@ mod anthropic;
 mod anthropic_vertex;
 #[cfg(feature = "azure")]
 mod azure;
+#[cfg(feature = "bedrock")]
+mod bedrock;
 #[cfg(feature = "cohere")]
 mod cohere;
 #[cfg(test)]
 mod contract_tests;
-#[cfg(feature = "openai")]
+#[cfg(feature = "deepseek")]
 mod deepseek;
 #[cfg(feature = "google")]
 mod gemini;
@@ -137,9 +151,11 @@ pub use anthropic::AnthropicProviderFactory;
 pub use anthropic_vertex::AnthropicVertexProviderFactory;
 #[cfg(feature = "azure")]
 pub use azure::AzureOpenAiProviderFactory;
+#[cfg(feature = "bedrock")]
+pub use bedrock::BedrockProviderFactory;
 #[cfg(feature = "cohere")]
 pub use cohere::CohereProviderFactory;
-#[cfg(feature = "openai")]
+#[cfg(feature = "deepseek")]
 pub use deepseek::DeepSeekProviderFactory;
 #[cfg(feature = "google")]
 pub use gemini::GeminiProviderFactory;

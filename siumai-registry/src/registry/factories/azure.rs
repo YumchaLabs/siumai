@@ -1,6 +1,11 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
+use crate::image::ImageModel as FamilyImageModel;
+use crate::text::LanguageModel as FamilyLanguageModel;
+use siumai_core::speech::SpeechModel as FamilySpeechModel;
+use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 
 /// Azure OpenAI provider factory (Responses API by default).
 ///
@@ -28,16 +33,50 @@ impl AzureOpenAiProviderFactory {
         Self { chat_mode }
     }
 
-    fn default_base_url_from_env() -> Result<String, LlmError> {
-        let resource = std::env::var("AZURE_RESOURCE_NAME").map_err(|_| {
-            LlmError::ConfigurationError(
-                "Missing AZURE_RESOURCE_NAME or explicit base_url for Azure OpenAI".to_string(),
-            )
-        })?;
-        Ok(format!(
-            "https://{}.openai.azure.com/openai",
-            resource.trim()
-        ))
+    async fn build_family_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<siumai_provider_azure::providers::azure_openai::AzureOpenAiClient, LlmError> {
+        let http_config = ctx.http_config.clone().unwrap_or_default();
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
+        if common_params.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Azure OpenAI requires a model (deployment id)".to_string(),
+            ));
+        }
+
+        let mut builder = siumai_provider_azure::providers::azure_openai::AzureOpenAiBuilder::new(
+            siumai_provider_azure::builder::BuilderBase::default(),
+        )
+        .chat_mode(self.chat_mode)
+        .model(common_params.model.clone())
+        .with_http_config(http_config)
+        .with_model_middlewares(ctx.model_middlewares.clone());
+
+        if let Some(api_key) = ctx.api_key.clone() {
+            builder = builder.api_key(api_key);
+        }
+        if let Some(base_url) = ctx.base_url.clone() {
+            builder = builder.base_url(base_url);
+        }
+        if let Some(http_client) = ctx.http_client.clone() {
+            builder = builder.with_http_client(http_client);
+        }
+        if let Some(transport) = ctx.http_transport.clone() {
+            builder = builder.fetch(transport);
+        }
+        if let Some(retry_options) = ctx.retry_options.clone() {
+            builder = builder.with_retry(retry_options);
+        }
+        for interceptor in ctx.http_interceptors.clone() {
+            builder = builder.with_http_interceptor(interceptor);
+        }
+
+        builder.build()
     }
 }
 
@@ -62,60 +101,88 @@ impl ProviderFactory for AzureOpenAiProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Resolve HTTP configuration and client.
-        let http_config = ctx.http_config.clone().unwrap_or_default();
-        let http_client = if let Some(client) = &ctx.http_client {
-            client.clone()
-        } else {
-            build_http_client_from_config(&http_config)?
-        };
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
-        // Resolve API key: context override 鈫?environment variable.
-        let api_key = if let Some(key) = &ctx.api_key {
-            key.clone()
-        } else {
-            crate::utils::builder_helpers::get_api_key_with_env(None, "azure")?
-        };
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
-        // Resolve base URL: context override 鈫?resourceName env.
-        let base_url = if let Some(custom) = ctx.base_url.clone() {
-            custom
-        } else {
-            Self::default_base_url_from_env()?
-        };
+    async fn embedding_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
-        // Resolve common parameters (model, temperature, max_tokens, etc.).
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
-            ctx.common_params.clone(),
-            model_id,
-        );
-        if common_params.model.trim().is_empty() {
-            return Err(LlmError::ConfigurationError(
-                "Azure OpenAI requires a model (deployment id)".to_string(),
-            ));
-        }
+    async fn embedding_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
-        let mut cfg =
-            siumai_provider_azure::providers::azure_openai::AzureOpenAiConfig::new(api_key)
-                .with_base_url(base_url)
-                .with_http_config(http_config.clone())
-                .with_url_config(
-                    siumai_provider_azure::providers::azure_openai::AzureUrlConfig::default(),
-                )
-                .with_chat_mode(self.chat_mode);
-        cfg.common_params = common_params;
-        if let Some(transport) = ctx.http_transport.clone() {
-            cfg = cfg.with_http_transport(transport);
-        }
+    async fn image_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
-        let client = siumai_provider_azure::providers::azure_openai::AzureOpenAiClient::new(
-            cfg,
-            http_client,
-        )?
-        .with_retry_options(ctx.retry_options.clone())
-        .with_http_interceptors(ctx.http_interceptors.clone())
-        .with_model_middlewares(ctx.model_middlewares.clone());
+    async fn image_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
+    async fn speech_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn speech_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilySpeechModel>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn transcription_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn transcription_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyTranscriptionModel>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
         Ok(Arc::new(client))
     }
 

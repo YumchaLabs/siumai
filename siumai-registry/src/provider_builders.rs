@@ -5,13 +5,25 @@
 
 use crate::provider::SiumaiBuilder;
 use crate::provider::ids;
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "deepseek"))]
 use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider;
 
 // Generate SiumaiBuilder methods for all OpenAI-compatible providers
 // Placed at module scope so methods can be expanded inside impl blocks.
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "deepseek"))]
 macro_rules! gen_siumaibuilder_method {
+    (deepseek, $id:expr) => {
+        #[cfg(feature = "deepseek")]
+        pub fn deepseek(self) -> Self {
+            self.provider_id(ids::DEEPSEEK)
+        }
+    };
+    (cohere, $id:expr) => {
+        #[cfg(all(feature = "openai", not(feature = "cohere")))]
+        pub fn cohere(self) -> Self {
+            self.provider_id($id)
+        }
+    };
     ($name:ident, $id:expr) => {
         #[cfg(feature = "openai")]
         pub fn $name(self) -> Self {
@@ -62,6 +74,12 @@ impl SiumaiBuilder {
         self.provider_id(ids::ANTHROPIC)
     }
 
+    /// Create a Cohere provider (convenience method)
+    #[cfg(feature = "cohere")]
+    pub fn cohere(self) -> Self {
+        self.provider_id(ids::COHERE)
+    }
+
     /// Create a Gemini provider (convenience method)
     #[cfg(feature = "google")]
     pub fn gemini(self) -> Self {
@@ -74,10 +92,28 @@ impl SiumaiBuilder {
         self.provider_id(ids::VERTEX)
     }
 
+    /// Create an Anthropic-on-Vertex provider (convenience method)
+    #[cfg(feature = "google-vertex")]
+    pub fn anthropic_vertex(self) -> Self {
+        self.provider_id(ids::ANTHROPIC_VERTEX)
+    }
+
     /// Alias for `google_vertex` (canonical provider id).
     #[cfg(feature = "google-vertex")]
     pub fn vertex(self) -> Self {
         self.google_vertex()
+    }
+
+    /// Create a TogetherAI provider (convenience method)
+    #[cfg(feature = "togetherai")]
+    pub fn togetherai(self) -> Self {
+        self.provider_id(ids::TOGETHERAI)
+    }
+
+    /// Create an Amazon Bedrock provider (convenience method)
+    #[cfg(feature = "bedrock")]
+    pub fn bedrock(self) -> Self {
+        self.provider_id(ids::BEDROCK)
     }
 
     /// Create an Ollama provider (convenience method)
@@ -108,6 +144,53 @@ impl SiumaiBuilder {
     // OpenAI-Compatible Providers (generated)
     // ========================================================================
 
-    #[cfg(feature = "openai")]
+    #[cfg(any(feature = "openai", feature = "deepseek"))]
     siumai_for_each_openai_compatible_provider!(gen_siumaibuilder_method);
+}
+
+#[cfg(test)]
+mod tests {
+    #[cfg(any(
+        feature = "cohere",
+        feature = "togetherai",
+        feature = "bedrock",
+        feature = "deepseek",
+        feature = "google-vertex"
+    ))]
+    use super::*;
+
+    #[test]
+    #[cfg(feature = "cohere")]
+    fn cohere_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().cohere();
+        assert_eq!(builder.provider_id, Some(ids::COHERE.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "togetherai")]
+    fn togetherai_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().togetherai();
+        assert_eq!(builder.provider_id, Some(ids::TOGETHERAI.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "bedrock")]
+    fn bedrock_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().bedrock();
+        assert_eq!(builder.provider_id, Some(ids::BEDROCK.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "deepseek")]
+    fn deepseek_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().deepseek();
+        assert_eq!(builder.provider_id, Some(ids::DEEPSEEK.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "google-vertex")]
+    fn anthropic_vertex_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().anthropic_vertex();
+        assert_eq!(builder.provider_id, Some(ids::ANTHROPIC_VERTEX.to_string()));
+    }
 }

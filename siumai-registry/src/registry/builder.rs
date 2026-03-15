@@ -12,7 +12,9 @@ use std::time::Duration;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::LanguageModelMiddleware;
-use crate::registry::{ProviderFactory, ProviderRegistryHandle, create_provider_registry};
+use crate::registry::{
+    ProviderBuildOverrides, ProviderFactory, ProviderRegistryHandle, create_provider_registry,
+};
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 
@@ -28,7 +30,14 @@ pub struct RegistryBuilder {
     separator: char,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    http_client: Option<reqwest::Client>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     http_config: Option<HttpConfig>,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    reasoning_enabled: Option<bool>,
+    reasoning_budget: Option<i32>,
+    provider_build_overrides: HashMap<String, ProviderBuildOverrides>,
     retry_options: Option<RetryOptions>,
     max_cache_entries: Option<usize>,
     client_ttl: Option<Duration>,
@@ -44,7 +53,14 @@ impl RegistryBuilder {
             separator: ':',
             middlewares: Vec::new(),
             http_interceptors: Vec::new(),
+            http_client: None,
+            http_transport: None,
             http_config: None,
+            api_key: None,
+            base_url: None,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+            provider_build_overrides: HashMap::new(),
             retry_options: None,
             max_cache_entries: None,
             client_ttl: None,
@@ -82,11 +98,69 @@ impl RegistryBuilder {
         self
     }
 
+    /// Set a pre-built HTTP client applied to all registry-created clients.
+    pub fn with_http_client(mut self, client: reqwest::Client) -> Self {
+        self.http_client = Some(client);
+        self
+    }
+
+    /// Set a custom HTTP transport applied to all registry-created clients.
+    pub fn with_http_transport(
+        mut self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.http_transport = Some(transport);
+        self
+    }
+
+    /// Alias for `with_http_transport(...)`.
+    pub fn fetch(
+        self,
+        transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
+    ) -> Self {
+        self.with_http_transport(transport)
+    }
+
     /// Set unified HTTP configuration applied to all clients created via the registry.
     ///
     /// This mirrors the HttpConfig used by `SiumaiBuilder` and provider builders.
     pub fn with_http_config(mut self, config: HttpConfig) -> Self {
         self.http_config = Some(config);
+        self
+    }
+
+    /// Set a registry-level API key override applied during provider client construction.
+    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    /// Set a registry-level base URL override applied during provider client construction.
+    pub fn with_base_url<S: Into<String>>(mut self, base_url: S) -> Self {
+        self.base_url = Some(base_url.into());
+        self
+    }
+
+    /// Set a registry-level unified reasoning enable flag for language-model construction.
+    pub fn with_reasoning(mut self, enabled: bool) -> Self {
+        self.reasoning_enabled = Some(enabled);
+        self
+    }
+
+    /// Set a registry-level unified reasoning budget for language-model construction.
+    pub fn with_reasoning_budget(mut self, budget: i32) -> Self {
+        self.reasoning_budget = Some(budget);
+        self
+    }
+
+    /// Set provider-specific build overrides that take precedence over registry-level defaults.
+    pub fn with_provider_build_overrides<S: Into<String>>(
+        mut self,
+        provider_id: S,
+        overrides: ProviderBuildOverrides,
+    ) -> Self {
+        self.provider_build_overrides
+            .insert(provider_id.into(), overrides);
         self
     }
 
@@ -160,7 +234,14 @@ impl RegistryBuilder {
             separator: self.separator,
             language_model_middleware: self.middlewares,
             http_interceptors: self.http_interceptors,
+            http_client: self.http_client,
+            http_transport: self.http_transport,
             http_config: self.http_config,
+            api_key: self.api_key,
+            base_url: self.base_url,
+            reasoning_enabled: self.reasoning_enabled,
+            reasoning_budget: self.reasoning_budget,
+            provider_build_overrides: self.provider_build_overrides,
             retry_options: self.retry_options,
             max_cache_entries: self.max_cache_entries,
             client_ttl: self.client_ttl,

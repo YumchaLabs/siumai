@@ -2,10 +2,76 @@
 
 use super::*;
 use crate::provider::ids;
+use crate::text::LanguageModel as FamilyLanguageModel;
+use siumai_core::speech::SpeechModel as FamilySpeechModel;
+use siumai_provider_xai::providers::xai::XaiClient;
 
 /// xAI provider factory
 #[cfg(feature = "xai")]
 pub struct XAIProviderFactory;
+
+#[cfg(feature = "xai")]
+impl XAIProviderFactory {
+    async fn build_text_family_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<XaiClient, LlmError> {
+        let http_config = ctx.http_config.clone().unwrap_or_default();
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
+        let mut builder = siumai_provider_xai::providers::xai::XaiBuilder::new(
+            siumai_provider_xai::builder::BuilderBase::default(),
+        )
+        .model(common_params.model.clone())
+        .with_http_config(http_config)
+        .with_model_middlewares(ctx.model_middlewares.clone());
+
+        if let Some(api_key) = ctx.api_key.clone() {
+            builder = builder.api_key(api_key);
+        }
+        if let Some(base_url) = ctx.base_url.clone() {
+            builder = builder.base_url(base_url);
+        }
+        if let Some(temperature) = common_params.temperature {
+            builder = builder.temperature(temperature);
+        }
+        if let Some(max_tokens) = common_params.max_tokens {
+            builder = builder.max_tokens(max_tokens);
+        }
+        if let Some(top_p) = common_params.top_p {
+            builder = builder.top_p(top_p);
+        }
+        if let Some(stop_sequences) = common_params.stop_sequences.clone() {
+            builder = builder.stop_sequences(stop_sequences);
+        }
+        if let Some(seed) = common_params.seed {
+            builder = builder.seed(seed);
+        }
+        if let Some(enabled) = ctx.reasoning_enabled {
+            builder = builder.reasoning(enabled);
+        }
+        if let Some(budget) = ctx.reasoning_budget {
+            builder = builder.reasoning_budget(budget);
+        }
+        if let Some(http_client) = ctx.http_client.clone() {
+            builder = builder.with_http_client(http_client);
+        }
+        if let Some(transport) = ctx.http_transport.clone() {
+            builder = builder.fetch(transport);
+        }
+        if let Some(retry_options) = ctx.retry_options.clone() {
+            builder = builder.with_retry(retry_options);
+        }
+        for interceptor in ctx.http_interceptors.clone() {
+            builder = builder.with_http_interceptor(interceptor);
+        }
+
+        builder.build().await
+    }
+}
 
 #[cfg(feature = "xai")]
 #[async_trait::async_trait]
@@ -19,7 +85,6 @@ impl ProviderFactory for XAIProviderFactory {
     }
 
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Delegate to the context-aware implementation with default context.
         let ctx = BuildContext::default();
         self.language_model_with_ctx(model_id, &ctx).await
     }
@@ -29,109 +94,37 @@ impl ProviderFactory for XAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Resolve HTTP configuration and client.
-        let http_config = ctx.http_config.clone().unwrap_or_default();
-        let http_client = if let Some(client) = &ctx.http_client {
-            client.clone()
-        } else {
-            build_http_client_from_config(&http_config)?
-        };
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
-        // Resolve API key: context override 鈫?XAI_API_KEY.
-        let api_key = if let Some(key) = &ctx.api_key {
-            key.clone()
-        } else {
-            std::env::var("XAI_API_KEY").map_err(|_| {
-                LlmError::ConfigurationError(
-                    "Missing XAI_API_KEY or explicit api_key in BuildContext".to_string(),
-                )
-            })?
-        };
-
-        // Resolve common parameters for model selection.
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
-            ctx.common_params.clone(),
-            model_id,
-        );
-
-        let provider_config =
-            siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
-                "xai",
-            )
-            .ok_or_else(|| {
-                LlmError::ConfigurationError("Unknown OpenAI-compatible provider id: xai".into())
-            })?;
-
-        let adapter: Arc<
-            dyn siumai_provider_openai_compatible::providers::openai_compatible::ProviderAdapter,
-        > = Arc::new(
-            siumai_provider_openai_compatible::providers::openai_compatible::ConfigurableAdapter::new(
-                provider_config,
-            ),
-        );
-
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
-            ctx.base_url.clone(),
-            adapter.base_url(),
-        );
-
-        let mut config =
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleConfig::new(
-                "xai", &api_key, &base_url, adapter,
-            );
-
-        if !common_params.model.is_empty() {
-            config = config.with_model(&common_params.model);
-        }
-        config = config.with_common_params(common_params.clone());
-        config = config.with_http_config(http_config.clone());
-        if let Some(transport) = ctx.http_transport.clone() {
-            config = config.with_http_transport(transport);
-        }
-
-        let mut client =
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient::with_http_client(
-                config,
-                http_client,
-            )
-            .await?;
-
-        // Install HTTP interceptors.
-        if !ctx.http_interceptors.is_empty() {
-            client = client.with_http_interceptors(ctx.http_interceptors.clone());
-        }
-
-        // Apply retry options when present.
-        if let Some(opts) = &ctx.retry_options {
-            client.set_retry_options(Some(opts.clone()));
-        }
-
-        // Auto + user middlewares.
-        let mut auto_mws =
-            crate::execution::middleware::build_auto_middlewares_vec("xai", &common_params.model);
-        auto_mws.extend(ctx.model_middlewares.clone());
-        if !auto_mws.is_empty() {
-            client = client.with_model_middlewares(auto_mws);
-        }
-
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
         Ok(Arc::new(client))
     }
 
     async fn embedding_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // xAI currently exposes chat/models; reuse chat client path.
-        self.language_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "xAI does not currently expose a provider-owned embedding family path".to_string(),
+        ))
     }
 
     async fn image_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "xAI does not currently expose a provider-owned image family path".to_string(),
+        ))
     }
 
     async fn speech_model_with_ctx(
@@ -139,15 +132,27 @@ impl ProviderFactory for XAIProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn speech_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilySpeechModel>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
     }
 
     async fn transcription_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "xAI does not currently expose a provider-owned transcription family path".to_string(),
+        ))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

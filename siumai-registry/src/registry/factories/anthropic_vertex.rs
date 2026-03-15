@@ -63,6 +63,7 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
             http_client,
             common_params,
             http_config,
+            ctx.resolved_google_token_provider(),
             ctx.tracing_config.clone(),
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
@@ -74,35 +75,57 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
 
     async fn embedding_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Anthropic Vertex client is unified across capabilities.
-        self.language_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "Anthropic Vertex does not currently expose a provider-owned embedding family path"
+                .to_string(),
+        ))
     }
 
     async fn image_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "Anthropic Vertex does not currently expose a provider-owned image family path"
+                .to_string(),
+        ))
     }
 
     async fn speech_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "Anthropic Vertex does not currently expose a provider-owned speech family path"
+                .to_string(),
+        ))
     }
 
     async fn transcription_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "Anthropic Vertex does not currently expose a provider-owned transcription family path"
+                .to_string(),
+        ))
+    }
+
+    async fn reranking_model_with_ctx(
+        &self,
+        _model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Anthropic Vertex does not currently expose a provider-owned reranking family path"
+                .to_string(),
+        ))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {

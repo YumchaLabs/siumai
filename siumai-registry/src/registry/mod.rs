@@ -116,12 +116,6 @@ mod builtins {
             // registry and documentation helpers.
             let metas = crate::native_provider_metadata::native_providers_metadata();
             for meta in metas {
-                // Metadata-only provider ids (not backed by built-in factories yet).
-                // Keep them out of the default built-in catalog to avoid suggesting
-                // they are buildable.
-                if matches!(meta.id, crate::provider::ids::BEDROCK) {
-                    continue;
-                }
                 self.register_native(
                     meta.id,
                     meta.name,
@@ -141,6 +135,13 @@ mod builtins {
             {
                 if let Some(rec) = self.resolve(crate::provider::ids::TOGETHERAI).cloned() {
                     self.register(rec.with_default_model("Salesforce/Llama-Rank-v1"));
+                }
+            }
+
+            #[cfg(feature = "deepseek")]
+            {
+                if let Some(rec) = self.resolve(crate::provider::ids::DEEPSEEK).cloned() {
+                    self.register(rec.with_default_model("deepseek-chat"));
                 }
             }
 
@@ -181,6 +182,9 @@ mod builtins {
                 siumai_provider_openai_compatible::providers::openai_compatible::get_builtin_providers();
 
             for (_id, config) in builtin_providers {
+                if self.by_id.contains_key(&config.id) {
+                    continue;
+                }
                 let _ = self.register_openai_compatible_from_config(config);
             }
         }
@@ -389,9 +393,9 @@ mod builtins {
 
         #[test]
         #[cfg(feature = "bedrock")]
-        fn test_registry_does_not_register_metadata_only_bedrock() {
+        fn test_registry_registers_bedrock() {
             let registry = ProviderRegistry::with_builtin_providers();
-            assert!(registry.resolve(crate::provider::ids::BEDROCK).is_none());
+            assert!(registry.resolve(crate::provider::ids::BEDROCK).is_some());
         }
 
         #[test]
@@ -432,6 +436,16 @@ mod builtins {
         }
 
         #[test]
+        #[cfg(feature = "deepseek")]
+        fn test_registry_sets_deepseek_default_model() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            let rec = registry
+                .resolve(crate::provider::ids::DEEPSEEK)
+                .expect("deepseek should be registered");
+            assert_eq!(rec.default_model.as_deref(), Some("deepseek-chat"));
+        }
+
+        #[test]
         #[cfg(feature = "google")]
         fn test_registry_resolve_gemini_by_google_alias() {
             let registry = ProviderRegistry::with_builtin_providers();
@@ -468,9 +482,9 @@ pub use builtins::get_openai_vendor_adapter;
 // -----------------------------------------------------------------------------
 
 pub use entry::{
-    BuildContext, EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
-    ProviderRegistryHandle, RegistryOptions, RerankingModelHandle, SpeechModelHandle,
-    TranscriptionModelHandle, create_provider_registry,
+    BuildContext, EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle,
+    ProviderBuildOverrides, ProviderFactory, ProviderRegistryHandle, RegistryOptions,
+    RerankingModelHandle, SpeechModelHandle, TranscriptionModelHandle, create_provider_registry,
 };
 
 pub use helpers::{create_bare_registry, create_empty_registry};

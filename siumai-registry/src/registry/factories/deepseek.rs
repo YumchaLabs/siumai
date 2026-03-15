@@ -1,12 +1,78 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::provider::ids;
+use crate::text::LanguageModel as FamilyLanguageModel;
+use siumai_provider_deepseek::providers::deepseek::DeepSeekClient;
 
-/// DeepSeek provider factory (OpenAI-compatible)
-#[cfg(feature = "openai")]
+/// DeepSeek provider factory (OpenAI-compatible runtime, provider-specific entry).
+#[cfg(feature = "deepseek")]
 pub struct DeepSeekProviderFactory;
 
-#[cfg(feature = "openai")]
+#[cfg(feature = "deepseek")]
+impl DeepSeekProviderFactory {
+    async fn build_text_family_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<DeepSeekClient, LlmError> {
+        let http_config = ctx.http_config.clone().unwrap_or_default();
+        let common_params = crate::utils::builder_helpers::resolve_common_params(
+            ctx.common_params.clone(),
+            model_id,
+        );
+        let mut builder = siumai_provider_deepseek::providers::deepseek::DeepSeekBuilder::new(
+            siumai_provider_deepseek::builder::BuilderBase::default(),
+        )
+        .model(common_params.model.clone())
+        .with_http_config(http_config)
+        .with_model_middlewares(ctx.model_middlewares.clone());
+
+        if let Some(api_key) = ctx.api_key.clone() {
+            builder = builder.api_key(api_key);
+        }
+        if let Some(base_url) = ctx.base_url.clone() {
+            builder = builder.base_url(base_url);
+        }
+        if let Some(temperature) = common_params.temperature {
+            builder = builder.temperature(temperature);
+        }
+        if let Some(max_tokens) = common_params.max_tokens {
+            builder = builder.max_tokens(max_tokens);
+        }
+        if let Some(top_p) = common_params.top_p {
+            builder = builder.top_p(top_p);
+        }
+        if let Some(stop_sequences) = common_params.stop_sequences.clone() {
+            builder = builder.stop_sequences(stop_sequences);
+        }
+        if let Some(seed) = common_params.seed {
+            builder = builder.seed(seed);
+        }
+        if let Some(enabled) = ctx.reasoning_enabled {
+            builder = builder.reasoning(enabled);
+        }
+        if let Some(budget) = ctx.reasoning_budget {
+            builder = builder.reasoning_budget(budget);
+        }
+        if let Some(http_client) = ctx.http_client.clone() {
+            builder = builder.with_http_client(http_client);
+        }
+        if let Some(transport) = ctx.http_transport.clone() {
+            builder = builder.fetch(transport);
+        }
+        if let Some(retry_options) = ctx.retry_options.clone() {
+            builder = builder.with_retry(retry_options);
+        }
+        for interceptor in ctx.http_interceptors.clone() {
+            builder = builder.with_http_interceptor(interceptor);
+        }
+
+        builder.build().await
+    }
+}
+
+#[cfg(feature = "deepseek")]
 #[async_trait::async_trait]
 impl ProviderFactory for DeepSeekProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
@@ -19,7 +85,6 @@ impl ProviderFactory for DeepSeekProviderFactory {
     }
 
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Delegate to the context-aware implementation with default context.
         let ctx = BuildContext::default();
         self.language_model_with_ctx(model_id, &ctx).await
     }
@@ -29,75 +94,71 @@ impl ProviderFactory for DeepSeekProviderFactory {
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Resolve HTTP configuration and client.
-        let http_config = ctx.http_config.clone().unwrap_or_default();
-        let http_client = if let Some(client) = &ctx.http_client {
-            client.clone()
-        } else {
-            build_http_client_from_config(&http_config)?
-        };
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
-        // Resolve API key using shared helper.
-        let api_key =
-            crate::utils::builder_helpers::get_api_key_with_env(ctx.api_key.clone(), "deepseek")?;
-
-        // Resolve common parameters.
-        let common_params = crate::utils::builder_helpers::resolve_common_params(
-            ctx.common_params.clone(),
-            model_id,
-        );
-
-        crate::registry::factory::build_openai_compatible_client(
-            "deepseek".to_string(),
-            api_key,
-            ctx.base_url.clone(),
-            http_client,
-            common_params,
-            http_config,
-            None,
-            ctx.tracing_config.clone(),
-            ctx.retry_options.clone(),
-            ctx.http_interceptors.clone(),
-            ctx.model_middlewares.clone(),
-            ctx.http_transport.clone(),
-        )
-        .await
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
     }
 
     async fn embedding_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // DeepSeek client is OpenAI-compatible and unified.
-        self.language_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "DeepSeek does not currently expose a provider-owned embedding family path".to_string(),
+        ))
     }
 
     async fn image_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "DeepSeek does not currently expose a provider-owned image family path".to_string(),
+        ))
     }
 
     async fn speech_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "DeepSeek does not currently expose a provider-owned speech family path".to_string(),
+        ))
     }
 
     async fn transcription_model_with_ctx(
         &self,
-        model_id: &str,
-        ctx: &BuildContext,
+        _model_id: &str,
+        _ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.embedding_model_with_ctx(model_id, ctx).await
+        Err(LlmError::UnsupportedOperation(
+            "DeepSeek does not currently expose a provider-owned transcription family path"
+                .to_string(),
+        ))
+    }
+
+    async fn reranking_model_with_ctx(
+        &self,
+        _model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "DeepSeek does not currently expose a provider-owned reranking family path".to_string(),
+        ))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("deepseek")
+        std::borrow::Cow::Borrowed(ids::DEEPSEEK)
     }
 }

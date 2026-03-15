@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::execution::http::interceptor::LoggingInterceptor;
 #[cfg(feature = "builtins")]
 use crate::execution::middleware::samples::chain_default_and_clamp;
+#[cfg(feature = "builtins")]
 use crate::provider::ids;
 use crate::registry::entry::{ProviderRegistryHandle, RegistryOptions, create_provider_registry};
 
@@ -145,7 +146,26 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         );
     }
 
-    // OpenAI-compatible provider factories (DeepSeek, SiliconFlow, OpenRouter, etc.)
+    #[cfg(feature = "bedrock")]
+    {
+        providers.insert(
+            ids::BEDROCK.to_string(),
+            Arc::new(crate::registry::factories::BedrockProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    // Provider-specific factories built on top of the OpenAI-compatible runtime.
+    #[cfg(feature = "deepseek")]
+    {
+        providers.insert(
+            ids::DEEPSEEK.to_string(),
+            Arc::new(crate::registry::factories::DeepSeekProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    // OpenAI-compatible provider factories (SiliconFlow, OpenRouter, etc.)
     #[cfg(feature = "openai")]
     {
         let builtin =
@@ -153,7 +173,7 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
             );
         for (_id, cfg) in builtin {
             let id_str = cfg.id.clone();
-            // Skip providers that already have native factories registered (e.g., groq, minimaxi).
+            // Skip providers that already have dedicated factories registered (e.g., deepseek, groq, minimaxi).
             if providers.contains_key(&id_str) {
                 continue;
             }
@@ -171,7 +191,14 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
             separator: ':',
             language_model_middleware: chain_default_and_clamp(),
             http_interceptors: vec![std::sync::Arc::new(LoggingInterceptor)],
+            http_client: None,
+            http_transport: None,
             http_config: None,
+            api_key: None,
+            base_url: None,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+            provider_build_overrides: HashMap::new(),
             retry_options: None,
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
@@ -190,7 +217,14 @@ pub fn create_empty_registry() -> ProviderRegistryHandle {
             separator: ':',
             language_model_middleware: Vec::new(),
             http_interceptors: Vec::new(),
+            http_client: None,
+            http_transport: None,
             http_config: None,
+            api_key: None,
+            base_url: None,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+            provider_build_overrides: HashMap::new(),
             retry_options: None,
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration
@@ -208,7 +242,14 @@ pub fn create_bare_registry() -> ProviderRegistryHandle {
             separator: ':',
             language_model_middleware: Vec::new(),
             http_interceptors: Vec::new(),
+            http_client: None,
+            http_transport: None,
             http_config: None,
+            api_key: None,
+            base_url: None,
+            reasoning_enabled: None,
+            reasoning_budget: None,
+            provider_build_overrides: HashMap::new(),
             retry_options: None,
             max_cache_entries: None, // Use default (100)
             client_ttl: None,        // No expiration

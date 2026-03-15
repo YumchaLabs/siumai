@@ -54,8 +54,8 @@ pub struct SiumaiBuilder {
     pub(crate) http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     /// Advanced HTTP features are not handled here anymore; use HttpConfig only
     #[cfg(any(feature = "google", feature = "google-vertex"))]
-    /// Optional Bearer token provider for Google auth (Gemini and/or Vertex AI).
-    pub(crate) gemini_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+    /// Optional Bearer token provider for Google-family auth (Gemini and/or Vertex AI).
+    pub(crate) google_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
     /// Optional model-level middlewares applied before provider mapping
     pub(crate) model_middlewares: Vec<std::sync::Arc<dyn LanguageModelMiddleware>>,
 }
@@ -82,7 +82,7 @@ impl SiumaiBuilder {
             http_transport: None,
 
             #[cfg(any(feature = "google", feature = "google-vertex"))]
-            gemini_token_provider: None,
+            google_token_provider: None,
             model_middlewares: Vec::new(),
         }
     }
@@ -349,19 +349,54 @@ impl SiumaiBuilder {
         self.base_url = Some(base);
         self
     }
+
     #[cfg(any(feature = "google", feature = "google-vertex"))]
-    pub fn with_gemini_token_provider(
+    /// Preferred neutral alias for Google-family Bearer token providers
+    /// (Gemini + Google Vertex + Anthropic on Vertex).
+    pub fn with_google_token_provider(
         mut self,
         provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
     ) -> Self {
-        self.gemini_token_provider = Some(provider);
+        self.google_token_provider = Some(provider);
         self
     }
+
+    #[cfg(any(feature = "google", feature = "google-vertex"))]
+    /// Backward-compatible alias kept for older Gemini-focused call sites.
+    pub fn with_gemini_token_provider(
+        self,
+        provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
+    ) -> Self {
+        self.with_google_token_provider(provider)
+    }
+
     #[cfg(all(any(feature = "google", feature = "google-vertex"), feature = "gcp"))]
-    pub fn with_gemini_adc(mut self) -> Self {
+    /// Preferred neutral alias for ADC-backed Google auth.
+    pub fn with_google_adc(mut self) -> Self {
         let adc = crate::auth::adc::AdcTokenProvider::default_client();
-        self.gemini_token_provider = Some(std::sync::Arc::new(adc));
+        self.google_token_provider = Some(std::sync::Arc::new(adc));
         self
+    }
+
+    #[cfg(all(any(feature = "google", feature = "google-vertex"), feature = "gcp"))]
+    /// Backward-compatible alias kept for older Gemini-focused call sites.
+    pub fn with_gemini_adc(self) -> Self {
+        self.with_google_adc()
+    }
+
+    #[cfg(feature = "google-vertex")]
+    /// Vertex-focused alias for provider families served through Google Vertex.
+    pub fn with_vertex_token_provider(
+        self,
+        provider: std::sync::Arc<dyn crate::auth::TokenProvider>,
+    ) -> Self {
+        self.with_google_token_provider(provider)
+    }
+
+    #[cfg(all(feature = "google-vertex", feature = "gcp"))]
+    /// Vertex-focused alias for ADC-backed auth.
+    pub fn with_vertex_adc(self) -> Self {
+        self.with_google_adc()
     }
 
     // === Tracing Configuration ===

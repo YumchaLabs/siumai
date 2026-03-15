@@ -1,4 +1,4 @@
-//! Static metadata for native (non OpenAI-compatible) providers.
+﻿//! Static metadata for native (non OpenAI-compatible) providers.
 //!
 //! This module centralizes provider identifiers, human-readable names,
 //! descriptions, default base URLs, and declared capabilities so that:
@@ -57,8 +57,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_embedding()
             .with_audio()
             .with_file_management()
-            .with_image_generation()
-            .with_rerank(),
+            .with_image_generation(),
     });
 
     // Azure OpenAI (OpenAI-compatible endpoints hosted on Azure).
@@ -160,18 +159,34 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_audio(),
     });
 
+    // DeepSeek
+    #[cfg(feature = "deepseek")]
+    out.push(NativeProviderMetadata {
+        id: ids::DEEPSEEK,
+        name: "DeepSeek",
+        description: "DeepSeek chat and reasoning models exposed through a dedicated registry factory",
+        default_base_url: Some("https://api.deepseek.com"),
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_vision()
+            .with_custom_feature("thinking", true),
+    });
+
     // xAI
     #[cfg(feature = "xai")]
     out.push(NativeProviderMetadata {
         id: "xai",
         name: "xAI",
-        description: "xAI Grok models with advanced reasoning capabilities",
+        description: "xAI Grok models with reasoning, vision, and provider-owned speech capabilities",
         default_base_url: Some("https://api.x.ai/v1"),
         capabilities: ProviderCapabilities::new()
             .with_chat()
             .with_streaming()
             .with_tools()
-            .with_vision(),
+            .with_vision()
+            .with_speech(),
     });
 
     // Ollama

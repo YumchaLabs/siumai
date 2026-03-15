@@ -21,6 +21,7 @@ pub(crate) const GEMINI: &str = "gemini";
 pub(crate) const VERTEX: &str = "vertex";
 
 pub(crate) const OLLAMA: &str = "ollama";
+pub(crate) const DEEPSEEK: &str = "deepseek";
 pub(crate) const XAI: &str = "xai";
 pub(crate) const GROQ: &str = "groq";
 pub(crate) const MINIMAXI: &str = "minimaxi";
@@ -28,11 +29,7 @@ pub(crate) const MINIMAXI: &str = "minimaxi";
 pub(crate) const COHERE: &str = "cohere";
 pub(crate) const TOGETHERAI: &str = "togetherai";
 
-// Metadata-only (not yet implemented as built-in factories).
-//
-// This id is reserved so that we can add a first-class factory later without
-// breaking routing rules. For now, the registry should not register it as a
-// built-in, and the unified build path should error fast if selected.
+// Native Amazon Bedrock provider id.
 pub(crate) const BEDROCK: &str = "bedrock";
 
 /// Alias id for registry convenience (canonical id is `vertex`).
@@ -50,6 +47,7 @@ pub(crate) enum BuiltinProviderId {
     Gemini,
     Vertex,
     Ollama,
+    DeepSeek,
     Xai,
     Groq,
     MiniMaxi,
@@ -71,6 +69,7 @@ impl BuiltinProviderId {
             GEMINI => Some(Self::Gemini),
             VERTEX => Some(Self::Vertex),
             OLLAMA => Some(Self::Ollama),
+            DEEPSEEK => Some(Self::DeepSeek),
             XAI => Some(Self::Xai),
             GROQ => Some(Self::Groq),
             MINIMAXI => Some(Self::MiniMaxi),

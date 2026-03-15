@@ -259,6 +259,75 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     ],
                 });
             }
+            ProviderType::DeepSeek => {
+                #[cfg(feature = "deepseek")]
+                {
+                    let meta = native_metas
+                        .iter()
+                        .find(|m| m.id == "deepseek")
+                        .expect("DeepSeek metadata should be registered");
+                    let mut models: Vec<Cow<'static, str>> = Vec::new();
+                    if let Some(m) = rec.default_model.clone() {
+                        models.push(Cow::Owned(m));
+                    }
+                    for model in [
+                        siumai_provider_deepseek::providers::deepseek::models::CHAT,
+                        siumai_provider_deepseek::providers::deepseek::models::REASONER,
+                    ] {
+                        if !models.iter().any(|existing| existing.as_ref() == model) {
+                            models.push(Cow::Borrowed(model));
+                        }
+                    }
+                    out.push(ProviderInfo {
+                        provider_type: ptype,
+                        name: Cow::Borrowed(meta.name),
+                        description: Cow::Borrowed(meta.description),
+                        capabilities: rec.capabilities.clone(),
+                        default_base_url: Cow::Borrowed(
+                            meta.default_base_url.unwrap_or("https://api.deepseek.com"),
+                        ),
+                        supported_models: models,
+                    });
+                    continue;
+                }
+                #[cfg(all(not(feature = "deepseek"), feature = "openai"))]
+                {
+                    if let Some(cfg) = siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config("deepseek") {
+                        let mut models: Vec<Cow<'static, str>> = Vec::new();
+                        if let Some(m) = cfg.default_model.clone() {
+                            models.push(Cow::Owned(m));
+                        }
+                        for model in [
+                            siumai_provider_openai_compatible::providers::openai_compatible::providers::models::deepseek::CHAT,
+                            siumai_provider_openai_compatible::providers::openai_compatible::providers::models::deepseek::REASONER,
+                        ] {
+                            if !models.iter().any(|existing| existing.as_ref() == model) {
+                                models.push(Cow::Borrowed(model));
+                            }
+                        }
+                        out.push(ProviderInfo {
+                            provider_type: ptype,
+                            name: Cow::Owned(cfg.name),
+                            description: Cow::Borrowed(
+                                "OpenAI-compatible provider with DeepSeek-specific routing",
+                            ),
+                            capabilities: rec.capabilities.clone(),
+                            default_base_url: Cow::Owned(cfg.base_url),
+                            supported_models: models,
+                        });
+                        continue;
+                    }
+                }
+                #[cfg(not(feature = "deepseek"))]
+                out.push(ProviderInfo {
+                    provider_type: ptype,
+                    name: Cow::Owned(rec.name.clone()),
+                    description: Cow::Owned(rec.id.clone()),
+                    capabilities: rec.capabilities.clone(),
+                    default_base_url: Cow::Owned(rec.base_url.unwrap_or_default()),
+                    supported_models: Vec::new(),
+                });
+            }
             #[cfg(feature = "xai")]
             ProviderType::XAI => {
                 let meta = native_metas
@@ -346,7 +415,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                 }
 
                 // OpenAI-compatible providers are registered as concrete provider ids
-                // (e.g. "deepseek", "openrouter", "siliconflow"). Keep this catalog
+                // (e.g. "openrouter", "siliconflow"). Keep this catalog
                 // as a discovery helper, not a strict source of truth for model lists.
                 #[cfg(feature = "openai")]
                 {
@@ -461,16 +530,14 @@ pub fn is_model_supported_by_id(provider_id: &str, model: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     #[cfg(feature = "openai")]
     fn provider_catalog_includes_openai_compatible_providers() {
-        let providers = get_supported_providers();
+        let providers = super::get_supported_providers();
         assert!(
             providers
                 .iter()
-                .any(|p| matches!(&p.provider_type, ProviderType::Custom(id) if id == "deepseek")),
+                .any(|p| p.provider_type == super::ProviderType::DeepSeek),
             "expected openai-compatible provider 'deepseek' to be listed"
         );
     }
@@ -478,19 +545,67 @@ mod tests {
     #[test]
     #[cfg(feature = "openai")]
     fn provider_catalog_lookup_by_id_works_for_openai_compatible() {
-        let info = get_provider_info_by_id("deepseek").expect("deepseek should exist");
-        assert!(matches!(info.provider_type, ProviderType::Custom(id) if id == "deepseek"));
+        let info = super::get_provider_info_by_id("deepseek").expect("deepseek should exist");
+        assert_eq!(info.provider_type, super::ProviderType::DeepSeek);
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "deepseek-chat"),
+            "expected deepseek model catalog entry to include deepseek-chat"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn provider_catalog_keeps_custom_openai_compatible_variants() {
+        let info = super::get_provider_info_by_id("openrouter").expect("openrouter should exist");
+        assert!(
+            matches!(info.provider_type, super::ProviderType::Custom(id) if id == "openrouter")
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "deepseek")]
+    fn provider_catalog_uses_native_metadata_for_deepseek() {
+        let info = super::get_provider_info_by_id("deepseek").expect("deepseek should exist");
+        assert_eq!(info.provider_type, super::ProviderType::DeepSeek);
+        assert_eq!(info.name.as_ref(), "DeepSeek");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.capabilities.chat && info.capabilities.streaming && info.capabilities.tools,
+            "expected deepseek to expose text/tool capabilities"
+        );
+        assert!(
+            !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.rerank,
+            "expected deepseek non-text capabilities to remain deferred"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "deepseek-chat"),
+            "expected deepseek default model to be listed"
+        );
     }
 
     #[test]
     #[cfg(feature = "cohere")]
     fn provider_catalog_uses_native_metadata_for_cohere() {
-        let info = get_provider_info_by_id("cohere").expect("cohere should exist");
+        let info = super::get_provider_info_by_id("cohere").expect("cohere should exist");
         assert_eq!(info.name.as_ref(), "Cohere");
         assert_ne!(info.description.as_ref(), "Custom provider");
         assert!(
             info.capabilities.rerank,
             "expected cohere to support rerank"
+        );
+        assert!(
+            !info.capabilities.chat
+                && !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.speech
+                && !info.capabilities.transcription,
+            "expected cohere non-rerank capabilities to remain deferred"
         );
         assert!(
             info.supported_models
@@ -503,7 +618,7 @@ mod tests {
     #[test]
     #[cfg(feature = "togetherai")]
     fn provider_catalog_uses_native_metadata_for_togetherai() {
-        let info = get_provider_info_by_id("togetherai").expect("togetherai should exist");
+        let info = super::get_provider_info_by_id("togetherai").expect("togetherai should exist");
         assert_eq!(info.name.as_ref(), "TogetherAI");
         assert_ne!(info.description.as_ref(), "Custom provider");
         assert!(
@@ -511,10 +626,44 @@ mod tests {
             "expected togetherai to support rerank"
         );
         assert!(
+            !info.capabilities.chat
+                && !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.speech
+                && !info.capabilities.transcription,
+            "expected togetherai non-rerank capabilities to remain deferred"
+        );
+        assert!(
             info.supported_models
                 .iter()
                 .any(|m| m.as_ref() == "Salesforce/Llama-Rank-v1"),
             "expected togetherai default model to be listed"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "bedrock")]
+    fn provider_catalog_uses_native_metadata_for_bedrock() {
+        let info = super::get_provider_info_by_id("bedrock").expect("bedrock should exist");
+        assert_eq!(info.name.as_ref(), "Amazon Bedrock");
+        assert_ne!(info.description.as_ref(), "Custom provider");
+        assert!(
+            info.capabilities.chat
+                && info.capabilities.streaming
+                && info.capabilities.tools
+                && info.capabilities.rerank,
+            "expected bedrock to expose chat/rerank capabilities"
+        );
+        assert!(
+            !info.capabilities.embedding
+                && !info.capabilities.image_generation
+                && !info.capabilities.speech
+                && !info.capabilities.transcription,
+            "expected bedrock non-chat/rerank capabilities to remain deferred"
+        );
+        assert!(
+            info.supported_models.is_empty(),
+            "expected bedrock catalog to avoid inventing model lists"
         );
     }
 }

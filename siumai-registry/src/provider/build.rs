@@ -10,9 +10,11 @@ use crate::provider::ids;
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 fn select_factory(
     provider_id: &str,
@@ -111,6 +113,21 @@ fn select_factory(
                 ))
             }
         }
+        Some(ids::BuiltinProviderId::DeepSeek) => {
+            #[cfg(feature = "deepseek")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::DeepSeekProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "deepseek"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "DeepSeek provider requires the 'deepseek' feature to be enabled".to_string(),
+                ))
+            }
+        }
         Some(ids::BuiltinProviderId::Xai) => {
             #[cfg(feature = "xai")]
             {
@@ -181,10 +198,20 @@ fn select_factory(
                 ))
             }
         }
-        Some(ids::BuiltinProviderId::Bedrock) => Err(LlmError::UnsupportedOperation(
-            "Amazon Bedrock provider id is reserved, but a built-in factory is not implemented yet"
-                .to_string(),
-        )),
+        Some(ids::BuiltinProviderId::Bedrock) => {
+            #[cfg(feature = "bedrock")]
+            {
+                Ok(Arc::new(crate::registry::factories::BedrockProviderFactory)
+                    as Arc<dyn ProviderFactory>)
+            }
+            #[cfg(not(feature = "bedrock"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Amazon Bedrock provider requires the 'bedrock' feature to be enabled"
+                        .to_string(),
+                ))
+            }
+        }
         Some(ids::BuiltinProviderId::Azure | ids::BuiltinProviderId::AzureChat) => {
             #[cfg(feature = "azure")]
             {
@@ -227,6 +254,53 @@ fn select_factory(
     }
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "azure",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
+    feature = "ollama",
+    feature = "deepseek",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi",
+    feature = "bedrock"
+))]
+async fn build_default_client_with_capabilities(
+    factory: &std::sync::Arc<dyn crate::registry::entry::ProviderFactory>,
+    model_id: &str,
+    ctx: &crate::registry::entry::BuildContext,
+) -> Result<std::sync::Arc<dyn crate::client::LlmClient>, LlmError> {
+    let caps = factory.capabilities();
+
+    if caps.supports("chat") {
+        return factory.language_model_with_ctx(model_id, ctx).await;
+    }
+    if caps.supports("rerank") {
+        return factory.reranking_model_with_ctx(model_id, ctx).await;
+    }
+    if caps.supports("embedding") {
+        return factory.embedding_model_with_ctx(model_id, ctx).await;
+    }
+    if caps.supports("image_generation") {
+        return factory.image_model_with_ctx(model_id, ctx).await;
+    }
+    if caps.supports("speech") {
+        return factory.speech_model_with_ctx(model_id, ctx).await;
+    }
+    if caps.supports("transcription") {
+        return factory.transcription_model_with_ctx(model_id, ctx).await;
+    }
+
+    Err(LlmError::UnsupportedOperation(format!(
+        "Provider '{}' does not expose a default public family entry point",
+        factory.provider_id()
+    )))
+}
+
 /// Build the unified Siumai provider from SiumaiBuilder
 #[cfg(any(
     feature = "openai",
@@ -237,9 +311,11 @@ fn select_factory(
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 ))]
 pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     use crate::client::LlmClient;
@@ -374,6 +450,14 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                     "Ollama feature not enabled".to_string(),
                 ));
             }
+            #[cfg(feature = "deepseek")]
+            ids::DEEPSEEK => "deepseek-chat".to_string(),
+            #[cfg(not(feature = "deepseek"))]
+            ids::DEEPSEEK => {
+                return Err(LlmError::UnsupportedOperation(
+                    "DeepSeek feature not enabled".to_string(),
+                ));
+            }
             #[cfg(feature = "xai")]
             ids::XAI => "grok-beta".to_string(),
             #[cfg(not(feature = "xai"))]
@@ -431,7 +515,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Normalize model ID for OpenAI-compatible providers (handle aliases)
     // This ensures that model aliases like "chat" -> "deepseek-chat" are properly resolved
-    #[cfg(feature = "openai")]
+    #[cfg(any(feature = "openai", feature = "deepseek"))]
     {
         if super::resolver::is_openai_compatible_provider_id(&effective_provider_id) {
             let normalized_model = crate::utils::builder_helpers::normalize_model_id(
@@ -443,11 +527,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             }
         }
     }
-
-    // Provider-specific parameters are now handled via provider_options in ChatRequest.
-    // The old builder-level provider_params logic has been removed.
-    let _reasoning_budget = reasoning_budget; // Suppress unused warning
-    let _reasoning_enabled = reasoning_enabled; // Suppress unused warning
 
     // Validation moved to Transformers within Executors; skip pre-validation here
 
@@ -476,18 +555,21 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         model_middlewares: user_model_middlewares.clone(),
         retry_options: builder.retry_options.clone(),
         common_params: Some(common_params.clone()),
+        reasoning_enabled,
+        reasoning_budget,
         provider_id: builder.provider_id.clone(),
         #[cfg(any(feature = "google", feature = "google-vertex"))]
-        gemini_token_provider: builder.gemini_token_provider.clone(),
+        google_token_provider: builder.google_token_provider.clone(),
+        #[cfg(any(feature = "google", feature = "google-vertex"))]
+        gemini_token_provider: builder.google_token_provider.clone(),
         ..Default::default()
     };
 
     let factory = select_factory(&effective_provider_id)?;
     let mut ctx = base_ctx.clone();
     ctx.provider_id = Some(effective_provider_id);
-    let client: Arc<dyn LlmClient> = factory
-        .language_model_with_ctx(&common_params.model, &ctx)
-        .await?;
+    let client: Arc<dyn LlmClient> =
+        build_default_client_with_capabilities(&factory, &common_params.model, &ctx).await?;
 
     // Retry options are now applied directly to underlying provider clients via
     // BuildContext and ProviderFactory. The outer Siumai wrapper keeps a
@@ -506,13 +588,15 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     feature = "cohere",
     feature = "togetherai",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
-    feature = "minimaxi"
+    feature = "minimaxi",
+    feature = "bedrock"
 )))]
 pub async fn build(_builder: super::SiumaiBuilder) -> Result<super::Siumai, LlmError> {
     Err(LlmError::UnsupportedOperation(
-        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, cohere, togetherai, ollama, xai, groq, minimaxi)".to_string(),
+        "No provider features enabled (enable at least one of: openai, azure, anthropic, google, google-vertex, cohere, togetherai, bedrock, ollama, deepseek, xai, groq, minimaxi)".to_string(),
     ))
 }
 

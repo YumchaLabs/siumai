@@ -41,12 +41,50 @@ impl EmbeddingExtensions for Siumai {
         &self,
         request: EmbeddingRequest,
     ) -> Result<EmbeddingResponse, LlmError> {
-        // For now, we'll provide a simplified implementation that works with the current architecture
-        // The advanced features like task types will be supported through provider-specific interfaces
+        #[cfg(feature = "openai")]
+        if let Some(client) =
+            self.client
+                .as_any()
+                .downcast_ref::<siumai_provider_openai::providers::openai::OpenAiClient>()
+        {
+            return client.embed_with_config(request).await;
+        }
+
+        #[cfg(feature = "openai")]
+        if let Some(client) = self.client.as_any().downcast_ref::<
+            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
+        >() {
+            return client.embed_with_config(request).await;
+        }
+
+        #[cfg(feature = "google")]
+        if let Some(client) =
+            self.client
+                .as_any()
+                .downcast_ref::<siumai_provider_gemini::providers::gemini::GeminiClient>()
+        {
+            return client.embed_with_config(request).await;
+        }
+
+        #[cfg(feature = "google-vertex")]
+        if let Some(client) = self
+            .client
+            .as_any()
+            .downcast_ref::<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient>(
+        ) {
+            return client.embed_with_config(request).await;
+        }
+
+        #[cfg(feature = "ollama")]
+        if let Some(client) =
+            self.client
+                .as_any()
+                .downcast_ref::<siumai_provider_ollama::providers::ollama::OllamaClient>()
+        {
+            return client.embed_with_config(request).await;
+        }
 
         if let Some(embedding_client) = self.client.as_embedding_capability() {
-            // Use the basic embed method - the underlying implementations
-            // can be enhanced to support more features in the future
             embedding_client.embed(request.input).await
         } else {
             Err(LlmError::UnsupportedOperation(format!(

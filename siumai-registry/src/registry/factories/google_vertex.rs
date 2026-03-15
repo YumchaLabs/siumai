@@ -1,33 +1,23 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
+use crate::image::ImageModel as FamilyImageModel;
+use crate::provider::ids;
+use crate::text::LanguageModel as FamilyLanguageModel;
 
 /// Google Vertex provider factory (Imagen via Vertex AI).
 #[cfg(feature = "google-vertex")]
 pub struct GoogleVertexProviderFactory;
 
 #[cfg(feature = "google-vertex")]
-#[async_trait::async_trait]
-impl ProviderFactory for GoogleVertexProviderFactory {
-    fn capabilities(&self) -> ProviderCapabilities {
-        let meta = crate::native_provider_metadata::native_providers_metadata();
-        meta.into_iter()
-            .find(|m| m.id == "vertex")
-            .map(|m| m.capabilities)
-            .unwrap_or_else(ProviderCapabilities::new)
-    }
-
-    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
-        let ctx = BuildContext::default();
-        self.language_model_with_ctx(model_id, &ctx).await
-    }
-
-    async fn language_model_with_ctx(
+impl GoogleVertexProviderFactory {
+    async fn build_typed_client_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
-    ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        // Resolve HTTP configuration and client.
+    ) -> Result<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient, LlmError>
+    {
         let http_config = ctx.http_config.clone().unwrap_or_default();
         let http_client = if let Some(client) = &ctx.http_client {
             client.clone()
@@ -80,19 +70,18 @@ impl ProviderFactory for GoogleVertexProviderFactory {
             crate::utils::vertex::google_vertex_base_url(&project, &location)
         };
 
-        // Resolve common parameters.
         let common_params = crate::utils::builder_helpers::resolve_common_params(
             ctx.common_params.clone(),
             model_id,
         );
 
-        crate::registry::factory::build_google_vertex_client(
+        crate::registry::factory::build_google_vertex_typed_client(
             base_url,
             api_key,
             http_client,
             common_params,
             http_config,
-            ctx.gemini_token_provider.clone(),
+            ctx.resolved_google_token_provider(),
             ctx.tracing_config.clone(),
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
@@ -101,16 +90,79 @@ impl ProviderFactory for GoogleVertexProviderFactory {
         )
         .await
     }
+}
+
+#[cfg(feature = "google-vertex")]
+#[async_trait::async_trait]
+impl ProviderFactory for GoogleVertexProviderFactory {
+    fn capabilities(&self) -> ProviderCapabilities {
+        let meta = crate::native_provider_metadata::native_providers_metadata();
+        meta.into_iter()
+            .find(|m| m.id == ids::VERTEX)
+            .map(|m| m.capabilities)
+            .unwrap_or_else(ProviderCapabilities::new)
+    }
+
+    async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let ctx = BuildContext::default();
+        self.language_model_with_ctx(model_id, &ctx).await
+    }
+
+    async fn language_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn language_model_text_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn embedding_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn embedding_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyEmbeddingModel>, LlmError> {
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
 
     async fn image_model_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        self.language_model_with_ctx(model_id, ctx).await
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn image_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
+        let client = self.build_typed_client_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
     }
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
-        std::borrow::Cow::Borrowed("vertex")
+        std::borrow::Cow::Borrowed(ids::VERTEX)
     }
 }

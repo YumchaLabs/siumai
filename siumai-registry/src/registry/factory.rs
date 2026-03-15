@@ -174,12 +174,14 @@ async fn build_openai_client_with_mode(
 
 #[cfg(feature = "openai")]
 #[allow(clippy::too_many_arguments)]
-pub async fn build_openai_compatible_client(
+pub async fn build_openai_compatible_typed_client(
     provider_id: String,
     api_key: String,
     base_url: Option<String>,
     http_client: reqwest::Client,
     common_params: CommonParams,
+    reasoning_enabled: Option<bool>,
+    reasoning_budget: Option<i32>,
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
@@ -187,7 +189,10 @@ pub async fn build_openai_compatible_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
-) -> Result<Arc<dyn LlmClient>, LlmError> {
+) -> Result<
+    siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
+    LlmError,
+> {
     // Resolve provider adapter and base URL via registry v2
     let registry = crate::registry::global_registry();
     let (resolved_id, adapter, resolved_base) = {
@@ -229,6 +234,12 @@ pub async fn build_openai_compatible_client(
             crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
         })
         .with_http_config(http_config.clone());
+    if let Some(enabled) = reasoning_enabled {
+        config = config.with_reasoning(enabled);
+    }
+    if let Some(budget) = reasoning_budget {
+        config = config.with_reasoning_budget(budget);
+    }
     if let Some(transport) = http_transport {
         config = config.with_http_transport(transport);
     }
@@ -257,7 +268,7 @@ pub async fn build_openai_compatible_client(
 
     // Apply tracing if configured (no-op if client ignores)
     if let Some(tc) = tracing_config {
-        // OpenAI-compatible client doesn’t currently expose tracing guard; keep placeholder for symmetry
+        // OpenAI-compatible client doesn?t currently expose tracing guard; keep placeholder for symmetry
         let _ = tc; // avoid unused warning
     }
     // Auto + user middlewares based on resolved provider id
@@ -269,6 +280,45 @@ pub async fn build_openai_compatible_client(
     if !auto_mws.is_empty() {
         client = client.with_model_middlewares(auto_mws);
     }
+
+    Ok(client)
+}
+
+#[cfg(feature = "openai")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_openai_compatible_client(
+    provider_id: String,
+    api_key: String,
+    base_url: Option<String>,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    reasoning_enabled: Option<bool>,
+    reasoning_budget: Option<i32>,
+    http_config: HttpConfig,
+    provider_params: Option<()>, // Removed ProviderParams
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
+    let client = build_openai_compatible_typed_client(
+        provider_id,
+        api_key,
+        base_url,
+        http_client,
+        common_params,
+        reasoning_enabled,
+        reasoning_budget,
+        http_config,
+        provider_params,
+        tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+    )
+    .await?;
 
     Ok(Arc::new(client))
 }
@@ -328,14 +378,14 @@ pub async fn build_anthropic_client(
 
 #[cfg(feature = "google")]
 #[allow(clippy::too_many_arguments)]
-pub async fn build_gemini_client(
+pub async fn build_gemini_typed_client(
     api_key: String,
     base_url: String,
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
     _provider_params: Option<()>, // Removed ProviderParams
-    #[allow(unused_variables)] gemini_token_provider: Option<
+    #[allow(unused_variables)] google_token_provider: Option<
         std::sync::Arc<dyn crate::auth::TokenProvider>,
     >,
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
@@ -343,7 +393,7 @@ pub async fn build_gemini_client(
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
-) -> Result<Arc<dyn LlmClient>, LlmError> {
+) -> Result<siumai_provider_gemini::providers::gemini::GeminiClient, LlmError> {
     use siumai_provider_gemini::providers::gemini::client::GeminiClient;
     use siumai_provider_gemini::providers::gemini::types::{GeminiConfig, GenerationConfig};
 
@@ -367,18 +417,15 @@ pub async fn build_gemini_client(
         .with_model(common_params.model.clone())
         .with_generation_config(gcfg)
         .with_common_params(common_params.clone());
-    // Pass through HTTP config if present in builder path
     config = config.with_http_config(http_config.clone());
     if let Some(transport) = http_transport {
         config = config.with_http_transport(transport);
     }
 
-    // Attach token provider if present
-    if let Some(tp) = gemini_token_provider {
+    if let Some(tp) = google_token_provider {
         config = config.with_token_provider(tp);
     }
 
-    // Create client with provided HTTP client
     let mut client = GeminiClient::with_http_client(config, http_client)?;
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
@@ -387,15 +434,9 @@ pub async fn build_gemini_client(
         client = client.with_http_interceptors(interceptors);
     }
 
-    // Provider-specific parameters are now handled via provider_options in ChatRequest
-
-    // Note: Tracing initialization has been moved to siumai-extras.
-    // Users should initialize tracing manually using siumai_extras::telemetry
-    // or tracing_subscriber directly before creating the client.
     if let Some(tc) = tracing_config {
         client.set_tracing_config(Some(tc));
     }
-    // Auto + user middlewares
     let mut auto_mws =
         crate::execution::middleware::build_auto_middlewares_vec("gemini", &common_params.model);
     auto_mws.push(std::sync::Arc::new(
@@ -405,6 +446,43 @@ pub async fn build_gemini_client(
     if !auto_mws.is_empty() {
         client = client.with_model_middlewares(auto_mws);
     }
+
+    Ok(client)
+}
+
+#[cfg(feature = "google")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_gemini_client(
+    api_key: String,
+    base_url: String,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    http_config: HttpConfig,
+    provider_params: Option<()>, // Removed ProviderParams
+    #[allow(unused_variables)] google_token_provider: Option<
+        std::sync::Arc<dyn crate::auth::TokenProvider>,
+    >,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+) -> Result<Arc<dyn LlmClient>, LlmError> {
+    let client = build_gemini_typed_client(
+        api_key,
+        base_url,
+        http_client,
+        common_params,
+        http_config,
+        provider_params,
+        google_token_provider,
+        tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+    )
+    .await?;
 
     Ok(Arc::new(client))
 }
@@ -417,38 +495,118 @@ pub async fn build_anthropic_vertex_client(
     http_client: reqwest::Client,
     common_params: CommonParams,
     http_config: HttpConfig,
+    #[allow(unused_variables)] google_token_provider: Option<
+        std::sync::Arc<dyn crate::auth::TokenProvider>,
+    >,
     _tracing_config: Option<crate::observability::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
     middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
-    _http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let cfg =
-        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicConfig {
+    let token_provider = {
+        #[cfg(feature = "gcp")]
+        {
+            fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
+                headers
+                    .keys()
+                    .any(|key| key.eq_ignore_ascii_case("authorization"))
+            }
+
+            let mut token_provider = google_token_provider;
+            if token_provider.is_none() && !has_auth_header(&http_config.headers) {
+                token_provider = Some(Arc::new(
+                    crate::auth::adc::AdcTokenProvider::default_client(),
+                ));
+            }
+            token_provider
+        }
+        #[cfg(not(feature = "gcp"))]
+        {
+            google_token_provider
+        }
+    };
+
+    let mut cfg =
+        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicConfig::new(
             base_url,
-            model: common_params.model.clone(),
-            http_config,
-        };
+            common_params.model.clone(),
+        )
+        .with_http_config(http_config)
+        .with_http_interceptors(interceptors)
+        .with_model_middlewares(
+            crate::execution::middleware::build_auto_middlewares_vec(
+                "anthropic",
+                &common_params.model,
+            ),
+        );
+
+    if let Some(http_transport) = http_transport {
+        cfg = cfg.with_http_transport(http_transport);
+    }
+    if let Some(token_provider) = token_provider {
+        cfg = cfg.with_token_provider(token_provider);
+    }
+    if !middlewares.is_empty() {
+        let mut all_middlewares = cfg.model_middlewares.clone();
+        all_middlewares.extend(middlewares);
+        cfg = cfg.with_model_middlewares(all_middlewares);
+    }
     let mut client =
-        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient::new(
+        siumai_provider_google_vertex::providers::anthropic_vertex::client::VertexAnthropicClient::with_http_client(
             cfg,
             http_client,
-        );
+        )?;
     if let Some(opts) = retry_options {
         client.set_retry_options(Some(opts));
     }
-    if !interceptors.is_empty() {
-        client = client.with_http_interceptors(interceptors);
-    }
-    // No tracing guard necessary; headers are injected via the provider spec.
-    // Auto + user middlewares (treat as anthropic)
-    let mut auto_mws =
-        crate::execution::middleware::build_auto_middlewares_vec("anthropic", &common_params.model);
-    auto_mws.extend(middlewares);
-    if !auto_mws.is_empty() {
-        client = client.with_model_middlewares(auto_mws);
-    }
     Ok(Arc::new(client))
+}
+
+#[cfg(feature = "google-vertex")]
+#[allow(clippy::too_many_arguments)]
+pub async fn build_google_vertex_typed_client(
+    base_url: String,
+    api_key: Option<String>,
+    http_client: reqwest::Client,
+    common_params: CommonParams,
+    http_config: HttpConfig,
+    token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
+    _tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    retry_options: Option<RetryOptions>,
+    interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+) -> Result<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient, LlmError> {
+    let mut cfg = siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig::new(
+        base_url,
+        common_params.model.clone(),
+    )
+    .with_http_config(http_config)
+    .with_http_interceptors(interceptors)
+    .with_model_middlewares(middlewares);
+
+    if let Some(api_key) = api_key {
+        cfg = cfg.with_api_key(api_key);
+    }
+    if let Some(http_transport) = http_transport {
+        cfg = cfg.with_http_transport(http_transport);
+    }
+    if let Some(token_provider) = token_provider {
+        cfg = cfg.with_token_provider(token_provider);
+    }
+
+    let mut client =
+        siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::with_http_client(
+            cfg,
+            http_client,
+        )?;
+    client = client.with_common_params(common_params);
+    if let Some(opts) = retry_options {
+        client = client.with_retry_options(opts);
+    }
+
+    Ok(client)
 }
 
 /// Build Google Vertex client (Imagen via Vertex AI).
@@ -461,30 +619,26 @@ pub async fn build_google_vertex_client(
     common_params: CommonParams,
     http_config: HttpConfig,
     token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
-    _tracing_config: Option<crate::observability::tracing::TracingConfig>,
+    tracing_config: Option<crate::observability::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
-    _middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
-    let cfg = siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig {
+    let client = build_google_vertex_typed_client(
         base_url,
-        model: common_params.model.clone(),
         api_key,
+        http_client,
+        common_params,
         http_config,
-        http_transport,
         token_provider,
-    };
-
-    let mut client =
-        siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::new(cfg, http_client);
-    client = client.with_common_params(common_params);
-    if let Some(opts) = retry_options {
-        client = client.with_retry_options(opts);
-    }
-    if !interceptors.is_empty() {
-        client = client.with_interceptors(interceptors);
-    }
+        tracing_config,
+        retry_options,
+        interceptors,
+        middlewares,
+        http_transport,
+    )
+    .await?;
 
     Ok(Arc::new(client))
 }
@@ -516,6 +670,8 @@ pub async fn build_ollama_client(
         ollama_params,
         http_config,
         http_transport,
+        http_interceptors: interceptors.clone(),
+        model_middlewares: Vec::new(),
     };
 
     let mut client = OllamaClient::new(config, http_client);
@@ -548,7 +704,7 @@ pub async fn build_minimaxi_client(
     base_url: String,
     http_client: reqwest::Client,
     common_params: CommonParams,
-    _http_config: HttpConfig,
+    http_config: HttpConfig,
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
     interceptors: Vec<Arc<dyn HttpInterceptor>>,
@@ -558,30 +714,27 @@ pub async fn build_minimaxi_client(
     use siumai_provider_minimaxi::providers::minimaxi::client::MinimaxiClient;
     use siumai_provider_minimaxi::providers::minimaxi::config::MinimaxiConfig;
 
-    let config = MinimaxiConfig::new(api_key)
-        .with_base_url(base_url)
-        .with_model(common_params.model.clone());
+    let mut model_middlewares =
+        crate::execution::middleware::build_auto_middlewares_vec("minimaxi", &common_params.model);
+    model_middlewares.extend(middlewares);
 
-    let mut client = MinimaxiClient::new(config, http_client);
-    if let Some(transport) = http_transport {
-        client = client.with_http_transport(transport);
+    let mut config = MinimaxiConfig::new(api_key)
+        .with_base_url(base_url)
+        .with_http_config(http_config)
+        .with_http_interceptors(interceptors)
+        .with_model_middlewares(model_middlewares);
+    if let Some(http_transport) = http_transport {
+        config = config.with_http_transport(http_transport);
     }
+    config.common_params = common_params;
+
+    let mut client = MinimaxiClient::with_http_client(config, http_client)?;
 
     if let Some(tc) = tracing_config {
         client = client.with_tracing(tc);
     }
     if let Some(opts) = retry_options {
         client = client.with_retry(opts);
-    }
-    if !interceptors.is_empty() {
-        client = client.with_interceptors(interceptors);
-    }
-
-    let mut auto_mws =
-        crate::execution::middleware::build_auto_middlewares_vec("minimaxi", &common_params.model);
-    auto_mws.extend(middlewares);
-    if !auto_mws.is_empty() {
-        client = client.with_model_middlewares(auto_mws);
     }
 
     Ok(Arc::new(client))

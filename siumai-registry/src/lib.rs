@@ -6,7 +6,8 @@
 // Keep a small stable surface; avoid leaking provider-agnostic internals by default.
 pub use siumai_core::client::LlmClient;
 pub use siumai_core::{
-    LlmError, custom_provider, error, hosted_tools, retry_api, streaming, traits, types,
+    LlmError, custom_provider, embedding, error, hosted_tools, image, retry_api, streaming, text,
+    traits, types,
 };
 
 // Internal aliases for registry implementation (not part of the public API).

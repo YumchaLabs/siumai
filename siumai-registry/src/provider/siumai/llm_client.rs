@@ -17,7 +17,7 @@ impl LlmClient for Siumai {
     }
 
     fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
-        Some(self)
+        self.metadata.capabilities.supports("chat").then_some(self)
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
@@ -32,8 +32,16 @@ impl LlmClient for Siumai {
         self.client.as_speech_capability()
     }
 
+    fn as_speech_extras(&self) -> Option<&dyn SpeechExtras> {
+        self.client.as_speech_extras()
+    }
+
     fn as_transcription_capability(&self) -> Option<&dyn TranscriptionCapability> {
         self.client.as_transcription_capability()
+    }
+
+    fn as_transcription_extras(&self) -> Option<&dyn TranscriptionExtras> {
+        self.client.as_transcription_extras()
     }
 
     #[allow(deprecated)]

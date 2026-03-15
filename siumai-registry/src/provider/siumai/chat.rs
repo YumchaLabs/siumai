@@ -70,6 +70,60 @@ impl ChatCapability for Siumai {
         }
     }
 
+    async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
+        let client = std::sync::Arc::clone(&self.client);
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let req = request.clone();
+                    let c = std::sync::Arc::clone(&client);
+                    async move {
+                        let chat = c.as_chat_capability().ok_or_else(|| {
+                            LlmError::UnsupportedOperation(
+                                "Client does not support chat.".to_string(),
+                            )
+                        })?;
+                        chat.chat_request(req).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let chat = client.as_chat_capability().ok_or_else(|| {
+                LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+            })?;
+            chat.chat_request(request).await
+        }
+    }
+
+    async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
+        let client = std::sync::Arc::clone(&self.client);
+        if let Some(opts) = &self.retry_options {
+            crate::retry_api::retry_with(
+                || {
+                    let req = request.clone();
+                    let c = std::sync::Arc::clone(&client);
+                    async move {
+                        let chat = c.as_chat_capability().ok_or_else(|| {
+                            LlmError::UnsupportedOperation(
+                                "Client does not support chat.".to_string(),
+                            )
+                        })?;
+                        chat.chat_stream_request(req).await
+                    }
+                },
+                opts.clone(),
+            )
+            .await
+        } else {
+            let chat = client.as_chat_capability().ok_or_else(|| {
+                LlmError::UnsupportedOperation("Client does not support chat.".to_string())
+            })?;
+            chat.chat_stream_request(request).await
+        }
+    }
+
     async fn chat_stream_with_cancel(
         &self,
         messages: Vec<ChatMessage>,

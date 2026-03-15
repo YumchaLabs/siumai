@@ -32,6 +32,7 @@ siumai-provider-google-vertex = { version = "0.11.0-beta.6", path = "../siumai-p
 siumai-provider-ollama = { version = "0.11.0-beta.6", path = "../siumai-provider-ollama", default-features = false, optional = true }
 siumai-provider-groq = { version = "0.11.0-beta.6", path = "../siumai-provider-groq", default-features = false, optional = true }
 siumai-provider-xai = { version = "0.11.0-beta.6", path = "../siumai-provider-xai", default-features = false, optional = true }
+siumai-provider-deepseek = { version = "0.11.0-beta.6", path = "../siumai-provider-deepseek", default-features = false, optional = true }
 siumai-provider-minimaxi = { version = "0.11.0-beta.6", path = "../siumai-provider-minimaxi", default-features = false, optional = true }
 siumai-provider-cohere = { version = "0.11.0-beta.6", path = "../siumai-provider-cohere", default-features = false, optional = true }
 siumai-provider-togetherai = { version = "0.11.0-beta.6", path = "../siumai-provider-togetherai", default-features = false, optional = true }
@@ -118,6 +119,17 @@ groq = [
     "dep:siumai-protocol-openai",
     "siumai-protocol-openai/openai-standard",
 ]
+deepseek = [
+    "builtins",
+    "siumai-core/openai",
+    "dep:siumai-provider-deepseek",
+    "siumai-provider-deepseek/deepseek",
+    # DeepSeek reuses the OpenAI-compatible runtime, but exposes a dedicated registry factory.
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+    "dep:siumai-protocol-openai",
+    "siumai-protocol-openai/openai-standard",
+]
 minimaxi = ["builtins", "siumai-core/minimaxi", "dep:siumai-provider-minimaxi", "siumai-provider-minimaxi/minimaxi"]
 cohere = ["builtins", "siumai-core/cohere", "dep:siumai-provider-cohere", "siumai-provider-cohere/cohere"]
 togetherai = [
@@ -147,11 +159,14 @@ all-providers = [
     "ollama",
     "xai",
     "groq",
+    "deepseek",
     "minimaxi",
     "cohere",
     "togetherai",
+    "bedrock",
 ]
 
 [dev-dependencies]
 tokio-test.workspace = true
 tempfile.workspace = true
+wiremock.workspace = true

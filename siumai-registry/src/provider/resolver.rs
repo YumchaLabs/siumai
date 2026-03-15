@@ -14,7 +14,7 @@ pub fn normalize_provider_id(raw: &str) -> String {
 ///
 /// This is used for behaviors like model alias normalization that are specific to OpenAI-compatible
 /// providers (not native OpenAI, Azure OpenAI, or non-OpenAI provider families).
-#[cfg(any(test, feature = "openai"))]
+#[cfg(any(test, feature = "openai", feature = "deepseek"))]
 pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
     match provider_id {
         // Native / built-in families (not OpenAI-compatible)
@@ -38,7 +38,11 @@ pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
     feature = "anthropic",
     feature = "google",
     feature = "google-vertex",
+    feature = "cohere",
+    feature = "togetherai",
+    feature = "bedrock",
     feature = "ollama",
+    feature = "deepseek",
     feature = "xai",
     feature = "groq",
     feature = "minimaxi"
