@@ -232,16 +232,26 @@ pub fn extract_json_value_from_response(
     response: &ChatResponse,
 ) -> Result<serde_json::Value, LlmError> {
     let text = response.text().unwrap_or_default();
+    let reserved_json_tool_arguments = extract_reserved_json_tool_arguments(response);
+
+    if response.finish_reason == Some(FinishReason::ContentFilter) {
+        if let Some(args) = reserved_json_tool_arguments.clone() {
+            return normalize_tool_json_arguments_strict(args)
+                .map_err(|_| content_filter_json_error());
+        }
+
+        if let Ok(v) = extract_json_value_strict(&text) {
+            return Ok(v);
+        }
+        return Err(content_filter_json_error());
+    }
+
     if let Ok(v) = extract_json_value(&text) {
         return Ok(v);
     }
 
-    if let Some(args) = extract_reserved_json_tool_arguments(response) {
+    if let Some(args) = reserved_json_tool_arguments {
         return normalize_tool_json_arguments(args);
-    }
-
-    if response.finish_reason == Some(FinishReason::ContentFilter) {
-        return Err(content_filter_json_error());
     }
 
     extract_json_value(&text)
@@ -446,6 +456,15 @@ mod tests {
             LlmError::ParseError(message) => assert!(message.contains("content filtering/refusal")),
             other => panic!("expected ParseError, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn preserves_complete_json_when_content_filter_finish_reason_is_set() {
+        let mut resp = ChatResponse::new(MessageContent::Text("{\"value\":\"ok\"}".to_string()));
+        resp.finish_reason = Some(FinishReason::ContentFilter);
+
+        let value = extract_json_value_from_response(&resp).expect("strict json should parse");
+        assert_eq!(value["value"], "ok");
     }
 
     #[tokio::test]
