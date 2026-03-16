@@ -47,6 +47,8 @@ pub struct GeminiBuilder {
     candidate_count: Option<i32>,
     /// Safety settings
     safety_settings: Option<Vec<crate::providers::gemini::SafetySetting>>,
+    /// Base generation config defaults injected before builder-local overrides.
+    generation_config: Option<crate::providers::gemini::GenerationConfig>,
     /// JSON schema for structured output
     json_schema: Option<serde_json::Value>,
     /// Thinking configuration
@@ -64,6 +66,7 @@ impl GeminiBuilder {
             top_k: None,
             candidate_count: None,
             safety_settings: None,
+            generation_config: None,
             json_schema: None,
             thinking_config: None,
         }
@@ -238,6 +241,18 @@ impl GeminiBuilder {
         self
     }
 
+    /// Alias for `top_k(...)` on the builder/config parity surface.
+    pub const fn with_top_k(mut self, top_k: i32) -> Self {
+        self.top_k = Some(top_k);
+        self
+    }
+
+    /// Alias for `candidate_count(...)` on the builder/config parity surface.
+    pub const fn with_candidate_count(mut self, count: i32) -> Self {
+        self.candidate_count = Some(count);
+        self
+    }
+
     /// Set safety settings
     pub fn safety_settings(
         mut self,
@@ -247,8 +262,32 @@ impl GeminiBuilder {
         self
     }
 
+    /// Alias for `safety_settings(...)` on the builder/config parity surface.
+    pub fn with_safety_settings(
+        mut self,
+        settings: Vec<crate::providers::gemini::SafetySetting>,
+    ) -> Self {
+        self.safety_settings = Some(settings);
+        self
+    }
+
+    /// Seed the builder from a full Gemini generation config.
+    pub fn with_generation_config(
+        mut self,
+        config: crate::providers::gemini::GenerationConfig,
+    ) -> Self {
+        self.generation_config = Some(config);
+        self
+    }
+
     /// Enable structured output with JSON schema
     pub fn json_schema(mut self, schema: serde_json::Value) -> Self {
+        self.json_schema = Some(schema);
+        self
+    }
+
+    /// Alias for `json_schema(...)` on the builder/config parity surface.
+    pub fn with_json_schema(mut self, schema: serde_json::Value) -> Self {
         self.json_schema = Some(schema);
         self
     }
@@ -278,6 +317,18 @@ impl GeminiBuilder {
         self
     }
 
+    /// Alias for `thinking_budget(...)` on the builder/config parity surface.
+    pub fn with_thinking_budget(mut self, budget: i32) -> Self {
+        if self.thinking_config.is_none() {
+            self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::new());
+        }
+        if let Some(ref mut config) = self.thinking_config {
+            config.thinking_budget = Some(budget);
+            config.include_thoughts = Some(budget != 0);
+        }
+        self
+    }
+
     /// Enable or disable thought summaries in response
     ///
     /// This controls whether thinking summaries are included in the response,
@@ -292,8 +343,25 @@ impl GeminiBuilder {
         self
     }
 
+    /// Alias for `thought_summaries(...)` on the builder/config parity surface.
+    pub fn with_thought_summaries(mut self, include: bool) -> Self {
+        if self.thinking_config.is_none() {
+            self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::new());
+        }
+        if let Some(ref mut config) = self.thinking_config {
+            config.include_thoughts = Some(include);
+        }
+        self
+    }
+
     /// Enable dynamic thinking (model decides when and how much to think)
     pub fn thinking(mut self) -> Self {
+        self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::dynamic());
+        self
+    }
+
+    /// Alias for dynamic thinking on the builder/config parity surface.
+    pub fn with_dynamic_thinking(mut self) -> Self {
         self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::dynamic());
         self
     }
@@ -332,6 +400,16 @@ impl GeminiBuilder {
         self
     }
 
+    /// Alias for `reasoning(...)` on the builder/config parity surface.
+    pub fn with_reasoning(mut self, enable: bool) -> Self {
+        if enable {
+            self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::dynamic());
+        } else {
+            self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::disabled());
+        }
+        self
+    }
+
     /// Set reasoning budget (unified interface)
     ///
     /// This is the unified reasoning budget interface that works across all providers.
@@ -360,11 +438,22 @@ impl GeminiBuilder {
         self.thinking_budget(budget)
     }
 
+    /// Alias for `reasoning_budget(...)` on the builder/config parity surface.
+    pub fn with_reasoning_budget(self, budget: i32) -> Self {
+        self.with_thinking_budget(budget)
+    }
+
     /// Attempt to disable thinking
     ///
     /// Note: Not all models support disabling thinking. If the model doesn't
     /// support it, the API will return an appropriate error.
     pub fn disable_thinking(mut self) -> Self {
+        self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::disabled());
+        self
+    }
+
+    /// Alias for `disable_thinking()` on the builder/config parity surface.
+    pub fn with_disable_thinking(mut self) -> Self {
         self.thinking_config = Some(crate::providers::gemini::ThinkingConfig::disabled());
         self
     }
@@ -390,8 +479,10 @@ impl GeminiBuilder {
             config = config.with_model(model);
         }
 
-        let mut generation_config = crate::providers::gemini::GenerationConfig::new();
-        let mut has_generation_config = false;
+        let mut has_generation_config = self.generation_config.is_some();
+        let mut generation_config = self
+            .generation_config
+            .unwrap_or_else(crate::providers::gemini::GenerationConfig::new);
 
         if let Some(top_k) = self.top_k {
             generation_config = generation_config.with_top_k(top_k);
@@ -482,10 +573,10 @@ mod tests {
             .model("gemini-2.5-flash")
             .temperature(0.3)
             .max_tokens(1024)
-            .top_k(8)
-            .candidate_count(2)
-            .json_schema(serde_json::json!({ "type": "object" }))
-            .reasoning_budget(2048)
+            .with_top_k(8)
+            .with_candidate_count(2)
+            .with_json_schema(serde_json::json!({ "type": "object" }))
+            .with_reasoning_budget(2048)
             .timeout(Duration::from_secs(20))
             .http_debug(true)
             .into_config()
@@ -523,10 +614,10 @@ mod tests {
             .model("gemini-2.5-flash")
             .temperature(0.3)
             .max_tokens(1024)
-            .top_k(8)
-            .candidate_count(2)
-            .json_schema(serde_json::json!({ "type": "object" }))
-            .reasoning_budget(2048)
+            .with_top_k(8)
+            .with_candidate_count(2)
+            .with_json_schema(serde_json::json!({ "type": "object" }))
+            .with_reasoning_budget(2048)
             .timeout(Duration::from_secs(20))
             .http_debug(true)
             .into_config()
@@ -586,5 +677,27 @@ mod tests {
             builder_config.model_middlewares.len(),
             manual_config.model_middlewares.len()
         );
+    }
+
+    #[test]
+    fn gemini_builder_with_generation_config_uses_it_as_base_before_alias_overrides() {
+        let config = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("gemini-2.5-flash")
+            .with_generation_config(
+                crate::providers::gemini::GenerationConfig::new()
+                    .with_candidate_count(1)
+                    .with_top_k(4),
+            )
+            .with_top_k(8)
+            .with_thought_summaries(true)
+            .into_config()
+            .expect("into_config ok");
+
+        let generation_config = config.generation_config.expect("generation config");
+        assert_eq!(generation_config.candidate_count, Some(1));
+        assert_eq!(generation_config.top_k, Some(8));
+        let thinking = generation_config.thinking_config.expect("thinking config");
+        assert_eq!(thinking.include_thoughts, Some(true));
     }
 }

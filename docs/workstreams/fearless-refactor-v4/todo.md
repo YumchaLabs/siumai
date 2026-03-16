@@ -298,6 +298,7 @@ Status legend:
   - MiniMaxi now also owns provider-level default chat option helpers on both config-first and builder surfaces: `MinimaxiConfig` / `MinimaxiBuilder` can persist thinking-mode and structured-output defaults through `provider_options_map`, while request-local `with_minimaxi_options(...)` still overrides those defaults at execution time.
   - xAI now also owns provider-level default request helpers on both config-first and builder surfaces: `XaiConfig` / `XaiBuilder` can persist `reasoning_effort` and default web-search parameters through the same provider-owned adapter path as request-level `XaiOptions`, while request-local provider options still override those defaults at execution time.
   - Anthropic builder/config parity is now tighter too: `AnthropicBuilder` now mirrors the provider-owned `AnthropicConfig` helper surface for bulk params, cache/thinking/system metadata aliases, `stream`, and beta-feature defaults, so builder-first Anthropic construction no longer trails config-first on provider-specific request shaping.
+  - Gemini builder/config parity is now tighter too: `GeminiBuilder` now mirrors the provider-owned `GeminiConfig` helper surface for `with_top_k`, `with_candidate_count`, JSON-schema / reasoning aliases, and base `GenerationConfig` injection, so builder-first Gemini construction no longer trails config-first on generation-config shaping.
 
 
 
