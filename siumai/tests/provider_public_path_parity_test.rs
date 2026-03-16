@@ -20365,6 +20365,124 @@ mod ollama_public_path {
     }
 
     #[tokio::test]
+    async fn ollama_siumai_provider_config_embedding_request_options_are_equivalent() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "nomic-embed-text";
+        let base_url = "http://example.com:11434/";
+
+        let siumai_client = Siumai::builder()
+            .ollama()
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::ollama()
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::ollama::OllamaClient::from_config(
+            siumai::provider_ext::ollama::OllamaConfig::builder()
+                .base_url(base_url)
+                .model(model)
+                .http_transport(Arc::new(config_transport.clone()))
+                .build()
+                .expect("build ollama config"),
+        )
+        .expect("build config client");
+
+        let request = EmbeddingRequest::single("hello ollama embedding")
+            .with_model(model)
+            .with_ollama_config(
+                OllamaEmbeddingOptions::new()
+                    .with_keep_alive("5m")
+                    .with_truncate(false),
+            );
+
+        let _ = siumai_client.embed_with_config(request.clone()).await;
+        let _ = provider_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_eq!(siumai_req.url, "http://example.com:11434/api/embed");
+        assert_eq!(
+            siumai_req.body["model"],
+            serde_json::json!("nomic-embed-text")
+        );
+        assert_eq!(
+            siumai_req.body["input"],
+            serde_json::json!("hello ollama embedding")
+        );
+        assert_eq!(siumai_req.body["truncate"], serde_json::json!(false));
+        assert_eq!(siumai_req.body["keep_alive"], serde_json::json!("5m"));
+    }
+
+    #[tokio::test]
+    async fn ollama_registry_embedding_request_options_match_config_path() {
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "nomic-embed-text";
+        let base_url = "http://example.com:11434/";
+
+        let config_client = siumai::provider_ext::ollama::OllamaClient::from_config(
+            siumai::provider_ext::ollama::OllamaConfig::builder()
+                .base_url(base_url)
+                .model(model)
+                .http_transport(Arc::new(config_transport.clone()))
+                .build()
+                .expect("build ollama config"),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .embedding_model("ollama:nomic-embed-text")
+            .expect("build registry embedding model");
+
+        let request = EmbeddingRequest::single("hello ollama embedding")
+            .with_model(model)
+            .with_ollama_config(
+                OllamaEmbeddingOptions::new()
+                    .with_keep_alive("5m")
+                    .with_truncate(false),
+            );
+
+        let _ = config_client.embed_with_config(request.clone()).await;
+        let _ = registry_model.embed_with_config(request).await;
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_eq!(registry_req.url, "http://example.com:11434/api/embed");
+        assert_eq!(
+            registry_req.body["model"],
+            serde_json::json!("nomic-embed-text")
+        );
+        assert_eq!(
+            registry_req.body["input"],
+            serde_json::json!("hello ollama embedding")
+        );
+        assert_eq!(registry_req.body["truncate"], serde_json::json!(false));
+        assert_eq!(registry_req.body["keep_alive"], serde_json::json!("5m"));
+    }
+
+    #[tokio::test]
     async fn ollama_tool_choice_none_omits_tools_across_public_paths() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -20642,6 +20760,77 @@ mod ollama_public_path {
         assert_eq!(req.url, "http://example.com:11434/ollama/api/chat");
         assert_eq!(req.body["model"], serde_json::json!("llama3.2"));
         assert_eq!(req.body["stream"], serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn ollama_registry_embedding_handle_prefers_provider_specific_build_overrides() {
+        let global_transport = CaptureTransport::default();
+        let ollama_transport = CaptureTransport::default();
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "ollama".to_string(),
+            Arc::new(siumai::registry::factories::OllamaProviderFactory)
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "ollama".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url("http://example.com:11434/ollama")
+                .fetch(Arc::new(ollama_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(Arc::new(global_transport.clone())),
+                http_config: None,
+                api_key: None,
+                base_url: Some("http://example.com:11434/global".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let handle = registry
+            .embedding_model("ollama:nomic-embed-text")
+            .expect("build ollama embedding handle");
+
+        let _ = handle
+            .embed_with_config(
+                EmbeddingRequest::single("hello ollama embedding")
+                    .with_model("nomic-embed-text")
+                    .with_ollama_config(
+                        OllamaEmbeddingOptions::new()
+                            .with_keep_alive("5m")
+                            .with_truncate(false),
+                    ),
+            )
+            .await;
+
+        let req = ollama_transport
+            .take()
+            .expect("captured ollama embedding request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(req.url, "http://example.com:11434/ollama/api/embed");
+        assert_eq!(req.body["model"], serde_json::json!("nomic-embed-text"));
+        assert_eq!(
+            req.body["input"],
+            serde_json::json!("hello ollama embedding")
+        );
+        assert_eq!(req.body["truncate"], serde_json::json!(false));
+        assert_eq!(req.body["keep_alive"], serde_json::json!("5m"));
     }
 
     #[tokio::test]
