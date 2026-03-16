@@ -79,8 +79,38 @@ impl AzureOpenAiConfig {
         self
     }
 
+    pub fn with_language_model(self, model: impl Into<String>) -> Self {
+        self.with_model(model)
+    }
+
+    pub fn with_embedding_model(self, model: impl Into<String>) -> Self {
+        self.with_model(model)
+    }
+
+    pub fn with_image_model(self, model: impl Into<String>) -> Self {
+        self.with_model(model)
+    }
+
+    pub fn with_speech_model(self, model: impl Into<String>) -> Self {
+        self.with_model(model)
+    }
+
+    pub fn with_transcription_model(self, model: impl Into<String>) -> Self {
+        self.with_model(model)
+    }
+
     pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
         self.http_config = http_config;
+        self
+    }
+
+    pub fn with_api_version(mut self, api_version: impl Into<String>) -> Self {
+        self.url_config.api_version = api_version.into();
+        self
+    }
+
+    pub fn with_deployment_based_urls(mut self, enabled: bool) -> Self {
+        self.url_config.use_deployment_based_urls = enabled;
         self
     }
 
@@ -92,6 +122,22 @@ impl AzureOpenAiConfig {
     pub fn with_chat_mode(mut self, mode: AzureChatMode) -> Self {
         self.chat_mode = mode;
         self
+    }
+
+    pub fn with_responses_api(self, enabled: bool) -> Self {
+        if enabled {
+            self.with_chat_mode(AzureChatMode::Responses)
+        } else {
+            self.with_chat_mode(AzureChatMode::ChatCompletions)
+        }
+    }
+
+    pub fn with_responses(self) -> Self {
+        self.with_chat_mode(AzureChatMode::Responses)
+    }
+
+    pub fn with_chat_completions(self) -> Self {
+        self.with_chat_mode(AzureChatMode::ChatCompletions)
     }
 
     pub fn with_provider_metadata_key(mut self, key: &'static str) -> Self {

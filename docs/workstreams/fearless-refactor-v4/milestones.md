@@ -333,6 +333,7 @@ Notes:
 
 
 - Builder/config parity tests now cover OpenAI, Anthropic, Gemini, OpenAI-compatible, Groq, xAI, DeepSeek, Ollama, Google Vertex, and MiniMaxi.
+- Azure config-first helper parity is now explicit too: `AzureOpenAiConfig` mirrors builder-owned family aliases plus API-version / deployment-based URL and chat-mode shorthands, so config-first Azure setup no longer needs direct `AzureUrlConfig` mutation just to match the provider-owned builder surface.
 - xAI and Groq parity now also cover both top-level and registry-native 200-response / SSE `StreamEnd` typed metadata extraction, so builder/provider/config-first plus `language_model("{provider}:...")` paths stay aligned on `sources` / `logprobs` instead of only request shaping.
 - xAI and Groq mixed-registry override convergence is now explicit too: provider-scoped `ProviderBuildOverrides` on the real registry chat-response plus `StreamEnd` paths preserve `provider_metadata["xai"]` / `provider_metadata["groq"]`, so typed `XaiChatResponseExt` / `GroqChatResponseExt` extraction no longer depends on the non-override lane.
 - DeepSeek mixed-registry override convergence is now explicit too: provider-scoped `ProviderBuildOverrides` on the real registry chat-response plus `StreamEnd` paths preserve `provider_metadata["deepseek"]`, so typed `DeepSeekChatResponseExt` extraction no longer depends on the non-override lane either.

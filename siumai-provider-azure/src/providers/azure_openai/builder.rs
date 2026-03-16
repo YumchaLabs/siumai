@@ -292,4 +292,46 @@ mod config_first_tests {
             crate::client::LlmClient::supported_models(&from_config)
         );
     }
+
+    #[test]
+    fn config_first_helper_aliases_converge_with_builder_helpers() {
+        let builder_config = AzureOpenAiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.openai.azure.com/openai")
+            .image_model("deployment-id")
+            .chat_completions()
+            .api_version("2024-10-21")
+            .deployment_based_urls(false)
+            .provider_metadata_key("azure-custom")
+            .into_config()
+            .expect("builder into_config");
+
+        let config_first = AzureOpenAiConfig::new("test-key")
+            .with_base_url("https://example.openai.azure.com/openai")
+            .with_image_model("deployment-id")
+            .with_chat_completions()
+            .with_api_version("2024-10-21")
+            .with_deployment_based_urls(false)
+            .with_provider_metadata_key("azure-custom");
+
+        assert_eq!(config_first.api_key, builder_config.api_key);
+        assert_eq!(config_first.base_url, builder_config.base_url);
+        assert_eq!(
+            config_first.common_params.model,
+            builder_config.common_params.model
+        );
+        assert_eq!(config_first.chat_mode, builder_config.chat_mode);
+        assert_eq!(
+            config_first.url_config.api_version,
+            builder_config.url_config.api_version
+        );
+        assert_eq!(
+            config_first.url_config.use_deployment_based_urls,
+            builder_config.url_config.use_deployment_based_urls
+        );
+        assert_eq!(
+            config_first.provider_metadata_key,
+            builder_config.provider_metadata_key
+        );
+    }
 }
