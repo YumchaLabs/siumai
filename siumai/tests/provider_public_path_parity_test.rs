@@ -31849,6 +31849,113 @@ mod vertex_public_path {
     }
 
     #[tokio::test]
+    async fn vertex_registry_image_handle_prefers_provider_specific_build_overrides() {
+        let image_response = serde_json::json!({
+            "predictions": [
+                {
+                    "bytesBase64Encoded": "aGVsbG8=",
+                    "mimeType": "image/png",
+                    "prompt": "a tiny orange robot"
+                }
+            ]
+        });
+
+        let global_transport = JsonSuccessTransport::new(image_response.clone());
+        let vertex_transport = JsonSuccessTransport::new(image_response);
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex".to_string(),
+            Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.com/custom")
+                .fetch(Arc::new(vertex_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(Arc::new(global_transport.clone())),
+                http_config: None,
+                api_key: Some("global-key".to_string()),
+                base_url: Some("https://example.com/global".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let handle = registry
+            .image_model("vertex:imagen-4.0-generate-001")
+            .expect("build vertex image model");
+
+        let generated = handle
+            .generate_images(
+                ImageGenerationRequest {
+                    prompt: "a tiny orange robot".to_string(),
+                    negative_prompt: None,
+                    size: Some("1024x1024".to_string()),
+                    count: 1,
+                    model: Some("imagen-4.0-generate-001".to_string()),
+                    quality: None,
+                    style: None,
+                    seed: Some(7),
+                    steps: None,
+                    guidance_scale: None,
+                    enhance_prompt: Some(true),
+                    response_format: Some("b64_json".to_string()),
+                    extra_params: Default::default(),
+                    provider_options_map: Default::default(),
+                    http_config: None,
+                }
+                .with_vertex_imagen_options(
+                    VertexImagenOptions::new().with_negative_prompt("blurry"),
+                ),
+            )
+            .await
+            .expect("generate images through registry handle");
+
+        assert_eq!(generated.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert!(global_transport.take().is_none());
+
+        let req = vertex_transport.take().expect("captured vertex request");
+        assert!(
+            req.url.starts_with("https://example.com/custom"),
+            "unexpected url: {}",
+            req.url
+        );
+        assert!(
+            req.url
+                .contains("/models/imagen-4.0-generate-001:predict?key=ctx-key"),
+            "unexpected url: {}",
+            req.url
+        );
+        assert_eq!(
+            req.body["instances"][0]["prompt"],
+            serde_json::json!("a tiny orange robot")
+        );
+        assert_eq!(
+            req.body["parameters"]["negativePrompt"],
+            serde_json::json!("blurry")
+        );
+    }
+
+    #[tokio::test]
     async fn vertex_siumai_provider_config_image_edit_request_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -31973,6 +32080,115 @@ mod vertex_public_path {
                 .contains("/models/imagen-3.0-edit-001:predict?key=test-key"),
             "unexpected url: {}",
             registry_req.url
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_registry_image_edit_handle_prefers_provider_specific_build_overrides() {
+        let image_response = serde_json::json!({
+            "predictions": [
+                {
+                    "bytesBase64Encoded": "aGVsbG8=",
+                    "mimeType": "image/png"
+                }
+            ]
+        });
+
+        let global_transport = JsonSuccessTransport::new(image_response.clone());
+        let vertex_transport = JsonSuccessTransport::new(image_response);
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex".to_string(),
+            Arc::new(siumai::registry::factories::GoogleVertexProviderFactory)
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.com/custom")
+                .fetch(Arc::new(vertex_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(Arc::new(global_transport.clone())),
+                http_config: None,
+                api_key: Some("global-key".to_string()),
+                base_url: Some("https://example.com/global".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let handle = registry
+            .image_model("vertex:imagen-3.0-edit-001")
+            .expect("build vertex image model");
+
+        let generated = handle
+            .edit_image(
+                siumai::extensions::types::ImageEditRequest {
+                    image: vec![1, 2, 3, 4],
+                    mask: Some(vec![5, 6, 7, 8]),
+                    prompt: "replace the masked region with a paper airplane".to_string(),
+                    model: Some("imagen-3.0-edit-001".to_string()),
+                    count: Some(1),
+                    size: Some("1024x1024".to_string()),
+                    response_format: Some("b64_json".to_string()),
+                    extra_params: Default::default(),
+                    provider_options_map: Default::default(),
+                    http_config: None,
+                }
+                .with_vertex_imagen_options(
+                    VertexImagenOptions::new().with_edit(
+                        VertexImagenEditOptions::new()
+                            .with_mode("EDIT_MODE_INPAINT_INSERTION")
+                            .with_mask_mode("MASK_MODE_USER_PROVIDED"),
+                    ),
+                ),
+            )
+            .await
+            .expect("edit image through registry handle");
+
+        assert_eq!(generated.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert!(global_transport.take().is_none());
+
+        let req = vertex_transport.take().expect("captured vertex request");
+        assert!(
+            req.url.starts_with("https://example.com/custom"),
+            "unexpected url: {}",
+            req.url
+        );
+        assert!(
+            req.url
+                .contains("/models/imagen-3.0-edit-001:predict?key=ctx-key"),
+            "unexpected url: {}",
+            req.url
+        );
+        assert_eq!(
+            req.body["instances"][0]["prompt"],
+            serde_json::json!("replace the masked region with a paper airplane")
+        );
+        assert_eq!(
+            req.body["parameters"]["editMode"],
+            serde_json::json!("EDIT_MODE_INPAINT_INSERTION")
+        );
+        assert_eq!(
+            req.body["instances"][0]["referenceImages"][1]["maskImageConfig"]["maskMode"],
+            serde_json::json!("MASK_MODE_USER_PROVIDED")
         );
     }
 }
