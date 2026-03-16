@@ -446,6 +446,48 @@ fn assert_common_http_config_shape(
     assert!(!cfg.stream_disable_compression);
 }
 
+/// Test that the top-level `Provider::ollama()` facade reaches the recent
+/// config-first parity helpers without requiring direct provider-crate imports.
+#[test]
+fn test_provider_facade_ollama_builder_parity_helpers_survive_into_config() {
+    use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
+    use siumai::prelude::unified::{CommonParams, HttpConfig};
+    use siumai::provider_ext::ollama::OllamaParams;
+
+    let timeout = Duration::from_secs(17);
+    let http_config = HttpConfig {
+        timeout: Some(timeout),
+        ..Default::default()
+    };
+    let model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>> = Vec::new();
+
+    let config = Provider::ollama()
+        .with_common_params(CommonParams {
+            model: "llama3.2".to_string(),
+            temperature: Some(0.4),
+            ..Default::default()
+        })
+        .with_ollama_params(OllamaParams {
+            raw: Some(true),
+            think: Some(true),
+            ..Default::default()
+        })
+        .stop(vec!["END".to_string()])
+        .think(false)
+        .with_http_config(http_config)
+        .with_model_middlewares(model_middlewares)
+        .into_config()
+        .expect("ollama into_config");
+
+    assert_eq!(config.model.as_deref(), Some("llama3.2"));
+    assert_eq!(config.common_params.model, "llama3.2");
+    assert_eq!(config.common_params.temperature, Some(0.4));
+    assert_eq!(config.ollama_params.raw, Some(true));
+    assert_eq!(config.ollama_params.think, Some(false));
+    assert_eq!(config.ollama_params.stop, Some(vec!["END".to_string()]));
+    assert_eq!(config.http_config.timeout, Some(timeout));
+}
+
 /// Test that major provider builders expose `into_config()` and preserve the common
 /// inherited HTTP/builder settings there instead of re-deriving them later in `build()`.
 #[test]

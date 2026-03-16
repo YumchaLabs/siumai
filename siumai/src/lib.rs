@@ -783,6 +783,9 @@ pub mod provider_ext {
         pub mod ext {
             pub use siumai_provider_ollama::providers::ollama::ext::request_options;
         }
+
+        /// Provider-owned Ollama default parameter struct.
+        pub use siumai_provider_ollama::providers::ollama::config::OllamaParams;
     }
 
     #[cfg(feature = "google-vertex")]

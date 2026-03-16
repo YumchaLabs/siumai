@@ -794,10 +794,13 @@ fn public_surface_xai_provider_ext_compiles() {
 #[test]
 fn public_surface_ollama_provider_ext_compiles() {
     use siumai::prelude::unified::*;
-    use siumai::provider_ext::ollama::{OllamaClient, OllamaConfig, metadata::*, options::*};
+    use siumai::provider_ext::ollama::{
+        OllamaClient, OllamaConfig, OllamaParams, metadata::*, options::*,
+    };
 
     let _ = size_of::<OllamaClient>();
     let _ = size_of::<OllamaConfig>();
+    let _ = size_of::<OllamaParams>();
     let _ = size_of::<OllamaOptions>();
     let _ = size_of::<OllamaEmbeddingOptions>();
     let _ = OllamaClient::base_url;
