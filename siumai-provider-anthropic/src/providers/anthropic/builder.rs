@@ -185,8 +185,25 @@ impl AnthropicBuilder {
         self
     }
 
+    /// Replace the full provider-specific Anthropic params.
+    pub fn with_anthropic_params(mut self, params: AnthropicParams) -> Self {
+        self.anthropic_params = params;
+        self
+    }
+
+    /// Alias for `cache_control(...)` on the builder/config parity surface.
+    pub fn with_cache_control(self, cache: crate::params::anthropic::CacheControl) -> Self {
+        self.cache_control(cache)
+    }
+
     /// Sets the thinking budget
     pub const fn thinking_budget(mut self, budget: u32) -> Self {
+        self.anthropic_params.thinking_budget = Some(budget);
+        self
+    }
+
+    /// Alias for `thinking_budget(...)` on the builder/config parity surface.
+    pub const fn with_thinking_budget(mut self, budget: u32) -> Self {
         self.anthropic_params.thinking_budget = Some(budget);
         self
     }
@@ -209,6 +226,12 @@ impl AnthropicBuilder {
         self
     }
 
+    /// Alias for `system_message(...)` on the builder/config parity surface.
+    pub fn with_system_message<S: Into<String>>(mut self, system: S) -> Self {
+        self.anthropic_params.system = Some(system.into());
+        self
+    }
+
     /// Adds metadata
     pub fn metadata<K, V>(mut self, key: K, value: V) -> Self
     where
@@ -223,6 +246,33 @@ impl AnthropicBuilder {
             .as_mut()
             .unwrap()
             .insert(key.into(), value.into());
+        self
+    }
+
+    /// Replace the full metadata map.
+    pub fn with_metadata(mut self, metadata: HashMap<String, String>) -> Self {
+        self.anthropic_params.metadata = Some(metadata);
+        self
+    }
+
+    /// Alias for `metadata(...)` on the builder/config parity surface.
+    pub fn add_metadata<K, V>(self, key: K, value: V) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+    {
+        self.metadata(key, value)
+    }
+
+    /// Configure whether chat streaming is enabled by default.
+    pub const fn with_stream(mut self, enabled: bool) -> Self {
+        self.anthropic_params.stream = Some(enabled);
+        self
+    }
+
+    /// Configure beta feature headers on the builder/config parity surface.
+    pub fn with_beta_features(mut self, features: Vec<String>) -> Self {
+        self.anthropic_params.beta_features = Some(features);
         self
     }
 
@@ -307,6 +357,9 @@ mod tests {
 
     #[test]
     fn anthropic_builder_into_config_converges_on_anthropic_config() {
+        let mut metadata = HashMap::new();
+        metadata.insert("team".to_string(), "core".to_string());
+
         let config = AnthropicBuilder::new(BuilderBase::default())
             .api_key("test-key")
             .base_url("https://example.com")
@@ -314,10 +367,13 @@ mod tests {
             .temperature(0.2)
             .max_tokens(512)
             .top_p(0.9)
-            .cache_control(crate::params::anthropic::CacheControl::ephemeral())
-            .thinking_budget(2048)
-            .system_message("You are helpful")
-            .metadata("team", "core")
+            .with_cache_control(crate::params::anthropic::CacheControl::ephemeral())
+            .with_thinking_budget(2048)
+            .with_system_message("You are helpful")
+            .with_metadata(metadata)
+            .add_metadata("feature", "builder-first")
+            .with_stream(true)
+            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()])
             .timeout(Duration::from_secs(18))
             .http_debug(true)
             .into_config()
@@ -350,12 +406,29 @@ mod tests {
                 .map(String::as_str),
             Some("core")
         );
+        assert_eq!(
+            config
+                .anthropic_params
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("feature"))
+                .map(String::as_str),
+            Some("builder-first")
+        );
+        assert_eq!(config.anthropic_params.stream, Some(true));
+        assert_eq!(
+            config.anthropic_params.beta_features.as_deref(),
+            Some(&["prompt-caching-2024-07-31".to_string()][..])
+        );
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(18)));
         assert_eq!(config.http_interceptors.len(), 1);
     }
 
     #[test]
     fn anthropic_builder_into_config_matches_manual_anthropic_config() {
+        let mut metadata = HashMap::new();
+        metadata.insert("team".to_string(), "core".to_string());
+
         let builder_config = AnthropicBuilder::new(BuilderBase::default())
             .api_key("test-key")
             .base_url("https://example.com")
@@ -363,10 +436,13 @@ mod tests {
             .temperature(0.2)
             .max_tokens(512)
             .top_p(0.9)
-            .cache_control(crate::params::anthropic::CacheControl::ephemeral())
-            .thinking_budget(2048)
-            .system_message("You are helpful")
-            .metadata("team", "core")
+            .with_cache_control(crate::params::anthropic::CacheControl::ephemeral())
+            .with_thinking_budget(2048)
+            .with_system_message("You are helpful")
+            .with_metadata(metadata)
+            .add_metadata("feature", "builder-first")
+            .with_stream(true)
+            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()])
             .timeout(Duration::from_secs(18))
             .http_debug(true)
             .into_config()
@@ -383,7 +459,14 @@ mod tests {
             .with_cache_control(crate::params::anthropic::CacheControl::ephemeral())
             .with_thinking_budget(2048)
             .with_system_message("You are helpful")
-            .add_metadata("team", "core")
+            .with_metadata({
+                let mut metadata = HashMap::new();
+                metadata.insert("team".to_string(), "core".to_string());
+                metadata
+            })
+            .add_metadata("feature", "builder-first")
+            .with_stream(true)
+            .with_beta_features(vec!["prompt-caching-2024-07-31".to_string()])
             .with_http_config(http_config)
             .with_http_interceptors(vec![Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
