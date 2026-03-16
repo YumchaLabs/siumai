@@ -4483,6 +4483,370 @@ mod azure_public_path {
     }
 
     #[tokio::test]
+    async fn azure_siumai_provider_config_tts_request_are_equivalent() {
+        let siumai_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let provider_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let config_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let registry_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+
+        let base_url = "https://example.invalid/openai";
+        let model = "tts-deployment";
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_speech_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .speech_model("azure:tts-deployment")
+            .expect("build registry speech model");
+
+        let request = TtsRequest::new("hello from azure".to_string())
+            .with_voice("alloy".to_string())
+            .with_format("mp3".to_string())
+            .with_speed(1.1);
+
+        let siumai_resp = siumai_client
+            .text_to_speech(request.clone())
+            .await
+            .expect("siumai tts ok");
+        let provider_resp = provider_client
+            .text_to_speech(request.clone())
+            .await
+            .expect("provider tts ok");
+        let config_resp = config_client
+            .text_to_speech(request.clone())
+            .await
+            .expect("config tts ok");
+        let registry_resp = registry_model
+            .text_to_speech(request)
+            .await
+            .expect("registry tts ok");
+
+        assert_eq!(siumai_resp.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(provider_resp.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(config_resp.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(registry_resp.audio_data, vec![1, 2, 3, 4]);
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/v1/audio/speech?api-version=v1"
+        );
+        assert_eq!(
+            header_value(&siumai_req, "api-key"),
+            Some("test-key".to_string())
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["input"],
+            serde_json::json!("hello from azure")
+        );
+        assert_eq!(siumai_req.body["voice"], serde_json::json!("alloy"));
+        assert_eq!(siumai_req.body["response_format"], serde_json::json!("mp3"));
+        let speed = siumai_req.body["speed"]
+            .as_f64()
+            .expect("speed should serialize as number");
+        assert!((speed - 1.1).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn azure_siumai_provider_config_stt_request_are_equivalent() {
+        let siumai_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+        let provider_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+        let config_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+        let registry_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+
+        let base_url = "https://example.invalid/openai";
+        let model = "stt-deployment";
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_transcription_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .transcription_model("azure:stt-deployment")
+            .expect("build registry transcription model");
+
+        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        request.language = Some("en".to_string());
+        request = request.with_media_type("audio/mpeg".to_string());
+
+        let siumai_resp = siumai_client
+            .speech_to_text(request.clone())
+            .await
+            .expect("siumai stt ok");
+        let provider_resp = provider_client
+            .speech_to_text(request.clone())
+            .await
+            .expect("provider stt ok");
+        let config_resp = config_client
+            .speech_to_text(request.clone())
+            .await
+            .expect("config stt ok");
+        let registry_resp = registry_model
+            .speech_to_text(request)
+            .await
+            .expect("registry stt ok");
+
+        assert_eq!(siumai_resp.text, "hello from azure");
+        assert_eq!(provider_resp.text, "hello from azure");
+        assert_eq!(config_resp.text, "hello from azure");
+        assert_eq!(registry_resp.text, "hello from azure");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_multipart_requests_equivalent(&siumai_req, &provider_req);
+        assert_multipart_requests_equivalent(&siumai_req, &config_req);
+        assert_multipart_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/v1/audio/transcriptions?api-version=v1"
+        );
+
+        let body_text = normalize_multipart_body(&siumai_req);
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("stt-deployment"));
+        assert!(body_text.contains("name=\"response_format\""));
+        assert!(body_text.contains("json"));
+        assert!(body_text.contains("name=\"language\""));
+        assert!(body_text.contains("en"));
+        assert!(body_text.contains("name=\"file\"; filename=\"audio.mp3\""));
+        assert!(body_text.contains("Content-Type: audio/mpeg"));
+        assert!(body_text.contains("abc"));
+    }
+
+    #[tokio::test]
+    async fn azure_registry_speech_handle_prefers_provider_specific_build_overrides() {
+        let global_transport = BinaryCaptureTransport::new(vec![9, 9, 9], "audio/mpeg");
+        let azure_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let model = "tts-deployment";
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "azure".to_string(),
+            Arc::new(siumai::registry::factories::AzureOpenAiProviderFactory::default())
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "azure".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.invalid/custom-openai")
+                .fetch(Arc::new(azure_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(Arc::new(global_transport.clone())),
+                http_config: None,
+                api_key: Some("global-key".to_string()),
+                base_url: Some("https://example.invalid/global-openai".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .speech_model("azure:tts-deployment")
+            .expect("build azure speech model");
+
+        let response = registry_model
+            .text_to_speech(
+                TtsRequest::new("hello from azure".to_string())
+                    .with_voice("alloy".to_string())
+                    .with_format("mp3".to_string()),
+            )
+            .await
+            .expect("registry tts ok");
+
+        assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
+
+        let req = azure_transport
+            .take()
+            .expect("captured azure speech request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(header_value(&req, "api-key"), Some("ctx-key".to_string()));
+        assert_eq!(
+            req.url,
+            "https://example.invalid/custom-openai/v1/audio/speech?api-version=v1"
+        );
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(req.body["input"], serde_json::json!("hello from azure"));
+        assert_eq!(req.body["voice"], serde_json::json!("alloy"));
+        assert_eq!(req.body["response_format"], serde_json::json!("mp3"));
+    }
+
+    #[tokio::test]
+    async fn azure_registry_transcription_handle_prefers_provider_specific_build_overrides() {
+        let global_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from global",
+            "language": "en"
+        }));
+        let azure_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+        let model = "stt-deployment";
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "azure".to_string(),
+            Arc::new(siumai::registry::factories::AzureOpenAiProviderFactory::default())
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "azure".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.invalid/custom-openai")
+                .fetch(Arc::new(azure_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(Arc::new(global_transport.clone())),
+                http_config: None,
+                api_key: Some("global-key".to_string()),
+                base_url: Some("https://example.invalid/global-openai".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .transcription_model("azure:stt-deployment")
+            .expect("build azure transcription model");
+
+        let request =
+            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+
+        let response = registry_model
+            .speech_to_text(request)
+            .await
+            .expect("registry stt ok");
+
+        assert_eq!(response.text, "hello from azure");
+        assert_eq!(response.language.as_deref(), Some("en"));
+
+        let req = azure_transport
+            .take()
+            .expect("captured azure transcription request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(
+            req.headers
+                .get("api-key")
+                .and_then(|value| value.to_str().ok())
+                .map(ToString::to_string),
+            Some("ctx-key".to_string())
+        );
+        assert_eq!(
+            req.url,
+            "https://example.invalid/custom-openai/v1/audio/transcriptions?api-version=v1"
+        );
+
+        let body_text = normalize_multipart_body(&req);
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains(model));
+        assert!(body_text.contains("name=\"file\"; filename=\"audio.mp3\""));
+        assert!(body_text.contains("Content-Type: audio/mpeg"));
+        assert!(body_text.contains("abc"));
+    }
+
+    #[tokio::test]
     async fn azure_siumai_provider_config_chat_request_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();

@@ -355,6 +355,7 @@ impl AudioCapability for AzureOpenAiClient {
 
     async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         let exec = self.build_audio_executor();
+        let request = request.with_model_if_missing(self.config.common_params.model.clone());
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
         Ok(TtsResponse {
             audio_data: result.audio_data,
@@ -367,6 +368,7 @@ impl AudioCapability for AzureOpenAiClient {
 
     async fn speech_to_text(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
         let exec = self.build_audio_executor();
+        let request = request.with_model_if_missing(self.config.common_params.model.clone());
         let result = AudioExecutor::stt(&*exec, request).await?;
         let raw = result.raw;
 
