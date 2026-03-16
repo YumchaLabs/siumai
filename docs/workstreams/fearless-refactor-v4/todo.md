@@ -301,6 +301,7 @@ Status legend:
   - Gemini builder/config parity is now tighter too: `GeminiBuilder` now mirrors the provider-owned `GeminiConfig` helper surface for `with_top_k`, `with_candidate_count`, JSON-schema / reasoning aliases, and base `GenerationConfig` injection, so builder-first Gemini construction no longer trails config-first on generation-config shaping.
   - Google Vertex config-first ergonomics are now less lossy too: `GoogleVertexConfig` now owns `common_params`, and `GoogleVertexBuilder` now forwards temperature / max_tokens / top_p / stop-sequence defaults into that config instead of only preserving them on the post-build client mutation path.
   - OpenAI builder/config parity is now tighter too: `OpenAiBuilder` now mirrors the provider-owned `OpenAiConfig` naming surface for common params, Responses-API defaults, and provider-options defaults, so builder-first OpenAI setup can use the same `with_*` vocabulary as config-first code without changing semantics.
+  - Ollama builder/config parity is now tighter too: `OllamaBuilder` now mirrors the canonical `OllamaConfig` surface for bulk `common_params`, bulk `OllamaParams`, full `HttpConfig`, provider-native `think`, and extra model middlewares, so builder-first Ollama setup no longer trails config-first on provider defaults or middleware composition.
 
 
 

@@ -1,7 +1,9 @@
 use crate::builder::{BuilderBase, ProviderCore};
+use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::providers::ollama::config::OllamaParams;
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmError};
+use std::sync::Arc;
 
 /// Ollama-specific builder
 ///
@@ -14,6 +16,7 @@ pub struct OllamaBuilder {
     model: Option<String>,
     common_params: CommonParams,
     ollama_params: OllamaParams,
+    extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
 impl OllamaBuilder {
@@ -25,6 +28,7 @@ impl OllamaBuilder {
             model: None,
             common_params: CommonParams::default(),
             ollama_params: OllamaParams::default(),
+            extra_model_middlewares: Vec::new(),
         }
     }
 
@@ -48,6 +52,20 @@ impl OllamaBuilder {
         // Unify: store in common_params as the single source of truth
         self.common_params.model = m;
         self
+    }
+
+    /// Seed the builder from a full common-params snapshot.
+    pub fn common_params(mut self, params: CommonParams) -> Self {
+        if !params.model.is_empty() {
+            self.model = Some(params.model.clone());
+        }
+        self.common_params = params;
+        self
+    }
+
+    /// Alias for `common_params(...)` on the config-first parity surface.
+    pub fn with_common_params(self, params: CommonParams) -> Self {
+        self.common_params(params)
     }
 
     /// Set the temperature for generation
@@ -77,6 +95,17 @@ impl OllamaBuilder {
         self
     }
 
+    /// Replace the full Ollama provider params snapshot.
+    pub fn ollama_params(mut self, params: OllamaParams) -> Self {
+        self.ollama_params = params;
+        self
+    }
+
+    /// Alias for `ollama_params(...)` on the config-first parity surface.
+    pub fn with_ollama_params(self, params: OllamaParams) -> Self {
+        self.ollama_params(params)
+    }
+
     /// Set how long to keep the model loaded in memory
     ///
     /// # Arguments
@@ -101,6 +130,12 @@ impl OllamaBuilder {
     /// * `format` - Format string ("json" or JSON schema)
     pub fn format<S: Into<String>>(mut self, format: S) -> Self {
         self.ollama_params.format = Some(format.into());
+        self
+    }
+
+    /// Set provider-native stop sequences (distinct from unified `stop_sequences`).
+    pub fn stop(mut self, stop: Vec<String>) -> Self {
+        self.ollama_params.stop = Some(stop);
         self
     }
 
@@ -191,6 +226,12 @@ impl OllamaBuilder {
         self
     }
 
+    /// Enable or disable provider-native thinking mode.
+    pub const fn think(mut self, think: bool) -> Self {
+        self.ollama_params.think = Some(think);
+        self
+    }
+
     /// Enable reasoning mode for reasoning models
     ///
     /// # Arguments
@@ -252,6 +293,18 @@ impl OllamaBuilder {
         self
     }
 
+    /// Replace the full HTTP config snapshot.
+    pub fn http_config(mut self, config: crate::types::HttpConfig) -> Self {
+        self.core.http_config = config;
+        self
+    }
+
+    /// Alias for `http_config(...)` on the config-first parity surface.
+    pub fn with_http_config(mut self, config: crate::types::HttpConfig) -> Self {
+        self.core.http_config = config;
+        self
+    }
+
     /// Add a custom HTTP interceptor (builder collects and installs them on build).
     pub fn with_http_interceptor(
         mut self,
@@ -302,6 +355,15 @@ impl OllamaBuilder {
         self.with_http_transport(transport)
     }
 
+    /// Append custom model middlewares after provider auto-middlewares.
+    pub fn with_model_middlewares(
+        mut self,
+        middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    ) -> Self {
+        self.extra_model_middlewares = middlewares;
+        self
+    }
+
     /// Convert the builder into the canonical Ollama config.
     pub fn into_config(self) -> Result<crate::providers::ollama::OllamaConfig, LlmError> {
         let base_url = self
@@ -309,7 +371,7 @@ impl OllamaBuilder {
             .unwrap_or_else(|| "http://localhost:11434".to_string());
         let model_id = self.common_params.model.clone();
 
-        crate::providers::ollama::OllamaConfig::builder()
+        let mut config = crate::providers::ollama::OllamaConfig::builder()
             .base_url(base_url)
             .model(self.model.unwrap_or(model_id.clone()))
             .common_params(self.common_params)
@@ -318,7 +380,15 @@ impl OllamaBuilder {
             .http_transport_opt(self.core.http_transport.clone())
             .http_interceptors(self.core.get_http_interceptors())
             .model_middlewares(self.core.get_auto_middlewares("ollama", &model_id))
-            .build()
+            .build()?;
+
+        if !self.extra_model_middlewares.is_empty() {
+            let mut middlewares = config.model_middlewares.clone();
+            middlewares.extend(self.extra_model_middlewares);
+            config.model_middlewares = middlewares;
+        }
+
+        Ok(config)
     }
 
     /// Build the Ollama client
@@ -355,6 +425,11 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use std::time::Duration;
+
+    #[derive(Clone, Default)]
+    struct NoopMiddleware;
+
+    impl LanguageModelMiddleware for NoopMiddleware {}
 
     #[test]
     fn ollama_builder_into_config_converges_on_ollama_config() {
@@ -441,6 +516,83 @@ mod tests {
         assert_eq!(
             builder_config.model_middlewares.len(),
             manual_config.model_middlewares.len()
+        );
+    }
+
+    #[test]
+    fn ollama_builder_bulk_seed_and_overrides_converge_on_provider_config() {
+        let mut options = std::collections::HashMap::new();
+        options.insert("temperature".to_string(), serde_json::json!(0.7));
+
+        let config = OllamaBuilder::new(BuilderBase::default())
+            .common_params(crate::types::CommonParams {
+                model: "llama3.2".to_string(),
+                temperature: Some(0.2),
+                max_tokens: Some(128),
+                top_p: Some(0.8),
+                stop_sequences: Some(vec!["END".to_string()]),
+                ..Default::default()
+            })
+            .ollama_params(crate::providers::ollama::config::OllamaParams {
+                keep_alive: Some("5m".to_string()),
+                raw: Some(true),
+                think: Some(true),
+                stop: Some(vec!["HALT".to_string()]),
+                options: Some(options),
+                ..Default::default()
+            })
+            .model("llama3.2:latest")
+            .top_p(0.9)
+            .think(false)
+            .option("top_k", serde_json::json!(40))
+            .http_config(crate::types::HttpConfig {
+                timeout: Some(Duration::from_secs(9)),
+                ..Default::default()
+            })
+            .http_debug(true)
+            .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.model.as_deref(), Some("llama3.2:latest"));
+        assert_eq!(config.common_params.model, "llama3.2:latest");
+        assert_eq!(config.common_params.temperature, Some(0.2));
+        assert_eq!(config.common_params.max_tokens, Some(128));
+        assert_eq!(config.common_params.top_p, Some(0.9));
+        assert_eq!(
+            config.common_params.stop_sequences,
+            Some(vec!["END".to_string()])
+        );
+        assert_eq!(config.ollama_params.keep_alive.as_deref(), Some("5m"));
+        assert_eq!(config.ollama_params.raw, Some(true));
+        assert_eq!(config.ollama_params.think, Some(false));
+        assert_eq!(config.ollama_params.stop, Some(vec!["HALT".to_string()]));
+        assert_eq!(
+            config
+                .ollama_params
+                .options
+                .as_ref()
+                .and_then(|map| map.get("temperature")),
+            Some(&serde_json::json!(0.7))
+        );
+        assert_eq!(
+            config
+                .ollama_params
+                .options
+                .as_ref()
+                .and_then(|map| map.get("top_k")),
+            Some(&serde_json::json!(40))
+        );
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(9)));
+        assert_eq!(config.http_interceptors.len(), 1);
+        assert!(!config.model_middlewares.is_empty());
+        assert!(
+            config.model_middlewares.len()
+                > crate::execution::middleware::build_auto_middlewares_vec(
+                    "ollama",
+                    "llama3.2:latest"
+                )
+                .len()
         );
     }
 }
