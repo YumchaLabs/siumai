@@ -95,8 +95,18 @@ impl OpenAiBuilder {
         self
     }
 
+    pub fn with_base_url<S: Into<String>>(mut self, url: S) -> Self {
+        self.base_url = Some(url.into());
+        self
+    }
+
     /// Sets the organization ID
     pub fn organization<S: Into<String>>(mut self, org: S) -> Self {
+        self.organization = Some(org.into());
+        self
+    }
+
+    pub fn with_organization<S: Into<String>>(mut self, org: S) -> Self {
         self.organization = Some(org.into());
         self
     }
@@ -107,8 +117,18 @@ impl OpenAiBuilder {
         self
     }
 
+    pub fn with_project<S: Into<String>>(mut self, project: S) -> Self {
+        self.project = Some(project.into());
+        self
+    }
+
     /// Sets the model
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
+        self.common_params.model = model.into();
+        self
+    }
+
+    pub fn with_model<S: Into<String>>(mut self, model: S) -> Self {
         self.common_params.model = model.into();
         self
     }
@@ -119,8 +139,18 @@ impl OpenAiBuilder {
         self
     }
 
+    pub const fn with_temperature(mut self, temp: f64) -> Self {
+        self.common_params.temperature = Some(temp);
+        self
+    }
+
     /// Sets the maximum number of tokens
     pub const fn max_tokens(mut self, tokens: u32) -> Self {
+        self.common_params.max_tokens = Some(tokens);
+        self
+    }
+
+    pub const fn with_max_tokens(mut self, tokens: u32) -> Self {
         self.common_params.max_tokens = Some(tokens);
         self
     }
@@ -131,14 +161,29 @@ impl OpenAiBuilder {
         self
     }
 
+    pub const fn with_top_p(mut self, top_p: f64) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
     /// Sets the stop sequences
     pub fn stop_sequences(mut self, sequences: Vec<String>) -> Self {
         self.common_params.stop_sequences = Some(sequences);
         self
     }
 
+    pub fn with_stop_sequences(mut self, sequences: Vec<String>) -> Self {
+        self.common_params.stop_sequences = Some(sequences);
+        self
+    }
+
     /// Sets the random seed
     pub const fn seed(mut self, seed: u64) -> Self {
+        self.common_params.seed = Some(seed);
+        self
+    }
+
+    pub const fn with_seed(mut self, seed: u64) -> Self {
         self.common_params.seed = Some(seed);
         self
     }
@@ -151,8 +196,18 @@ impl OpenAiBuilder {
         self
     }
 
+    pub fn with_response_format(mut self, format: ResponseFormat) -> Self {
+        self.openai_params.response_format = Some(format);
+        self
+    }
+
     /// Sets the tool choice strategy
     pub fn tool_choice(mut self, choice: ToolChoice) -> Self {
+        self.openai_params.tool_choice = Some(choice);
+        self
+    }
+
+    pub fn with_tool_choice(mut self, choice: ToolChoice) -> Self {
         self.openai_params.tool_choice = Some(choice);
         self
     }
@@ -163,8 +218,18 @@ impl OpenAiBuilder {
         self
     }
 
+    pub const fn with_frequency_penalty(mut self, penalty: f32) -> Self {
+        self.openai_params.frequency_penalty = Some(penalty);
+        self
+    }
+
     /// Sets the presence penalty
     pub const fn presence_penalty(mut self, penalty: f32) -> Self {
+        self.openai_params.presence_penalty = Some(penalty);
+        self
+    }
+
+    pub const fn with_presence_penalty(mut self, penalty: f32) -> Self {
         self.openai_params.presence_penalty = Some(penalty);
         self
     }
@@ -175,8 +240,18 @@ impl OpenAiBuilder {
         self
     }
 
+    pub fn with_user<S: Into<String>>(mut self, user: S) -> Self {
+        self.openai_params.user = Some(user.into());
+        self
+    }
+
     /// Enables parallel tool calls
     pub const fn parallel_tool_calls(mut self, enabled: bool) -> Self {
+        self.openai_params.parallel_tool_calls = Some(enabled);
+        self
+    }
+
+    pub const fn with_parallel_tool_calls(mut self, enabled: bool) -> Self {
         self.openai_params.parallel_tool_calls = Some(enabled);
         self
     }
@@ -252,6 +327,11 @@ impl OpenAiBuilder {
     /// Set request timeout
     pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
         self.core = self.core.timeout(timeout);
+        self
+    }
+
+    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
+        self.core.http_config = config;
         self
     }
 
@@ -339,8 +419,18 @@ impl OpenAiBuilder {
         self
     }
 
+    pub fn with_use_responses_api(mut self, enabled: bool) -> Self {
+        self.use_responses_api = enabled;
+        self
+    }
+
     /// Set previous response id for Responses API chaining.
     pub fn responses_previous_response_id<S: Into<String>>(mut self, id: S) -> Self {
+        self.responses_previous_response_id = Some(id.into());
+        self
+    }
+
+    pub fn with_responses_previous_response_id<S: Into<String>>(mut self, id: S) -> Self {
         self.responses_previous_response_id = Some(id.into());
         self
     }
@@ -356,8 +446,20 @@ impl OpenAiBuilder {
         self
     }
 
+    pub fn with_provider_options(mut self, options: serde_json::Value) -> Self {
+        let mut overrides = ProviderOptionsMap::new();
+        overrides.insert("openai", options);
+        self.default_provider_options_map.merge_overrides(overrides);
+        self
+    }
+
     /// Replace the full provider options map (advanced usage).
     pub fn provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.default_provider_options_map = map;
+        self
+    }
+
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
         self.default_provider_options_map = map;
         self
     }
@@ -726,6 +828,94 @@ mod tests {
         assert_eq!(
             builder_config.model_middlewares.len(),
             manual_config.model_middlewares.len()
+        );
+    }
+
+    #[test]
+    fn openai_builder_with_aliases_matches_primary_builder_surface() {
+        let alias_config = OpenAiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .with_base_url("https://example.com/v1")
+            .with_organization("org-1")
+            .with_project("proj-1")
+            .with_model("gpt-4o-mini")
+            .with_temperature(0.7)
+            .with_max_tokens(256)
+            .with_top_p(0.85)
+            .with_stop_sequences(vec!["END".to_string()])
+            .with_seed(99)
+            .with_response_format(ResponseFormat::JsonObject)
+            .with_tool_choice(ToolChoice::String("required".to_string()))
+            .with_frequency_penalty(0.5)
+            .with_presence_penalty(-0.25)
+            .with_parallel_tool_calls(true)
+            .with_use_responses_api(true)
+            .with_responses_previous_response_id("resp_123")
+            .with_provider_options(serde_json::json!({ "custom": { "enabled": true } }))
+            .with_http_config(crate::types::HttpConfig {
+                timeout: Some(Duration::from_secs(12)),
+                ..Default::default()
+            })
+            .into_config()
+            .expect("alias config");
+
+        let primary_config = OpenAiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com/v1")
+            .organization("org-1")
+            .project("proj-1")
+            .model("gpt-4o-mini")
+            .temperature(0.7)
+            .max_tokens(256)
+            .top_p(0.85)
+            .stop_sequences(vec!["END".to_string()])
+            .seed(99)
+            .response_format(ResponseFormat::JsonObject)
+            .tool_choice(ToolChoice::String("required".to_string()))
+            .frequency_penalty(0.5)
+            .presence_penalty(-0.25)
+            .parallel_tool_calls(true)
+            .use_responses_api(true)
+            .responses_previous_response_id("resp_123")
+            .provider_options(serde_json::json!({ "custom": { "enabled": true } }))
+            .timeout(Duration::from_secs(12))
+            .into_config()
+            .expect("primary config");
+
+        assert_eq!(alias_config.base_url, primary_config.base_url);
+        assert_eq!(alias_config.organization, primary_config.organization);
+        assert_eq!(alias_config.project, primary_config.project);
+        assert_eq!(
+            alias_config.common_params.model,
+            primary_config.common_params.model
+        );
+        assert_eq!(
+            alias_config.common_params.temperature,
+            primary_config.common_params.temperature
+        );
+        assert_eq!(
+            alias_config.common_params.max_tokens,
+            primary_config.common_params.max_tokens
+        );
+        assert_eq!(
+            alias_config.common_params.top_p,
+            primary_config.common_params.top_p
+        );
+        assert_eq!(
+            alias_config.common_params.stop_sequences,
+            primary_config.common_params.stop_sequences
+        );
+        assert_eq!(
+            alias_config.common_params.seed,
+            primary_config.common_params.seed
+        );
+        assert_eq!(
+            serde_json::to_value(&alias_config.openai_params).expect("serialize alias params"),
+            serde_json::to_value(&primary_config.openai_params).expect("serialize primary params")
+        );
+        assert_eq!(
+            alias_config.provider_options_map.get("openai"),
+            primary_config.provider_options_map.get("openai")
         );
     }
 }
