@@ -304,6 +304,7 @@ Status legend:
   - Ollama builder/config parity is now tighter too: `OllamaBuilder` now mirrors the canonical `OllamaConfig` surface for bulk `common_params`, bulk `OllamaParams`, full `HttpConfig`, provider-native `think`, and extra model middlewares, so builder-first Ollama setup no longer trails config-first on provider defaults or middleware composition.
   - The top-level `siumai` facade now also re-exports `provider_ext::ollama::OllamaParams`, and `Provider::ollama()` has focused parity coverage for `with_common_params(...)`, `with_ollama_params(...)`, `with_http_config(...)`, and extra model middleware composition, so the new Ollama config-first helper surface is reachable without dropping to the provider crate directly.
   - Ollama public-path parity now also reaches the embedding family on the real registry story: request-level `OllamaEmbeddingOptions` are locked across `Siumai::builder().ollama()`, `Provider::ollama()`, config-first `OllamaClient`, and `registry.embedding_model("ollama:...")`, while provider-specific registry build overrides are now pinned on the embedding handle too instead of only the chat handle.
+  - OpenAI public-path parity now also locks provider-specific registry build overrides on the speech and transcription families themselves, not only chat/text handles: `registry.speech_model("openai:...")` and `registry.transcription_model("openai:...")` are now pinned to the provider override transport/base URL/API key path on the real family handles.
 
 
 

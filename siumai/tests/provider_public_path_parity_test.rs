@@ -906,14 +906,19 @@ mod openai_public_path {
             .rerank(request.clone())
             .await
             .expect_err("native openai rerank should be unsupported");
-        let provider_err = provider_client
-            .rerank(request.clone())
+        let provider_err =
+            <siumai::provider_ext::openai::OpenAiClient as RerankCapability>::rerank(
+                &provider_client,
+                request.clone(),
+            )
             .await
             .expect_err("native openai rerank should be unsupported");
-        let config_err = config_client
-            .rerank(request)
-            .await
-            .expect_err("native openai rerank should be unsupported");
+        let config_err = <siumai::provider_ext::openai::OpenAiClient as RerankCapability>::rerank(
+            &config_client,
+            request,
+        )
+        .await
+        .expect_err("native openai rerank should be unsupported");
 
         assert_unsupported_operation(&siumai_err);
         assert_unsupported_operation(&provider_err);
@@ -2061,6 +2066,174 @@ mod openai_public_path {
             Some("text/event-stream".to_string())
         );
         assert_eq!(req.body["model"], serde_json::json!("gpt-4o"));
+    }
+
+    #[tokio::test]
+    async fn openai_registry_speech_handle_prefers_provider_specific_build_overrides() {
+        let global_transport = BinaryCaptureTransport::new(vec![9, 9, 9], "audio/mpeg");
+        let openai_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let model = "gpt-4o-mini-tts";
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "openai".to_string(),
+            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "openai".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.com/openai/v1")
+                .fetch(Arc::new(openai_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(Arc::new(global_transport.clone())),
+                http_config: None,
+                api_key: Some("global-key".to_string()),
+                base_url: Some("https://example.com/global/v1".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .speech_model("openai:gpt-4o-mini-tts")
+            .expect("build openai speech model");
+
+        let response = registry_model
+            .text_to_speech(
+                TtsRequest::new("hello from openai".to_string())
+                    .with_voice("alloy".to_string())
+                    .with_format("mp3".to_string()),
+            )
+            .await
+            .expect("registry tts ok");
+
+        assert_eq!(response.audio_data, vec![1, 2, 3, 4]);
+
+        let req = openai_transport
+            .take()
+            .expect("captured openai speech request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(
+            header_value(&req, "authorization"),
+            Some("Bearer ctx-key".to_string())
+        );
+        assert_eq!(req.url, "https://example.com/openai/v1/audio/speech");
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(req.body["input"], serde_json::json!("hello from openai"));
+        assert_eq!(req.body["voice"], serde_json::json!("alloy"));
+        assert_eq!(req.body["response_format"], serde_json::json!("mp3"));
+    }
+
+    #[tokio::test]
+    async fn openai_registry_transcription_handle_prefers_provider_specific_build_overrides() {
+        let global_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from global",
+            "language": "en"
+        }));
+        let openai_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from openai",
+            "language": "en"
+        }));
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "openai".to_string(),
+            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "openai".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("ctx-key")
+                .with_base_url("https://example.com/openai/v1")
+                .fetch(Arc::new(openai_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: Some(Arc::new(global_transport.clone())),
+                http_config: None,
+                api_key: Some("global-key".to_string()),
+                base_url: Some("https://example.com/global/v1".to_string()),
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .transcription_model("openai:whisper-1")
+            .expect("build openai transcription model");
+
+        let request =
+            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+
+        let response = registry_model
+            .speech_to_text(request)
+            .await
+            .expect("registry stt ok");
+
+        assert_eq!(response.text, "hello from openai");
+        assert_eq!(response.language.as_deref(), Some("en"));
+
+        let req = openai_transport
+            .take()
+            .expect("captured openai transcription request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(
+            req.headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .map(ToString::to_string),
+            Some("Bearer ctx-key".to_string())
+        );
+        assert_eq!(
+            req.url,
+            "https://example.com/openai/v1/audio/transcriptions"
+        );
+        assert!(
+            req.headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with("multipart/form-data; boundary="))
+        );
+
+        let body_text = normalize_multipart_body(&req);
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("whisper-1"));
+        assert!(body_text.contains("name=\"response_format\""));
+        assert!(body_text.contains("json"));
+        assert!(body_text.contains("name=\"file\"; filename=\"audio.mp3\""));
+        assert!(body_text.contains("Content-Type: audio/mpeg"));
+        assert!(body_text.contains("abc"));
     }
 
     #[tokio::test]
