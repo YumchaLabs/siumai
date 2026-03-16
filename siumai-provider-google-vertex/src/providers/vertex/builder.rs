@@ -87,6 +87,30 @@ impl GoogleVertexBuilder {
         self.model(model)
     }
 
+    /// Set temperature on the shared common params surface.
+    pub const fn temperature(mut self, temperature: f64) -> Self {
+        self.common_params.temperature = Some(temperature);
+        self
+    }
+
+    /// Set max tokens on the shared common params surface.
+    pub const fn max_tokens(mut self, max_tokens: u32) -> Self {
+        self.common_params.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// Set top-p on the shared common params surface.
+    pub const fn top_p(mut self, top_p: f64) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
+    /// Set stop sequences on the shared common params surface.
+    pub fn stop_sequences(mut self, stop_sequences: Vec<String>) -> Self {
+        self.common_params.stop_sequences = Some(stop_sequences);
+        self
+    }
+
     /// Deprecated alias for `embedding_model(...)` (Vercel-aligned naming: `textEmbeddingModel`).
     #[deprecated(note = "Use `embedding_model(...)` instead.")]
     pub fn text_embedding_model<S: Into<String>>(self, model: S) -> Self {
@@ -243,9 +267,11 @@ impl GoogleVertexBuilder {
             }
         };
 
-        let mut cfg = GoogleVertexConfig::new(base_url, model_id).with_http_config(HttpConfig {
-            ..self.core.http_config.clone()
-        });
+        let mut cfg = GoogleVertexConfig::new(base_url, model_id)
+            .with_common_params(self.common_params.clone())
+            .with_http_config(HttpConfig {
+                ..self.core.http_config.clone()
+            });
 
         let interceptors = self.core.get_http_interceptors();
         if !interceptors.is_empty() {
@@ -267,9 +293,7 @@ impl GoogleVertexBuilder {
     pub fn build(self) -> Result<GoogleVertexClient, LlmError> {
         let http_client = self.core.build_http_client()?;
         let retry_options = self.core.retry_options.clone();
-        let common_params = self.common_params.clone();
-        let mut client = GoogleVertexClient::with_http_client(self.into_config()?, http_client)?
-            .with_common_params(common_params);
+        let mut client = GoogleVertexClient::with_http_client(self.into_config()?, http_client)?;
 
         if let Some(opts) = retry_options {
             client = client.with_retry_options(opts);
@@ -295,6 +319,10 @@ mod config_first_tests {
         let cfg = GoogleVertexBuilder::new(BuilderBase::default())
             .api_key("test-key")
             .model("gemini-2.5-pro")
+            .temperature(0.2)
+            .max_tokens(512)
+            .top_p(0.9)
+            .stop_sequences(vec!["END".to_string()])
             .with_http_interceptor(Arc::new(NoopInterceptor))
             .into_config()
             .expect("into_config");
@@ -305,6 +333,14 @@ mod config_first_tests {
         );
         assert_eq!(cfg.api_key.as_deref(), Some("test-key"));
         assert_eq!(cfg.model, "gemini-2.5-pro");
+        assert_eq!(cfg.common_params.model, "gemini-2.5-pro");
+        assert_eq!(cfg.common_params.temperature, Some(0.2));
+        assert_eq!(cfg.common_params.max_tokens, Some(512));
+        assert_eq!(cfg.common_params.top_p, Some(0.9));
+        assert_eq!(
+            cfg.common_params.stop_sequences,
+            Some(vec!["END".to_string()])
+        );
         assert_eq!(cfg.http_interceptors.len(), 1);
     }
 
@@ -312,7 +348,11 @@ mod config_first_tests {
     fn build_and_into_config_converge_on_config_first_client_construction() {
         let builder = GoogleVertexBuilder::new(BuilderBase::default())
             .api_key("test-key")
-            .model("gemini-2.5-pro");
+            .model("gemini-2.5-pro")
+            .temperature(0.2)
+            .max_tokens(512)
+            .top_p(0.9)
+            .stop_sequences(vec!["END".to_string()]);
 
         let cfg = builder.clone().into_config().expect("into_config");
         let built = builder.build().expect("build client");
@@ -320,6 +360,22 @@ mod config_first_tests {
 
         assert_eq!(built.base_url(), from_config.base_url());
         assert_eq!(built.supported_models(), from_config.supported_models());
+        assert_eq!(
+            built.common_params().temperature,
+            from_config.common_params().temperature
+        );
+        assert_eq!(
+            built.common_params().max_tokens,
+            from_config.common_params().max_tokens
+        );
+        assert_eq!(
+            built.common_params().top_p,
+            from_config.common_params().top_p
+        );
+        assert_eq!(
+            built.common_params().stop_sequences,
+            from_config.common_params().stop_sequences
+        );
     }
 }
 

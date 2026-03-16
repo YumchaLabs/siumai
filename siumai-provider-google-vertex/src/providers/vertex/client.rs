@@ -33,6 +33,8 @@ pub struct GoogleVertexConfig {
     pub base_url: String,
     /// Default model id (e.g., `imagen-3.0-generate-002`).
     pub model: String,
+    /// Shared request defaults used by chat/embedding entry points.
+    pub common_params: crate::types::CommonParams,
     /// Optional API key (express mode). When set and no `Authorization` header is present,
     /// it will be passed as the `key` query parameter.
     pub api_key: Option<String>,
@@ -55,6 +57,7 @@ impl std::fmt::Debug for GoogleVertexConfig {
         let mut ds = f.debug_struct("GoogleVertexConfig");
         ds.field("base_url", &self.base_url)
             .field("model", &self.model)
+            .field("common_params", &self.common_params)
             .field("http_config", &self.http_config);
 
         if self.api_key.is_some() {
@@ -72,9 +75,14 @@ impl std::fmt::Debug for GoogleVertexConfig {
 impl GoogleVertexConfig {
     /// Create a config from an explicit Vertex base URL and model id.
     pub fn new<B: Into<String>, M: Into<String>>(base_url: B, model: M) -> Self {
+        let model = model.into();
         Self {
             base_url: base_url.into(),
-            model: model.into(),
+            model: model.clone(),
+            common_params: crate::types::CommonParams {
+                model,
+                ..Default::default()
+            },
             api_key: None,
             http_config: crate::types::HttpConfig::default(),
             http_transport: None,
@@ -110,7 +118,35 @@ impl GoogleVertexConfig {
     }
 
     pub fn with_model<S: Into<String>>(mut self, model: S) -> Self {
-        self.model = model.into();
+        let model = model.into();
+        self.common_params.model = model.clone();
+        self.model = model;
+        self
+    }
+
+    pub fn with_common_params(mut self, common_params: crate::types::CommonParams) -> Self {
+        self.model = common_params.model.clone();
+        self.common_params = common_params;
+        self
+    }
+
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
+        self.common_params.temperature = Some(temperature);
+        self
+    }
+
+    pub fn with_max_tokens(mut self, max_tokens: u32) -> Self {
+        self.common_params.max_tokens = Some(max_tokens);
+        self
+    }
+
+    pub fn with_top_p(mut self, top_p: f64) -> Self {
+        self.common_params.top_p = Some(top_p);
+        self
+    }
+
+    pub fn with_stop_sequences(mut self, stop_sequences: Vec<String>) -> Self {
+        self.common_params.stop_sequences = Some(stop_sequences);
         self
     }
 
@@ -201,10 +237,10 @@ impl GoogleVertexClient {
     }
 
     pub fn new(config: GoogleVertexConfig, http_client: HttpClient) -> Self {
-        let common_params = crate::types::CommonParams {
-            model: config.model.clone(),
-            ..Default::default()
-        };
+        let mut common_params = config.common_params.clone();
+        if common_params.model.trim().is_empty() {
+            common_params.model = config.model.clone();
+        }
         Self {
             http_client,
             config,
@@ -222,6 +258,10 @@ impl GoogleVertexClient {
 
     pub fn base_url(&self) -> &str {
         &self.config.base_url
+    }
+
+    pub fn common_params(&self) -> &crate::types::CommonParams {
+        &self.common_params
     }
 
     pub fn with_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {

@@ -299,6 +299,7 @@ Status legend:
   - xAI now also owns provider-level default request helpers on both config-first and builder surfaces: `XaiConfig` / `XaiBuilder` can persist `reasoning_effort` and default web-search parameters through the same provider-owned adapter path as request-level `XaiOptions`, while request-local provider options still override those defaults at execution time.
   - Anthropic builder/config parity is now tighter too: `AnthropicBuilder` now mirrors the provider-owned `AnthropicConfig` helper surface for bulk params, cache/thinking/system metadata aliases, `stream`, and beta-feature defaults, so builder-first Anthropic construction no longer trails config-first on provider-specific request shaping.
   - Gemini builder/config parity is now tighter too: `GeminiBuilder` now mirrors the provider-owned `GeminiConfig` helper surface for `with_top_k`, `with_candidate_count`, JSON-schema / reasoning aliases, and base `GenerationConfig` injection, so builder-first Gemini construction no longer trails config-first on generation-config shaping.
+  - Google Vertex config-first ergonomics are now less lossy too: `GoogleVertexConfig` now owns `common_params`, and `GoogleVertexBuilder` now forwards temperature / max_tokens / top_p / stop-sequence defaults into that config instead of only preserving them on the post-build client mutation path.
 
 
 
