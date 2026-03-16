@@ -10,7 +10,7 @@ impl EmbeddingCapability for OpenAiClient {
         use crate::execution::executors::embedding::EmbeddingExecutor;
 
         let mut request = EmbeddingRequest::new(texts).with_model(self.common_params.model.clone());
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let exec = self.build_embedding_executor(&request);
 
         EmbeddingExecutor::execute(&*exec, request).await
@@ -57,7 +57,7 @@ impl EmbeddingExtensions for OpenAiClient {
         if request.model.as_deref().unwrap_or("").is_empty() {
             request.model = Some(self.common_params.model.clone());
         }
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
 
         let exec = self.build_embedding_executor(&request);
         EmbeddingExecutor::execute(&*exec, request).await

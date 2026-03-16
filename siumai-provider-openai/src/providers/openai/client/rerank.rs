@@ -10,7 +10,7 @@ impl RerankCapability for OpenAiClient {
         use crate::execution::executors::rerank::{RerankExecutor, RerankExecutorBuilder};
 
         let mut request = request;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
 
         // OpenAI's public API does not expose a rerank endpoint. This capability is intended
         // for OpenAI-compatible providers that implement `/rerank` behind an OpenAI-like surface.

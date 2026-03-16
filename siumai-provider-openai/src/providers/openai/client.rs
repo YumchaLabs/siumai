@@ -334,6 +334,28 @@ impl OpenAiClient {
         *request_map = merged;
     }
 
+    fn merge_default_provider_options_map_non_chat(&self, request_map: &mut ProviderOptionsMap) {
+        let mut merged = self.default_provider_options_map.clone();
+        merged.merge_overrides(std::mem::take(request_map));
+
+        let mut remove_openai = false;
+        if let Some(openai) = merged
+            .0
+            .get_mut("openai")
+            .and_then(|value| value.as_object_mut())
+        {
+            openai.remove("responsesApi");
+            openai.remove("responses_api");
+            remove_openai = openai.is_empty();
+        }
+
+        if remove_openai {
+            merged.0.remove("openai");
+        }
+
+        *request_map = merged;
+    }
+
     /// Creates a new `OpenAI` client with configuration (for OpenAI-compatible providers)
     pub fn new_with_config(config: super::OpenAiConfig) -> Self {
         let http_interceptors = config.http_interceptors.clone();
@@ -1147,6 +1169,74 @@ mod tests {
             include
                 .iter()
                 .any(|v| v.as_str() == Some("file_search_call.results"))
+        );
+    }
+
+    #[test]
+    fn responses_defaults_do_not_leak_into_image_requests() {
+        let mut cfg = OpenAiConfig::new("test-key").with_model("dall-e-3");
+        cfg.provider_options_map.insert(
+            "openai",
+            serde_json::json!({
+                "responsesApi": {
+                    "enabled": true,
+                    "previousResponseId": "resp_default"
+                },
+                "background": "transparent"
+            }),
+        );
+
+        let http = reqwest::Client::new();
+        let client = OpenAiClient::new(cfg, http);
+
+        struct Capture(Arc<Mutex<Option<serde_json::Value>>>);
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                _rb: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().unwrap() = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+
+        let captured = Arc::new(Mutex::new(None));
+        let cap = Capture(captured.clone());
+        let client = client.with_http_interceptors(vec![Arc::new(cap)]);
+
+        let request = crate::types::ImageGenerationRequest {
+            prompt: "A cat".to_string(),
+            model: Some("dall-e-3".to_string()),
+            response_format: Some("url".to_string()),
+            ..Default::default()
+        };
+
+        let err = futures::executor::block_on(
+            crate::traits::ImageGenerationCapability::generate_images(&client, request),
+        )
+        .unwrap_err();
+        match err {
+            LlmError::InvalidParameter(s) => assert_eq!(s, "stop"),
+            other => panic!("unexpected: {:?}", other),
+        }
+
+        let body = captured.lock().unwrap().clone().expect("captured body");
+        assert_eq!(
+            body.get("background").and_then(|v| v.as_str()),
+            Some("transparent")
+        );
+        assert!(
+            !body
+                .as_object()
+                .is_some_and(|obj| obj.contains_key("responsesApi"))
+        );
+        assert!(
+            !body
+                .as_object()
+                .is_some_and(|obj| obj.contains_key("responses_api"))
         );
     }
 

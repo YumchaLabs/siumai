@@ -24,7 +24,7 @@ impl AudioCapability for OpenAiClient {
 
         let exec = self.build_audio_executor();
         let mut request = request.with_model_if_missing(self.common_params.model.clone());
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
 
         Ok(crate::types::TtsResponse {
@@ -48,7 +48,7 @@ impl AudioCapability for OpenAiClient {
 
         let exec = self.build_audio_executor();
         let mut request = request.with_model_if_missing(self.common_params.model.clone());
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let result = AudioExecutor::stt(&*exec, request).await?;
         let raw = result.raw;
 
@@ -219,7 +219,7 @@ impl AudioCapability for OpenAiClient {
 
         // Allow users to pass either raw bytes or a file path (mirrors the STT executor behavior).
         let mut req = request.with_model_if_missing(self.common_params.model.clone());
-        self.merge_default_provider_options_map(&mut req.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut req.provider_options_map);
         if req.audio_data.is_none()
             && let Some(path) = req.file_path.as_deref()
         {

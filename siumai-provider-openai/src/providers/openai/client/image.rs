@@ -13,7 +13,7 @@ impl ImageGenerationCapability for OpenAiClient {
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         let mut request = request;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let exec = self.build_image_executor(&request);
         use crate::execution::executors::image::ImageExecutor;
         ImageExecutor::execute(&*exec, request).await
@@ -29,7 +29,7 @@ impl ImageExtras for OpenAiClient {
         use crate::execution::executors::image::ImageExecutor;
 
         let mut request = request;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
 
         let exec = self.build_image_executor(&ImageGenerationRequest::default());
         ImageExecutor::execute_edit(&*exec, request).await
@@ -42,7 +42,7 @@ impl ImageExtras for OpenAiClient {
         use crate::execution::executors::image::ImageExecutor;
 
         let mut request = request;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
 
         let exec = self.build_image_executor(&ImageGenerationRequest::default());
         ImageExecutor::execute_variation(&*exec, request).await

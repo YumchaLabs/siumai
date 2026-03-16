@@ -1261,6 +1261,113 @@ mod openai_public_path {
     }
 
     #[tokio::test]
+    async fn openai_siumai_provider_config_image_generation_request_are_equivalent() {
+        let response = serde_json::json!({
+            "created": 123,
+            "data": [
+                {
+                    "url": "https://example.com/generated.png",
+                    "revised_prompt": "a tiny purple robot"
+                }
+            ]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response.clone());
+        let provider_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let base_url = "https://example.com/v1";
+        let model = "dall-e-3";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .image_model("openai:dall-e-3")
+            .expect("build registry image model");
+
+        let request = make_image_request_with_model(model);
+
+        let siumai_resp = siumai_client
+            .generate_images(request.clone())
+            .await
+            .expect("siumai image ok");
+        let provider_resp = provider_client
+            .generate_images(request.clone())
+            .await
+            .expect("provider image ok");
+        let config_resp = config_client
+            .generate_images(request.clone())
+            .await
+            .expect("config image ok");
+        let registry_resp = registry_model
+            .generate_images(request)
+            .await
+            .expect("registry image ok");
+
+        assert_eq!(
+            siumai_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+        assert_eq!(
+            provider_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+        assert_eq!(
+            config_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+        assert_eq!(
+            registry_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://example.com/v1/images/generations");
+        assert_eq!(siumai_req.body["model"], serde_json::json!("dall-e-3"));
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!("a tiny purple robot")
+        );
+        assert_eq!(siumai_req.body["size"], serde_json::json!("1024x1024"));
+        assert_eq!(siumai_req.body["n"], serde_json::json!(1));
+        assert_eq!(siumai_req.body["response_format"], serde_json::json!("url"));
+    }
+
+    #[tokio::test]
     async fn openai_siumai_provider_config_tts_sse_request_are_equivalent() {
         let stream_body = concat!(
             "data: {\"type\":\"speech.audio.delta\",\"audio\":\"YWJj\"}\n\n",
@@ -2234,6 +2341,71 @@ mod openai_public_path {
         assert!(body_text.contains("name=\"file\"; filename=\"audio.mp3\""));
         assert!(body_text.contains("Content-Type: audio/mpeg"));
         assert!(body_text.contains("abc"));
+    }
+
+    #[tokio::test]
+    async fn openai_registry_image_handle_prefers_provider_specific_build_overrides() {
+        let image_response = serde_json::json!({
+            "created": 123,
+            "data": [
+                {
+                    "url": "https://example.com/generated.png",
+                    "revised_prompt": "a tiny purple robot"
+                }
+            ]
+        });
+
+        let global_transport = JsonSuccessTransport::new(image_response.clone());
+        let openai_transport = JsonSuccessTransport::new(image_response);
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "openai".to_string(),
+            Arc::new(siumai::registry::factories::OpenAIProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global/v1")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "openai",
+                ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/openai/v1")
+                    .fetch(Arc::new(openai_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .image_model("openai:dall-e-3")
+            .expect("build openai image model");
+
+        let generated = handle
+            .generate_images(make_image_request_with_model("dall-e-3"))
+            .await
+            .expect("generate images through registry handle");
+
+        assert_eq!(
+            generated.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+        assert!(global_transport.take().is_none());
+
+        let req = openai_transport.take().expect("captured request");
+        assert_eq!(
+            header_value(&req, "authorization"),
+            Some("Bearer ctx-key".to_string())
+        );
+        assert_eq!(req.url, "https://example.com/openai/v1/images/generations");
+        assert_eq!(req.body["model"], serde_json::json!("dall-e-3"));
+        assert_eq!(req.body["prompt"], serde_json::json!("a tiny purple robot"));
+        assert_eq!(req.body["size"], serde_json::json!("1024x1024"));
+        assert_eq!(req.body["n"], serde_json::json!(1));
+        assert_eq!(req.body["response_format"], serde_json::json!("url"));
     }
 
     #[tokio::test]
