@@ -576,6 +576,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn xai_client_from_config_merges_typed_provider_defaults() {
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl-xai-test",
+            "object": "chat.completion",
+            "created": 1_741_392_000,
+            "model": "grok-4",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "hello"
+                    },
+                    "finish_reason": "stop"
+                }
+            ]
+        }));
+        let cfg = super::super::config::XaiConfig::new("test-key")
+            .with_base_url("https://example.com/v1")
+            .with_model("grok-4")
+            .with_http_transport(Arc::new(transport.clone()))
+            .with_reasoning(true)
+            .with_reasoning_budget(2048)
+            .with_reasoning_effort("high")
+            .with_default_search();
+        let client = XaiClient::from_config(cfg).await.expect("from_config ok");
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        let _ = client.chat_request(request).await.expect("chat ok");
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(captured.body["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(captured.body["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(captured.body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            captured.body["search_parameters"]["mode"],
+            serde_json::json!("auto")
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["return_citations"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["max_search_results"],
+            serde_json::json!(5)
+        );
+    }
+
+    #[tokio::test]
     async fn xai_client_exposes_typed_response_metadata() {
         let transport = JsonResponseTransport::new(serde_json::json!({
             "id": "chatcmpl-xai-test",

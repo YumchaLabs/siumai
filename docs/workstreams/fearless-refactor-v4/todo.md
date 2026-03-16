@@ -296,6 +296,7 @@ Status legend:
   - Ollama config builder now exposes common-param convenience and reasoning alias; xAI now owns `XaiConfig` / `XaiClient` entry types while still reusing the shared compat runtime, and DeepSeek now owns `DeepSeekConfig` / `DeepSeekClient` entry types on top of the shared runtime.
   - Groq now also owns provider-level default request helpers on both config-first and builder surfaces: `GroqConfig` / `GroqBuilder` can carry `logprobs`, `top_logprobs`, `service_tier`, `reasoning_effort`, and `reasoning_format` defaults without forcing callers back to per-request `provider_options`.
   - MiniMaxi now also owns provider-level default chat option helpers on both config-first and builder surfaces: `MinimaxiConfig` / `MinimaxiBuilder` can persist thinking-mode and structured-output defaults through `provider_options_map`, while request-local `with_minimaxi_options(...)` still overrides those defaults at execution time.
+  - xAI now also owns provider-level default request helpers on both config-first and builder surfaces: `XaiConfig` / `XaiBuilder` can persist `reasoning_effort` and default web-search parameters through the same provider-owned adapter path as request-level `XaiOptions`, while request-local provider options still override those defaults at execution time.
 
 
 

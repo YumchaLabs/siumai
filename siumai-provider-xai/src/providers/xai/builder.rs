@@ -6,6 +6,7 @@
 use crate::builder::BuilderBase;
 use crate::error::LlmError;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::{XaiOptions, XaiSearchParameters};
 use crate::retry_api::RetryOptions;
 use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder;
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ pub struct XaiBuilder {
     http_client_override: Option<reqwest::Client>,
     retry_options: Option<RetryOptions>,
     extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    provider_specific_config: HashMap<String, serde_json::Value>,
 }
 
 impl XaiBuilder {
@@ -29,6 +31,7 @@ impl XaiBuilder {
             http_client_override: None,
             retry_options: None,
             extra_model_middlewares: Vec::new(),
+            provider_specific_config: HashMap::new(),
         }
     }
 
@@ -171,9 +174,49 @@ impl XaiBuilder {
         self
     }
 
+    pub fn with_provider_specific_config(
+        mut self,
+        params: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.provider_specific_config.extend(params);
+        self
+    }
+
+    pub fn with_provider_specific_param(
+        mut self,
+        key: impl Into<String>,
+        value: serde_json::Value,
+    ) -> Self {
+        self.provider_specific_config.insert(key.into(), value);
+        self
+    }
+
+    pub fn with_xai_options(mut self, options: XaiOptions) -> Self {
+        if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
+            self.provider_specific_config
+                .extend(obj.into_iter().filter(|(_, value)| !value.is_null()));
+        }
+        self
+    }
+
+    pub fn with_reasoning_effort(self, effort: impl Into<String>) -> Self {
+        self.with_xai_options(XaiOptions::new().with_reasoning_effort(effort))
+    }
+
+    pub fn with_search_parameters(self, params: XaiSearchParameters) -> Self {
+        self.with_xai_options(XaiOptions::new().with_search(params))
+    }
+
+    pub fn with_default_search(self) -> Self {
+        self.with_search_parameters(XaiSearchParameters::default())
+    }
+
     pub fn into_config(self) -> Result<super::XaiConfig, LlmError> {
         let compat = self.inner.into_config()?;
         let mut config = super::XaiConfig::from_compatible_config(compat)?;
+        if !self.provider_specific_config.is_empty() {
+            config = config.with_provider_specific_config(self.provider_specific_config);
+        }
         if !self.extra_model_middlewares.is_empty() {
             let mut middlewares = config.model_middlewares.clone();
             middlewares.extend(self.extra_model_middlewares);
@@ -219,6 +262,8 @@ mod tests {
             .seed(7)
             .reasoning(true)
             .reasoning_budget(2048)
+            .with_reasoning_effort("high")
+            .with_default_search()
             .timeout(Duration::from_secs(11))
             .http_debug(true)
             .into_config()
@@ -251,6 +296,19 @@ mod tests {
             .expect("transform request params");
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            params["search_parameters"]["mode"],
+            serde_json::json!("auto")
+        );
+        assert_eq!(
+            params["search_parameters"]["return_citations"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            params["search_parameters"]["max_search_results"],
+            serde_json::json!(5)
+        );
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(11)));
         assert_eq!(config.http_interceptors.len(), 1);
     }
@@ -266,6 +324,8 @@ mod tests {
             .seed(7)
             .reasoning(true)
             .reasoning_budget(2048)
+            .with_reasoning_effort("high")
+            .with_default_search()
             .timeout(Duration::from_secs(11))
             .http_debug(true)
             .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
@@ -283,6 +343,8 @@ mod tests {
             .with_seed(7)
             .with_reasoning(true)
             .with_reasoning_budget(2048)
+            .with_reasoning_effort("high")
+            .with_default_search()
             .with_http_config(http_config)
             .with_http_interceptors(vec![Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
