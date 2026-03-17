@@ -321,7 +321,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     use crate::client::LlmClient;
     use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
     use crate::execution::middleware::LanguageModelMiddleware;
-    use crate::registry::entry::BuildContext;
+    use crate::registry::entry::{BuildContext, ProviderFactory};
     use std::sync::Arc;
 
     // Use unified HTTP client builder from utils
@@ -565,6 +565,24 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         ..Default::default()
     };
 
+    #[cfg(feature = "azure")]
+    let factory: Arc<dyn ProviderFactory> = if ids::is_azure_family(&effective_provider_id) {
+        let chat_mode = match effective_provider_id.as_str() {
+            ids::AZURE_CHAT => {
+                siumai_provider_azure::providers::azure_openai::AzureChatMode::ChatCompletions
+            }
+            _ => siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
+        };
+
+        Arc::new(
+            crate::registry::factories::AzureOpenAiProviderFactory::new(chat_mode)
+                .with_url_config(builder.azure_url_config.clone())
+                .with_provider_metadata_key(builder.azure_provider_metadata_key),
+        )
+    } else {
+        select_factory(&effective_provider_id)?
+    };
+    #[cfg(not(feature = "azure"))]
     let factory = select_factory(&effective_provider_id)?;
     let mut ctx = base_ctx.clone();
     ctx.provider_id = Some(effective_provider_id);

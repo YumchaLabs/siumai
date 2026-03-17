@@ -53,6 +53,10 @@ pub struct SiumaiBuilder {
     /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
     pub(crate) http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     /// Advanced HTTP features are not handled here anymore; use HttpConfig only
+    #[cfg(feature = "azure")]
+    pub(crate) azure_url_config: siumai_provider_azure::providers::azure_openai::AzureUrlConfig,
+    #[cfg(feature = "azure")]
+    pub(crate) azure_provider_metadata_key: &'static str,
     #[cfg(any(feature = "google", feature = "google-vertex"))]
     /// Optional Bearer token provider for Google-family auth (Gemini and/or Vertex AI).
     pub(crate) google_token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
@@ -80,6 +84,11 @@ impl SiumaiBuilder {
             http_debug: false,
             http_client: None,
             http_transport: None,
+            #[cfg(feature = "azure")]
+            azure_url_config:
+                siumai_provider_azure::providers::azure_openai::AzureUrlConfig::default(),
+            #[cfg(feature = "azure")]
+            azure_provider_metadata_key: "azure",
 
             #[cfg(any(feature = "google", feature = "google-vertex"))]
             google_token_provider: None,
@@ -350,6 +359,37 @@ impl SiumaiBuilder {
         self
     }
 
+    #[cfg(feature = "azure")]
+    /// Set the full Azure URL config for unified builder construction.
+    pub fn url_config(
+        mut self,
+        url_config: siumai_provider_azure::providers::azure_openai::AzureUrlConfig,
+    ) -> Self {
+        self.azure_url_config = url_config;
+        self
+    }
+
+    #[cfg(feature = "azure")]
+    /// Set Azure API version for unified builder construction.
+    pub fn api_version<S: Into<String>>(mut self, api_version: S) -> Self {
+        self.azure_url_config.api_version = api_version.into();
+        self
+    }
+
+    #[cfg(feature = "azure")]
+    /// Switch Azure to deployment-based URLs for unified builder construction.
+    pub fn deployment_based_urls(mut self, enabled: bool) -> Self {
+        self.azure_url_config.use_deployment_based_urls = enabled;
+        self
+    }
+
+    #[cfg(feature = "azure")]
+    /// Set the Azure provider metadata namespace used by Responses metadata mapping.
+    pub fn provider_metadata_key(mut self, key: &'static str) -> Self {
+        self.azure_provider_metadata_key = key;
+        self
+    }
+
     #[cfg(any(feature = "google", feature = "google-vertex"))]
     /// Preferred neutral alias for Google-family Bearer token providers
     /// (Gemini + Google Vertex + Anthropic on Vertex).
@@ -617,6 +657,18 @@ impl std::fmt::Debug for SiumaiBuilder {
             .field("reasoning_budget", &self.reasoning_budget)
             .field("has_tracing", &self.tracing_config.is_some())
             .field("timeout", &self.http_config.timeout);
+
+        #[cfg(feature = "azure")]
+        debug_struct
+            .field("azure_api_version", &self.azure_url_config.api_version)
+            .field(
+                "azure_deployment_based_urls",
+                &self.azure_url_config.use_deployment_based_urls,
+            )
+            .field(
+                "azure_provider_metadata_key",
+                &self.azure_provider_metadata_key,
+            );
 
         // Only show existence of sensitive fields, not their values
         if self.api_key.is_some() {

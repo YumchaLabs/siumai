@@ -4110,11 +4110,22 @@ mod azure_public_path {
         transport: Arc<dyn HttpTransport>,
         base_url: &str,
     ) -> siumai::registry::ProviderRegistryHandle {
+        make_registry_with_factory(
+            transport,
+            base_url,
+            siumai::registry::factories::AzureOpenAiProviderFactory::default(),
+        )
+    }
+
+    fn make_registry_with_factory(
+        transport: Arc<dyn HttpTransport>,
+        base_url: &str,
+        factory: siumai::registry::factories::AzureOpenAiProviderFactory,
+    ) -> siumai::registry::ProviderRegistryHandle {
         let mut providers = std::collections::HashMap::new();
         providers.insert(
             "azure".to_string(),
-            Arc::new(siumai::registry::factories::AzureOpenAiProviderFactory::default())
-                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+            Arc::new(factory) as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
         );
 
         let mut provider_build_overrides = std::collections::HashMap::new();
@@ -4847,6 +4858,422 @@ mod azure_public_path {
     }
 
     #[tokio::test]
+    async fn azure_deployment_based_siumai_provider_config_embedding_request_are_equivalent() {
+        let response = serde_json::json!({
+            "object": "list",
+            "data": [
+                {
+                    "object": "embedding",
+                    "embedding": [0.1, 0.2],
+                    "index": 0
+                }
+            ],
+            "model": "embedding-deployment",
+            "usage": {
+                "prompt_tokens": 1,
+                "total_tokens": 1
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response.clone());
+        let provider_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let model = "embedding-deployment";
+        let base_url = "https://example.invalid/openai";
+        let api_version = "2024-10-21";
+        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
+            .with_api_version(api_version)
+            .with_deployment_based_urls(true);
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .api_version(api_version)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .api_version(api_version)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_embedding_model(model)
+                .with_api_version(api_version)
+                .with_deployment_based_urls(true)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry_with_factory(
+            Arc::new(registry_transport.clone()),
+            base_url,
+            registry_factory,
+        );
+        let registry_model = registry
+            .embedding_model("azure:embedding-deployment")
+            .expect("build registry embedding model");
+
+        let siumai_resp = siumai_client
+            .embed(vec!["hello azure embedding".to_string()])
+            .await
+            .expect("siumai embedding ok");
+        let provider_resp = provider_client
+            .embed(vec!["hello azure embedding".to_string()])
+            .await
+            .expect("provider embedding ok");
+        let config_resp = config_client
+            .embed(vec!["hello azure embedding".to_string()])
+            .await
+            .expect("config embedding ok");
+        let registry_resp = registry_model
+            .embed(vec!["hello azure embedding".to_string()])
+            .await
+            .expect("registry embedding ok");
+
+        assert_eq!(siumai_resp.embeddings[0].len(), 2);
+        assert_eq!(provider_resp.embeddings[0].len(), 2);
+        assert_eq!(config_resp.embeddings[0].len(), 2);
+        assert_eq!(registry_resp.embeddings[0].len(), 2);
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/deployments/embedding-deployment/embeddings?api-version=2024-10-21"
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+    }
+
+    #[tokio::test]
+    async fn azure_deployment_based_siumai_provider_config_image_generation_request_are_equivalent()
+    {
+        let response = serde_json::json!({
+            "created": 123,
+            "data": [
+                {
+                    "url": "https://example.com/generated.png",
+                    "revised_prompt": "a tiny purple robot"
+                }
+            ]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response.clone());
+        let provider_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let model = "image-deployment";
+        let base_url = "https://example.invalid/openai";
+        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
+            .with_deployment_based_urls(true);
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_image_model(model)
+                .with_deployment_based_urls(true)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry_with_factory(
+            Arc::new(registry_transport.clone()),
+            base_url,
+            registry_factory,
+        );
+        let registry_model = registry
+            .image_model("azure:image-deployment")
+            .expect("build registry image model");
+
+        let request = make_image_request_with_model(model);
+
+        let siumai_resp = siumai_client
+            .generate_images(request.clone())
+            .await
+            .expect("siumai image ok");
+        let provider_resp = provider_client
+            .generate_images(request.clone())
+            .await
+            .expect("provider image ok");
+        let config_resp = config_client
+            .generate_images(request.clone())
+            .await
+            .expect("config image ok");
+        let registry_resp = registry_model
+            .generate_images(request)
+            .await
+            .expect("registry image ok");
+
+        assert_eq!(
+            siumai_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+        assert_eq!(
+            provider_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+        assert_eq!(
+            config_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+        assert_eq!(
+            registry_resp.images[0].url.as_deref(),
+            Some("https://example.com/generated.png")
+        );
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/deployments/image-deployment/images/generations?api-version=v1"
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+    }
+
+    #[tokio::test]
+    async fn azure_deployment_based_siumai_provider_config_tts_request_are_equivalent() {
+        let siumai_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let provider_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let config_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+        let registry_transport = BinaryCaptureTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+
+        let base_url = "https://example.invalid/openai";
+        let model = "tts-deployment";
+        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
+            .with_deployment_based_urls(true);
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_speech_model(model)
+                .with_deployment_based_urls(true)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry_with_factory(
+            Arc::new(registry_transport.clone()),
+            base_url,
+            registry_factory,
+        );
+        let registry_model = registry
+            .speech_model("azure:tts-deployment")
+            .expect("build registry speech model");
+
+        let request = TtsRequest::new("hello from azure".to_string())
+            .with_voice("alloy".to_string())
+            .with_format("mp3".to_string());
+
+        let siumai_resp = siumai_client
+            .text_to_speech(request.clone())
+            .await
+            .expect("siumai tts ok");
+        let provider_resp = provider_client
+            .text_to_speech(request.clone())
+            .await
+            .expect("provider tts ok");
+        let config_resp = config_client
+            .text_to_speech(request.clone())
+            .await
+            .expect("config tts ok");
+        let registry_resp = registry_model
+            .text_to_speech(request)
+            .await
+            .expect("registry tts ok");
+
+        assert_eq!(siumai_resp.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(provider_resp.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(config_resp.audio_data, vec![1, 2, 3, 4]);
+        assert_eq!(registry_resp.audio_data, vec![1, 2, 3, 4]);
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/deployments/tts-deployment/audio/speech?api-version=v1"
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+    }
+
+    #[tokio::test]
+    async fn azure_deployment_based_siumai_provider_config_stt_request_are_equivalent() {
+        let siumai_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+        let provider_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+        let config_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+        let registry_transport = MultipartCaptureTransport::new(serde_json::json!({
+            "text": "hello from azure",
+            "language": "en"
+        }));
+
+        let base_url = "https://example.invalid/openai";
+        let model = "stt-deployment";
+        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
+            .with_deployment_based_urls(true);
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .deployment_based_urls(true)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_transcription_model(model)
+                .with_deployment_based_urls(true)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry_with_factory(
+            Arc::new(registry_transport.clone()),
+            base_url,
+            registry_factory,
+        );
+        let registry_model = registry
+            .transcription_model("azure:stt-deployment")
+            .expect("build registry transcription model");
+
+        let request =
+            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+
+        let siumai_resp = siumai_client
+            .speech_to_text(request.clone())
+            .await
+            .expect("siumai stt ok");
+        let provider_resp = provider_client
+            .speech_to_text(request.clone())
+            .await
+            .expect("provider stt ok");
+        let config_resp = config_client
+            .speech_to_text(request.clone())
+            .await
+            .expect("config stt ok");
+        let registry_resp = registry_model
+            .speech_to_text(request)
+            .await
+            .expect("registry stt ok");
+
+        assert_eq!(siumai_resp.text, "hello from azure");
+        assert_eq!(provider_resp.text, "hello from azure");
+        assert_eq!(config_resp.text, "hello from azure");
+        assert_eq!(registry_resp.text, "hello from azure");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_multipart_requests_equivalent(&siumai_req, &provider_req);
+        assert_multipart_requests_equivalent(&siumai_req, &config_req);
+        assert_multipart_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/deployments/stt-deployment/audio/transcriptions?api-version=v1"
+        );
+    }
+
+    #[tokio::test]
     async fn azure_siumai_provider_config_chat_request_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -5318,6 +5745,111 @@ mod azure_public_path {
         assert_requests_equivalent(&config_req, &registry_req);
         assert_eq!(
             registry_req.url,
+            "https://example.invalid/openai/v1/responses?api-version=v1"
+        );
+    }
+
+    #[tokio::test]
+    async fn azure_provider_metadata_key_openai_match_across_siumai_provider_config_registry() {
+        let response_json = azure_responses_response_body();
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "deployment-id";
+        let base_url = "https://example.invalid/openai";
+        let metadata_key = "openai";
+        let registry_factory = siumai::registry::factories::AzureOpenAiProviderFactory::default()
+            .with_provider_metadata_key(metadata_key);
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .provider_metadata_key(metadata_key)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .provider_metadata_key(metadata_key)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_provider_metadata_key(metadata_key)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry_with_factory(
+            Arc::new(registry_transport.clone()),
+            base_url,
+            registry_factory,
+        );
+        let registry_model = registry
+            .language_model("azure:deployment-id")
+            .expect("build registry language model");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let siumai_resp = siumai_client
+            .chat_request(request.clone())
+            .await
+            .expect("siumai response ok");
+        let provider_resp = provider_client
+            .chat_request(request.clone())
+            .await
+            .expect("provider response ok");
+        let config_resp = config_client
+            .chat_request(request.clone())
+            .await
+            .expect("config response ok");
+        let registry_resp = registry_model
+            .chat_request(request)
+            .await
+            .expect("registry response ok");
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            let provider_metadata = response
+                .provider_metadata
+                .as_ref()
+                .expect("expected response provider metadata");
+            assert!(
+                provider_metadata.contains_key("openai"),
+                "expected response provider_metadata.openai"
+            );
+            assert!(
+                !provider_metadata.contains_key("azure"),
+                "did not expect response provider_metadata.azure"
+            );
+        }
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
             "https://example.invalid/openai/v1/responses?api-version=v1"
         );
     }

@@ -11,26 +11,51 @@ use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 ///
 /// Mirrors Vercel AI SDK's `@ai-sdk/azure` provider granularity.
 #[cfg(feature = "azure")]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct AzureOpenAiProviderFactory {
     chat_mode: siumai_provider_azure::providers::azure_openai::AzureChatMode,
+    url_config: siumai_provider_azure::providers::azure_openai::AzureUrlConfig,
+    provider_metadata_key: &'static str,
 }
 
 #[cfg(feature = "azure")]
 impl Default for AzureOpenAiProviderFactory {
     fn default() -> Self {
-        Self {
-            chat_mode: siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses,
-        }
+        Self::new(siumai_provider_azure::providers::azure_openai::AzureChatMode::Responses)
     }
 }
 
 #[cfg(feature = "azure")]
 impl AzureOpenAiProviderFactory {
-    pub const fn new(
-        chat_mode: siumai_provider_azure::providers::azure_openai::AzureChatMode,
+    pub fn new(chat_mode: siumai_provider_azure::providers::azure_openai::AzureChatMode) -> Self {
+        Self {
+            chat_mode,
+            url_config: siumai_provider_azure::providers::azure_openai::AzureUrlConfig::default(),
+            provider_metadata_key: "azure",
+        }
+    }
+
+    pub fn with_url_config(
+        mut self,
+        url_config: siumai_provider_azure::providers::azure_openai::AzureUrlConfig,
     ) -> Self {
-        Self { chat_mode }
+        self.url_config = url_config;
+        self
+    }
+
+    pub fn with_api_version(mut self, api_version: impl Into<String>) -> Self {
+        self.url_config.api_version = api_version.into();
+        self
+    }
+
+    pub fn with_deployment_based_urls(mut self, enabled: bool) -> Self {
+        self.url_config.use_deployment_based_urls = enabled;
+        self
+    }
+
+    pub fn with_provider_metadata_key(mut self, key: &'static str) -> Self {
+        self.provider_metadata_key = key;
+        self
     }
 
     async fn build_family_model_with_ctx(
@@ -53,6 +78,8 @@ impl AzureOpenAiProviderFactory {
             siumai_provider_azure::builder::BuilderBase::default(),
         )
         .chat_mode(self.chat_mode)
+        .url_config(self.url_config.clone())
+        .provider_metadata_key(self.provider_metadata_key)
         .model(common_params.model.clone())
         .with_http_config(http_config)
         .with_model_middlewares(ctx.model_middlewares.clone());
