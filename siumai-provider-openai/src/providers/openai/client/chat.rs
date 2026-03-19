@@ -76,6 +76,54 @@ fn wrap_handle_with_responses_remote_cancel(
 }
 
 impl OpenAiClient {
+    fn merge_common_params(
+        &self,
+        request_params: crate::types::CommonParams,
+    ) -> crate::types::CommonParams {
+        let defaults = &self.common_params;
+
+        crate::types::CommonParams {
+            model: if request_params.model.trim().is_empty() {
+                defaults.model.clone()
+            } else {
+                request_params.model
+            },
+            temperature: request_params.temperature.or(defaults.temperature),
+            max_tokens: request_params.max_tokens.or(defaults.max_tokens),
+            max_completion_tokens: request_params
+                .max_completion_tokens
+                .or(defaults.max_completion_tokens),
+            top_p: request_params.top_p.or(defaults.top_p),
+            top_k: request_params.top_k.or(defaults.top_k),
+            stop_sequences: request_params
+                .stop_sequences
+                .or_else(|| defaults.stop_sequences.clone()),
+            seed: request_params.seed.or(defaults.seed),
+            frequency_penalty: request_params
+                .frequency_penalty
+                .or(defaults.frequency_penalty),
+            presence_penalty: request_params
+                .presence_penalty
+                .or(defaults.presence_penalty),
+        }
+    }
+
+    fn prepare_chat_request(
+        &self,
+        mut request: ChatRequest,
+        stream: bool,
+    ) -> Result<ChatRequest, LlmError> {
+        request.common_params = self.merge_common_params(request.common_params);
+        if request.common_params.model.trim().is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "OpenAI request requires a model".to_string(),
+            ));
+        }
+        request.stream = stream;
+        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        Ok(request)
+    }
+
     async fn chat_with_tools_inner(
         &self,
         messages: Vec<ChatMessage>,
@@ -128,8 +176,7 @@ impl OpenAiClient {
         request: ChatRequest,
     ) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
-        let mut request = request;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        let request = self.prepare_chat_request(request, false)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
     }
@@ -140,9 +187,7 @@ impl OpenAiClient {
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
-        let mut request = request;
-        request.stream = true;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
+        let request = self.prepare_chat_request(request, true)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
     }
@@ -211,9 +256,113 @@ impl ChatCapability for OpenAiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::interceptor::{HttpInterceptor, HttpRequestContext};
     use futures_util::StreamExt;
+    use std::sync::{Arc, Mutex};
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+
+    #[test]
+    fn prepare_chat_request_for_stream_fills_missing_common_params_defaults() {
+        let cfg = crate::providers::openai::OpenAiConfig::new("test-key")
+            .with_model("gpt-default")
+            .with_temperature(0.7)
+            .with_max_tokens(256)
+            .with_top_p(0.9);
+        let client =
+            crate::providers::openai::OpenAiClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, true)
+            .expect("prepare stream request");
+
+        assert!(prepared.stream);
+        assert_eq!(prepared.common_params.model, "gpt-default");
+        assert_eq!(prepared.common_params.temperature, Some(0.7));
+        assert_eq!(prepared.common_params.max_tokens, Some(256));
+        assert_eq!(prepared.common_params.top_p, Some(0.9));
+    }
+
+    #[test]
+    fn prepare_chat_request_for_non_stream_preserves_explicit_common_params() {
+        let cfg = crate::providers::openai::OpenAiConfig::new("test-key")
+            .with_model("gpt-default")
+            .with_temperature(0.7)
+            .with_max_tokens(256)
+            .with_top_p(0.9);
+        let client =
+            crate::providers::openai::OpenAiClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .model("gpt-explicit")
+            .temperature(0.2)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .stream(true)
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, false)
+            .expect("prepare non-stream request");
+
+        assert!(!prepared.stream);
+        assert_eq!(prepared.common_params.model, "gpt-explicit");
+        assert_eq!(prepared.common_params.temperature, Some(0.2));
+        assert_eq!(prepared.common_params.max_tokens, Some(256));
+        assert_eq!(prepared.common_params.top_p, Some(0.9));
+    }
+
+    #[tokio::test]
+    async fn chat_request_uses_client_common_params_defaults_without_request_overrides() {
+        struct Capture(Arc<Mutex<Option<serde_json::Value>>>);
+
+        impl HttpInterceptor for Capture {
+            fn on_before_send(
+                &self,
+                _ctx: &HttpRequestContext,
+                _builder: reqwest::RequestBuilder,
+                body: &serde_json::Value,
+                _headers: &reqwest::header::HeaderMap,
+            ) -> Result<reqwest::RequestBuilder, LlmError> {
+                *self.0.lock().expect("capture lock") = Some(body.clone());
+                Err(LlmError::InvalidParameter("stop".into()))
+            }
+        }
+
+        let cfg = crate::providers::openai::OpenAiConfig::new("test-key")
+            .with_model("gpt-4-test")
+            .with_temperature(0.7)
+            .with_max_tokens(256);
+        let captured = Arc::new(Mutex::new(None));
+        let client = crate::providers::openai::OpenAiClient::from_config(cfg)
+            .expect("from_config ok")
+            .with_http_interceptors(vec![Arc::new(Capture(Arc::clone(&captured)))]);
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        let err = client
+            .chat_request(request)
+            .await
+            .expect_err("interceptor should abort before http send");
+        match err {
+            LlmError::InvalidParameter(message) => assert_eq!(message, "stop"),
+            other => panic!("unexpected error: {other:?}"),
+        }
+
+        let body = captured
+            .lock()
+            .expect("capture lock")
+            .clone()
+            .expect("captured body");
+        assert_eq!(
+            body.get("model").and_then(|v| v.as_str()),
+            Some("gpt-4-test")
+        );
+        assert_eq!(body.get("temperature").and_then(|v| v.as_f64()), Some(0.7));
+        assert_eq!(body.get("max_tokens").and_then(|v| v.as_u64()), Some(256));
+    }
 
     async fn write_chunk(tcp: &mut tokio::net::TcpStream, bytes: &[u8]) -> tokio::io::Result<()> {
         let header = format!("{:x}\r\n", bytes.len());

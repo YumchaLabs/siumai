@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Validation Matrix
 
-Last updated: 2026-03-15
+Last updated: 2026-03-19
 
 ## Purpose
 
@@ -134,6 +134,10 @@ Before calling the V4 line release-ready:
 - all Tier 1 and Tier 2 lanes must be green
 - major examples must compile on their recommended construction paths
 - at least one no-network parity or fixture test must exist for every newly aligned provider story
+- when a fix touches provider-side default propagation, auth routing, or transport selection, add one
+  targeted live smoke with real credentials on the affected provider path; for native OpenAI chat
+  this now explicitly means verifying both explicit-request-model and builder/config-default-model
+  `chat_request(...)` against a real model (most recently `gpt-5.2`) behind the configured proxy
 - migration docs must point users to the preferred path:
   - registry-first
   - config-first
