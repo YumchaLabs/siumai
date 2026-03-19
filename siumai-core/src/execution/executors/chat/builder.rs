@@ -28,6 +28,7 @@ pub struct ChatExecutorBuilder {
     http_client: reqwest::Client,
     spec: Option<Arc<dyn crate::core::ProviderSpec>>,
     context: Option<crate::core::ProviderContext>,
+    defer_transformer_selection: bool,
     request_transformer: Option<Arc<dyn RequestTransformer>>,
     response_transformer: Option<Arc<dyn ResponseTransformer>>,
     stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
@@ -44,6 +45,7 @@ impl ChatExecutorBuilder {
             http_client,
             spec: None,
             context: None,
+            defer_transformer_selection: false,
             request_transformer: None,
             response_transformer: None,
             stream_transformer: None,
@@ -84,6 +86,17 @@ impl ChatExecutorBuilder {
         self.response_transformer = Some(bundle.response);
         self.stream_transformer = bundle.stream;
         self.json_stream_converter = bundle.json;
+        self
+    }
+
+    /// Defer transformer selection until after request middlewares run.
+    ///
+    /// Some providers choose transformer bundles based on provider options that can be
+    /// injected or rewritten by model middlewares. Enabling this mode ensures the
+    /// provider spec sees the transformed request before picking request/response/stream
+    /// transformers.
+    pub fn with_runtime_transformer_selection(mut self) -> Self {
+        self.defer_transformer_selection = true;
         self
     }
 
@@ -143,14 +156,11 @@ impl ChatExecutorBuilder {
         Arc::new(HttpChatExecutor {
             provider_id: self.provider_id,
             http_client: self.http_client,
-            request_transformer: self
-                .request_transformer
-                .expect("request_transformer is required"),
-            response_transformer: self
-                .response_transformer
-                .expect("response_transformer is required"),
+            request_transformer: self.request_transformer,
+            response_transformer: self.response_transformer,
             stream_transformer: self.stream_transformer,
             json_stream_converter: self.json_stream_converter,
+            defer_transformer_selection: self.defer_transformer_selection,
             policy: self.policy,
             middlewares: self.middlewares,
             provider_spec: self.spec.expect("provider_spec is required"),

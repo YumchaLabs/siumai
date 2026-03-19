@@ -130,8 +130,9 @@ Public facade audit status:
 - focused wrappers (`cohere`, `togetherai`, `bedrock`, `groq`, `xai`, `deepseek`,
   `ollama`, `minimaxi`) now also pin the narrower helper/tool/escape-hatch surface they
   intentionally own, without forcing artificial symmetry across metadata/resources
-- `google_vertex` remains intentionally options/tools-led, but its unique public helpers
-  such as `vertex_rag_store` are now also guarded directly on the facade layer
+- `google_vertex` remains a focused wrapper rather than a full-spectrum native package, but its
+  unique public helpers now include both Vertex-owned request/tool surfaces and a narrow typed
+  metadata facade bound to the `vertex` namespace
 
 ## Native / wrapper providers already in good shape
 
@@ -170,12 +171,14 @@ Audit result:
 
 - `provider_ext::google_vertex` already exposes the parts users actually need today:
   `GoogleVertexClient` / `GoogleVertexConfig`, typed Imagen and embedding request helpers,
-  plus Vertex-owned tool and hosted-tool entry points
+  Vertex-owned tool and hosted-tool entry points, plus provider-owned typed metadata helpers
+  (`VertexMetadata`, `VertexChatResponseExt`, `VertexContentPartExt`)
 - public-path parity already covers chat, chat stream, embedding, image generation, and
   image edit construction paths
-- the visible response metadata currently comes from the shared Google/Gemini protocol story
-  (`provider_metadata["vertex"].thoughtSignature`), not from a clearly separate Vertex-owned
-  metadata contract
+- the visible response metadata now has a clearly separate Vertex-owned contract on the public
+  surface: response/content-part extraction binds strictly to `provider_metadata["vertex"]`
+  without falling back to shared Google/Gemini alias semantics, while custom stream events stay
+  raw and namespace-scoped
 - there is no obvious provider-owned resource surface yet that is mature enough to justify a
   `resources` module matching OpenAI or Anthropic
 
@@ -183,9 +186,8 @@ Recommendation:
 
 - keep it Tier A
 - do not force fake symmetry
-- do not add `metadata` or `resources` yet just to make the module look complete
-- only add a typed `metadata` module if Vertex-specific response fields grow beyond the shared
-  Google/Gemini semantics already covered by fixture alignment
+- keep the new typed `metadata` module narrow and namespace-strict (`vertex` only)
+- do not add `resources` yet just to make the module look complete
 
 ## Focused providers that should stay focused
 
@@ -312,7 +314,7 @@ The correct policy is:
 ## Immediate TODO
 
 - [x] Add a small "package tier" note into provider docs/examples where ambiguity still exists.
-- [x] Keep `provider_ext::google_vertex` options/tools-focused unless Vertex-specific metadata or resources become clearly distinct from shared Google/Gemini semantics.
+- [x] Promote `provider_ext::google_vertex` into a narrow provider-owned metadata surface bound only to `provider_metadata["vertex"]`, while keeping stream custom events and resource surfaces deferred.
 - [x] Keep `provider_ext::bedrock` request-helper-focused unless Bedrock-specific response metadata grows into a stable typed public contract.
 - [x] Keep `siliconflow` / `together` / `fireworks` on the compat path unless a promotion case is written.
 - [x] Avoid creating new top-level provider packages for compat presets just to match the AI SDK package count.

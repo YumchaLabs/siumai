@@ -5,6 +5,7 @@
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::ollama::OllamaOptions;
 use crate::types::{CommonParams, HttpConfig};
 use std::sync::Arc;
 
@@ -166,8 +167,61 @@ impl OllamaConfigBuilder {
         self
     }
 
+    /// Set request timeout.
+    pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
+        let mut http = self.http_config.unwrap_or_default();
+        http.timeout = Some(timeout);
+        self.http_config = Some(http);
+        self
+    }
+
+    /// Set connection timeout.
+    pub fn connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        let mut http = self.http_config.unwrap_or_default();
+        http.connect_timeout = Some(timeout);
+        self.http_config = Some(http);
+        self
+    }
+
+    /// Control whether to disable compression for streaming requests.
+    pub fn http_stream_disable_compression(mut self, disable: bool) -> Self {
+        let mut http = self.http_config.unwrap_or_default();
+        http.stream_disable_compression = disable;
+        self.http_config = Some(http);
+        self
+    }
+
     /// Set Ollama-specific parameters
     pub fn ollama_params(mut self, params: OllamaParams) -> Self {
+        self.ollama_params = Some(params);
+        self
+    }
+
+    /// Apply typed Ollama default options on the config-first builder surface.
+    pub fn with_ollama_options(mut self, options: OllamaOptions) -> Self {
+        let mut params = self.ollama_params.unwrap_or_default();
+
+        if let Some(keep_alive) = options.keep_alive {
+            params.keep_alive = Some(keep_alive);
+        }
+        if let Some(raw) = options.raw {
+            params.raw = Some(raw);
+        }
+        if let Some(format) = options.format {
+            params.format = Some(format);
+        }
+        for (key, value) in options.extra_params {
+            if key == "think" {
+                if let Some(think) = value.as_bool() {
+                    params.think = Some(think);
+                    continue;
+                }
+            }
+            let mut merged = params.options.unwrap_or_default();
+            merged.insert(key, value);
+            params.options = Some(merged);
+        }
+
         self.ollama_params = Some(params);
         self
     }
@@ -318,6 +372,14 @@ impl OllamaConfigBuilder {
         self
     }
 
+    /// Install a single HTTP interceptor for requests created by clients built from this config.
+    pub fn http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        let mut interceptors = self.http_interceptors.unwrap_or_default();
+        interceptors.push(interceptor);
+        self.http_interceptors = Some(interceptors);
+        self
+    }
+
     /// Install model-level middlewares for chat requests created by clients built from this config.
     pub fn model_middlewares(mut self, middlewares: Vec<Arc<dyn LanguageModelMiddleware>>) -> Self {
         self.model_middlewares = Some(middlewares);
@@ -354,6 +416,9 @@ impl OllamaConfigBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::interceptor::LoggingInterceptor;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     #[test]
     fn test_default_config() {
@@ -420,5 +485,55 @@ mod tests {
 
         let config = OllamaConfig::builder().base_url("invalid-url").build();
         assert!(config.is_err());
+    }
+
+    #[test]
+    fn test_config_builder_http_convenience_helpers() {
+        let config = OllamaConfig::builder()
+            .model("llama3.2")
+            .timeout(Duration::from_secs(13))
+            .connect_timeout(Duration::from_secs(3))
+            .http_stream_disable_compression(true)
+            .http_interceptor(Arc::new(LoggingInterceptor))
+            .build()
+            .expect("config build");
+
+        assert_eq!(config.common_params.model, "llama3.2");
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(13)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn test_config_builder_with_ollama_options_merges_into_params() {
+        let config = OllamaConfig::builder()
+            .model("llama3.2")
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_keep_alive("1m")
+                    .with_raw_mode(true)
+                    .with_format("json")
+                    .with_param("think", serde_json::json!(true))
+                    .with_param("num_ctx", serde_json::json!(4096)),
+            )
+            .build()
+            .expect("config build");
+
+        assert_eq!(config.ollama_params.keep_alive, Some("1m".to_string()));
+        assert_eq!(config.ollama_params.raw, Some(true));
+        assert_eq!(config.ollama_params.format, Some("json".to_string()));
+        assert_eq!(config.ollama_params.think, Some(true));
+        assert_eq!(
+            config
+                .ollama_params
+                .options
+                .as_ref()
+                .and_then(|options| options.get("num_ctx")),
+            Some(&serde_json::json!(4096))
+        );
     }
 }

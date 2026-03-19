@@ -68,6 +68,8 @@ Unsupported tool combinations may be omitted intentionally to keep the Stable fa
 - `file_search-ext.rs` - file-search store management via provider extensions
 - `logprobs.rs` - Google logprobs-oriented request shaping
 - `vertex_chat.rs` - minimal Vertex chat via ADC (`--features "google gcp"`)
+- `vertex_anthropic_chat.rs` - Anthropic on Vertex minimal chat via ADC (`--features "google-vertex gcp"`)
+- `vertex_anthropic_structured_output.rs` - Anthropic on Vertex native structured output via Stable `response_format` (`--features "google-vertex gcp"`)
 - `vertex_imagen_edit.rs` - Vertex Imagen edit / inpaint (`--features "google-vertex gcp"`)
 
 ## Vertex Imagen Notes
@@ -84,7 +86,9 @@ Unsupported tool combinations may be omitted intentionally to keep the Stable fa
 3. `file_search.rs`
 4. `file_search-ext.rs`
 5. `vertex_chat.rs`
-6. `vertex_imagen_edit.rs`
+6. `vertex_anthropic_chat.rs`
+7. `vertex_anthropic_structured_output.rs`
+8. `vertex_imagen_edit.rs`
 
 ## Notes
 

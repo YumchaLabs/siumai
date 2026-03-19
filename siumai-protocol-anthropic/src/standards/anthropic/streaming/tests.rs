@@ -204,6 +204,85 @@ async fn test_anthropic_stream_end() {
 }
 
 #[tokio::test]
+async fn stream_end_includes_accumulated_text_and_reasoning_content() {
+    let config = create_test_config();
+    let converter = AnthropicEventConverter::new(config);
+
+    let events = [
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_test","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"reasoning..."}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_stop","index":0}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hello"}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_stop","index":1}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_stop"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    ];
+
+    let mut end = None;
+    for event in events {
+        let out = converter.convert_event(event).await;
+        if let Some(response) = out.into_iter().flatten().find_map(|event| match event {
+            ChatStreamEvent::StreamEnd { response } => Some(response),
+            _ => None,
+        }) {
+            end = Some(response);
+            break;
+        }
+    }
+
+    let response = end.expect("expected stream end");
+    assert_eq!(response.id.as_deref(), Some("msg_test"));
+    assert_eq!(response.model.as_deref(), Some("claude-test"));
+    assert_eq!(response.content_text(), Some("hello"));
+    assert_eq!(response.reasoning(), vec!["reasoning...".to_string()]);
+}
+
+#[tokio::test]
 async fn emits_custom_events_for_server_tool_use_and_results() {
     let config = create_test_config();
     let converter = AnthropicEventConverter::new(config);

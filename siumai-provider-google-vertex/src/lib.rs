@@ -21,6 +21,7 @@ pub mod builder {
     pub use siumai_core::builder::*;
 }
 
+pub mod provider_metadata;
 pub mod provider_options;
 pub mod providers;
 pub mod standards;

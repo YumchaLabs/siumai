@@ -984,4 +984,50 @@ mod tests {
             .expect("tool_configuration");
         assert!(tc.contains_key("allowed_tools"));
     }
+
+    #[test]
+    fn chat_before_send_injects_context_management_and_effort() {
+        let spec = AnthropicSpec::new();
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "thinkingMode": {
+                        "enabled": true,
+                        "thinkingBudget": 1000
+                    },
+                    "contextManagement": {
+                        "clear_at_least": 1,
+                        "exclude_tools": ["editor"]
+                    },
+                    "effort": "high"
+                }),
+            );
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("hook");
+
+        let out = hook(
+            &serde_json::json!({"model":"m","messages":[],"max_tokens":100,"temperature":0.5}),
+        )
+        .expect("apply hook");
+
+        assert_eq!(
+            out.get("context_management"),
+            Some(&serde_json::json!({
+                "clear_at_least": 1,
+                "exclude_tools": ["editor"]
+            }))
+        );
+        assert_eq!(
+            out.get("output_config"),
+            Some(&serde_json::json!({
+                "effort": "high"
+            }))
+        );
+    }
 }

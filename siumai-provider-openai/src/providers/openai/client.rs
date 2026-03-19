@@ -534,6 +534,7 @@ impl OpenAiClient {
             .with_spec(spec)
             .with_context(ctx)
             .with_transformer_bundle(bundle)
+            .with_runtime_transformer_selection()
             .with_stream_disable_compression(self.http_config.stream_disable_compression)
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(self.model_middlewares.clone());
@@ -1963,5 +1964,102 @@ mod tests {
 
         assert!(saw_added);
         assert!(saw_args_delta);
+    }
+
+    #[tokio::test]
+    async fn responses_stream_reasoning_emits_thinking_delta_and_preserves_metadata() {
+        use crate::provider_metadata::openai::OpenAiContentPartExt;
+        use crate::provider_options::openai::{OpenAiOptions, ResponsesApiConfig};
+        use crate::traits::ChatCapability;
+        use futures_util::StreamExt;
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+
+        let sse = concat!(
+            "event: response.created\n",
+            "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_reasoning_1\",\"model\":\"o3-mini\",\"status\":\"in_progress\",\"created_at\":1735689600,\"output\":[]}}\n\n",
+            "event: response.output_item.added\n",
+            "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"enc_payload_123\",\"summary\":[]}}\n\n",
+            "event: response.reasoning_summary_part.added\n",
+            "data: {\"type\":\"response.reasoning_summary_part.added\",\"item_id\":\"rs_1\",\"summary_index\":0,\"part\":{\"type\":\"summary_text\",\"text\":\"\"}}\n\n",
+            "event: response.reasoning_summary_text.delta\n",
+            "data: {\"type\":\"response.reasoning_summary_text.delta\",\"item_id\":\"rs_1\",\"summary_index\":0,\"delta\":\"Let me think.\"}\n\n",
+            "event: response.output_item.done\n",
+            "data: {\"type\":\"response.output_item.done\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"enc_payload_123\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Let me think.\"}]}}\n\n",
+            "event: response.completed\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_reasoning_1\",\"model\":\"o3-mini\",\"status\":\"completed\",\"output\":[{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"enc_payload_123\",\"summary\":[{\"type\":\"summary_text\",\"text\":\"Let me think.\"}]},{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Final answer.\"}]}],\"usage\":{\"input_tokens\":1,\"output_tokens\":2,\"output_tokens_details\":{\"reasoning_tokens\":1},\"total_tokens\":3},\"finish_reason\":\"stop\"}}\n\n",
+        );
+
+        Mock::given(method("POST"))
+            .and(path("/v1/responses"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "text/event-stream")
+                    .set_body_raw(sse, "text/event-stream"),
+            )
+            .mount(&server)
+            .await;
+
+        let cfg = OpenAiConfig::new("test-key")
+            .with_base_url(format!("{}/v1", server.uri()))
+            .with_model("o3-mini");
+        let client = OpenAiClient::new(cfg, reqwest::Client::new());
+
+        let mut request =
+            crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+                .with_openai_options(OpenAiOptions::new().with_responses_api(
+                    ResponsesApiConfig::new().with_reasoning_summary("detailed"),
+                ));
+        request.stream = true;
+
+        let mut stream = client.chat_stream_request(request).await.unwrap();
+        let mut reasoning = String::new();
+        let mut end = None;
+
+        while let Some(item) = stream.next().await {
+            match item.unwrap() {
+                crate::streaming::ChatStreamEvent::ThinkingDelta { delta } => {
+                    reasoning.push_str(&delta);
+                }
+                crate::streaming::ChatStreamEvent::StreamEnd { response } => {
+                    end = Some(response);
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        assert_eq!(reasoning, "Let me think.");
+
+        let response = end.expect("stream end response");
+        assert_eq!(response.content_text(), Some("Final answer."));
+        assert_eq!(response.reasoning(), vec!["Let me think.".to_string()]);
+        assert_eq!(
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.completion_tokens_details.as_ref())
+                .and_then(|details| details.reasoning_tokens),
+            Some(1)
+        );
+
+        let parts = response
+            .content
+            .as_multimodal()
+            .expect("expected multimodal content");
+        let reasoning_part = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::Reasoning { .. }))
+            .expect("reasoning part present");
+        let metadata = reasoning_part
+            .openai_metadata()
+            .expect("openai reasoning metadata");
+        assert_eq!(metadata.item_id.as_deref(), Some("rs_1"));
+        assert_eq!(
+            metadata.reasoning_encrypted_content.as_deref(),
+            Some("enc_payload_123")
+        );
     }
 }

@@ -119,6 +119,21 @@ impl XaiConfig {
         self
     }
 
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
         self
@@ -126,6 +141,11 @@ impl XaiConfig {
 
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -310,6 +330,11 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    #[derive(Clone, Default)]
+    struct NoopInterceptor;
+
+    impl HttpInterceptor for NoopInterceptor {}
+
     #[test]
     fn xai_config_reasoning_and_search_defaults_roundtrip_into_compatible_config() {
         let mut http_config = HttpConfig::default();
@@ -350,5 +375,23 @@ mod tests {
             params["search_parameters"]["max_search_results"],
             serde_json::json!(5)
         );
+    }
+
+    #[test]
+    fn xai_config_http_convenience_helpers_update_http_state() {
+        let config = XaiConfig::new("test-key")
+            .with_model("grok-4")
+            .with_timeout(Duration::from_secs(9))
+            .with_connect_timeout(Duration::from_secs(3))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(NoopInterceptor));
+
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(9)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(config.http_interceptors.len(), 1);
     }
 }

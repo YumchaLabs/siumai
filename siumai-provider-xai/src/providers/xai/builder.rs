@@ -265,6 +265,8 @@ mod tests {
             .with_reasoning_effort("high")
             .with_default_search()
             .timeout(Duration::from_secs(11))
+            .connect_timeout(Duration::from_secs(4))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .into_config()
             .expect("into_config ok");
@@ -310,6 +312,11 @@ mod tests {
             serde_json::json!(5)
         );
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(11)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(4))
+        );
+        assert!(config.http_config.stream_disable_compression);
         assert_eq!(config.http_interceptors.len(), 1);
     }
 
@@ -327,13 +334,13 @@ mod tests {
             .with_reasoning_effort("high")
             .with_default_search()
             .timeout(Duration::from_secs(11))
+            .connect_timeout(Duration::from_secs(4))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
             .into_config()
             .expect("builder config");
 
-        let mut http_config = crate::types::HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(11));
         let manual_config = crate::providers::xai::XaiConfig::new("test-key")
             .with_base_url(crate::providers::xai::XaiConfig::DEFAULT_BASE_URL)
             .with_model("grok-2-1212")
@@ -345,10 +352,12 @@ mod tests {
             .with_reasoning_budget(2048)
             .with_reasoning_effort("high")
             .with_default_search()
-            .with_http_config(http_config)
-            .with_http_interceptors(vec![Arc::new(
+            .with_timeout(Duration::from_secs(11))
+            .with_connect_timeout(Duration::from_secs(4))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
-            )])
+            ))
             .with_model_middlewares({
                 let mut middlewares =
                     crate::execution::middleware::build_auto_middlewares_vec("xai", "grok-2-1212");
@@ -407,6 +416,14 @@ mod tests {
         assert_eq!(
             builder_config.http_config.timeout,
             manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_config.connect_timeout,
+            manual_config.http_config.connect_timeout
+        );
+        assert_eq!(
+            builder_config.http_config.stream_disable_compression,
+            manual_config.http_config.stream_disable_compression
         );
         assert_eq!(
             builder_config.http_interceptors.len(),

@@ -4,6 +4,10 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::anthropic::{
+    AnthropicContainerConfig, AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode,
+    ThinkingModeConfig,
+};
 use crate::types::{CommonParams, HttpConfig};
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
@@ -11,6 +15,32 @@ use std::sync::Arc;
 // Legacy params re-export (kept for backwards compatibility).
 pub use crate::params::AnthropicParams;
 pub use crate::params::anthropic::CacheControl;
+
+#[derive(Clone)]
+pub(crate) struct AnthropicDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+impl AnthropicDefaultOptionsMiddleware {
+    pub(crate) fn new(options: AnthropicOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "anthropic",
+            serde_json::to_value(options).expect("Anthropic options should serialize"),
+        );
+        Self { defaults }
+    }
+}
+
+impl LanguageModelMiddleware for AnthropicDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
 
 /// Anthropic provider configuration (provider layer).
 ///
@@ -86,9 +116,33 @@ impl AnthropicConfig {
         self
     }
 
+    /// Set request timeout on the canonical config-first HTTP surface.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set connection timeout on the canonical config-first HTTP surface.
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Control whether streaming requests disable compression.
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     /// Install HTTP interceptors for requests created by clients built from this config.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Append a single HTTP interceptor on the canonical config-first HTTP surface.
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -98,6 +152,12 @@ impl AnthropicConfig {
         middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     ) -> Self {
         self.model_middlewares = middlewares;
+        self
+    }
+
+    fn push_anthropic_default_options(mut self, options: AnthropicOptions) -> Self {
+        self.model_middlewares
+            .push(Arc::new(AnthropicDefaultOptionsMiddleware::new(options)));
         self
     }
 
@@ -182,12 +242,53 @@ impl AnthropicConfig {
         self.anthropic_params.beta_features = Some(features);
         self
     }
+
+    /// Set Anthropic typed default options on the config-first surface.
+    pub fn with_anthropic_options(self, options: AnthropicOptions) -> Self {
+        self.push_anthropic_default_options(options)
+    }
+
+    /// Set Anthropic default thinking mode on the config-first surface.
+    pub fn with_anthropic_thinking_mode(self, config: ThinkingModeConfig) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_thinking_mode(config))
+    }
+
+    /// Set Anthropic default structured-output mode on the config-first surface.
+    pub fn with_anthropic_structured_output_mode(
+        self,
+        mode: AnthropicStructuredOutputMode,
+    ) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_structured_output_mode(mode))
+    }
+
+    /// Set Anthropic default context-management options on the config-first surface.
+    pub fn with_anthropic_context_management(self, context_management: serde_json::Value) -> Self {
+        self.with_anthropic_options(
+            AnthropicOptions::new().with_context_management(context_management),
+        )
+    }
+
+    /// Set Anthropic default tool-streaming behavior on the config-first surface.
+    pub fn with_anthropic_tool_streaming(self, enabled: bool) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_tool_streaming(enabled))
+    }
+
+    /// Set Anthropic default effort on the config-first surface.
+    pub fn with_anthropic_effort(self, effort: AnthropicEffort) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_effort(effort))
+    }
+
+    /// Set Anthropic default container config on the config-first surface.
+    pub fn with_anthropic_container(self, container: AnthropicContainerConfig) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_container(container))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
+    use crate::execution::middleware::LanguageModelMiddleware;
+    use std::{collections::HashMap, sync::Arc, time::Duration};
 
     #[test]
     fn anthropic_config_provider_specific_fluent_setters() {
@@ -243,5 +344,81 @@ mod tests {
             config.anthropic_params.beta_features.as_deref(),
             Some(&["prompt-caching-2024-07-31".to_string()][..])
         );
+    }
+
+    #[test]
+    fn anthropic_config_http_convenience_helpers() {
+        let config = AnthropicConfig::new("test-key")
+            .with_timeout(Duration::from_secs(18))
+            .with_connect_timeout(Duration::from_secs(4))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            ));
+
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(18)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(4))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn anthropic_default_option_middlewares_merge_fragments() {
+        let middlewares: Vec<Arc<dyn LanguageModelMiddleware>> = vec![
+            Arc::new(AnthropicDefaultOptionsMiddleware::new(
+                AnthropicOptions::new().with_thinking_mode(ThinkingModeConfig {
+                    enabled: true,
+                    thinking_budget: Some(1000),
+                }),
+            )),
+            Arc::new(AnthropicDefaultOptionsMiddleware::new(
+                AnthropicOptions::new()
+                    .with_structured_output_mode(AnthropicStructuredOutputMode::JsonTool),
+            )),
+            Arc::new(AnthropicDefaultOptionsMiddleware::new(
+                AnthropicOptions::new().with_context_management(serde_json::json!({
+                    "clear_at_least": 1,
+                    "exclude_tools": ["editor"]
+                })),
+            )),
+            Arc::new(AnthropicDefaultOptionsMiddleware::new(
+                AnthropicOptions::new().with_tool_streaming(false),
+            )),
+            Arc::new(AnthropicDefaultOptionsMiddleware::new(
+                AnthropicOptions::new().with_effort(AnthropicEffort::High),
+            )),
+        ];
+
+        let req = crate::execution::middleware::lm::language_model::apply_transform_chain(
+            &middlewares,
+            crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]),
+        );
+
+        let options = req
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|v| v.as_object())
+            .expect("anthropic provider options");
+
+        assert!(options.get("thinking_mode").is_some());
+        assert_eq!(
+            options.get("structured_output_mode"),
+            Some(&serde_json::json!("jsonTool"))
+        );
+        assert_eq!(
+            options.get("context_management"),
+            Some(&serde_json::json!({
+                "clear_at_least": 1,
+                "exclude_tools": ["editor"]
+            }))
+        );
+        assert_eq!(
+            options.get("tool_streaming"),
+            Some(&serde_json::json!(false))
+        );
+        assert_eq!(options.get("effort"), Some(&serde_json::json!("high")));
     }
 }

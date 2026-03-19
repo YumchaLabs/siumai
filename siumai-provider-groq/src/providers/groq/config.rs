@@ -135,6 +135,24 @@ impl GroqConfig {
         self
     }
 
+    /// Set request timeout.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set connection timeout.
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Control whether to disable compression for streaming requests.
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     /// Replace custom HTTP headers.
     pub fn with_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
         self.http_config.headers = headers;
@@ -150,6 +168,12 @@ impl GroqConfig {
     /// Install HTTP interceptors for requests created by clients built from this config.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Install a single HTTP interceptor for requests created by clients built from this config.
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -309,6 +333,11 @@ mod tests {
     use super::*;
     use crate::provider_options::{GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier};
 
+    #[derive(Clone, Default)]
+    struct NoopInterceptor;
+
+    impl HttpInterceptor for NoopInterceptor {}
+
     #[test]
     fn test_groq_config_creation() {
         use secrecy::ExposeSecret;
@@ -411,5 +440,26 @@ mod tests {
             .with_provider_specific_param("service_tier", serde_json::json!("invalid"));
 
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_groq_config_http_convenience_helpers_update_http_state() {
+        let config = GroqConfig::new("test-api-key")
+            .with_model("llama-3.3-70b-versatile")
+            .with_timeout(std::time::Duration::from_secs(9))
+            .with_connect_timeout(std::time::Duration::from_secs(3))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(NoopInterceptor));
+
+        assert_eq!(
+            config.http_config.timeout,
+            Some(std::time::Duration::from_secs(9))
+        );
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(std::time::Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(config.http_interceptors.len(), 1);
     }
 }

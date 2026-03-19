@@ -17,15 +17,24 @@ use super::helpers::{
     create_sse_stream_with_middlewares,
 };
 
+struct ResolvedChatTransformers {
+    request: Arc<dyn RequestTransformer>,
+    response: Arc<dyn ResponseTransformer>,
+    stream: Option<Arc<dyn StreamChunkTransformer>>,
+    json: Option<Arc<dyn crate::streaming::JsonEventConverter>>,
+}
+
 /// Generic HTTP-based ChatExecutor that wires transformers and HTTP
 pub struct HttpChatExecutor {
     pub provider_id: String,
     pub http_client: reqwest::Client,
-    pub request_transformer: Arc<dyn RequestTransformer>,
-    pub response_transformer: Arc<dyn ResponseTransformer>,
+    pub request_transformer: Option<Arc<dyn RequestTransformer>>,
+    pub response_transformer: Option<Arc<dyn ResponseTransformer>>,
     pub stream_transformer: Option<Arc<dyn StreamChunkTransformer>>,
     /// Optional JSON streaming converter for providers that emit JSON lines
     pub json_stream_converter: Option<Arc<dyn crate::streaming::JsonEventConverter>>,
+    /// When enabled, choose the transformer bundle after request middlewares run.
+    pub defer_transformer_selection: bool,
     /// Execution policy (interceptors/retry/before_send/stream flags)
     pub policy: crate::execution::ExecutionPolicy,
     /// Optional model-level middlewares (transform ChatRequest before mapping)
@@ -34,6 +43,45 @@ pub struct HttpChatExecutor {
     pub provider_spec: Arc<dyn crate::core::ProviderSpec>,
     /// Provider context for header/URL construction
     pub provider_context: crate::core::ProviderContext,
+}
+
+impl HttpChatExecutor {
+    fn resolve_transformers(
+        &self,
+        req: &ChatRequest,
+    ) -> Result<ResolvedChatTransformers, LlmError> {
+        if self.defer_transformer_selection {
+            let bundle = self
+                .provider_spec
+                .choose_chat_transformers(req, &self.provider_context);
+            return Ok(ResolvedChatTransformers {
+                request: bundle.request,
+                response: bundle.response,
+                stream: bundle.stream,
+                json: bundle.json,
+            });
+        }
+
+        let request = self.request_transformer.clone().ok_or_else(|| {
+            LlmError::contextual_error(
+                "chat_executor",
+                "request_transformer is required when runtime transformer selection is disabled",
+            )
+        })?;
+        let response = self.response_transformer.clone().ok_or_else(|| {
+            LlmError::contextual_error(
+                "chat_executor",
+                "response_transformer is required when runtime transformer selection is disabled",
+            )
+        })?;
+
+        Ok(ResolvedChatTransformers {
+            request,
+            response,
+            stream: self.stream_transformer.clone(),
+            json: self.json_stream_converter.clone(),
+        })
+    }
 }
 
 #[async_trait::async_trait]
@@ -72,11 +120,12 @@ impl ChatExecutor for HttpChatExecutor {
         }
 
         // Prepare owned dependencies for the async base closure
+        let transformers = self.resolve_transformers(&req)?;
         let provider_id = self.provider_id.clone();
         let provider_id_for_telemetry = provider_id.clone(); // Clone for telemetry use later
         let client = self.http_client.clone();
-        let request_tx = self.request_transformer.clone();
-        let response_tx = self.response_transformer.clone();
+        let request_tx = transformers.request.clone();
+        let response_tx = transformers.response.clone();
         let interceptors = self.policy.interceptors.clone();
         let transport = self.policy.transport.clone();
         let before_send = self.policy.before_send.clone();
@@ -232,15 +281,16 @@ impl ChatExecutor for HttpChatExecutor {
         )
         .await;
 
-        let sse_tx_opt = self.stream_transformer.clone();
-        let json_tx_opt = self.json_stream_converter.clone();
+        // Apply model-level parameter transforms
+        let req = apply_transform_chain(&self.middlewares, req);
+        let transformers = self.resolve_transformers(&req)?;
+        let sse_tx_opt = transformers.stream.clone();
+        let json_tx_opt = transformers.json.clone();
         if sse_tx_opt.is_none() && json_tx_opt.is_none() {
             return Err(LlmError::UnsupportedOperation(
                 "Streaming not supported by this executor".into(),
             ));
         }
-        // Apply model-level parameter transforms
-        let req = apply_transform_chain(&self.middlewares, req);
         // Try pre-stream short-circuit
         if let Some(decision) = try_pre_stream(&self.middlewares, &req) {
             // Emit telemetry span end for short-circuit
@@ -259,7 +309,7 @@ impl ChatExecutor for HttpChatExecutor {
         let provider_id = self.provider_id.clone();
         let provider_id_for_telemetry = provider_id.clone(); // Clone for telemetry use later
         let http = self.http_client.clone();
-        let request_tx = self.request_transformer.clone();
+        let request_tx = transformers.request.clone();
         let sse_tx = sse_tx_opt.clone();
         let json_tx = json_tx_opt.clone();
         let interceptors = self.policy.interceptors.clone();

@@ -816,6 +816,213 @@ pub(super) fn gemini_backoff_executor() -> crate::retry_api::BackoffRetryExecuto
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
+        HttpTransportStreamResponse,
+    };
+    use crate::provider_metadata::gemini::GeminiChatResponseExt;
+    use crate::provider_options::gemini::GeminiOptions;
+    use crate::providers::gemini::ext::request_options::GeminiChatRequestExt;
+    use crate::traits::ChatCapability;
+    use async_trait::async_trait;
+    use futures_util::StreamExt;
+    use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct FixtureStreamTransport {
+        last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
+        body: Arc<Vec<u8>>,
+    }
+
+    impl FixtureStreamTransport {
+        fn new(body: Vec<u8>) -> Self {
+            Self {
+                last_stream: Arc::new(Mutex::new(None)),
+                body: Arc::new(body),
+            }
+        }
+
+        fn take_stream(&self) -> Option<HttpTransportRequest> {
+            self.last_stream.lock().expect("lock stream request").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for FixtureStreamTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 501,
+                headers,
+                body: br#"{"error":{"message":"json unsupported in test","code":"unsupported"}}"#
+                    .to_vec(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            *self.last_stream.lock().expect("lock stream request") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream; charset=utf-8"),
+            );
+
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes((*self.body).clone()),
+            })
+        }
+    }
+
+    fn gemini_json_schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        })
+    }
+
+    fn make_gemini_structured_output_request(model: &str) -> ChatRequest {
+        ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(gemini_json_schema()))
+            .build()
+            .with_gemini_options(GeminiOptions::new().with_structured_outputs(true))
+    }
+
+    fn gemini_sse_body(frames: &[serde_json::Value], include_done: bool) -> Vec<u8> {
+        let mut sse = String::new();
+        for frame in frames {
+            sse.push_str("data: ");
+            sse.push_str(
+                &serde_json::to_string(frame).expect("serialize gemini stream frame for test"),
+            );
+            sse.push_str("\n\n");
+        }
+        if include_done {
+            sse.push_str("data: [DONE]\n\n");
+        }
+        sse.into_bytes()
+    }
+
+    fn gemini_structured_output_success_stream_body() -> Vec<u8> {
+        gemini_sse_body(
+            &[
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    { "text": "{\"value\":\"te" }
+                                ]
+                            }
+                        }
+                    ]
+                }),
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    { "text": "st\"}" }
+                                ]
+                            }
+                        }
+                    ]
+                }),
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "finishReason": "STOP",
+                            "safetyRatings": [
+                                {
+                                    "category": "HARM_CATEGORY_DEROGATORY",
+                                    "probability": "NEGLIGIBLE"
+                                }
+                            ]
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 7,
+                        "candidatesTokenCount": 4,
+                        "totalTokenCount": 11
+                    }
+                }),
+            ],
+            true,
+        )
+    }
+
+    fn gemini_structured_output_interrupted_stream_body() -> Vec<u8> {
+        gemini_sse_body(
+            &[serde_json::json!({
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                { "text": "{\"value\":" }
+                            ]
+                        }
+                    }
+                ]
+            })],
+            false,
+        )
+    }
+
+    fn header_value(req: &HttpTransportRequest, name: &str) -> Option<String> {
+        req.headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string)
+    }
+
+    fn assert_gemini_structured_output_stream_request(req: &HttpTransportRequest) {
+        assert_eq!(
+            req.url,
+            "https://example.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse"
+        );
+        assert_eq!(
+            req.body["generationConfig"]["responseMimeType"],
+            "application/json"
+        );
+        assert!(req.body["generationConfig"].get("responseSchema").is_some());
+        assert!(
+            req.body["generationConfig"]
+                .get("responseJsonSchema")
+                .is_none()
+        );
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+    }
+
+    async fn collect_stream_events(mut stream: ChatStream) -> Vec<ChatStreamEvent> {
+        let mut events = Vec::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(event) => events.push(event),
+                Err(err) => panic!("collect gemini client stream event failed: {err:?}"),
+            }
+        }
+        events
+    }
 
     #[test]
     fn gemini_client_from_config_builds_http_client() {
@@ -867,5 +1074,107 @@ mod tests {
         assert!(!prepared.stream);
         assert_eq!(prepared.common_params.model, "gemini-1.5-flash");
         assert!(prepared.http_config.is_some());
+    }
+
+    #[tokio::test]
+    async fn gemini_client_structured_output_stream_end_preserves_metadata_and_extracts_json() {
+        let model = "gemini-2.5-flash";
+        let transport = FixtureStreamTransport::new(gemini_structured_output_success_stream_body());
+        let client = GeminiClient::from_config(
+            GeminiConfig::new("test-key")
+                .with_base_url("https://example.com/v1beta".to_string())
+                .with_model(model.to_string())
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("build gemini client");
+
+        let events = collect_stream_events(
+            client
+                .chat_stream_request(make_gemini_structured_output_request(model))
+                .await
+                .expect("gemini stream ok"),
+        )
+        .await;
+
+        let content = events
+            .iter()
+            .filter_map(|event| match event {
+                ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+        assert_eq!(content, "{\"value\":\"test\"}");
+
+        let end = events
+            .iter()
+            .find_map(|event| match event {
+                ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected stream end");
+        assert_eq!(end.finish_reason, Some(FinishReason::Stop));
+
+        let metadata = end.gemini_metadata().expect("expected gemini metadata");
+        assert_eq!(metadata.safety_ratings.as_ref().map(Vec::len), Some(1));
+        assert_eq!(
+            metadata
+                .safety_ratings
+                .as_ref()
+                .and_then(|ratings| ratings.first())
+                .map(|rating| rating.category.as_str()),
+            Some("HARM_CATEGORY_DEROGATORY")
+        );
+        assert_eq!(
+            end.provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("google"))
+                .and_then(|meta| meta.get("usageMetadata"))
+                .and_then(|meta| meta.get("totalTokenCount"))
+                .and_then(|value| value.as_i64()),
+            Some(11)
+        );
+
+        let value = siumai_core::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("structured output value");
+        assert_eq!(value["value"], "test");
+
+        let req = transport.take_stream().expect("captured stream request");
+        assert_gemini_structured_output_stream_request(&req);
+    }
+
+    #[tokio::test]
+    async fn gemini_client_structured_output_stream_returns_incomplete_json_error() {
+        let model = "gemini-2.5-flash";
+        let transport =
+            FixtureStreamTransport::new(gemini_structured_output_interrupted_stream_body());
+        let client = GeminiClient::from_config(
+            GeminiConfig::new("test-key")
+                .with_base_url("https://example.com/v1beta".to_string())
+                .with_model(model.to_string())
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("build gemini client");
+
+        let err = siumai_core::structured_output::extract_json_value_from_stream(
+            client
+                .chat_stream_request(make_gemini_structured_output_request(model))
+                .await
+                .expect("gemini stream ok"),
+        )
+        .await
+        .expect_err("interrupted stream should fail");
+
+        match err {
+            LlmError::ParseError(message) => {
+                assert!(message.contains("stream ended before a complete JSON value was produced"))
+            }
+            other => panic!("expected ParseError, got {other:?}"),
+        }
+
+        let req = transport.take_stream().expect("captured stream request");
+        assert_gemini_structured_output_stream_request(&req);
     }
 }

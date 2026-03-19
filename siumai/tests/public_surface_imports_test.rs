@@ -344,6 +344,7 @@ fn public_surface_protocol_openai_compiles() {
 
 #[cfg(feature = "anthropic")]
 #[test]
+#[allow(deprecated)]
 fn public_surface_anthropic_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::anthropic::{
@@ -361,6 +362,7 @@ fn public_surface_anthropic_provider_ext_compiles() {
     let _ = size_of::<AnthropicFiles>();
     let _ = size_of::<AnthropicMessageBatches>();
     let _ = size_of::<AnthropicTokens>();
+    let _ = size_of::<AnthropicEffort>();
     let _ = size_of::<AnthropicResponseFormat>();
     let _ = size_of::<AnthropicStructuredOutputMode>();
     let _ = size_of::<ThinkingModeConfig>();
@@ -406,6 +408,45 @@ fn public_surface_anthropic_provider_ext_compiles() {
     let _ = siumai::provider_ext::anthropic::hosted_tools::web_search_20250305().build();
     let _ = siumai::provider_ext::anthropic::tools::web_search_20250305();
     let _ = siumai::provider_ext::anthropic::provider_tools::web_search_20250305();
+    let _ = AnthropicConfig::new("test-key")
+        .with_model("claude-sonnet-4-5")
+        .with_anthropic_thinking_mode(ThinkingModeConfig {
+            enabled: true,
+            thinking_budget: Some(1024),
+        })
+        .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
+        .with_anthropic_context_management(serde_json::json!({
+            "clear_at_least": 1
+        }))
+        .with_anthropic_tool_streaming(false)
+        .with_anthropic_effort(AnthropicEffort::High);
+    let _ = siumai::Provider::anthropic()
+        .api_key("test-key")
+        .model("claude-sonnet-4-5")
+        .with_anthropic_thinking_mode(ThinkingModeConfig {
+            enabled: true,
+            thinking_budget: Some(1024),
+        })
+        .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
+        .with_anthropic_context_management(serde_json::json!({
+            "clear_at_least": 1
+        }))
+        .with_anthropic_tool_streaming(false)
+        .with_anthropic_effort(AnthropicEffort::High);
+    let _ = Siumai::builder()
+        .anthropic()
+        .api_key("test-key")
+        .model("claude-sonnet-4-5")
+        .with_anthropic_thinking_mode(ThinkingModeConfig {
+            enabled: true,
+            thinking_budget: Some(1024),
+        })
+        .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
+        .with_anthropic_context_management(serde_json::json!({
+            "clear_at_least": 1
+        }))
+        .with_anthropic_tool_streaming(false)
+        .with_anthropic_effort(AnthropicEffort::High);
     let _ = siumai::Provider::anthropic();
 }
 
@@ -624,13 +665,47 @@ fn public_surface_bedrock_provider_ext_compiles() {
 #[cfg(feature = "google-vertex")]
 #[test]
 fn public_surface_google_vertex_provider_ext_compiles() {
-    use siumai::provider_ext::google_vertex::{GoogleVertexClient, GoogleVertexConfig, options::*};
+    use siumai::prelude::unified::{ChatResponse, ContentPart, MessageContent};
+    use siumai::provider_ext::google_vertex::{
+        GoogleVertexClient, GoogleVertexConfig, metadata::*, options::*,
+    };
 
     let _ = size_of::<GoogleVertexClient>();
     let _ = size_of::<GoogleVertexConfig>();
     let _ = size_of::<VertexEmbeddingOptions>();
     let _ = size_of::<VertexImagenOptions>();
+    let _ = size_of::<VertexMetadata>();
+    let _ = size_of::<VertexSource>();
+    let _ = size_of::<VertexGroundingMetadata>();
+    let _ = size_of::<VertexUrlContextMetadata>();
+    let _ = size_of::<VertexUsageMetadata>();
+    let _ = size_of::<VertexSafetyRating>();
     let _ = GoogleVertexClient::base_url;
+
+    fn _assert_resp_ext<T: VertexChatResponseExt>() {}
+    fn _assert_part_ext<T: VertexContentPartExt>() {}
+    _assert_resp_ext::<ChatResponse>();
+    _assert_part_ext::<ContentPart>();
+
+    let mut resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
+    let mut inner = std::collections::HashMap::new();
+    inner.insert(
+        "usageMetadata".to_string(),
+        serde_json::json!({
+            "totalTokenCount": 8
+        }),
+    );
+    let mut outer = std::collections::HashMap::new();
+    outer.insert("vertex".to_string(), inner);
+    resp.provider_metadata = Some(outer);
+    let typed = resp.vertex_metadata().expect("vertex metadata");
+    assert_eq!(
+        typed
+            .usage_metadata
+            .as_ref()
+            .and_then(|usage| usage.total_token_count),
+        Some(8)
+    );
 
     let _ = siumai::provider_ext::google_vertex::tools::code_execution();
     let _ = siumai::provider_ext::google_vertex::tools::google_search();
@@ -656,14 +731,47 @@ fn public_surface_google_vertex_provider_ext_compiles() {
 
 #[cfg(feature = "google-vertex")]
 #[test]
+#[allow(deprecated)]
 fn public_surface_anthropic_vertex_provider_ext_compiles() {
+    use siumai::prelude::unified::{ChatRequest, ChatResponse, MessageContent, Siumai};
     use siumai::provider_ext::anthropic_vertex::{
-        VertexAnthropicBuilder, VertexAnthropicClient, VertexAnthropicConfig,
+        AnthropicChatResponseExt, AnthropicMetadata, VertexAnthropicBuilder,
+        VertexAnthropicChatRequestExt, VertexAnthropicClient, VertexAnthropicConfig,
+        VertexAnthropicOptions, VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
     };
 
     let _ = size_of::<VertexAnthropicBuilder>();
     let _ = size_of::<VertexAnthropicClient>();
     let _ = size_of::<VertexAnthropicConfig>();
+    let _ = size_of::<AnthropicMetadata>();
+    let _ = size_of::<VertexAnthropicOptions>();
+    let _ = size_of::<VertexAnthropicThinkingMode>();
+    let _ = size_of::<VertexAnthropicStructuredOutputMode>();
+    let _ = ChatRequest::new(vec![]).with_anthropic_vertex_options(
+        VertexAnthropicOptions::new()
+            .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048))),
+    );
+    let _ = ChatResponse::new(MessageContent::Text(String::new())).anthropic_metadata();
+    let _ = VertexAnthropicConfig::new("https://example.com/custom", "claude-sonnet-4-5-latest")
+        .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+        .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+        .with_disable_parallel_tool_use(true)
+        .with_send_reasoning(false);
+    let _ = siumai::Provider::anthropic_vertex()
+        .base_url("https://example.com/custom")
+        .model("claude-sonnet-4-5-latest")
+        .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+        .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+        .with_disable_parallel_tool_use(true)
+        .with_send_reasoning(false);
+    let _ = Siumai::builder()
+        .anthropic_vertex()
+        .base_url("https://example.com/custom")
+        .model("claude-sonnet-4-5-latest")
+        .with_anthropic_vertex_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+        .with_anthropic_vertex_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+        .with_anthropic_vertex_disable_parallel_tool_use(true)
+        .with_anthropic_vertex_send_reasoning(false);
     let _ = siumai::Provider::anthropic_vertex();
 }
 
@@ -897,9 +1005,10 @@ fn public_surface_minimaxi_provider_ext_compiles() {
 #[cfg(feature = "azure")]
 #[test]
 fn public_surface_azure_provider_ext_compiles() {
+    use siumai::prelude::unified::*;
     use siumai::provider_ext::azure::{
         AzureChatMode, AzureOpenAiBuilder, AzureOpenAiClient, AzureOpenAiConfig, AzureOpenAiSpec,
-        AzureUrlConfig,
+        AzureUrlConfig, metadata::*, options::*,
     };
 
     let _ = size_of::<AzureOpenAiBuilder>();
@@ -908,6 +1017,41 @@ fn public_surface_azure_provider_ext_compiles() {
     let _ = size_of::<AzureOpenAiSpec>();
     let _ = size_of::<AzureUrlConfig>();
     let _ = size_of::<AzureChatMode>();
+    let _ = size_of::<AzureOpenAiOptions>();
+    let _ = size_of::<AzureResponsesApiConfig>();
+    let _ = size_of::<AzureReasoningEffort>();
+    let _ = size_of::<AzureMetadata>();
+    let _ = size_of::<AzureSource>();
+    let _ = size_of::<AzureSourceMetadata>();
+    let _ = size_of::<AzureContentPartMetadata>();
+
+    fn _assert_req_ext<T: AzureOpenAiChatRequestExt>() {}
+    fn _assert_resp_ext<T: AzureChatResponseExt>() {}
+    fn _assert_source_ext<T: AzureSourceExt>() {}
+    fn _assert_part_ext<T: AzureContentPartExt>() {}
+    _assert_req_ext::<ChatRequest>();
+    _assert_resp_ext::<ChatResponse>();
+    _assert_source_ext::<AzureSource>();
+    _assert_part_ext::<ContentPart>();
+
+    let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_azure_options(
+        AzureOpenAiOptions::new().with_reasoning_effort(AzureReasoningEffort::Medium),
+    );
+    let value = request
+        .provider_options_map
+        .get("azure")
+        .expect("azure options present");
+    assert_eq!(value["reasoning_effort"], serde_json::json!("medium"));
+
+    let mut resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
+    let mut inner = std::collections::HashMap::new();
+    inner.insert("service_tier".to_string(), serde_json::json!("default"));
+    let mut outer = std::collections::HashMap::new();
+    outer.insert("azure".to_string(), inner);
+    resp.provider_metadata = Some(outer);
+    let typed = resp.azure_metadata().expect("azure metadata");
+    assert_eq!(typed.service_tier.as_deref(), Some("default"));
+
     let _ = siumai::Provider::azure();
     let _ = siumai::Provider::azure_chat();
 }

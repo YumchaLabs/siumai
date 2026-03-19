@@ -4,6 +4,7 @@ use super::{AzureChatMode, AzureOpenAiClient, AzureOpenAiConfig, AzureUrlConfig}
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
+use crate::types::ProviderOptionsMap;
 use std::sync::Arc;
 
 /// Provider-owned builder for Azure OpenAI clients.
@@ -54,6 +55,27 @@ impl AzureOpenAiBuilder {
 
     pub fn transcription_model<S: Into<String>>(self, model: S) -> Self {
         self.model(model)
+    }
+
+    /// Merge default provider options under the Azure provider id.
+    pub fn with_provider_options(mut self, options: serde_json::Value) -> Self {
+        self.config = self.config.with_provider_options(options);
+        self
+    }
+
+    /// Merge typed default Azure provider options.
+    pub fn with_azure_options(
+        mut self,
+        options: crate::provider_options::azure::AzureOpenAiOptions,
+    ) -> Self {
+        self.config = self.config.with_azure_options(options);
+        self
+    }
+
+    /// Merge the full default provider options map.
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.config = self.config.with_provider_options_map(map);
+        self
     }
 
     pub fn chat_mode(mut self, mode: AzureChatMode) -> Self {
@@ -229,6 +251,7 @@ impl AzureOpenAiBuilder {
 mod config_first_tests {
     use super::*;
     use crate::execution::middleware::language_model::LanguageModelMiddleware;
+    use crate::provider_options::azure::{AzureOpenAiOptions, AzureReasoningEffort};
     use crate::types::HttpConfig;
     use std::sync::Arc;
     use std::time::Duration;
@@ -332,6 +355,37 @@ mod config_first_tests {
         assert_eq!(
             config_first.provider_metadata_key,
             builder_config.provider_metadata_key
+        );
+    }
+
+    #[test]
+    fn into_config_preserves_default_azure_provider_options() {
+        let cfg = AzureOpenAiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.openai.azure.com/openai")
+            .model("deployment-id")
+            .with_azure_options(
+                AzureOpenAiOptions::new()
+                    .with_force_reasoning(true)
+                    .with_reasoning_effort(AzureReasoningEffort::High),
+            )
+            .with_provider_options(serde_json::json!({
+                "responses_api": {
+                    "reasoning_summary": "detailed"
+                }
+            }))
+            .into_config()
+            .expect("into_config");
+
+        let options = cfg
+            .provider_options_map
+            .get("azure")
+            .expect("azure options present");
+        assert_eq!(options["force_reasoning"], serde_json::json!(true));
+        assert_eq!(options["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            options["responses_api"]["reasoning_summary"],
+            serde_json::json!("detailed")
         );
     }
 }

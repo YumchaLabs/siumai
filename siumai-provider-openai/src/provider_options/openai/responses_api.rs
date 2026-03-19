@@ -17,44 +17,64 @@ pub struct ResponsesApiConfig {
     /// Whether to use Responses API endpoint
     pub enabled: bool,
     /// The ID of the OpenAI conversation to continue.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
     /// Previous response ID for continuation
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub previous_response_id: Option<String>,
     /// Whether to generate output. Set to `false` for connection warm-up in WebSocket mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub generate: Option<bool>,
     /// Prompt cache key (Responses API)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_key: Option<String>,
     /// Prompt cache retention policy (Responses API).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_retention: Option<PromptCacheRetention>,
     /// Response format schema
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<serde_json::Value>,
     /// Whether to use strict JSON schema validation for `responseFormat` mappings.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub strict_json_schema: Option<bool>,
     /// Whether to run the model response in the background
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub background: Option<bool>,
     /// Specify additional output data to include in the model response
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub include: Option<Vec<String>>,
     /// Inserts a system (or developer) message as the first item in the model's context
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub instructions: Option<String>,
     /// The maximum number of total calls to built-in tools that can be processed in a response
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tool_calls: Option<u32>,
     /// Logprobs request option (Vercel-aligned); mapped into `top_logprobs` + `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<ResponsesLogprobs>,
     /// Reasoning summary mode (Responses API; reasoning models only).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_summary: Option<String>,
     /// The identifier for safety monitoring and tracking.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub safety_identifier: Option<String>,
     /// Whether to store the generated model response for later retrieval via API
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
     /// The truncation strategy to use for the model response
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub truncation: Option<Truncation>,
     /// Text verbosity level for the response
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub text_verbosity: Option<TextVerbosity>,
     /// Metadata to store with the generation.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
     /// Whether to allow the model to run tool calls in parallel
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_tool_calls: Option<bool>,
     /// A unique identifier representing your end-user.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<String>,
 }
 

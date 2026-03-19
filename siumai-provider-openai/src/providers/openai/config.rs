@@ -160,9 +160,33 @@ impl OpenAiConfig {
         self
     }
 
+    /// Set request timeout on the canonical config-first HTTP surface.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set connection timeout on the canonical config-first HTTP surface.
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Control whether streaming requests disable compression.
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     /// Install HTTP interceptors for requests created by clients built from this config.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Append a single HTTP interceptor on the canonical config-first HTTP surface.
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -271,6 +295,16 @@ impl OpenAiConfig {
         overrides.insert("openai", options);
         self.provider_options_map.merge_overrides(overrides);
         self
+    }
+
+    /// Merge typed default OpenAI provider options.
+    pub fn with_openai_options(
+        self,
+        options: crate::provider_options::openai::OpenAiOptions,
+    ) -> Self {
+        self.with_provider_options(
+            serde_json::to_value(options).expect("OpenAI options should serialize"),
+        )
     }
 
     /// Replace the full provider options map.
@@ -427,6 +461,7 @@ impl Default for OpenAiConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{sync::Arc, time::Duration};
 
     #[test]
     fn test_config_creation() {
@@ -510,5 +545,24 @@ mod tests {
             serde_json::json!("resp_123")
         );
         assert_eq!(openai_options["custom"]["enabled"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn test_openai_http_convenience_helpers() {
+        let config = OpenAiConfig::new("test-key")
+            .with_timeout(Duration::from_secs(12))
+            .with_connect_timeout(Duration::from_secs(3))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            ));
+
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(12)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(config.http_interceptors.len(), 1);
     }
 }

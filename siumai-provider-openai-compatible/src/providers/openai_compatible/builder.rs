@@ -600,6 +600,18 @@ mod tests {
             .reasoning(true)
             .reasoning_budget(2048)
             .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(5))
+            .http_stream_disable_compression(true)
+            .user_agent("siumai-test/1.0")
+            .proxy("http://127.0.0.1:8080")
+            .custom_headers(std::collections::HashMap::from([(
+                "x-one".to_string(),
+                "1".to_string(),
+            )]))
+            .header("x-two", "2")
+            .with_http_interceptor(Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            ))
             .http_debug(true)
             .into_config()
             .expect("into_config ok");
@@ -626,7 +638,28 @@ mod tests {
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(15)));
-        assert_eq!(config.http_interceptors.len(), 1);
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(5))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(
+            config.http_config.user_agent.as_deref(),
+            Some("siumai-test/1.0")
+        );
+        assert_eq!(
+            config.http_config.proxy.as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-one"),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-two"),
+            Some(&"2".to_string())
+        );
+        assert_eq!(config.http_interceptors.len(), 2);
     }
 
     #[test]
@@ -642,6 +675,18 @@ mod tests {
             .reasoning(true)
             .reasoning_budget(2048)
             .timeout(Duration::from_secs(15))
+            .connect_timeout(Duration::from_secs(5))
+            .http_stream_disable_compression(true)
+            .user_agent("siumai-test/1.0")
+            .proxy("http://127.0.0.1:8080")
+            .custom_headers(std::collections::HashMap::from([(
+                "x-one".to_string(),
+                "1".to_string(),
+            )]))
+            .header("x-two", "2")
+            .with_http_interceptor(Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            ))
             .http_debug(true)
             .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
             .into_config()
@@ -651,8 +696,6 @@ mod tests {
             .expect("provider config");
         let adapter =
             Arc::new(crate::providers::openai_compatible::ConfigurableAdapter::new(provider));
-        let mut http_config = crate::types::HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(15));
         let manual_config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
             "deepseek",
             "test-key",
@@ -667,10 +710,22 @@ mod tests {
         .with_seed(7)
         .with_reasoning(true)
         .with_reasoning_budget(2048)
-        .with_http_config(http_config)
-        .with_http_interceptors(vec![Arc::new(
+        .with_timeout(Duration::from_secs(15))
+        .with_connect_timeout(Duration::from_secs(5))
+        .with_http_stream_disable_compression(true)
+        .with_user_agent("siumai-test/1.0")
+        .with_proxy("http://127.0.0.1:8080")
+        .with_http_headers(std::collections::HashMap::from([(
+            "x-one".to_string(),
+            "1".to_string(),
+        )]))
+        .with_http_header("x-two", "2")
+        .with_http_interceptor(Arc::new(
             crate::execution::http::interceptor::LoggingInterceptor,
-        )])
+        ))
+        .with_http_interceptor(Arc::new(
+            crate::execution::http::interceptor::LoggingInterceptor,
+        ))
         .with_model_middlewares({
             let mut middlewares = crate::execution::middleware::build_auto_middlewares_vec(
                 "deepseek",
@@ -727,6 +782,26 @@ mod tests {
             manual_config.http_config.timeout
         );
         assert_eq!(
+            builder_config.http_config.connect_timeout,
+            manual_config.http_config.connect_timeout
+        );
+        assert_eq!(
+            builder_config.http_config.stream_disable_compression,
+            manual_config.http_config.stream_disable_compression
+        );
+        assert_eq!(
+            builder_config.http_config.user_agent,
+            manual_config.http_config.user_agent
+        );
+        assert_eq!(
+            builder_config.http_config.proxy,
+            manual_config.http_config.proxy
+        );
+        assert_eq!(
+            builder_config.http_config.headers,
+            manual_config.http_config.headers
+        );
+        assert_eq!(
             builder_config.http_interceptors.len(),
             manual_config.http_interceptors.len()
         );
@@ -752,5 +827,22 @@ mod tests {
             .expect("build client with explicit http client");
 
         assert!(client.retry_options().is_some());
+    }
+
+    #[test]
+    fn openai_compatible_builder_falls_back_to_provider_config_default_model() {
+        let mistral = OpenAiCompatibleBuilder::new(BuilderBase::default(), "mistral")
+            .api_key("test-key")
+            .into_config()
+            .expect("mistral config");
+        let cohere = OpenAiCompatibleBuilder::new(BuilderBase::default(), "cohere")
+            .api_key("test-key")
+            .into_config()
+            .expect("cohere config");
+
+        assert_eq!(mistral.model, "mistral-large-latest");
+        assert_eq!(mistral.common_params.model, mistral.model);
+        assert_eq!(cohere.model, "command-r-plus");
+        assert_eq!(cohere.common_params.model, cohere.model);
     }
 }

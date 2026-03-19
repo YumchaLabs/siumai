@@ -4,7 +4,7 @@
 //! builders (e.g., `siumai-registry` factories) in most cases.
 
 use super::{AzureChatMode, AzureUrlConfig};
-use crate::types::{CommonParams, HttpConfig};
+use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap};
 use std::sync::Arc;
 
 use crate::execution::http::interceptor::HttpInterceptor;
@@ -18,6 +18,8 @@ pub struct AzureOpenAiConfig {
     pub base_url: String,
     /// Default model id (Azure deployment id).
     pub common_params: CommonParams,
+    /// Default provider options merged before request-local overrides.
+    pub provider_options_map: ProviderOptionsMap,
     pub http_config: HttpConfig,
     pub url_config: AzureUrlConfig,
     pub chat_mode: AzureChatMode,
@@ -36,6 +38,7 @@ impl std::fmt::Debug for AzureOpenAiConfig {
         f.debug_struct("AzureOpenAiConfig")
             .field("base_url", &self.base_url)
             .field("model", &self.common_params.model)
+            .field("provider_options_map", &self.provider_options_map)
             .field("api_version", &self.url_config.api_version)
             .field(
                 "use_deployment_based_urls",
@@ -54,6 +57,7 @@ impl AzureOpenAiConfig {
             api_key: api_key.into(),
             base_url: String::new(),
             common_params: CommonParams::default(),
+            provider_options_map: ProviderOptionsMap::default(),
             http_config: HttpConfig::default(),
             url_config: AzureUrlConfig::default(),
             chat_mode: AzureChatMode::default(),
@@ -99,8 +103,44 @@ impl AzureOpenAiConfig {
         self.with_model(model)
     }
 
+    /// Merge default provider options under the Azure provider id.
+    pub fn with_provider_options(mut self, options: serde_json::Value) -> Self {
+        let mut overrides = ProviderOptionsMap::new();
+        overrides.insert("azure", options);
+        self.provider_options_map.merge_overrides(overrides);
+        self
+    }
+
+    /// Merge typed default Azure provider options.
+    pub fn with_azure_options(
+        self,
+        options: crate::provider_options::azure::AzureOpenAiOptions,
+    ) -> Self {
+        self.with_provider_options(
+            serde_json::to_value(options).expect("Azure options should serialize"),
+        )
+    }
+
+    /// Merge the full default provider options map.
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map.merge_overrides(map);
+        self
+    }
+
     pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
         self.http_config = http_config;
+        self
+    }
+
+    /// Set request timeout on the canonical config-first HTTP surface.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set connection timeout on the canonical config-first HTTP surface.
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
         self
     }
 
@@ -160,6 +200,12 @@ impl AzureOpenAiConfig {
         self
     }
 
+    /// Append a single HTTP interceptor on the canonical config-first HTTP surface.
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
     /// Install model-level middlewares for chat requests created by clients built from this config.
     pub fn with_model_middlewares(
         mut self,
@@ -186,5 +232,52 @@ impl AzureOpenAiConfig {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider_options::azure::{AzureOpenAiOptions, AzureReasoningEffort};
+    use std::{sync::Arc, time::Duration};
+
+    #[test]
+    fn azure_openai_config_http_convenience_helpers() {
+        let config = AzureOpenAiConfig::new("test-key")
+            .with_timeout(Duration::from_secs(9))
+            .with_connect_timeout(Duration::from_secs(2))
+            .with_http_interceptor(Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            ));
+
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(9)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(2))
+        );
+        assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn azure_config_merges_typed_provider_options() {
+        let config = AzureOpenAiConfig::new("test-key")
+            .with_azure_options(
+                AzureOpenAiOptions::new().with_reasoning_effort(AzureReasoningEffort::Low),
+            )
+            .with_provider_options(serde_json::json!({
+                "responses_api": {
+                    "reasoning_summary": "auto"
+                }
+            }));
+
+        let options = config
+            .provider_options_map
+            .get("azure")
+            .expect("azure options present");
+        assert_eq!(options["reasoning_effort"], serde_json::json!("low"));
+        assert_eq!(
+            options["responses_api"]["reasoning_summary"],
+            serde_json::json!("auto")
+        );
     }
 }

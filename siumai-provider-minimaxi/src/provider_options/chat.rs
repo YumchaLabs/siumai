@@ -150,4 +150,11 @@ mod tests {
         );
         assert_eq!(value["vendor_extra"], serde_json::json!(true));
     }
+
+    #[test]
+    fn minimaxi_options_serialization_omits_unset_fields() {
+        let value = serde_json::to_value(MinimaxiOptions::new()).expect("serialize options");
+
+        assert_eq!(value, serde_json::json!({}));
+    }
 }

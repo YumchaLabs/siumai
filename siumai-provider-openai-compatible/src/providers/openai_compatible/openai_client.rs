@@ -100,6 +100,13 @@ pub struct OpenAiCompatibleClient {
     model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
 }
 
+fn model_slot_is_missing(model: Option<&str>) -> bool {
+    match model {
+        Some(value) => value.trim().is_empty(),
+        None => true,
+    }
+}
+
 impl std::fmt::Debug for OpenAiCompatibleClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpenAiCompatibleClient")
@@ -115,6 +122,61 @@ impl std::fmt::Debug for OpenAiCompatibleClient {
 }
 
 impl OpenAiCompatibleClient {
+    fn primary_default_model(&self) -> Option<&'static str> {
+        super::default_models::get_default_chat_model(&self.config.provider_id)
+    }
+
+    fn resolve_family_model_or_config(
+        &self,
+        family_default: Option<&'static str>,
+    ) -> Option<String> {
+        let configured_model = self.config.model.trim();
+        if configured_model.is_empty() {
+            return family_default.map(str::to_string);
+        }
+
+        if self
+            .primary_default_model()
+            .is_some_and(|default_model| default_model == configured_model)
+        {
+            return family_default
+                .map(str::to_string)
+                .or_else(|| Some(self.config.model.clone()));
+        }
+
+        Some(self.config.model.clone())
+    }
+
+    fn resolve_embedding_model_default(&self) -> Option<String> {
+        self.resolve_family_model_or_config(super::config::get_default_embedding_model(
+            &self.config.provider_id,
+        ))
+    }
+
+    fn resolve_rerank_model_default(&self) -> Option<String> {
+        self.resolve_family_model_or_config(super::config::get_default_rerank_model(
+            &self.config.provider_id,
+        ))
+    }
+
+    fn resolve_image_model_default(&self) -> Option<String> {
+        self.resolve_family_model_or_config(super::config::get_default_image_model(
+            &self.config.provider_id,
+        ))
+    }
+
+    fn resolve_speech_model_default(&self) -> Option<String> {
+        self.resolve_family_model_or_config(super::config::get_default_speech_model(
+            &self.config.provider_id,
+        ))
+    }
+
+    fn resolve_transcription_model_default(&self) -> Option<String> {
+        self.resolve_family_model_or_config(super::config::get_default_transcription_model(
+            &self.config.provider_id,
+        ))
+    }
+
     fn build_context(&self) -> ProviderContext {
         // Merge custom headers from HttpConfig + config.custom_headers + adapter.custom_headers
         let mut extra_headers: std::collections::HashMap<String, String> =
@@ -255,6 +317,7 @@ impl OpenAiCompatibleClient {
                 .with_spec(spec)
                 .with_context(ctx)
                 .with_transformer_bundle(bundle)
+                .with_runtime_transformer_selection()
                 .with_stream_disable_compression(self.config.http_config.stream_disable_compression)
                 .with_interceptors(self.http_interceptors.clone())
                 .with_middlewares(self.model_middlewares.clone());
@@ -554,6 +617,9 @@ impl OpenAiCompatibleClient {
         // Validate configuration
         config.validate()?;
 
+        let http_interceptors = config.http_interceptors.clone();
+        let model_middlewares = config.model_middlewares.clone();
+
         // Validate model with adapter
         if !config.model.is_empty() {
             config.adapter.validate_model(&config.model)?;
@@ -563,8 +629,8 @@ impl OpenAiCompatibleClient {
             config,
             http_client,
             retry_options: None,
-            http_interceptors: Vec::new(),
-            model_middlewares: Vec::new(),
+            http_interceptors,
+            model_middlewares,
         })
     }
 
@@ -683,7 +749,10 @@ impl ChatCapability for OpenAiCompatibleClient {
 impl EmbeddingCapability for OpenAiCompatibleClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
         self.ensure_embedding_surface()?;
-        let req = crate::types::EmbeddingRequest::new(texts).with_model(self.config.model.clone());
+        let mut req = crate::types::EmbeddingRequest::new(texts);
+        if let Some(model) = self.resolve_embedding_model_default() {
+            req.model = Some(model);
+        }
         let exec = self.build_embedding_executor(&req);
         EmbeddingExecutor::execute(&*exec, req).await
     }
@@ -701,8 +770,8 @@ impl crate::traits::EmbeddingExtensions for OpenAiCompatibleClient {
         mut request: EmbeddingRequest,
     ) -> Result<EmbeddingResponse, LlmError> {
         self.ensure_embedding_surface()?;
-        if request.model.as_deref().unwrap_or("").is_empty() {
-            request.model = Some(self.config.model.clone());
+        if model_slot_is_missing(request.model.as_deref()) {
+            request.model = self.resolve_embedding_model_default();
         }
 
         let exec = self.build_embedding_executor(&request);
@@ -712,10 +781,16 @@ impl crate::traits::EmbeddingExtensions for OpenAiCompatibleClient {
 
 #[async_trait]
 impl RerankCapability for OpenAiCompatibleClient {
-    async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
+    async fn rerank(&self, mut request: RerankRequest) -> Result<RerankResponse, LlmError> {
         use crate::execution::executors::rerank::{RerankExecutor, RerankExecutorBuilder};
 
         self.ensure_rerank_surface()?;
+
+        if request.model.trim().is_empty()
+            && let Some(model) = self.resolve_rerank_model_default()
+        {
+            request.model = model;
+        }
 
         let ctx = self.build_context();
         let spec = std::sync::Arc::new(
@@ -966,7 +1041,11 @@ impl AudioCapability for OpenAiCompatibleClient {
         &self,
         request: crate::types::TtsRequest,
     ) -> Result<TtsResponse, LlmError> {
-        let request = request.with_model_if_missing(self.config.model.clone());
+        let request = if let Some(model) = self.resolve_speech_model_default() {
+            request.with_model_if_missing(model)
+        } else {
+            request
+        };
         let exec = self.build_audio_executor();
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
 
@@ -983,7 +1062,11 @@ impl AudioCapability for OpenAiCompatibleClient {
         &self,
         request: crate::types::SttRequest,
     ) -> Result<SttResponse, LlmError> {
-        let request = request.with_model_if_missing(self.config.model.clone());
+        let request = if let Some(model) = self.resolve_transcription_model_default() {
+            request.with_model_if_missing(model)
+        } else {
+            request
+        };
         let exec = self.build_audio_executor();
         let result = AudioExecutor::stt(&*exec, request).await?;
         let raw = result.raw;
@@ -1043,13 +1126,16 @@ impl AudioCapability for OpenAiCompatibleClient {
 impl ImageGenerationCapability for OpenAiCompatibleClient {
     async fn generate_images(
         &self,
-        request: ImageGenerationRequest,
+        mut request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         if !self.config.adapter.supports_image_generation() {
             return Err(LlmError::UnsupportedOperation(format!(
                 "Provider '{}' does not support image generation",
                 self.config.provider_id
             )));
+        }
+        if model_slot_is_missing(request.model.as_deref()) {
+            request.model = self.resolve_image_model_default();
         }
         let exec = self.build_image_executor(&request);
         ImageExecutor::execute(&*exec, request).await
@@ -1798,6 +1884,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn embed_with_config_runtime_together_missing_model_uses_embedding_family_default() {
+        let transport = CaptureTransport::default();
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            make_together_embedding_adapter(),
+        )
+        .with_model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = EmbeddingRequest::single("hello together embedding")
+            .with_dimensions(384)
+            .with_encoding_format(EmbeddingFormat::Float)
+            .with_user("compat-user-4");
+
+        let _ = crate::traits::EmbeddingExtensions::embed_with_config(&client, request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["model"],
+            serde_json::json!("togethercomputer/m2-bert-80M-8k-retrieval")
+        );
+    }
+
+    #[tokio::test]
+    async fn embed_with_config_runtime_together_missing_model_preserves_explicit_config_override() {
+        let transport = CaptureTransport::default();
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            make_together_embedding_adapter(),
+        )
+        .with_model("custom-embedding-override")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = EmbeddingRequest::single("hello together embedding");
+
+        let _ = crate::traits::EmbeddingExtensions::embed_with_config(&client, request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["model"],
+            serde_json::json!("custom-embedding-override")
+        );
+    }
+
+    #[tokio::test]
     async fn generate_images_runtime_together_preserves_request_shape_at_transport_boundary() {
         let transport = CaptureTransport::default();
         let cfg = OpenAiCompatibleConfig::new(
@@ -1852,6 +1995,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generate_images_runtime_together_missing_model_uses_image_family_default() {
+        let transport = CaptureTransport::default();
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            make_together_image_adapter(),
+        )
+        .with_model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ImageGenerationRequest {
+            prompt: "a tiny purple robot".to_string(),
+            negative_prompt: Some("blurry".to_string()),
+            size: Some("1024x1024".to_string()),
+            count: 1,
+            model: None,
+            quality: None,
+            style: None,
+            seed: None,
+            steps: None,
+            guidance_scale: None,
+            enhance_prompt: None,
+            response_format: Some("url".to_string()),
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        let _ = client.generate_images(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["model"],
+            serde_json::json!("black-forest-labs/FLUX.1-schnell")
+        );
+    }
+
+    #[tokio::test]
     async fn openai_compatible_client_together_tts_uses_default_audio_base_with_custom_transport() {
         let transport = BytesResponseTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
 
@@ -1891,6 +2077,38 @@ mod tests {
         );
         assert_eq!(captured.body["voice"], serde_json::json!("alloy"));
         assert_eq!(captured.body["response_format"], serde_json::json!("mp3"));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_client_together_tts_missing_model_uses_speech_family_default() {
+        let transport = BytesResponseTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            make_together_audio_adapter(),
+        )
+        .with_model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .unwrap();
+
+        let request = crate::types::TtsRequest::new("hello from together".to_string())
+            .with_voice("alloy".to_string())
+            .with_format("mp3".to_string());
+
+        let _ = crate::traits::AudioCapability::text_to_speech(&client, request)
+            .await
+            .expect("together tts should succeed through custom transport");
+
+        let captured = transport.take().expect("captured json request");
+        assert_eq!(
+            captured.body["model"],
+            serde_json::json!("cartesia/sonic-2")
+        );
     }
 
     #[tokio::test]
@@ -1944,6 +2162,45 @@ mod tests {
         assert!(body_text.contains("name=\"file\"; filename=\"audio.mp3\""));
         assert!(body_text.contains("Content-Type: audio/mpeg"));
         assert!(body_text.contains("abc"));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_client_fireworks_stt_missing_model_uses_transcription_family_default()
+     {
+        let transport = MultipartResponseTransport::new(serde_json::json!({
+            "text": "hello from fireworks",
+            "language": "en"
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "fireworks",
+            "test-key",
+            "https://api.fireworks.ai/inference/v1",
+            make_fireworks_transcription_adapter(),
+        )
+        .with_model("accounts/fireworks/models/llama-v3p1-8b-instruct")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .unwrap();
+
+        let request = crate::types::SttRequest::from_audio(b"abc".to_vec())
+            .with_media_type("audio/mpeg".to_string());
+
+        let _ = crate::traits::AudioCapability::speech_to_text(&client, request)
+            .await
+            .expect("fireworks stt should succeed through custom multipart transport");
+
+        let captured = transport.take().expect("captured multipart request");
+        let body_text = String::from_utf8_lossy(&captured.body);
+
+        assert_eq!(
+            captured.url,
+            "https://audio.fireworks.ai/v1/audio/transcriptions"
+        );
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("whisper-v3"));
     }
 
     #[tokio::test]
@@ -2053,6 +2310,38 @@ mod tests {
         assert_eq!(captured.body["size"], serde_json::json!("1024x1024"));
         assert_eq!(captured.body["n"], serde_json::json!(1));
         assert_eq!(captured.body["response_format"], serde_json::json!("url"));
+    }
+
+    #[tokio::test]
+    async fn rerank_runtime_jina_missing_model_uses_rerank_family_default() {
+        let transport = CaptureTransport::default();
+        let cfg = OpenAiCompatibleConfig::new(
+            "jina",
+            "test-key",
+            "https://api.jina.ai/v1",
+            make_jina_rerank_adapter(),
+        )
+        .with_model("jina-embeddings-v2-base-en")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = RerankRequest::new(
+            String::new(),
+            "query".to_string(),
+            vec!["doc-1".to_string(), "doc-2".to_string()],
+        )
+        .with_top_n(1);
+
+        let _ = client.rerank(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["model"],
+            serde_json::json!("jina-reranker-m0")
+        );
     }
 
     #[tokio::test]

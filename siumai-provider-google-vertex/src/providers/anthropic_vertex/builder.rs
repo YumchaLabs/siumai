@@ -1,5 +1,8 @@
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
+use crate::provider_options::anthropic_vertex::{
+    VertexAnthropicOptions, VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
+};
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 use std::sync::Arc;
@@ -18,15 +21,35 @@ pub struct VertexAnthropicBuilder {
     base_url: Option<String>,
     model: Option<String>,
     token_provider: Option<Arc<dyn crate::auth::TokenProvider>>,
+    default_provider_options_map: crate::types::ProviderOptionsMap,
 }
 
 impl VertexAnthropicBuilder {
+    fn merge_default_anthropic_value(&mut self, value: serde_json::Value) {
+        match (
+            self.default_provider_options_map.get("anthropic").cloned(),
+            value,
+        ) {
+            (Some(serde_json::Value::Object(mut base)), serde_json::Value::Object(extra)) => {
+                for (key, value) in extra {
+                    base.insert(key, value);
+                }
+                self.default_provider_options_map
+                    .insert("anthropic", serde_json::Value::Object(base));
+            }
+            (_, value) => {
+                self.default_provider_options_map.insert("anthropic", value);
+            }
+        }
+    }
+
     pub fn new(base: BuilderBase) -> Self {
         Self {
             core: ProviderCore::new(base),
             base_url: None,
             model: None,
             token_provider: None,
+            default_provider_options_map: crate::types::ProviderOptionsMap::default(),
         }
     }
 
@@ -137,6 +160,55 @@ impl VertexAnthropicBuilder {
         self.with_http_transport(transport)
     }
 
+    /// Merge Anthropic-on-Vertex default provider options into the builder config.
+    pub fn with_anthropic_vertex_options(mut self, options: VertexAnthropicOptions) -> Self {
+        let value =
+            serde_json::to_value(options).expect("Anthropic-on-Vertex options should serialize");
+        self.merge_default_anthropic_value(value);
+        self
+    }
+
+    /// Configure Anthropic-on-Vertex thinking mode defaults.
+    pub fn with_thinking_mode(mut self, config: VertexAnthropicThinkingMode) -> Self {
+        self.merge_default_anthropic_value(
+            serde_json::to_value(VertexAnthropicOptions::new().with_thinking_mode(config))
+                .expect("Anthropic-on-Vertex options should serialize"),
+        );
+        self
+    }
+
+    /// Configure Anthropic-on-Vertex structured-output routing defaults.
+    pub fn with_structured_output_mode(
+        mut self,
+        mode: VertexAnthropicStructuredOutputMode,
+    ) -> Self {
+        self.merge_default_anthropic_value(
+            serde_json::to_value(VertexAnthropicOptions::new().with_structured_output_mode(mode))
+                .expect("Anthropic-on-Vertex options should serialize"),
+        );
+        self
+    }
+
+    /// Configure Anthropic-on-Vertex parallel tool-use defaults.
+    pub fn with_disable_parallel_tool_use(mut self, disabled: bool) -> Self {
+        self.merge_default_anthropic_value(
+            serde_json::to_value(
+                VertexAnthropicOptions::new().with_disable_parallel_tool_use(disabled),
+            )
+            .expect("Anthropic-on-Vertex options should serialize"),
+        );
+        self
+    }
+
+    /// Configure Anthropic-on-Vertex reasoning replay defaults.
+    pub fn with_send_reasoning(mut self, send_reasoning: bool) -> Self {
+        self.merge_default_anthropic_value(
+            serde_json::to_value(VertexAnthropicOptions::new().with_send_reasoning(send_reasoning))
+                .expect("Anthropic-on-Vertex options should serialize"),
+        );
+        self
+    }
+
     pub fn http_debug(mut self, enabled: bool) -> Self {
         self.core = self.core.http_debug(enabled);
         self
@@ -216,6 +288,10 @@ impl VertexAnthropicBuilder {
             .with_http_interceptors(self.core.get_http_interceptors())
             .with_model_middlewares(model_middlewares);
 
+        if !self.default_provider_options_map.is_empty() {
+            cfg = cfg.with_provider_options_map(self.default_provider_options_map.clone());
+        }
+
         if let Some(transport) = self.core.http_transport.clone() {
             cfg = cfg.with_http_transport(transport);
         }
@@ -244,6 +320,9 @@ mod tests {
     use super::*;
     use crate::builder::BuilderBase;
     use crate::client::LlmClient;
+    use crate::provider_options::anthropic_vertex::{
+        VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
+    };
 
     #[derive(Clone, Default)]
     struct NoopInterceptor;
@@ -285,6 +364,35 @@ mod tests {
 
         assert_eq!(built.base_url(), from_config.base_url());
         assert_eq!(built.supported_models(), from_config.supported_models());
+    }
+
+    #[test]
+    fn into_config_preserves_default_anthropic_vertex_provider_options() {
+        let cfg = VertexAnthropicBuilder::new(BuilderBase::default())
+            .base_url("https://example.com/custom")
+            .model("claude-sonnet-4-5-latest")
+            .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+            .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+            .with_disable_parallel_tool_use(true)
+            .with_send_reasoning(false)
+            .into_config()
+            .expect("into_config");
+
+        let value = cfg
+            .default_provider_options_map
+            .get("anthropic")
+            .expect("anthropic options present");
+        assert_eq!(value["thinking_mode"]["enabled"], serde_json::json!(true));
+        assert_eq!(
+            value["thinking_mode"]["thinking_budget"],
+            serde_json::json!(2048)
+        );
+        assert_eq!(
+            value["structured_output_mode"],
+            serde_json::json!("jsonTool")
+        );
+        assert_eq!(value["disable_parallel_tool_use"], serde_json::json!(true));
+        assert_eq!(value["send_reasoning"], serde_json::json!(false));
     }
 }
 

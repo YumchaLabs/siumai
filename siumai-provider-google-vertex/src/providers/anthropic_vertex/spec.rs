@@ -64,6 +64,65 @@ impl VertexAnthropicSpec {
             )
         }
     }
+
+    fn anthropic_thinking_config_from_provider_options_map(
+        &self,
+        req: &ChatRequest,
+    ) -> Option<anthropic::thinking::ThinkingConfig> {
+        let value = req.provider_options_map.get("anthropic")?;
+        Self::anthropic_thinking_config_from_provider_options_value(value)
+    }
+
+    fn anthropic_thinking_config_from_provider_options_value(
+        value: &serde_json::Value,
+    ) -> Option<anthropic::thinking::ThinkingConfig> {
+        let obj = value.as_object()?;
+
+        if let Some(thinking) = obj.get("thinking").and_then(|v| v.as_object()) {
+            let enabled = thinking
+                .get("type")
+                .and_then(|v| v.as_str())
+                .is_some_and(|t| t == "enabled");
+            if enabled {
+                let budget_tokens = thinking
+                    .get("budget_tokens")
+                    .or_else(|| thinking.get("budgetTokens"))
+                    .and_then(|v| v.as_u64())
+                    .and_then(|v| u32::try_from(v).ok())
+                    .unwrap_or(1024);
+
+                return Some(anthropic::thinking::ThinkingConfig {
+                    r#type: "enabled".to_string(),
+                    budget_tokens,
+                });
+            }
+        }
+
+        let thinking_mode = obj
+            .get("thinking_mode")
+            .or_else(|| obj.get("thinkingMode"))
+            .and_then(|v| v.as_object())?;
+
+        let enabled = thinking_mode
+            .get("enabled")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        if !enabled {
+            return None;
+        }
+
+        let budget_tokens = thinking_mode
+            .get("thinking_budget")
+            .or_else(|| thinking_mode.get("thinkingBudget"))
+            .and_then(|v| v.as_u64())
+            .and_then(|v| u32::try_from(v).ok())
+            .unwrap_or(1024);
+
+        Some(anthropic::thinking::ThinkingConfig {
+            r#type: "enabled".to_string(),
+            budget_tokens,
+        })
+    }
 }
 
 #[derive(Clone)]
@@ -219,6 +278,34 @@ impl ProviderSpec for VertexAnthropicSpec {
             stream: stream_transformer,
             json: None,
         }
+    }
+
+    fn chat_before_send(
+        &self,
+        req: &ChatRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<crate::execution::executors::BeforeSendHook> {
+        let thinking = self.anthropic_thinking_config_from_provider_options_map(req)?;
+
+        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+            let mut out = body.clone();
+            out["thinking"] = thinking.to_request_params();
+
+            if let Some(obj) = out.as_object_mut() {
+                obj.remove("temperature");
+                obj.remove("top_p");
+                obj.remove("top_k");
+            }
+
+            if let Some(max_tokens) = out.get("max_tokens").and_then(|v| v.as_u64()) {
+                out["max_tokens"] =
+                    serde_json::json!(max_tokens.saturating_add(thinking.budget_tokens as u64));
+            }
+
+            Ok(out)
+        };
+
+        Some(Arc::new(hook))
     }
 
     fn models_url(&self, ctx: &ProviderContext) -> String {

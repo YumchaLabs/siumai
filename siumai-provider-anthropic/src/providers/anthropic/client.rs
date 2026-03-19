@@ -394,28 +394,24 @@ impl AnthropicClient {
     }
 
     /// Create chat executor using the builder pattern
-    fn build_chat_executor(&self, request: &ChatRequest) -> Arc<HttpChatExecutor> {
-        use crate::core::ProviderSpec;
+    fn build_chat_executor(&self, _request: &ChatRequest) -> Arc<HttpChatExecutor> {
         use crate::execution::executors::chat::ChatExecutorBuilder;
 
         let ctx = self.build_context();
         let spec = Arc::new(crate::providers::anthropic::spec::AnthropicSpec::new());
-        let bundle = spec.choose_chat_transformers(request, &ctx);
 
-        // Ensure required Anthropic beta headers are present when using provider-hosted tools.
+        // Run provider-owned/user middlewares first so beta header injection sees the final
+        // provider-options shape after default-option merging and request rewrites.
         let mut middlewares = self.model_middlewares.clone();
-        middlewares.insert(0, Arc::new(AnthropicAutoBetaHeadersMiddleware));
-        middlewares.insert(
-            1,
-            Arc::new(
-                crate::providers::anthropic::middleware::AnthropicToolWarningsMiddleware::new(),
-            ),
-        );
+        middlewares.push(Arc::new(AnthropicAutoBetaHeadersMiddleware));
+        middlewares.push(Arc::new(
+            crate::providers::anthropic::middleware::AnthropicToolWarningsMiddleware::new(),
+        ));
 
         let mut builder = ChatExecutorBuilder::new("anthropic", self.http_client.clone())
             .with_spec(spec)
             .with_context(ctx)
-            .with_transformer_bundle(bundle)
+            .with_runtime_transformer_selection()
             .with_stream_disable_compression(self.http_config.stream_disable_compression)
             .with_interceptors(self.http_interceptors.clone())
             .with_middlewares(middlewares);
@@ -796,7 +792,7 @@ mod tests {
     };
     use crate::provider_options::anthropic::{
         AnthropicContainerConfig, AnthropicContainerSkill, AnthropicEffort, AnthropicOptions,
-        ThinkingModeConfig,
+        AnthropicStructuredOutputMode, ThinkingModeConfig,
     };
     use crate::providers::anthropic::AnthropicConfig;
     use crate::providers::anthropic::ext::request_options::AnthropicChatRequestExt;
@@ -814,6 +810,146 @@ mod tests {
         fn take_stream(&self) -> Option<HttpTransportRequest> {
             self.last_stream.lock().expect("lock stream request").take()
         }
+    }
+
+    #[derive(Clone)]
+    struct FixtureStreamTransport {
+        last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
+        body: Arc<Vec<u8>>,
+    }
+
+    impl FixtureStreamTransport {
+        fn new(body: Vec<u8>) -> Self {
+            Self {
+                last_stream: Arc::new(Mutex::new(None)),
+                body: Arc::new(body),
+            }
+        }
+
+        fn take_stream(&self) -> Option<HttpTransportRequest> {
+            self.last_stream.lock().expect("lock stream request").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for FixtureStreamTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 501,
+                headers,
+                body: br#"{"error":{"message":"json unsupported in test","type":"test_error","code":"unsupported"}}"#
+                    .to_vec(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            *self.last_stream.lock().expect("lock stream request") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream; charset=utf-8"),
+            );
+
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes((*self.body).clone()),
+            })
+        }
+    }
+
+    fn anthropic_json_tool_schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        })
+    }
+
+    fn make_anthropic_json_tool_request(model: &str) -> ChatRequest {
+        let mut request = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_response_format(ResponseFormat::json_schema(anthropic_json_tool_schema()))
+            .with_anthropic_options(
+                AnthropicOptions::new()
+                    .with_structured_output_mode(AnthropicStructuredOutputMode::JsonTool),
+            );
+        request.common_params.model = model.to_string();
+        request
+    }
+
+    fn anthropic_reserved_json_tool_interrupted_stream_body(
+        model: &str,
+        partial_json: &str,
+    ) -> Vec<u8> {
+        let partial_json =
+            serde_json::to_string(partial_json).expect("serialize anthropic partial json");
+        let mut body = String::new();
+        body.push_str(&format!(
+            r#"data: {{"type":"message_start","message":{{"id":"msg_test","model":"{model}","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{{"input_tokens":15,"output_tokens":1}}}}}}"#
+        ));
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"json","input":{}}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(&format!(
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":{partial_json}}}}}"#
+        ));
+        body.push_str("\n\n");
+        body.into_bytes()
+    }
+
+    fn header_value(req: &HttpTransportRequest, name: &str) -> Option<String> {
+        req.headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string)
+    }
+
+    fn assert_anthropic_json_tool_stream_request(req: &HttpTransportRequest) {
+        assert_eq!(req.url, "https://example.com/custom/v1/messages");
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert!(req.body.get("output_format").is_none());
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(req.body["tool_choice"]["type"], serde_json::json!("any"));
+        assert_eq!(
+            req.body["tool_choice"]["disable_parallel_tool_use"],
+            serde_json::json!(true)
+        );
+
+        let tools = req.body["tools"].as_array().expect("anthropic tools array");
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("json")
+                    && tool.get("input_schema") == Some(&anthropic_json_tool_schema())
+            }),
+            "expected reserved json tool in request body: {:?}",
+            req.body["tools"]
+        );
+
+        let beta = header_value(req, "anthropic-beta").unwrap_or_default();
+        assert!(
+            !beta
+                .split(',')
+                .any(|token| token.trim() == "structured-outputs-2025-11-13"),
+            "jsonTool fallback should not enable structured outputs beta: {beta}"
+        );
     }
 
     #[async_trait]
@@ -1352,6 +1488,69 @@ mod tests {
                 .any(|token| token.trim() == "fine-grained-tool-streaming-2025-05-14"),
             "unexpected fine-grained-tool-streaming beta token: {beta}"
         );
+    }
+
+    #[tokio::test]
+    async fn anthropic_client_json_tool_stream_extracts_complete_json_from_interrupted_stream() {
+        let model = "claude-sonnet-4-5";
+        let transport = FixtureStreamTransport::new(
+            anthropic_reserved_json_tool_interrupted_stream_body(model, r#"{"value":"test"}"#),
+        );
+        let client = AnthropicClient::from_config(
+            AnthropicConfig::new("test-key")
+                .with_base_url("https://example.com/custom")
+                .with_model(model)
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("build anthropic client");
+
+        let value = siumai_core::structured_output::extract_json_value_from_stream(
+            client
+                .chat_stream_request(make_anthropic_json_tool_request(model))
+                .await
+                .expect("anthropic stream ok"),
+        )
+        .await
+        .expect("structured output value");
+
+        assert_eq!(value["value"], "test");
+
+        let req = transport.take_stream().expect("captured stream request");
+        assert_anthropic_json_tool_stream_request(&req);
+    }
+
+    #[tokio::test]
+    async fn anthropic_client_json_tool_stream_returns_incomplete_json_error() {
+        let model = "claude-sonnet-4-5";
+        let transport = FixtureStreamTransport::new(
+            anthropic_reserved_json_tool_interrupted_stream_body(model, r#"{"value":"#),
+        );
+        let client = AnthropicClient::from_config(
+            AnthropicConfig::new("test-key")
+                .with_base_url("https://example.com/custom")
+                .with_model(model)
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("build anthropic client");
+
+        let err = siumai_core::structured_output::extract_json_value_from_stream(
+            client
+                .chat_stream_request(make_anthropic_json_tool_request(model))
+                .await
+                .expect("anthropic stream ok"),
+        )
+        .await
+        .expect_err("interrupted stream should fail");
+
+        match err {
+            LlmError::ParseError(message) => {
+                assert!(message.contains("stream ended before a complete JSON value was produced"))
+            }
+            other => panic!("expected ParseError, got {other:?}"),
+        }
+
+        let req = transport.take_stream().expect("captured stream request");
+        assert_anthropic_json_tool_stream_request(&req);
     }
 
     #[test]

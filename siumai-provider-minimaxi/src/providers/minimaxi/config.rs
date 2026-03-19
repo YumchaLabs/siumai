@@ -106,9 +106,33 @@ impl MinimaxiConfig {
         self
     }
 
+    /// Set request timeout on the canonical config-first HTTP surface.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set connection timeout on the canonical config-first HTTP surface.
+    pub fn with_connect_timeout(mut self, connect_timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(connect_timeout);
+        self
+    }
+
+    /// Control whether streaming requests disable compression.
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     /// Install HTTP interceptors for requests created by clients built from this config.
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    /// Append a single HTTP interceptor on the canonical config-first HTTP surface.
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -227,6 +251,7 @@ impl Default for MinimaxiConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{sync::Arc, time::Duration};
 
     #[test]
     fn minimaxi_config_merges_default_provider_options() {
@@ -250,5 +275,24 @@ mod tests {
             serde_json::json!(2048)
         );
         assert_eq!(value["response_format"]["JsonSchema"]["schema"], schema);
+    }
+
+    #[test]
+    fn minimaxi_config_http_convenience_helpers() {
+        let config = MinimaxiConfig::new("test-key")
+            .with_timeout(Duration::from_secs(10))
+            .with_connect_timeout(Duration::from_secs(3))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            ));
+
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(10)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(config.http_interceptors.len(), 1);
     }
 }

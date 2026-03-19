@@ -1,5 +1,7 @@
 use crate::error::LlmError;
 use crate::provider::ids;
+#[cfg(feature = "azure")]
+use crate::registry::entry::ProviderFactory;
 
 #[cfg(any(
     feature = "openai",
@@ -321,7 +323,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     use crate::client::LlmClient;
     use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
     use crate::execution::middleware::LanguageModelMiddleware;
-    use crate::registry::entry::{BuildContext, ProviderFactory};
+    use crate::registry::entry::BuildContext;
     use std::sync::Arc;
 
     // Use unified HTTP client builder from utils

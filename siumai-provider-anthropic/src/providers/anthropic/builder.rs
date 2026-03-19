@@ -1,6 +1,10 @@
 use super::client::AnthropicClient;
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::params::AnthropicParams;
+use crate::provider_options::anthropic::{
+    AnthropicContainerConfig, AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode,
+    ThinkingModeConfig,
+};
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmError};
 use secrecy::ExposeSecret;
@@ -18,6 +22,7 @@ pub struct AnthropicBuilder {
     base_url: Option<String>,
     common_params: CommonParams,
     anthropic_params: AnthropicParams,
+    model_middlewares: Vec<Arc<dyn crate::execution::middleware::LanguageModelMiddleware>>,
 }
 
 impl AnthropicBuilder {
@@ -28,6 +33,7 @@ impl AnthropicBuilder {
             base_url: None,
             common_params: CommonParams::default(),
             anthropic_params: AnthropicParams::default(),
+            model_middlewares: Vec::new(),
         }
     }
 
@@ -276,6 +282,53 @@ impl AnthropicBuilder {
         self
     }
 
+    fn push_anthropic_default_options(mut self, options: AnthropicOptions) -> Self {
+        self.model_middlewares.push(Arc::new(
+            crate::providers::anthropic::config::AnthropicDefaultOptionsMiddleware::new(options),
+        ));
+        self
+    }
+
+    /// Set Anthropic typed default options on the focused builder surface.
+    pub fn with_anthropic_options(self, options: AnthropicOptions) -> Self {
+        self.push_anthropic_default_options(options)
+    }
+
+    /// Set Anthropic default thinking mode on the focused builder surface.
+    pub fn with_anthropic_thinking_mode(self, config: ThinkingModeConfig) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_thinking_mode(config))
+    }
+
+    /// Set Anthropic default structured-output mode on the focused builder surface.
+    pub fn with_anthropic_structured_output_mode(
+        self,
+        mode: AnthropicStructuredOutputMode,
+    ) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_structured_output_mode(mode))
+    }
+
+    /// Set Anthropic default context-management options on the focused builder surface.
+    pub fn with_anthropic_context_management(self, context_management: serde_json::Value) -> Self {
+        self.with_anthropic_options(
+            AnthropicOptions::new().with_context_management(context_management),
+        )
+    }
+
+    /// Set Anthropic default tool-streaming behavior on the focused builder surface.
+    pub fn with_anthropic_tool_streaming(self, enabled: bool) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_tool_streaming(enabled))
+    }
+
+    /// Set Anthropic default effort on the focused builder surface.
+    pub fn with_anthropic_effort(self, effort: AnthropicEffort) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_effort(effort))
+    }
+
+    /// Set Anthropic default container config on the focused builder surface.
+    pub fn with_anthropic_container(self, container: AnthropicContainerConfig) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_container(container))
+    }
+
     /// Builds the Anthropic client
     pub fn into_config(self) -> Result<crate::providers::anthropic::AnthropicConfig, LlmError> {
         let api_key = self
@@ -291,7 +344,8 @@ impl AnthropicBuilder {
 
         let model_id = self.common_params.model.clone();
         let http_interceptors = self.core.get_http_interceptors();
-        let model_middlewares = self.core.get_auto_middlewares("anthropic", &model_id);
+        let mut model_middlewares = self.core.get_auto_middlewares("anthropic", &model_id);
+        model_middlewares.extend(self.model_middlewares);
 
         Ok(crate::providers::anthropic::AnthropicConfig {
             api_key: secrecy::SecretString::from(api_key),

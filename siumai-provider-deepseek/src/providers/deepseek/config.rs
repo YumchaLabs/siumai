@@ -6,6 +6,7 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::DeepSeekOptions;
 use crate::types::{CommonParams, HttpConfig};
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
@@ -118,6 +119,21 @@ impl DeepSeekConfig {
         self
     }
 
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
         self
@@ -128,12 +144,51 @@ impl DeepSeekConfig {
         self
     }
 
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
+        self
+    }
+
     pub fn with_model_middlewares(
         mut self,
         middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     ) -> Self {
         self.model_middlewares = middlewares;
         self
+    }
+
+    pub fn with_provider_specific_config(
+        mut self,
+        params: HashMap<String, serde_json::Value>,
+    ) -> Self {
+        self.provider_specific_config
+            .extend(params.into_iter().filter(|(_, value)| !value.is_null()));
+        self
+    }
+
+    pub fn with_provider_specific_param(
+        mut self,
+        key: impl Into<String>,
+        value: serde_json::Value,
+    ) -> Self {
+        self.provider_specific_config.insert(key.into(), value);
+        self
+    }
+
+    pub fn with_deepseek_options(mut self, options: DeepSeekOptions) -> Self {
+        if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
+            self.provider_specific_config
+                .extend(obj.into_iter().filter(|(_, value)| !value.is_null()));
+        }
+        self
+    }
+
+    pub fn with_deepseek_reasoning(self, enable: bool) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning(enable))
+    }
+
+    pub fn with_deepseek_reasoning_budget(self, budget: i32) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning_budget(budget))
     }
 
     pub fn with_reasoning(mut self, enable: bool) -> Self {
@@ -266,6 +321,12 @@ impl DeepSeekConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
+
+    #[derive(Clone, Default)]
+    struct NoopInterceptor;
+
+    impl HttpInterceptor for NoopInterceptor {}
 
     #[test]
     fn deepseek_config_reasoning_defaults_roundtrip_into_compatible_config() {
@@ -289,5 +350,23 @@ mod tests {
 
         assert_eq!(body["enable_reasoning"], serde_json::json!(true));
         assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
+    }
+
+    #[test]
+    fn deepseek_config_http_convenience_helpers_update_http_state() {
+        let cfg = DeepSeekConfig::new("test-key")
+            .with_model("deepseek-chat")
+            .with_timeout(Duration::from_secs(9))
+            .with_connect_timeout(Duration::from_secs(3))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(NoopInterceptor));
+
+        assert_eq!(cfg.http_config.timeout, Some(Duration::from_secs(9)));
+        assert_eq!(
+            cfg.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(cfg.http_config.stream_disable_compression);
+        assert_eq!(cfg.http_interceptors.len(), 1);
     }
 }

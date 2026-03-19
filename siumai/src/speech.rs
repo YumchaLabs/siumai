@@ -2,6 +2,9 @@
 //!
 //! This is the recommended Rust-first surface for TTS:
 //! - `synthesize`
+//!
+//! `synthesize` accepts the metadata-bearing `SpeechModel` family trait rather than
+//! the legacy `SpeechModelV3` compatibility layer.
 
 use crate::retry_api::{RetryOptions, retry_with};
 use siumai_core::error::LlmError;
@@ -46,7 +49,7 @@ fn apply_tts_call_options(
 }
 
 /// Synthesize audio from text.
-pub async fn synthesize<M: SpeechModelV3 + ?Sized>(
+pub async fn synthesize<M: SpeechModel + ?Sized>(
     model: &M,
     request: TtsRequest,
     options: SynthesizeOptions,

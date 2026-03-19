@@ -12,7 +12,9 @@ use crate::streaming::SseEventConverter;
 use crate::streaming::{
     ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker, V3UnsupportedPartBehavior,
 };
-use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata, Usage};
+use crate::types::{
+    ChatResponse, ContentPart, FinishReason, MessageContent, ResponseMetadata, Usage,
+};
 use eventsource_stream::Event;
 use serde::Deserialize;
 
@@ -160,6 +162,8 @@ pub struct AnthropicEventConverter {
     state_tracker: StreamStateTracker,
     tool_use_ids_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     content_block_type_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
+    text_content_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
+    thinking_content_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     thinking_signature_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     redacted_thinking_data_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     citation_documents: Vec<AnthropicCitationDocument>,
@@ -186,6 +190,8 @@ impl AnthropicEventConverter {
             state_tracker: StreamStateTracker::new(),
             tool_use_ids_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             content_block_type_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            text_content_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            thinking_content_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             thinking_signature_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             redacted_thinking_data_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             citation_documents: Vec::new(),
@@ -236,6 +242,26 @@ impl AnthropicEventConverter {
             .lock()
             .ok()
             .and_then(|map| map.get(&index).cloned())
+    }
+
+    fn append_text_content(&self, index: usize, delta: &str) {
+        if delta.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.text_content_by_index.lock() {
+            let entry = map.entry(index).or_default();
+            entry.push_str(delta);
+        }
+    }
+
+    fn append_thinking_content(&self, index: usize, delta: &str) {
+        if delta.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.thinking_content_by_index.lock() {
+            let entry = map.entry(index).or_default();
+            entry.push_str(delta);
+        }
     }
 
     fn append_thinking_signature(&self, index: usize, delta: String) {
@@ -311,6 +337,75 @@ impl AnthropicEventConverter {
             let mut all = std::collections::HashMap::new();
             all.insert("anthropic".to_string(), anthropic);
             Some(all)
+        }
+    }
+
+    fn build_stream_content(&self) -> MessageContent {
+        let mut ordered_types: Vec<(usize, String)> = self
+            .content_block_type_by_index
+            .lock()
+            .map(|map| map.iter().map(|(idx, ty)| (*idx, ty.clone())).collect())
+            .unwrap_or_default();
+        ordered_types.sort_by_key(|(idx, _)| *idx);
+
+        let text_blocks = self
+            .text_content_by_index
+            .lock()
+            .map(|map| map.clone())
+            .unwrap_or_default();
+        let thinking_blocks = self
+            .thinking_content_by_index
+            .lock()
+            .map(|map| map.clone())
+            .unwrap_or_default();
+
+        let mut parts = Vec::new();
+        let mut text_buffer = String::new();
+
+        for (idx, block_type) in ordered_types {
+            match block_type.as_str() {
+                "text" | "json_tool_use" => {
+                    if let Some(text) = text_blocks.get(&idx)
+                        && !text.is_empty()
+                    {
+                        text_buffer.push_str(text);
+                        parts.push(ContentPart::text(text.clone()));
+                    }
+                }
+                "thinking" => {
+                    if let Some(thinking) = thinking_blocks.get(&idx)
+                        && !thinking.is_empty()
+                    {
+                        parts.push(ContentPart::reasoning(thinking.clone()));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if parts.len() == 1 && parts[0].is_text() {
+            MessageContent::Text(text_buffer)
+        } else if !parts.is_empty() {
+            MessageContent::MultiModal(parts)
+        } else if !text_buffer.is_empty() {
+            MessageContent::Text(text_buffer)
+        } else {
+            MessageContent::Text(String::new())
+        }
+    }
+
+    fn build_stream_response(&self, finish_reason: FinishReason) -> ChatResponse {
+        ChatResponse {
+            id: self.vercel_response_id.lock().ok().and_then(|v| v.clone()),
+            model: self.vercel_model_id.lock().ok().and_then(|v| v.clone()),
+            content: self.build_stream_content(),
+            usage: None,
+            finish_reason: Some(finish_reason),
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            warnings: None,
+            provider_metadata: self.build_stream_provider_metadata(),
         }
     }
 
@@ -604,6 +699,21 @@ impl AnthropicEventConverter {
 
                 if let Some(idx) = event.index {
                     self.record_content_block_type(idx, effective_block_type.to_string());
+                    match effective_block_type {
+                        "text" => {
+                            if let Some(text) = content_block.get("text").and_then(|v| v.as_str()) {
+                                self.append_text_content(idx, text);
+                            }
+                        }
+                        "thinking" => {
+                            if let Some(thinking) =
+                                content_block.get("thinking").and_then(|v| v.as_str())
+                            {
+                                self.append_thinking_content(idx, thinking);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
 
                 match effective_block_type {
@@ -1146,6 +1256,9 @@ impl AnthropicEventConverter {
                             if let Some(text) = delta.text
                                 && !self.should_stream_json_tool_as_text()
                             {
+                                if let Some(idx) = event.index {
+                                    self.append_text_content(idx, &text);
+                                }
                                 builder = builder.add_content_delta(text.clone(), None);
                                 if let Some(idx) = event.index
                                     && self.get_content_block_type(idx).as_deref() == Some("text")
@@ -1163,6 +1276,9 @@ impl AnthropicEventConverter {
                         }
                         Some("thinking_delta") => {
                             if let Some(thinking) = delta.thinking {
+                                if let Some(idx) = event.index {
+                                    self.append_thinking_content(idx, &thinking);
+                                }
                                 builder = builder.add_thinking_delta(thinking);
                             }
                         }
@@ -1370,9 +1486,20 @@ impl AnthropicEventConverter {
                         }
                         _ => {
                             if let Some(text) = delta.text {
+                                if let Some(idx) = event.index
+                                    && self.get_content_block_type(idx).as_deref() == Some("text")
+                                {
+                                    self.append_text_content(idx, &text);
+                                }
                                 builder = builder.add_content_delta(text, None);
                             }
                             if let Some(thinking) = delta.thinking {
+                                if let Some(idx) = event.index
+                                    && self.get_content_block_type(idx).as_deref()
+                                        == Some("thinking")
+                                {
+                                    self.append_thinking_content(idx, &thinking);
+                                }
                                 builder = builder.add_thinking_delta(thinking);
                             }
                             if let Some(partial_json) = delta.partial_json
@@ -1382,6 +1509,7 @@ impl AnthropicEventConverter {
                                 if self.get_content_block_type(idx).as_deref()
                                     == Some("json_tool_use")
                                 {
+                                    self.append_text_content(idx, &partial_json);
                                     builder = builder.add_content_delta(partial_json.clone(), None);
                                     if self.should_stream_json_tool_as_text() {
                                         builder = builder.add_custom_event(
@@ -1515,18 +1643,7 @@ impl AnthropicEventConverter {
                             builder = builder.add_custom_event(event_type, data);
                         }
 
-                        let response = ChatResponse {
-                            id: None,
-                            model: None,
-                            content: MessageContent::Text("".to_string()),
-                            usage: None, // usage already emitted as UsageUpdate above if present
-                            finish_reason: Some(reason),
-                            audio: None,
-                            system_fingerprint: None,
-                            service_tier: None,
-                            warnings: None,
-                            provider_metadata: self.build_stream_provider_metadata(),
-                        };
+                        let response = self.build_stream_response(reason);
                         builder = builder.add_stream_end(response);
                     }
                 }
@@ -1534,18 +1651,7 @@ impl AnthropicEventConverter {
                 builder.build()
             }
             "message_stop" => {
-                let response = ChatResponse {
-                    id: None,
-                    model: None,
-                    content: MessageContent::Text("".to_string()),
-                    usage: None,
-                    finish_reason: Some(FinishReason::Stop),
-                    audio: None,
-                    system_fingerprint: None,
-                    service_tier: None,
-                    warnings: None,
-                    provider_metadata: self.build_stream_provider_metadata(),
-                };
+                let response = self.build_stream_response(FinishReason::Stop);
                 if !self.state_tracker.needs_stream_end() {
                     return vec![];
                 }
@@ -1638,22 +1744,11 @@ impl SseEventConverter for AnthropicEventConverter {
             return None; // StreamEnd already emitted
         }
 
-        let response = ChatResponse {
-            id: None,
-            model: None,
-            content: MessageContent::Text("".to_string()),
-            usage: None,
-            finish_reason: Some(if self.seen_error.load(Ordering::Relaxed) {
-                FinishReason::Error
-            } else {
-                FinishReason::Unknown
-            }),
-            audio: None,
-            system_fingerprint: None,
-            service_tier: None,
-            warnings: None,
-            provider_metadata: self.build_stream_provider_metadata(),
-        };
+        let response = self.build_stream_response(if self.seen_error.load(Ordering::Relaxed) {
+            FinishReason::Error
+        } else {
+            FinishReason::Unknown
+        });
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }

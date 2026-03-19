@@ -38,27 +38,35 @@ use crate::types::Tool;
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OpenAiOptions {
     /// Responses API configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub responses_api: Option<ResponsesApiConfig>,
     /// Provider-defined tools for OpenAI (web_search, file_search, computer use, etc.)
     /// Use `siumai::hosted_tools::openai::*` helpers to construct these.
     #[deprecated(
         note = "Prefer `ChatRequest::with_tools` with `Tool::ProviderDefined` (use `siumai::hosted_tools::openai::*`). This field is kept as a compatibility layer."
     )]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub provider_tools: Vec<Tool>,
     /// Reasoning effort (for o1/o3 models)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Service tier preference
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<ServiceTier>,
     /// Modalities for multimodal output (e.g., text and audio)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub modalities: Option<Vec<ChatCompletionModalities>>,
     /// Audio output configuration (required when audio modality is requested)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub audio: Option<ChatCompletionAudio>,
     /// Predicted output content (for faster response times)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prediction: Option<PredictionContent>,
     /// Web search options (context size and user location)
     #[deprecated(
         note = "Prefer OpenAI Responses API + provider-defined tool `siumai::hosted_tools::openai::web_search()`."
     )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub web_search_options: Option<OpenAiWebSearchOptions>,
 }
 
@@ -167,5 +175,35 @@ mod tests {
         let audio = options.audio.unwrap();
         assert_eq!(audio.voice, ChatCompletionAudioVoice::Ash);
         assert_eq!(audio.format, ChatCompletionAudioFormat::Mp3);
+    }
+
+    #[test]
+    fn test_openai_options_serialization_omits_unset_fields() {
+        let value = serde_json::to_value(OpenAiOptions::new()).expect("serialize options");
+
+        assert_eq!(value, serde_json::json!({}));
+    }
+
+    #[test]
+    fn test_openai_options_serialization_omits_nested_unset_fields() {
+        let value = serde_json::to_value(
+            OpenAiOptions::new().with_responses_api(
+                ResponsesApiConfig::new()
+                    .with_previous_response("resp_default".to_string())
+                    .with_reasoning_summary("detailed"),
+            ),
+        )
+        .expect("serialize options");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "responses_api": {
+                    "enabled": true,
+                    "previous_response_id": "resp_default",
+                    "reasoning_summary": "detailed"
+                }
+            })
+        );
     }
 }

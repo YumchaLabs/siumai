@@ -99,9 +99,57 @@ impl OpenAiCompatibleConfig {
         self
     }
 
+    /// Set request timeout.
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    /// Set connection timeout.
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    /// Control whether to disable compression for streaming requests.
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
+    /// Set user agent.
+    pub fn with_user_agent<S: Into<String>>(mut self, user_agent: S) -> Self {
+        self.http_config.user_agent = Some(user_agent.into());
+        self
+    }
+
+    /// Set proxy URL.
+    pub fn with_proxy<S: Into<String>>(mut self, proxy: S) -> Self {
+        self.http_config.proxy = Some(proxy.into());
+        self
+    }
+
+    /// Replace HTTP headers stored on the config-level HTTP template.
+    pub fn with_http_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
+        self.http_config.headers = headers;
+        self
+    }
+
+    /// Add a single HTTP header to the config-level HTTP template.
+    pub fn with_http_header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.http_config.headers.insert(key.into(), value.into());
+        self
+    }
+
     /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    /// Install a single HTTP interceptor for requests created by clients built from this config.
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -521,6 +569,87 @@ mod tests {
         .unwrap();
 
         assert!(config.custom_headers.contains_key("X-Custom"));
+    }
+
+    #[test]
+    fn test_config_http_convenience_helpers() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "test",
+            "test-key",
+            "https://api.test.com/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_timeout(std::time::Duration::from_secs(15))
+        .with_connect_timeout(std::time::Duration::from_secs(3))
+        .with_http_stream_disable_compression(true)
+        .with_user_agent("siumai-test/1.0")
+        .with_proxy("http://127.0.0.1:8080")
+        .with_http_headers(std::collections::HashMap::from([(
+            "x-one".to_string(),
+            "1".to_string(),
+        )]))
+        .with_http_header("x-two", "2")
+        .with_http_interceptor(Arc::new(
+            crate::execution::http::interceptor::LoggingInterceptor,
+        ));
+
+        assert_eq!(
+            config.http_config.timeout,
+            Some(std::time::Duration::from_secs(15))
+        );
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(std::time::Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(
+            config.http_config.user_agent.as_deref(),
+            Some("siumai-test/1.0")
+        );
+        assert_eq!(
+            config.http_config.proxy.as_deref(),
+            Some("http://127.0.0.1:8080")
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-one"),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-two"),
+            Some(&"2".to_string())
+        );
+        assert_eq!(config.http_interceptors.len(), 1);
     }
 
     #[test]

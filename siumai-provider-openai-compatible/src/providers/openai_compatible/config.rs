@@ -8,9 +8,153 @@ use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
 };
 use std::collections::HashMap;
+use std::sync::LazyLock;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct ProviderFamilyDefaults {
+    pub chat_model_override: Option<&'static str>,
+    pub embedding_model: Option<&'static str>,
+    pub image_model: Option<&'static str>,
+    pub rerank_model: Option<&'static str>,
+    pub speech_model: Option<&'static str>,
+    pub transcription_model: Option<&'static str>,
+}
+
+impl ProviderFamilyDefaults {
+    pub const fn new() -> Self {
+        Self {
+            chat_model_override: None,
+            embedding_model: None,
+            image_model: None,
+            rerank_model: None,
+            speech_model: None,
+            transcription_model: None,
+        }
+    }
+
+    pub const fn with_chat_override(mut self, model: &'static str) -> Self {
+        self.chat_model_override = Some(model);
+        self
+    }
+
+    pub const fn with_embedding(mut self, model: &'static str) -> Self {
+        self.embedding_model = Some(model);
+        self
+    }
+
+    pub const fn with_image(mut self, model: &'static str) -> Self {
+        self.image_model = Some(model);
+        self
+    }
+
+    pub const fn with_rerank(mut self, model: &'static str) -> Self {
+        self.rerank_model = Some(model);
+        self
+    }
+
+    pub const fn with_speech(mut self, model: &'static str) -> Self {
+        self.speech_model = Some(model);
+        self
+    }
+
+    pub const fn with_transcription(mut self, model: &'static str) -> Self {
+        self.transcription_model = Some(model);
+        self
+    }
+}
+
+fn build_builtin_provider_family_defaults() -> HashMap<&'static str, ProviderFamilyDefaults> {
+    let mut defaults = HashMap::new();
+
+    defaults.insert(
+        "openrouter",
+        ProviderFamilyDefaults::new()
+            .with_chat_override("openai/gpt-4o")
+            .with_embedding("text-embedding-3-small"),
+    );
+    defaults.insert(
+        "deepseek",
+        ProviderFamilyDefaults::new().with_embedding("deepseek-embedding"),
+    );
+    defaults.insert(
+        "siliconflow",
+        ProviderFamilyDefaults::new()
+            .with_embedding("BAAI/bge-large-zh-v1.5")
+            .with_image("stabilityai/stable-diffusion-3.5-large")
+            .with_rerank("BAAI/bge-reranker-v2-m3")
+            .with_speech("FunAudioLLM/CosyVoice2-0.5B")
+            .with_transcription("FunAudioLLM/SenseVoiceSmall"),
+    );
+    defaults.insert(
+        "together",
+        ProviderFamilyDefaults::new()
+            .with_embedding("togethercomputer/m2-bert-80M-8k-retrieval")
+            .with_image("black-forest-labs/FLUX.1-schnell")
+            .with_speech("cartesia/sonic-2")
+            .with_transcription("openai/whisper-large-v3"),
+    );
+    defaults.insert(
+        "fireworks",
+        ProviderFamilyDefaults::new()
+            .with_embedding("nomic-ai/nomic-embed-text-v1.5")
+            .with_transcription("whisper-v3"),
+    );
+    defaults.insert(
+        "jina",
+        ProviderFamilyDefaults::new()
+            .with_embedding("jina-embeddings-v2-base-en")
+            .with_rerank("jina-reranker-m0"),
+    );
+    defaults.insert(
+        "voyageai",
+        ProviderFamilyDefaults::new()
+            .with_embedding("voyage-3")
+            .with_rerank("rerank-2"),
+    );
+    defaults.insert(
+        "infini",
+        ProviderFamilyDefaults::new().with_embedding("text-embedding-3-small"),
+    );
+
+    defaults
+}
+
+static BUILTIN_PROVIDER_FAMILY_DEFAULTS: LazyLock<HashMap<&'static str, ProviderFamilyDefaults>> =
+    LazyLock::new(build_builtin_provider_family_defaults);
+
+pub(crate) fn get_builtin_provider_family_defaults_map()
+-> &'static HashMap<&'static str, ProviderFamilyDefaults> {
+    &BUILTIN_PROVIDER_FAMILY_DEFAULTS
+}
+
+pub(crate) fn get_provider_family_defaults_ref(
+    provider_id: &str,
+) -> Option<&'static ProviderFamilyDefaults> {
+    get_builtin_provider_family_defaults_map().get(provider_id)
+}
+
+pub(crate) fn get_default_embedding_model(provider_id: &str) -> Option<&'static str> {
+    get_provider_family_defaults_ref(provider_id).and_then(|defaults| defaults.embedding_model)
+}
+
+pub(crate) fn get_default_image_model(provider_id: &str) -> Option<&'static str> {
+    get_provider_family_defaults_ref(provider_id).and_then(|defaults| defaults.image_model)
+}
+
+pub(crate) fn get_default_rerank_model(provider_id: &str) -> Option<&'static str> {
+    get_provider_family_defaults_ref(provider_id).and_then(|defaults| defaults.rerank_model)
+}
+
+pub(crate) fn get_default_speech_model(provider_id: &str) -> Option<&'static str> {
+    get_provider_family_defaults_ref(provider_id).and_then(|defaults| defaults.speech_model)
+}
+
+pub(crate) fn get_default_transcription_model(provider_id: &str) -> Option<&'static str> {
+    get_provider_family_defaults_ref(provider_id).and_then(|defaults| defaults.transcription_model)
+}
 
 /// Get all built-in provider configurations
-pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
+fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
     let mut providers = HashMap::new();
 
     // DeepSeek - Advanced reasoning models
@@ -687,14 +831,30 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
     providers
 }
 
+static BUILTIN_PROVIDERS: LazyLock<HashMap<String, ProviderConfig>> =
+    LazyLock::new(build_builtin_providers);
+
+pub(crate) fn get_builtin_provider_map() -> &'static HashMap<String, ProviderConfig> {
+    &BUILTIN_PROVIDERS
+}
+
+/// Get all built-in provider configurations
+pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
+    get_builtin_provider_map().clone()
+}
+
 /// Get provider configuration by ID
 pub fn get_provider_config(provider_id: &str) -> Option<ProviderConfig> {
-    get_builtin_providers().get(provider_id).cloned()
+    get_provider_config_ref(provider_id).cloned()
+}
+
+pub(crate) fn get_provider_config_ref(provider_id: &str) -> Option<&'static ProviderConfig> {
+    get_builtin_provider_map().get(provider_id)
 }
 
 /// List all available provider IDs
 pub fn list_provider_ids() -> Vec<String> {
-    get_builtin_providers().keys().cloned().collect()
+    get_builtin_provider_map().keys().cloned().collect()
 }
 
 /// Check if a provider supports a specific capability
@@ -783,5 +943,62 @@ mod tests {
         assert_eq!(config.base_url, "https://api.deepseek.com");
 
         assert!(get_provider_config("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_provider_family_defaults() {
+        let openrouter =
+            get_provider_family_defaults_ref("openrouter").expect("openrouter defaults");
+        assert_eq!(openrouter.chat_model_override, Some("openai/gpt-4o"));
+        assert_eq!(openrouter.embedding_model, Some("text-embedding-3-small"));
+
+        let siliconflow =
+            get_provider_family_defaults_ref("siliconflow").expect("siliconflow defaults");
+        assert_eq!(siliconflow.embedding_model, Some("BAAI/bge-large-zh-v1.5"));
+        assert_eq!(
+            siliconflow.image_model,
+            Some("stabilityai/stable-diffusion-3.5-large")
+        );
+        assert_eq!(siliconflow.rerank_model, Some("BAAI/bge-reranker-v2-m3"));
+        assert_eq!(
+            siliconflow.speech_model,
+            Some("FunAudioLLM/CosyVoice2-0.5B")
+        );
+        assert_eq!(
+            siliconflow.transcription_model,
+            Some("FunAudioLLM/SenseVoiceSmall")
+        );
+
+        let together = get_provider_family_defaults_ref("together").expect("together defaults");
+        assert_eq!(
+            together.embedding_model,
+            Some("togethercomputer/m2-bert-80M-8k-retrieval")
+        );
+        assert_eq!(
+            together.image_model,
+            Some("black-forest-labs/FLUX.1-schnell")
+        );
+        assert_eq!(together.speech_model, Some("cartesia/sonic-2"));
+        assert_eq!(
+            together.transcription_model,
+            Some("openai/whisper-large-v3")
+        );
+
+        let fireworks = get_provider_family_defaults_ref("fireworks").expect("fireworks defaults");
+        assert_eq!(
+            fireworks.embedding_model,
+            Some("nomic-ai/nomic-embed-text-v1.5")
+        );
+        assert_eq!(fireworks.transcription_model, Some("whisper-v3"));
+        assert_eq!(fireworks.speech_model, None);
+
+        assert_eq!(
+            get_default_embedding_model("infini"),
+            Some("text-embedding-3-small")
+        );
+        assert_eq!(get_default_rerank_model("voyageai"), Some("rerank-2"));
+        assert_eq!(get_default_rerank_model("jina"), Some("jina-reranker-m0"));
+        assert_eq!(get_default_speech_model("openrouter"), None);
+        assert_eq!(get_default_transcription_model("openrouter"), None);
     }
 }

@@ -490,6 +490,30 @@ pub mod provider_ext {
             AzureChatMode, AzureOpenAiBuilder, AzureOpenAiClient, AzureOpenAiConfig,
             AzureOpenAiSpec, AzureUrlConfig,
         };
+
+        /// Typed provider options (`provider_options_map["azure"]`).
+        pub mod options {
+            pub use siumai_provider_azure::provider_options::azure::{
+                AzureOpenAiOptions, AzureReasoningEffort, AzureResponsesApiConfig,
+            };
+            pub use siumai_provider_azure::providers::azure_openai::AzureOpenAiChatRequestExt;
+        }
+        pub use options::{
+            AzureOpenAiChatRequestExt, AzureOpenAiOptions, AzureReasoningEffort,
+            AzureResponsesApiConfig,
+        };
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["azure"]`).
+        pub mod metadata {
+            pub use siumai_provider_azure::provider_metadata::azure::{
+                AzureChatResponseExt, AzureContentPartExt, AzureContentPartMetadata, AzureMetadata,
+                AzureSource, AzureSourceExt, AzureSourceMetadata,
+            };
+        }
+        pub use metadata::{
+            AzureChatResponseExt, AzureContentPartExt, AzureContentPartMetadata, AzureMetadata,
+            AzureSource, AzureSourceExt, AzureSourceMetadata,
+        };
     }
 
     #[cfg(feature = "anthropic")]
@@ -516,16 +540,16 @@ pub mod provider_ext {
         /// Typed provider options (`provider_options_map["anthropic"]`).
         pub mod options {
             pub use siumai_provider_anthropic::provider_options::anthropic::{
-                AnthropicCacheControl, AnthropicCacheType, AnthropicOptions,
+                AnthropicCacheControl, AnthropicCacheType, AnthropicEffort, AnthropicOptions,
                 AnthropicResponseFormat, AnthropicStructuredOutputMode, PromptCachingConfig,
                 ThinkingModeConfig,
             };
             pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
         }
         pub use options::{
-            AnthropicCacheControl, AnthropicCacheType, AnthropicChatRequestExt, AnthropicOptions,
-            AnthropicResponseFormat, AnthropicStructuredOutputMode, PromptCachingConfig,
-            ThinkingModeConfig,
+            AnthropicCacheControl, AnthropicCacheType, AnthropicChatRequestExt, AnthropicEffort,
+            AnthropicOptions, AnthropicResponseFormat, AnthropicStructuredOutputMode,
+            PromptCachingConfig, ThinkingModeConfig,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).
@@ -697,6 +721,20 @@ pub mod provider_ext {
             VertexImagenInlineImage, VertexImagenMaskImageConfig, VertexImagenOptions,
             VertexImagenReferenceImage, VertexImagenRequestExt,
         };
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["vertex"]`).
+        pub mod metadata {
+            pub use siumai_provider_google_vertex::provider_metadata::vertex::{
+                VertexChatResponseExt, VertexContentPartExt, VertexGroundingMetadata,
+                VertexLogprobsResult, VertexMetadata, VertexPromptFeedback, VertexSafetyRating,
+                VertexSource, VertexUrlContextMetadata, VertexUsageMetadata,
+            };
+        }
+        pub use metadata::{
+            VertexChatResponseExt, VertexContentPartExt, VertexGroundingMetadata,
+            VertexLogprobsResult, VertexMetadata, VertexPromptFeedback, VertexSafetyRating,
+            VertexSource, VertexUrlContextMetadata, VertexUsageMetadata,
+        };
     }
 
     #[cfg(feature = "minimaxi")]
@@ -793,6 +831,39 @@ pub mod provider_ext {
         pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
             VertexAnthropicBuilder, VertexAnthropicClient, VertexAnthropicConfig,
         };
+
+        /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).
+        pub mod metadata {
+            pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
+                AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
+                AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse,
+                AnthropicSource, AnthropicToolCallMetadata, AnthropicToolCaller,
+            };
+        }
+
+        pub use metadata::{
+            AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
+            AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
+            AnthropicToolCallMetadata, AnthropicToolCaller,
+        };
+
+        /// Typed provider options (`provider_options_map["anthropic"]` on the Vertex wrapper path).
+        pub mod options {
+            pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
+                VertexAnthropicChatRequestExt, VertexAnthropicOptions,
+                VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
+            };
+        }
+
+        pub use options::{
+            VertexAnthropicChatRequestExt, VertexAnthropicOptions,
+            VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
+        };
+
+        /// Non-unified Anthropic-on-Vertex extension APIs (escape hatches).
+        pub mod ext {
+            pub use siumai_provider_google_vertex::providers::anthropic_vertex::ext::*;
+        }
     }
 
     #[cfg(feature = "deepseek")]

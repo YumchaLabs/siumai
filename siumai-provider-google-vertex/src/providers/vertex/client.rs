@@ -170,6 +170,21 @@ impl GoogleVertexConfig {
         self
     }
 
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_http_stream_disable_compression(mut self, disable: bool) -> Self {
+        self.http_config.stream_disable_compression = disable;
+        self
+    }
+
     pub fn with_token_provider(mut self, token_provider: Arc<dyn TokenProvider>) -> Self {
         self.token_provider = Some(token_provider);
         self
@@ -177,6 +192,11 @@ impl GoogleVertexConfig {
 
     pub fn with_http_interceptors(mut self, interceptors: Vec<Arc<dyn HttpInterceptor>>) -> Self {
         self.http_interceptors = interceptors;
+        self
+    }
+
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -698,9 +718,14 @@ mod tests {
         HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
         HttpTransportStreamResponse,
     };
+    use crate::types::{ChatStreamEvent, FinishReason, ResponseFormat};
     use async_trait::async_trait;
+    use futures_util::StreamExt;
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
-    use std::sync::{Arc, Mutex};
+    use std::{
+        sync::{Arc, Mutex},
+        time::Duration,
+    };
 
     #[derive(Clone, Default)]
     struct CaptureTransport {
@@ -755,6 +780,208 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct FixtureStreamTransport {
+        last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
+        body: Arc<Vec<u8>>,
+    }
+
+    impl FixtureStreamTransport {
+        fn new(body: Vec<u8>) -> Self {
+            Self {
+                last_stream: Arc::new(Mutex::new(None)),
+                body: Arc::new(body),
+            }
+        }
+
+        fn take_stream(&self) -> Option<HttpTransportRequest> {
+            self.last_stream.lock().expect("lock").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for FixtureStreamTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 501,
+                headers,
+                body: br#"{"error":{"type":"test_error","message":"json unsupported in test"}}"#
+                    .to_vec(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            *self.last_stream.lock().expect("lock") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                CONTENT_TYPE,
+                HeaderValue::from_static("text/event-stream; charset=utf-8"),
+            );
+
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes((*self.body).clone()),
+            })
+        }
+    }
+
+    fn vertex_json_schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        })
+    }
+
+    fn make_vertex_structured_output_request(model: &str) -> ChatRequest {
+        ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(vertex_json_schema()))
+            .build()
+            .with_provider_option(
+                "vertex",
+                serde_json::json!({
+                    "structuredOutputs": true
+                }),
+            )
+    }
+
+    fn vertex_sse_body(frames: &[serde_json::Value], include_done: bool) -> Vec<u8> {
+        let mut sse = String::new();
+        for frame in frames {
+            sse.push_str("data: ");
+            sse.push_str(
+                &serde_json::to_string(frame).expect("serialize vertex stream frame for test"),
+            );
+            sse.push_str("\n\n");
+        }
+        if include_done {
+            sse.push_str("data: [DONE]\n\n");
+        }
+        sse.into_bytes()
+    }
+
+    fn vertex_structured_output_success_stream_body() -> Vec<u8> {
+        vertex_sse_body(
+            &[
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    { "text": "{\"value\":\"te" }
+                                ]
+                            }
+                        }
+                    ]
+                }),
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    { "text": "st\"}" }
+                                ]
+                            }
+                        }
+                    ]
+                }),
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "finishReason": "STOP",
+                            "safetyRatings": [
+                                {
+                                    "category": "HARM_CATEGORY_DEROGATORY",
+                                    "probability": "NEGLIGIBLE"
+                                }
+                            ]
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 7,
+                        "candidatesTokenCount": 4,
+                        "totalTokenCount": 11
+                    }
+                }),
+            ],
+            true,
+        )
+    }
+
+    fn vertex_structured_output_interrupted_stream_body() -> Vec<u8> {
+        vertex_sse_body(
+            &[serde_json::json!({
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                { "text": "{\"value\":" }
+                            ]
+                        }
+                    }
+                ]
+            })],
+            false,
+        )
+    }
+
+    fn header_value(req: &HttpTransportRequest, name: &str) -> Option<String> {
+        req.headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string)
+    }
+
+    fn assert_vertex_structured_output_stream_request(req: &HttpTransportRequest) {
+        assert!(
+            req.url
+                .contains("/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=test-key"),
+            "unexpected url: {}",
+            req.url
+        );
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            req.body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(req.body["generationConfig"].get("responseSchema").is_some());
+        assert!(
+            req.body["generationConfig"]
+                .get("responseJsonSchema")
+                .is_none()
+        );
+    }
+
+    async fn collect_stream_events(mut stream: ChatStream) -> Vec<ChatStreamEvent> {
+        let mut events = Vec::new();
+        while let Some(item) = stream.next().await {
+            match item {
+                Ok(event) => events.push(event),
+                Err(err) => panic!("collect vertex client stream event failed: {err:?}"),
+            }
+        }
+        events
+    }
+
     #[test]
     fn google_vertex_llmclient_exposes_expected_capabilities() {
         let cfg = GoogleVertexConfig::new("https://example.invalid", "imagen-3.0-generate-002");
@@ -786,6 +1013,25 @@ mod tests {
             crate::auth::vertex::google_vertex_base_url("project-1", "us-central1")
         );
         assert_eq!(enterprise.api_key, None);
+    }
+
+    #[test]
+    fn google_vertex_config_http_convenience_helpers() {
+        let config = GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash")
+            .with_timeout(Duration::from_secs(11))
+            .with_connect_timeout(Duration::from_secs(3))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(Arc::new(
+                crate::execution::http::interceptor::LoggingInterceptor,
+            ));
+
+        assert_eq!(config.http_config.timeout, Some(Duration::from_secs(11)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
+        assert_eq!(config.http_interceptors.len(), 1);
     }
 
     #[test]
@@ -922,5 +1168,114 @@ mod tests {
             captured.body["contents"][0]["parts"][0]["text"],
             serde_json::json!("hi")
         );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_client_structured_output_stream_end_preserves_metadata_and_extracts_json()
+     {
+        let model = "gemini-2.5-flash";
+        let transport = FixtureStreamTransport::new(vertex_structured_output_success_stream_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let events = collect_stream_events(
+            client
+                .chat_stream_request(make_vertex_structured_output_request(model))
+                .await
+                .expect("vertex stream ok"),
+        )
+        .await;
+
+        let content = events
+            .iter()
+            .filter_map(|event| match event {
+                ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+        assert_eq!(content, "{\"value\":\"test\"}");
+
+        let end = events
+            .iter()
+            .find_map(|event| match event {
+                ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected stream end");
+        assert_eq!(end.finish_reason, Some(FinishReason::Stop));
+
+        let provider_metadata = end
+            .provider_metadata
+            .as_ref()
+            .expect("expected provider metadata");
+        let vertex_meta = provider_metadata
+            .get("vertex")
+            .expect("expected provider_metadata.vertex");
+        assert!(
+            !provider_metadata.contains_key("google"),
+            "did not expect provider_metadata.google on vertex path"
+        );
+        assert_eq!(
+            vertex_meta
+                .get("usageMetadata")
+                .and_then(|usage| usage.get("totalTokenCount"))
+                .and_then(|value| value.as_u64()),
+            Some(11)
+        );
+        assert_eq!(
+            vertex_meta
+                .get("safetyRatings")
+                .and_then(|ratings| ratings.as_array())
+                .and_then(|ratings| ratings.first())
+                .and_then(|rating| rating.get("category"))
+                .and_then(|value| value.as_str()),
+            Some("HARM_CATEGORY_DEROGATORY")
+        );
+
+        let value = siumai_core::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("structured output value");
+        assert_eq!(value["value"], "test");
+
+        let req = transport.take_stream().expect("captured stream request");
+        assert_vertex_structured_output_stream_request(&req);
+    }
+
+    #[tokio::test]
+    async fn google_vertex_client_structured_output_stream_returns_incomplete_json_error() {
+        let model = "gemini-2.5-flash";
+        let transport =
+            FixtureStreamTransport::new(vertex_structured_output_interrupted_stream_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let err = siumai_core::structured_output::extract_json_value_from_stream(
+            client
+                .chat_stream_request(make_vertex_structured_output_request(model))
+                .await
+                .expect("vertex stream ok"),
+        )
+        .await
+        .expect_err("interrupted stream should fail");
+
+        match err {
+            LlmError::ParseError(message) => {
+                assert!(message.contains("stream ended before a complete JSON value was produced"))
+            }
+            other => panic!("expected ParseError, got {other:?}"),
+        }
+
+        let req = transport.take_stream().expect("captured stream request");
+        assert_vertex_structured_output_stream_request(&req);
     }
 }

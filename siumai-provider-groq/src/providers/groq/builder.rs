@@ -266,6 +266,8 @@ mod tests {
             .seed(7)
             .custom_headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
             .timeout(Duration::from_secs(9))
+            .connect_timeout(Duration::from_secs(3))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .logprobs(true)
             .top_logprobs(2)
@@ -290,6 +292,11 @@ mod tests {
             Some(&"1".to_string())
         );
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(9)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
         assert_eq!(config.http_interceptors.len(), 1);
         assert_eq!(
             config.provider_specific_config.get("logprobs"),
@@ -326,6 +333,8 @@ mod tests {
             .seed(7)
             .custom_headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
             .timeout(Duration::from_secs(9))
+            .connect_timeout(Duration::from_secs(3))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .logprobs(true)
             .top_logprobs(2)
@@ -344,20 +353,18 @@ mod tests {
             .with_top_p(0.8)
             .with_stop_sequences(vec!["END".to_string()])
             .with_seed(7)
-            .with_http_config({
-                let mut c = crate::types::HttpConfig::default();
-                c.timeout = Some(Duration::from_secs(9));
-                c
-            })
+            .with_timeout(Duration::from_secs(9))
+            .with_connect_timeout(Duration::from_secs(3))
+            .with_http_stream_disable_compression(true)
             .with_header("x-test", "1")
             .with_logprobs(true)
             .with_top_logprobs(2)
             .with_service_tier(GroqServiceTier::Flex)
             .with_reasoning_effort(GroqReasoningEffort::Default)
             .with_reasoning_format(GroqReasoningFormat::Parsed)
-            .with_http_interceptors(vec![Arc::new(
+            .with_http_interceptor(Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
-            )])
+            ))
             .with_model_middlewares({
                 let mut middlewares = crate::execution::middleware::build_auto_middlewares_vec(
                     "groq",
@@ -399,6 +406,14 @@ mod tests {
         assert_eq!(
             builder_config.http_config.timeout,
             manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_config.connect_timeout,
+            manual_config.http_config.connect_timeout
+        );
+        assert_eq!(
+            builder_config.http_config.stream_disable_compression,
+            manual_config.http_config.stream_disable_compression
         );
         assert_eq!(
             builder_config.http_interceptors.len(),

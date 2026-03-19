@@ -77,6 +77,74 @@ fn compat_preset_builder_shortcuts_resolve_shared_registry_defaults() {
     assert_eq!(siliconflow_config.base_url, siliconflow_registry.base_url);
     assert_eq!(together_config.base_url, together_registry.base_url);
     assert_eq!(fireworks_config.base_url, fireworks_registry.base_url);
+    assert_eq!(
+        siliconflow_config.model,
+        siliconflow_registry
+            .default_model
+            .expect("siliconflow default model")
+    );
+    assert_eq!(
+        together_config.model,
+        together_registry
+            .default_model
+            .expect("together default model")
+    );
+    assert_eq!(
+        fireworks_config.model,
+        fireworks_registry
+            .default_model
+            .expect("fireworks default model")
+    );
+}
+
+#[test]
+fn compat_preset_builder_shortcuts_fall_back_to_provider_config_defaults() {
+    let mistral_registry = get_provider_config("mistral").expect("mistral provider config");
+
+    let mistral_config = Provider::openai()
+        .mistral()
+        .api_key("test-key")
+        .into_config()
+        .expect("mistral config");
+
+    assert_eq!(mistral_config.provider_id, "mistral");
+    assert_eq!(mistral_config.base_url, mistral_registry.base_url);
+    assert_eq!(
+        mistral_config.model,
+        mistral_registry
+            .default_model
+            .expect("mistral default model")
+    );
+}
+
+#[test]
+fn compat_non_chat_preset_builder_shortcuts_resolve_primary_default_models() {
+    let jina_registry = get_provider_config("jina").expect("jina provider config");
+    let voyageai_registry = get_provider_config("voyageai").expect("voyageai provider config");
+
+    let jina_config = Provider::openai()
+        .jina()
+        .api_key("test-key")
+        .into_config()
+        .expect("jina config");
+    let voyageai_config = Provider::openai()
+        .voyageai()
+        .api_key("test-key")
+        .into_config()
+        .expect("voyageai config");
+
+    assert_eq!(jina_config.provider_id, "jina");
+    assert_eq!(voyageai_config.provider_id, "voyageai");
+    assert_eq!(
+        jina_config.model,
+        jina_registry.default_model.expect("jina default model")
+    );
+    assert_eq!(
+        voyageai_config.model,
+        voyageai_registry
+            .default_model
+            .expect("voyageai default model")
+    );
 }
 
 #[tokio::test]
@@ -193,17 +261,31 @@ fn compat_embedding_rerank_preset_capability_matrix_matches_documented_policy() 
     assert!(provider_supports_capability("jina", "rerank"));
     assert!(!provider_supports_capability("jina", "chat"));
     assert!(!provider_supports_capability("jina", "streaming"));
+    assert!(!provider_supports_capability("jina", "image_generation"));
+    assert!(!provider_supports_capability("jina", "speech"));
+    assert!(!provider_supports_capability("jina", "transcription"));
+    assert!(!provider_supports_capability("jina", "audio"));
 
     assert!(provider_supports_capability("voyageai", "embedding"));
     assert!(provider_supports_capability("voyageai", "rerank"));
     assert!(!provider_supports_capability("voyageai", "chat"));
     assert!(!provider_supports_capability("voyageai", "streaming"));
+    assert!(!provider_supports_capability(
+        "voyageai",
+        "image_generation"
+    ));
+    assert!(!provider_supports_capability("voyageai", "speech"));
+    assert!(!provider_supports_capability("voyageai", "transcription"));
+    assert!(!provider_supports_capability("voyageai", "audio"));
 
     assert!(provider_supports_capability("infini", "embedding"));
     assert!(provider_supports_capability("infini", "chat"));
     assert!(provider_supports_capability("infini", "streaming"));
     assert!(!provider_supports_capability("infini", "rerank"));
     assert!(!provider_supports_capability("infini", "image_generation"));
+    assert!(!provider_supports_capability("infini", "speech"));
+    assert!(!provider_supports_capability("infini", "transcription"));
+    assert!(!provider_supports_capability("infini", "audio"));
 }
 
 #[tokio::test]
@@ -245,6 +327,10 @@ async fn compat_embedding_rerank_preset_public_clients_expose_documented_non_tex
     assert!(jina.as_chat_capability().is_none());
     assert!(jina.as_embedding_capability().is_some());
     assert!(jina.as_rerank_capability().is_some());
+    assert!(jina.as_image_generation_capability().is_none());
+    assert!(jina.as_audio_capability().is_none());
+    assert!(jina.as_speech_capability().is_none());
+    assert!(jina.as_transcription_capability().is_none());
 
     let voyageai_caps = voyageai.capabilities();
     assert!(!voyageai_caps.supports("chat"));
@@ -254,6 +340,10 @@ async fn compat_embedding_rerank_preset_public_clients_expose_documented_non_tex
     assert!(voyageai.as_chat_capability().is_none());
     assert!(voyageai.as_embedding_capability().is_some());
     assert!(voyageai.as_rerank_capability().is_some());
+    assert!(voyageai.as_image_generation_capability().is_none());
+    assert!(voyageai.as_audio_capability().is_none());
+    assert!(voyageai.as_speech_capability().is_none());
+    assert!(voyageai.as_transcription_capability().is_none());
 
     let infini_caps = infini.capabilities();
     assert!(infini_caps.supports("chat"));
@@ -263,12 +353,17 @@ async fn compat_embedding_rerank_preset_public_clients_expose_documented_non_tex
     assert!(infini.as_chat_capability().is_some());
     assert!(infini.as_embedding_capability().is_some());
     assert!(infini.as_rerank_capability().is_none());
+    assert!(infini.as_image_generation_capability().is_none());
+    assert!(infini.as_audio_capability().is_none());
+    assert!(infini.as_speech_capability().is_none());
+    assert!(infini.as_transcription_capability().is_none());
 
     let openrouter_caps = openrouter.capabilities();
     assert!(openrouter_caps.supports("embedding"));
     assert!(!openrouter_caps.supports("rerank"));
     assert!(openrouter.as_embedding_capability().is_some());
     assert!(openrouter.as_rerank_capability().is_none());
+    assert!(openrouter.as_image_generation_capability().is_none());
 }
 
 #[test]
@@ -295,12 +390,20 @@ fn compat_vendor_view_capability_matrix_matches_documented_policy() {
     assert!(provider_supports_capability("openrouter", "tools"));
     assert!(provider_supports_capability("openrouter", "embedding"));
     assert!(provider_supports_capability("openrouter", "reasoning"));
+    assert!(!provider_supports_capability(
+        "openrouter",
+        "image_generation"
+    ));
     assert!(!provider_supports_capability("openrouter", "rerank"));
     assert!(!provider_supports_capability("openrouter", "speech"));
     assert!(!provider_supports_capability("openrouter", "transcription"));
     assert!(!provider_supports_capability("openrouter", "audio"));
 
     assert!(provider_supports_capability("perplexity", "tools"));
+    assert!(!provider_supports_capability(
+        "perplexity",
+        "image_generation"
+    ));
     assert!(!provider_supports_capability("perplexity", "embedding"));
     assert!(!provider_supports_capability("perplexity", "speech"));
     assert!(!provider_supports_capability("perplexity", "transcription"));
@@ -353,11 +456,13 @@ async fn compat_vendor_view_public_clients_expose_documented_capability_split() 
     assert!(openrouter_caps.supports("tools"));
     assert!(openrouter_caps.supports("embedding"));
     assert!(openrouter_caps.supports("reasoning"));
+    assert!(!openrouter_caps.supports("image_generation"));
     assert!(!openrouter_caps.supports("rerank"));
     assert!(!openrouter_caps.supports("speech"));
     assert!(!openrouter_caps.supports("transcription"));
     assert!(!openrouter_caps.supports("audio"));
     assert!(openrouter.as_embedding_capability().is_some());
+    assert!(openrouter.as_image_generation_capability().is_none());
     assert!(openrouter.as_rerank_capability().is_none());
     assert!(openrouter.as_audio_capability().is_none());
     assert!(openrouter.as_speech_capability().is_none());
@@ -365,11 +470,13 @@ async fn compat_vendor_view_public_clients_expose_documented_capability_split() 
 
     let perplexity_caps = perplexity.capabilities();
     assert!(perplexity_caps.supports("tools"));
+    assert!(!perplexity_caps.supports("image_generation"));
     assert!(!perplexity_caps.supports("embedding"));
     assert!(!perplexity_caps.supports("speech"));
     assert!(!perplexity_caps.supports("transcription"));
     assert!(!perplexity_caps.supports("audio"));
     assert!(perplexity.as_embedding_capability().is_none());
+    assert!(perplexity.as_image_generation_capability().is_none());
     assert!(perplexity.as_audio_capability().is_none());
     assert!(perplexity.as_speech_capability().is_none());
     assert!(perplexity.as_transcription_capability().is_none());

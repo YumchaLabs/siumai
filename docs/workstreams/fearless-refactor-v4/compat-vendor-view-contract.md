@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Compat Vendor View Contract
 
-Last updated: 2026-03-11
+Last updated: 2026-03-17
 
 ## Purpose
 
@@ -97,12 +97,13 @@ Required behavior:
 
 - expose typed metadata only for fields with stable public meaning
 - reuse shared compat extraction helpers when metadata is derived from the shared runtime
+- keep typed metadata bound to the vendor-owned root (`provider_metadata["vendor"]`) instead of silently falling back to a generic compat namespace
 - keep non-streaming and streaming `StreamEnd` extraction rules aligned when typed metadata is exported
 
 Current examples:
 
 - `perplexity` has typed hosted-search metadata worth exposing
-- `openrouter` should not invent a typed metadata module just for symmetry
+- `openrouter` can expose an alias-based typed metadata view for stable `sources` / `logprobs`, but it should stay vendor-namespaced and must not imply a promoted provider-owned package
 
 ### 5. Documentation invariant
 

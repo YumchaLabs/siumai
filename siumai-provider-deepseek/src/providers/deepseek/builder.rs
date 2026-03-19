@@ -6,6 +6,7 @@
 use crate::builder::BuilderBase;
 use crate::error::LlmError;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::DeepSeekOptions;
 use crate::retry_api::RetryOptions;
 use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder;
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ pub struct DeepSeekBuilder {
     http_client_override: Option<reqwest::Client>,
     retry_options: Option<RetryOptions>,
     extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    provider_specific_config: HashMap<String, serde_json::Value>,
 }
 
 impl DeepSeekBuilder {
@@ -29,6 +31,7 @@ impl DeepSeekBuilder {
             http_client_override: None,
             retry_options: None,
             extra_model_middlewares: Vec::new(),
+            provider_specific_config: HashMap::new(),
         }
     }
 
@@ -163,9 +166,28 @@ impl DeepSeekBuilder {
         self
     }
 
+    pub fn with_deepseek_options(mut self, options: DeepSeekOptions) -> Self {
+        if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
+            self.provider_specific_config
+                .extend(obj.into_iter().filter(|(_, value)| !value.is_null()));
+        }
+        self
+    }
+
+    pub fn with_deepseek_reasoning(self, enable: bool) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning(enable))
+    }
+
+    pub fn with_deepseek_reasoning_budget(self, budget: i32) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning_budget(budget))
+    }
+
     pub fn into_config(self) -> Result<super::DeepSeekConfig, LlmError> {
         let compat = self.inner.into_config()?;
         let mut config = super::DeepSeekConfig::from_compatible_config(compat)?;
+        if !self.provider_specific_config.is_empty() {
+            config = config.with_provider_specific_config(self.provider_specific_config);
+        }
         if !self.extra_model_middlewares.is_empty() {
             let mut middlewares = config.model_middlewares.clone();
             middlewares.extend(self.extra_model_middlewares);
@@ -212,6 +234,8 @@ mod tests {
             .reasoning(true)
             .reasoning_budget(2048)
             .timeout(Duration::from_secs(11))
+            .connect_timeout(Duration::from_secs(4))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .into_config()
             .expect("into_config ok");
@@ -245,6 +269,11 @@ mod tests {
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(11)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(4))
+        );
+        assert!(config.http_config.stream_disable_compression);
         assert_eq!(config.http_interceptors.len(), 1);
     }
 
@@ -260,13 +289,13 @@ mod tests {
             .reasoning(true)
             .reasoning_budget(2048)
             .timeout(Duration::from_secs(11))
+            .connect_timeout(Duration::from_secs(4))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
             .into_config()
             .expect("builder config");
 
-        let mut http_config = crate::types::HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(11));
         let manual_config = crate::providers::deepseek::DeepSeekConfig::new("test-key")
             .with_base_url("https://api.deepseek.com")
             .with_model("deepseek-chat")
@@ -276,10 +305,12 @@ mod tests {
             .with_seed(7)
             .with_reasoning(true)
             .with_reasoning_budget(2048)
-            .with_http_config(http_config)
-            .with_http_interceptors(vec![std::sync::Arc::new(
+            .with_timeout(Duration::from_secs(11))
+            .with_connect_timeout(Duration::from_secs(4))
+            .with_http_stream_disable_compression(true)
+            .with_http_interceptor(std::sync::Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
-            )])
+            ))
             .with_model_middlewares({
                 let mut middlewares = crate::execution::middleware::build_auto_middlewares_vec(
                     "deepseek",
@@ -341,6 +372,14 @@ mod tests {
         assert_eq!(
             builder_config.http_config.timeout,
             manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_config.connect_timeout,
+            manual_config.http_config.connect_timeout
+        );
+        assert_eq!(
+            builder_config.http_config.stream_disable_compression,
+            manual_config.http_config.stream_disable_compression
         );
         assert_eq!(
             builder_config.http_interceptors.len(),

@@ -7,6 +7,267 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::types::{CommonParams, HttpConfig, ProviderType};
+#[cfg(feature = "anthropic")]
+use siumai_provider_anthropic::provider_options::anthropic::{
+    AnthropicContainerConfig, AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode,
+    ThinkingModeConfig,
+};
+#[cfg(feature = "deepseek")]
+use siumai_provider_deepseek::provider_options::deepseek::DeepSeekOptions;
+#[cfg(feature = "google-vertex")]
+use siumai_provider_google_vertex::providers::anthropic_vertex::{
+    VertexAnthropicOptions, VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
+};
+#[cfg(feature = "groq")]
+use siumai_provider_groq::provider_options::groq::GroqOptions;
+#[cfg(feature = "minimaxi")]
+use siumai_provider_minimaxi::provider_options::{MinimaxiOptions, MinimaxiThinkingModeConfig};
+#[cfg(feature = "ollama")]
+use siumai_provider_ollama::provider_options::ollama::OllamaOptions;
+#[cfg(feature = "openai")]
+use siumai_provider_openai::provider_options::openai::OpenAiOptions;
+#[cfg(feature = "xai")]
+use siumai_provider_xai::provider_options::xai::{XaiOptions, XaiSearchParameters};
+
+#[cfg(feature = "anthropic")]
+#[derive(Clone)]
+struct AnthropicDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "openai")]
+#[derive(Clone)]
+struct OpenAiDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "openai")]
+impl OpenAiDefaultOptionsMiddleware {
+    fn new(options: OpenAiOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "openai",
+            serde_json::to_value(options)
+                .expect("OpenAI options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "openai")]
+impl LanguageModelMiddleware for OpenAiDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
+
+#[cfg(feature = "anthropic")]
+impl AnthropicDefaultOptionsMiddleware {
+    fn new(options: AnthropicOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "anthropic",
+            serde_json::to_value(options)
+                .expect("Anthropic options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "anthropic")]
+impl LanguageModelMiddleware for AnthropicDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
+
+#[cfg(feature = "google-vertex")]
+#[derive(Clone)]
+struct AnthropicVertexDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "google-vertex")]
+impl AnthropicVertexDefaultOptionsMiddleware {
+    fn new(options: VertexAnthropicOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "anthropic",
+            serde_json::to_value(options)
+                .expect("Anthropic-on-Vertex options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "google-vertex")]
+impl LanguageModelMiddleware for AnthropicVertexDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
+
+#[cfg(feature = "minimaxi")]
+#[derive(Clone)]
+struct MinimaxiDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "minimaxi")]
+impl MinimaxiDefaultOptionsMiddleware {
+    fn new(options: MinimaxiOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "minimaxi",
+            serde_json::to_value(options)
+                .expect("MiniMaxi options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "minimaxi")]
+impl LanguageModelMiddleware for MinimaxiDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
+
+#[cfg(feature = "groq")]
+#[derive(Clone)]
+struct GroqDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "xai")]
+#[derive(Clone)]
+struct XaiDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "deepseek")]
+#[derive(Clone)]
+struct DeepSeekDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "ollama")]
+#[derive(Clone)]
+struct OllamaDefaultOptionsMiddleware {
+    defaults: crate::types::ProviderOptionsMap,
+}
+
+#[cfg(feature = "groq")]
+impl GroqDefaultOptionsMiddleware {
+    fn new(options: GroqOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "groq",
+            serde_json::to_value(options)
+                .expect("Groq options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "groq")]
+impl LanguageModelMiddleware for GroqDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
+
+#[cfg(feature = "xai")]
+impl XaiDefaultOptionsMiddleware {
+    fn new(options: XaiOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "xai",
+            serde_json::to_value(options)
+                .expect("xAI options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "xai")]
+impl LanguageModelMiddleware for XaiDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
+
+#[cfg(feature = "deepseek")]
+impl DeepSeekDefaultOptionsMiddleware {
+    fn new(options: DeepSeekOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "deepseek",
+            serde_json::to_value(options)
+                .expect("DeepSeek options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "deepseek")]
+impl LanguageModelMiddleware for DeepSeekDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
+
+#[cfg(feature = "ollama")]
+impl OllamaDefaultOptionsMiddleware {
+    fn new(options: OllamaOptions) -> Self {
+        let mut defaults = crate::types::ProviderOptionsMap::new();
+        defaults.insert(
+            "ollama",
+            serde_json::to_value(options)
+                .expect("Ollama options should serialize into provider options"),
+        );
+        Self { defaults }
+    }
+}
+
+#[cfg(feature = "ollama")]
+impl LanguageModelMiddleware for OllamaDefaultOptionsMiddleware {
+    fn transform_params(&self, mut req: crate::types::ChatRequest) -> crate::types::ChatRequest {
+        let request_overrides = std::mem::take(&mut req.provider_options_map);
+        let mut merged = self.defaults.clone();
+        merged.merge_overrides(request_overrides);
+        req.provider_options_map = merged;
+        req
+    }
+}
 
 /// Unified Interface Builder - Provider Abstraction Layer
 ///
@@ -225,6 +486,251 @@ impl SiumaiBuilder {
     ) -> Self {
         self.model_middlewares = middlewares;
         self
+    }
+
+    #[cfg(feature = "openai")]
+    fn push_openai_default_options(mut self, options: OpenAiOptions) -> Self {
+        self.model_middlewares
+            .insert(0, Arc::new(OpenAiDefaultOptionsMiddleware::new(options)));
+        self
+    }
+
+    #[cfg(feature = "openai")]
+    /// Set OpenAI default provider options on the shared builder text path.
+    pub fn with_openai_options(self, options: OpenAiOptions) -> Self {
+        self.push_openai_default_options(options)
+    }
+
+    #[cfg(feature = "anthropic")]
+    fn push_anthropic_default_options(mut self, options: AnthropicOptions) -> Self {
+        self.model_middlewares
+            .insert(0, Arc::new(AnthropicDefaultOptionsMiddleware::new(options)));
+        self
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default provider options on the shared builder.
+    pub fn with_anthropic_options(self, options: AnthropicOptions) -> Self {
+        self.push_anthropic_default_options(options)
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default thinking mode on the shared builder.
+    pub fn with_anthropic_thinking_mode(self, config: ThinkingModeConfig) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_thinking_mode(config))
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default structured-output mode on the shared builder.
+    pub fn with_anthropic_structured_output_mode(
+        self,
+        mode: AnthropicStructuredOutputMode,
+    ) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_structured_output_mode(mode))
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default context-management options on the shared builder.
+    pub fn with_anthropic_context_management(self, context_management: serde_json::Value) -> Self {
+        self.with_anthropic_options(
+            AnthropicOptions::new().with_context_management(context_management),
+        )
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default tool-streaming behavior on the shared builder.
+    pub fn with_anthropic_tool_streaming(self, enabled: bool) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_tool_streaming(enabled))
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default effort on the shared builder.
+    pub fn with_anthropic_effort(self, effort: AnthropicEffort) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_effort(effort))
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default container config on the shared builder.
+    pub fn with_anthropic_container(self, container: AnthropicContainerConfig) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_container(container))
+    }
+
+    #[cfg(feature = "google-vertex")]
+    fn push_anthropic_vertex_default_options(mut self, options: VertexAnthropicOptions) -> Self {
+        self.model_middlewares.insert(
+            0,
+            Arc::new(AnthropicVertexDefaultOptionsMiddleware::new(options)),
+        );
+        self
+    }
+
+    #[cfg(feature = "google-vertex")]
+    /// Set Anthropic-on-Vertex default provider options on the shared builder.
+    pub fn with_anthropic_vertex_options(self, options: VertexAnthropicOptions) -> Self {
+        self.push_anthropic_vertex_default_options(options)
+    }
+
+    #[cfg(feature = "google-vertex")]
+    /// Set Anthropic-on-Vertex default thinking mode on the shared builder.
+    pub fn with_anthropic_vertex_thinking_mode(self, config: VertexAnthropicThinkingMode) -> Self {
+        self.with_anthropic_vertex_options(VertexAnthropicOptions::new().with_thinking_mode(config))
+    }
+
+    #[cfg(feature = "google-vertex")]
+    /// Set Anthropic-on-Vertex default structured-output mode on the shared builder.
+    pub fn with_anthropic_vertex_structured_output_mode(
+        self,
+        mode: VertexAnthropicStructuredOutputMode,
+    ) -> Self {
+        self.with_anthropic_vertex_options(
+            VertexAnthropicOptions::new().with_structured_output_mode(mode),
+        )
+    }
+
+    #[cfg(feature = "google-vertex")]
+    /// Set Anthropic-on-Vertex default parallel tool-use behavior on the shared builder.
+    pub fn with_anthropic_vertex_disable_parallel_tool_use(self, disabled: bool) -> Self {
+        self.with_anthropic_vertex_options(
+            VertexAnthropicOptions::new().with_disable_parallel_tool_use(disabled),
+        )
+    }
+
+    #[cfg(feature = "google-vertex")]
+    /// Set Anthropic-on-Vertex default reasoning replay behavior on the shared builder.
+    pub fn with_anthropic_vertex_send_reasoning(self, send_reasoning: bool) -> Self {
+        self.with_anthropic_vertex_options(
+            VertexAnthropicOptions::new().with_send_reasoning(send_reasoning),
+        )
+    }
+
+    #[cfg(feature = "minimaxi")]
+    fn push_minimaxi_default_options(mut self, options: MinimaxiOptions) -> Self {
+        self.model_middlewares
+            .insert(0, Arc::new(MinimaxiDefaultOptionsMiddleware::new(options)));
+        self
+    }
+
+    #[cfg(feature = "minimaxi")]
+    /// Set MiniMaxi default provider options on the shared builder.
+    pub fn with_minimaxi_options(self, options: MinimaxiOptions) -> Self {
+        self.push_minimaxi_default_options(options)
+    }
+
+    #[cfg(feature = "minimaxi")]
+    /// Set MiniMaxi default thinking mode on the shared builder.
+    pub fn with_minimaxi_thinking_mode(self, config: MinimaxiThinkingModeConfig) -> Self {
+        self.with_minimaxi_options(MinimaxiOptions::new().with_thinking_mode(config))
+    }
+
+    #[cfg(feature = "minimaxi")]
+    /// Set MiniMaxi default reasoning enablement on the shared builder.
+    pub fn with_minimaxi_reasoning_enabled(self, enabled: bool) -> Self {
+        self.with_minimaxi_options(MinimaxiOptions::new().with_reasoning_enabled(enabled))
+    }
+
+    #[cfg(feature = "minimaxi")]
+    /// Set MiniMaxi default reasoning budget on the shared builder.
+    pub fn with_minimaxi_reasoning_budget(self, budget: u32) -> Self {
+        self.with_minimaxi_options(MinimaxiOptions::new().with_reasoning_budget(budget))
+    }
+
+    #[cfg(feature = "minimaxi")]
+    /// Set MiniMaxi JSON-object structured output on the shared builder.
+    pub fn with_minimaxi_json_object(self) -> Self {
+        self.with_minimaxi_options(MinimaxiOptions::new().with_json_object())
+    }
+
+    #[cfg(feature = "minimaxi")]
+    /// Set MiniMaxi JSON-schema structured output on the shared builder.
+    pub fn with_minimaxi_json_schema(
+        self,
+        name: impl Into<String>,
+        schema: serde_json::Value,
+        strict: bool,
+    ) -> Self {
+        self.with_minimaxi_options(MinimaxiOptions::new().with_json_schema(name, schema, strict))
+    }
+
+    #[cfg(feature = "groq")]
+    fn push_groq_default_options(mut self, options: GroqOptions) -> Self {
+        self.model_middlewares
+            .insert(0, Arc::new(GroqDefaultOptionsMiddleware::new(options)));
+        self
+    }
+
+    #[cfg(feature = "groq")]
+    /// Set Groq default provider options on the shared builder text path.
+    pub fn with_groq_options(self, options: GroqOptions) -> Self {
+        self.push_groq_default_options(options)
+    }
+
+    #[cfg(feature = "xai")]
+    fn push_xai_default_options(mut self, options: XaiOptions) -> Self {
+        self.model_middlewares
+            .insert(0, Arc::new(XaiDefaultOptionsMiddleware::new(options)));
+        self
+    }
+
+    #[cfg(feature = "xai")]
+    /// Set xAI default provider options on the shared builder text path.
+    pub fn with_xai_options(self, options: XaiOptions) -> Self {
+        self.push_xai_default_options(options)
+    }
+
+    #[cfg(feature = "xai")]
+    /// Set xAI default reasoning-effort on the shared builder text path.
+    pub fn with_xai_reasoning_effort(self, effort: impl Into<String>) -> Self {
+        self.with_xai_options(XaiOptions::new().with_reasoning_effort(effort))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Set xAI default search parameters on the shared builder text path.
+    pub fn with_xai_search_parameters(self, params: XaiSearchParameters) -> Self {
+        self.with_xai_options(XaiOptions::new().with_search(params))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Enable xAI default hosted-search parameters on the shared builder text path.
+    pub fn with_xai_default_search(self) -> Self {
+        self.with_xai_options(XaiOptions::new().with_default_search())
+    }
+
+    #[cfg(feature = "deepseek")]
+    fn push_deepseek_default_options(mut self, options: DeepSeekOptions) -> Self {
+        self.model_middlewares
+            .insert(0, Arc::new(DeepSeekDefaultOptionsMiddleware::new(options)));
+        self
+    }
+
+    #[cfg(feature = "deepseek")]
+    /// Set DeepSeek default provider options on the shared builder text path.
+    pub fn with_deepseek_options(self, options: DeepSeekOptions) -> Self {
+        self.push_deepseek_default_options(options)
+    }
+
+    #[cfg(feature = "deepseek")]
+    /// Set DeepSeek default reasoning enablement on the shared builder text path.
+    pub fn with_deepseek_reasoning(self, enable: bool) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning(enable))
+    }
+
+    #[cfg(feature = "deepseek")]
+    /// Set DeepSeek default reasoning budget on the shared builder text path.
+    pub fn with_deepseek_reasoning_budget(self, budget: i32) -> Self {
+        self.with_deepseek_options(DeepSeekOptions::new().with_reasoning_budget(budget))
+    }
+
+    #[cfg(feature = "ollama")]
+    fn push_ollama_default_options(mut self, options: OllamaOptions) -> Self {
+        self.model_middlewares
+            .insert(0, Arc::new(OllamaDefaultOptionsMiddleware::new(options)));
+        self
+    }
+
+    #[cfg(feature = "ollama")]
+    /// Set Ollama default provider options on the shared builder text path.
+    pub fn with_ollama_options(self, options: OllamaOptions) -> Self {
+        self.push_ollama_default_options(options)
     }
 
     /// Enable a built-in logging interceptor for HTTP debugging (no sensitive data).

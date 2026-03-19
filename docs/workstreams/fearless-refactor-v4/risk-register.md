@@ -152,6 +152,8 @@ It should be reviewed whenever milestone scope changes.
 - Mitigation:
   - keep adapters thin
   - avoid double-transforming requests in handles and providers
+  - keep compat provider config and family-default tables in static one-time maps and resolve builder defaults from those shared maps before reaching compatibility facades, so builder/config shortcuts do not rebuild the full compat provider catalog or re-scatter family defaults on each lookup
+  - keep request-time missing-model backfill on those same family-default tables as well, so embedding/image/rerank/speech/transcription paths do not reintroduce a second behavior-only default source by silently falling back to the primary/chat model
   - ensure provider-specific adapter wrapping is assembled once during config/build time rather than per request (DeepSeek's compat-default extraction is the expected wrapper pattern)
   - prefer caching final family-model objects over rebuilding wrapper stacks on each handle access
   - keep compat vendor-view defaults on the same one-time `RegistryOptions|ProviderBuildOverrides -> BuildContext` path used by native providers; OpenRouter registry reasoning is the current reference case, and rebuilding vendor defaults ad hoc inside handles or splitting global/provider lanes into different code paths would add hidden request-shaping overhead plus another drift surface
@@ -179,6 +181,7 @@ It should be reviewed whenever milestone scope changes.
   - require official provider-doc verification before enabling compat audio capability flags
   - keep provider enrollment narrow when only a subset of vendors matches the shared compat audio contract
   - add explicit negative tests for pending vendors so capability drift is caught early
+  - keep request-time model backfill family-specific (`speech` vs `transcription`, and by extension other non-text families) instead of assuming the primary/chat default is a safe cross-family fallback
   - promote split-route vendors to provider-owned audio specs instead of forcing them through the shared OpenAI audio transformer
 
 ## Review cadence

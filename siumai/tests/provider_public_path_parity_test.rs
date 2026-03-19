@@ -30,6 +30,10 @@ use siumai::prelude::unified::{
     ImageGenerationRequest, LlmError, RerankCapability, RerankRequest, Siumai, SttRequest,
     TtsRequest,
 };
+#[cfg(feature = "google-vertex")]
+use siumai::provider_ext::anthropic_vertex::{
+    AnthropicChatResponseExt, VertexAnthropicChatRequestExt,
+};
 use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]
@@ -632,8 +636,8 @@ mod openai_public_path {
         AudioStreamEvent, EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
     use siumai::provider_ext::openai::{
-        OpenAiChatRequestExt, OpenAiChatResponseExt, OpenAiOptions, OpenAiSourceExt,
-        ReasoningEffort, ResponsesApiConfig,
+        OpenAiChatRequestExt, OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiOptions,
+        OpenAiSourceExt, ReasoningEffort, ResponsesApiConfig,
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::entry::{BuildContext, ProviderFactory};
@@ -796,6 +800,208 @@ mod openai_public_path {
             }
         }
         out
+    }
+
+    fn openai_reasoning_response_json(model: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "resp_reasoning_1",
+            "model": model,
+            "status": "completed",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "encrypted_content": "enc_payload_123",
+                    "summary": [
+                        {
+                            "type": "summary_text",
+                            "text": "Let me think."
+                        }
+                    ]
+                },
+                {
+                    "type": "message",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Final answer."
+                        }
+                    ]
+                }
+            ],
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "output_tokens_details": {
+                    "reasoning_tokens": 1
+                },
+                "total_tokens": 3
+            },
+            "finish_reason": "stop"
+        })
+    }
+
+    fn openai_reasoning_stream_body(model: &str) -> Vec<u8> {
+        let response_json = openai_reasoning_response_json(model);
+        let events = vec![
+            (
+                "response.created",
+                serde_json::json!({
+                    "type": "response.created",
+                    "response": {
+                        "id": "resp_reasoning_1",
+                        "model": model,
+                        "status": "in_progress",
+                        "created_at": 1_735_689_600,
+                        "output": []
+                    }
+                }),
+            ),
+            (
+                "response.output_item.added",
+                serde_json::json!({
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {
+                        "type": "reasoning",
+                        "id": "rs_1",
+                        "encrypted_content": "enc_payload_123",
+                        "summary": []
+                    }
+                }),
+            ),
+            (
+                "response.reasoning_summary_part.added",
+                serde_json::json!({
+                    "type": "response.reasoning_summary_part.added",
+                    "item_id": "rs_1",
+                    "summary_index": 0,
+                    "part": {
+                        "type": "summary_text",
+                        "text": ""
+                    }
+                }),
+            ),
+            (
+                "response.reasoning_summary_text.delta",
+                serde_json::json!({
+                    "type": "response.reasoning_summary_text.delta",
+                    "item_id": "rs_1",
+                    "summary_index": 0,
+                    "delta": "Let me think."
+                }),
+            ),
+            (
+                "response.output_item.done",
+                serde_json::json!({
+                    "type": "response.output_item.done",
+                    "output_index": 0,
+                    "item": {
+                        "type": "reasoning",
+                        "id": "rs_1",
+                        "encrypted_content": "enc_payload_123",
+                        "summary": [
+                            {
+                                "type": "summary_text",
+                                "text": "Let me think."
+                            }
+                        ]
+                    }
+                }),
+            ),
+            (
+                "response.completed",
+                serde_json::json!({
+                    "type": "response.completed",
+                    "response": response_json
+                }),
+            ),
+        ];
+
+        events
+            .into_iter()
+            .map(|(event, data)| {
+                format!(
+                    "event: {event}\ndata: {}\n\n",
+                    serde_json::to_string(&data).expect("serialize sse event")
+                )
+            })
+            .collect::<String>()
+            .into_bytes()
+    }
+
+    fn assert_openai_default_options_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/responses"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["previous_response_id"],
+            serde_json::json!("resp_default")
+        );
+        assert_eq!(req.body["reasoning"]["effort"], serde_json::json!("low"));
+        assert_eq!(
+            req.body["reasoning"]["summary"],
+            serde_json::json!("detailed")
+        );
+    }
+
+    fn assert_openai_default_options_stream_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_openai_default_options_request(req, base_url, model);
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+    }
+
+    fn assert_openai_reasoning_response(response: &siumai::prelude::unified::ChatResponse) {
+        assert_eq!(response.content_text(), Some("Final answer."));
+        assert_eq!(response.reasoning(), vec!["Let me think.".to_string()]);
+        assert_eq!(
+            response.finish_reason,
+            Some(siumai::prelude::unified::FinishReason::Stop)
+        );
+        assert_eq!(
+            response.usage.as_ref().map(|usage| usage.total_tokens),
+            Some(3)
+        );
+        assert_eq!(
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.completion_tokens_details.as_ref())
+                .and_then(|details| details.reasoning_tokens),
+            Some(1)
+        );
+
+        let parts = response
+            .content
+            .as_multimodal()
+            .expect("expected multimodal content");
+        let reasoning_part = parts
+            .iter()
+            .find(|part| {
+                matches!(
+                    part,
+                    siumai::prelude::unified::ContentPart::Reasoning { .. }
+                )
+            })
+            .expect("expected reasoning content part");
+        let part_meta = reasoning_part
+            .openai_metadata()
+            .expect("reasoning content metadata");
+        assert_eq!(part_meta.item_id.as_deref(), Some("rs_1"));
+        assert_eq!(
+            part_meta.reasoning_encrypted_content.as_deref(),
+            Some("enc_payload_123")
+        );
     }
 
     #[tokio::test]
@@ -1987,6 +2193,87 @@ mod openai_public_path {
         assert_eq!(siumai_req.url, "https://example.com/v1/responses");
         assert_eq!(siumai_req.body["model"], serde_json::json!(model));
         assert!(siumai_req.body.get("input").is_some());
+    }
+
+    #[tokio::test]
+    async fn openai_default_options_match_public_request_shape() {
+        let model = "o3-mini";
+        let base_url = "https://example.com/v1";
+        let response_json = openai_reasoning_response_json(model);
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json);
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_openai_options(OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::Low))
+            .with_openai_options(
+                OpenAiOptions::new().with_responses_api(
+                    ResponsesApiConfig::new()
+                        .with_previous_response("resp_default".to_string())
+                        .with_reasoning_summary("detailed"),
+                ),
+            )
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_openai_options(OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::Low))
+            .with_openai_options(
+                OpenAiOptions::new().with_responses_api(
+                    ResponsesApiConfig::new()
+                        .with_previous_response("resp_default".to_string())
+                        .with_reasoning_summary("detailed"),
+                ),
+            )
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_openai_options(
+                    OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::Low),
+                )
+                .with_openai_options(
+                    OpenAiOptions::new().with_responses_api(
+                        ResponsesApiConfig::new()
+                            .with_previous_response("resp_default".to_string())
+                            .with_reasoning_summary("detailed"),
+                    ),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_openai_default_options_request(&siumai_req, base_url, model);
     }
 
     #[tokio::test]
@@ -4058,6 +4345,353 @@ data: [DONE]
         assert_eq!(
             header_value(&siumai_req, "accept"),
             Some("text/event-stream".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_default_options_match_public_stream_request_shape() {
+        let model = "o3-mini";
+        let base_url = "https://example.com/v1";
+        let stream_body = openai_reasoning_stream_body(model);
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_openai_options(OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::Low))
+            .with_openai_options(
+                OpenAiOptions::new().with_responses_api(
+                    ResponsesApiConfig::new()
+                        .with_previous_response("resp_default".to_string())
+                        .with_reasoning_summary("detailed"),
+                ),
+            )
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_openai_options(OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::Low))
+            .with_openai_options(
+                OpenAiOptions::new().with_responses_api(
+                    ResponsesApiConfig::new()
+                        .with_previous_response("resp_default".to_string())
+                        .with_reasoning_summary("detailed"),
+                ),
+            )
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_openai_options(
+                    OpenAiOptions::new().with_reasoning_effort(ReasoningEffort::Low),
+                )
+                .with_openai_options(
+                    OpenAiOptions::new().with_responses_api(
+                        ResponsesApiConfig::new()
+                            .with_previous_response("resp_default".to_string())
+                            .with_reasoning_summary("detailed"),
+                    ),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        use futures_util::StreamExt;
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        while siumai_stream.next().await.is_some() {}
+        while provider_stream.next().await.is_some() {}
+        while config_stream.next().await.is_some() {}
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_openai_default_options_stream_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn openai_responses_reasoning_response_is_equivalent_across_public_paths() {
+        let model = "o3-mini";
+        let response_json = openai_reasoning_response_json(model);
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url("https://example.com/v1")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai_responses()
+            .api_key("test-key")
+            .base_url("https://example.com/v1")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url("https://example.com/v1")
+                .with_model(model)
+                .with_use_responses_api(true)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(
+            Arc::new(registry_transport.clone()),
+            "https://example.com/v1",
+        );
+        let registry_model = registry
+            .language_model("openai:o3-mini")
+            .expect("build registry language model");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_openai_options(
+                OpenAiOptions::new()
+                    .with_reasoning_effort(ReasoningEffort::Low)
+                    .with_responses_api(
+                        ResponsesApiConfig::new().with_reasoning_summary("detailed"),
+                    ),
+            );
+
+        let siumai_resp = siumai_client
+            .chat_request(request.clone())
+            .await
+            .expect("siumai response ok");
+        let provider_resp = provider_client
+            .chat_request(request.clone())
+            .await
+            .expect("provider response ok");
+        let config_resp = config_client
+            .chat_request(request.clone())
+            .await
+            .expect("config response ok");
+        let registry_resp = registry_model
+            .chat_request(request)
+            .await
+            .expect("registry response ok");
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_openai_reasoning_response(response);
+        }
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://example.com/v1/responses");
+        assert_eq!(
+            siumai_req.body["reasoning"]["effort"],
+            serde_json::json!("low")
+        );
+        assert_eq!(
+            siumai_req.body["reasoning"]["summary"],
+            serde_json::json!("detailed")
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_responses_reasoning_stream_is_equivalent_across_public_paths() {
+        let model = "o3-mini";
+        let stream_body = openai_reasoning_stream_body(model);
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url("https://example.com/v1")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai_responses()
+            .api_key("test-key")
+            .base_url("https://example.com/v1")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url("https://example.com/v1")
+                .with_model(model)
+                .with_use_responses_api(true)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(
+            Arc::new(registry_transport.clone()),
+            "https://example.com/v1",
+        );
+        let registry_model = registry
+            .language_model("openai:o3-mini")
+            .expect("build registry language model");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_openai_options(
+                OpenAiOptions::new()
+                    .with_reasoning_effort(ReasoningEffort::Low)
+                    .with_responses_api(
+                        ResponsesApiConfig::new().with_reasoning_summary("detailed"),
+                    ),
+            );
+
+        use futures_util::StreamExt;
+
+        let collect_stream_summary = async |stream: &mut siumai::prelude::unified::ChatStream| {
+            let mut end = None;
+            let mut reasoning = String::new();
+
+            while let Some(event) = stream.next().await {
+                match event.expect("stream event ok") {
+                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
+                        reasoning.push_str(&delta);
+                    }
+                    siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
+                        end = Some(response);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+
+            (reasoning, end)
+        };
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry stream ok");
+
+        let (siumai_reasoning, siumai_end) = collect_stream_summary(&mut siumai_stream).await;
+        let (provider_reasoning, provider_end) = collect_stream_summary(&mut provider_stream).await;
+        let (config_reasoning, config_end) = collect_stream_summary(&mut config_stream).await;
+        let (registry_reasoning, registry_end) = collect_stream_summary(&mut registry_stream).await;
+
+        assert_eq!(siumai_reasoning, "Let me think.");
+        assert_eq!(provider_reasoning, "Let me think.");
+        assert_eq!(config_reasoning, "Let me think.");
+        assert_eq!(registry_reasoning, "Let me think.");
+
+        let siumai_resp = siumai_end.expect("siumai stream end");
+        let provider_resp = provider_end.expect("provider stream end");
+        let config_resp = config_end.expect("config stream end");
+        let registry_resp = registry_end.expect("registry stream end");
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_openai_reasoning_response(response);
+        }
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://example.com/v1/responses");
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            siumai_req.body["reasoning"]["effort"],
+            serde_json::json!("low")
+        );
+        assert_eq!(
+            siumai_req.body["reasoning"]["summary"],
+            serde_json::json!("detailed")
         );
     }
 }
@@ -6867,7 +7501,8 @@ mod gemini_public_path {
 
         let siumai_transport = JsonSuccessTransport::new(response_json.clone());
         let provider_transport = JsonSuccessTransport::new(response_json.clone());
-        let config_transport = JsonSuccessTransport::new(response_json);
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
 
         let model = "gemini-pro";
         let base_url = "https://example.com/v1beta";
@@ -6898,6 +7533,10 @@ mod gemini_public_path {
                 .with_http_transport(Arc::new(config_transport.clone())),
         )
         .expect("build config client");
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("gemini:gemini-pro")
+            .expect("build registry language model");
 
         let request = ChatRequest::builder()
             .model(model)
@@ -6916,13 +7555,26 @@ mod gemini_public_path {
             .chat_request(request)
             .await
             .expect("config response");
+        let registry_resp = registry_model
+            .chat_request(
+                ChatRequest::builder()
+                    .model(model)
+                    .messages(vec![ChatMessage::user("Hello").build()])
+                    .build(),
+            )
+            .await
+            .expect("registry response");
 
-        for response in [&siumai_resp, &provider_resp, &config_resp] {
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
             let siumai::prelude::unified::MessageContent::MultiModal(parts) = &response.content
             else {
                 panic!("expected multimodal content");
             };
             assert_eq!(parts.len(), 3);
+            assert_eq!(
+                response.reasoning(),
+                vec!["This is a thought process.".to_string()]
+            );
 
             assert_eq!(
                 parts[0]
@@ -6965,9 +7617,11 @@ mod gemini_public_path {
         let siumai_req = siumai_transport.take().expect("siumai request");
         let provider_req = provider_transport.take().expect("provider request");
         let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
 
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
         assert_eq!(
             siumai_req.url,
             "https://example.com/v1beta/models/gemini-pro:generateContent"
@@ -6980,7 +7634,8 @@ mod gemini_public_path {
 
         let siumai_transport = SseSuccessTransport::new(stream_body.clone());
         let provider_transport = SseSuccessTransport::new(stream_body.clone());
-        let config_transport = SseSuccessTransport::new(stream_body);
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
 
         let model = "gemini-pro";
         let base_url = "https://example.com/v1beta";
@@ -7011,6 +7666,10 @@ mod gemini_public_path {
                 .with_http_transport(Arc::new(config_transport.clone())),
         )
         .expect("build config client");
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("gemini:gemini-pro")
+            .expect("build registry language model");
 
         let request = ChatRequest::builder()
             .model(model)
@@ -7029,14 +7688,25 @@ mod gemini_public_path {
             .chat_stream_request(request)
             .await
             .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(
+                ChatRequest::builder()
+                    .model(model)
+                    .messages(vec![ChatMessage::user("Hello").build()])
+                    .build(),
+            )
+            .await
+            .expect("registry stream ok");
 
         let siumai_events = collect_stream_events(&mut siumai_stream).await;
         let provider_events = collect_stream_events(&mut provider_stream).await;
         let config_events = collect_stream_events(&mut config_stream).await;
+        let registry_events = collect_stream_events(&mut registry_stream).await;
 
         let siumai_starts = custom_events_by_type(&siumai_events, "reasoning-start");
         let provider_starts = custom_events_by_type(&provider_events, "reasoning-start");
         let config_starts = custom_events_by_type(&config_events, "reasoning-start");
+        let registry_starts = custom_events_by_type(&registry_events, "reasoning-start");
         assert_eq!(
             siumai_starts.len(),
             1,
@@ -7052,8 +7722,18 @@ mod gemini_public_path {
             1,
             "expected one config reasoning-start"
         );
+        assert_eq!(
+            registry_starts.len(),
+            1,
+            "expected one registry reasoning-start"
+        );
 
-        for event in [&siumai_starts[0], &provider_starts[0], &config_starts[0]] {
+        for event in [
+            &siumai_starts[0],
+            &provider_starts[0],
+            &config_starts[0],
+            &registry_starts[0],
+        ] {
             assert_eq!(
                 event
                     .get("providerMetadata")
@@ -7069,6 +7749,27 @@ mod gemini_public_path {
                     .is_none(),
                 "did not expect providerMetadata.vertex on gemini path"
             );
+        }
+
+        let collect_reasoning = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
+                        Some(delta.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+
+        for reasoning in [
+            collect_reasoning(&siumai_events),
+            collect_reasoning(&provider_events),
+            collect_reasoning(&config_events),
+            collect_reasoning(&registry_events),
+        ] {
+            assert_eq!(reasoning, "thinking...");
         }
 
         let siumai_end = siumai_events
@@ -7092,8 +7793,15 @@ mod gemini_public_path {
                 _ => None,
             })
             .expect("expected config StreamEnd");
+        let registry_end = registry_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected registry StreamEnd");
 
-        for response in [siumai_end, provider_end, config_end] {
+        for response in [siumai_end, provider_end, config_end, registry_end] {
             assert_eq!(
                 response.finish_reason,
                 Some(siumai::prelude::unified::FinishReason::Stop)
@@ -7128,9 +7836,13 @@ mod gemini_public_path {
         let config_req = config_transport
             .take_stream()
             .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
 
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
         assert_eq!(
             siumai_req.url,
             "https://example.com/v1beta/models/gemini-pro:streamGenerateContent?alt=sse"
@@ -7829,6 +8541,7 @@ mod togetherai_public_path {
 mod deepseek_public_path {
     use super::*;
     use futures_util::StreamExt;
+    use siumai::experimental::execution::middleware::language_model::LanguageModelMiddleware;
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
@@ -7946,6 +8659,45 @@ mod deepseek_public_path {
             .fetch(transport)
             .build()
             .expect("build registry")
+    }
+
+    fn assert_deepseek_default_options_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/chat/completions"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["messages"],
+            serde_json::json!([{ "role": "user", "content": "hi" }])
+        );
+        assert_eq!(req.body["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(req.body["reasoning_budget"], serde_json::json!(4096));
+        assert_eq!(req.body["foo"], serde_json::json!("bar"));
+    }
+
+    fn assert_deepseek_default_options_stream_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_deepseek_default_options_request(req, base_url, model);
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+    }
+
+    struct DeepSeekFooOverrideMiddleware;
+
+    impl LanguageModelMiddleware for DeepSeekFooOverrideMiddleware {
+        fn transform_params(&self, req: ChatRequest) -> ChatRequest {
+            req.with_deepseek_options(
+                DeepSeekOptions::new().with_param("foo", serde_json::json!("middleware")),
+            )
+        }
     }
 
     fn make_deepseek_tool_call_request(model: &str) -> ChatRequest {
@@ -8258,6 +9010,220 @@ mod deepseek_public_path {
         assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
         assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(4096));
         assert_eq!(siumai_req.body["foo"], serde_json::json!("bar"));
+    }
+
+    #[tokio::test]
+    async fn deepseek_default_options_match_public_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "deepseek-chat";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .deepseek()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_deepseek_options(DeepSeekOptions::new().with_reasoning(false))
+            .with_deepseek_options(
+                DeepSeekOptions::new()
+                    .with_reasoning_budget(4096)
+                    .with_param("foo", serde_json::json!("bar")),
+            )
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::deepseek()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_deepseek_options(DeepSeekOptions::new().with_reasoning(false))
+            .with_deepseek_options(
+                DeepSeekOptions::new()
+                    .with_reasoning_budget(4096)
+                    .with_param("foo", serde_json::json!("bar")),
+            )
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::deepseek::DeepSeekClient::from_config(
+            siumai::provider_ext::deepseek::DeepSeekConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_deepseek_options(DeepSeekOptions::new().with_reasoning(false))
+                .with_deepseek_options(
+                    DeepSeekOptions::new()
+                        .with_reasoning_budget(4096)
+                        .with_param("foo", serde_json::json!("bar")),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_deepseek_default_options_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn deepseek_default_options_match_public_stream_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "deepseek-chat";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .deepseek()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_deepseek_options(DeepSeekOptions::new().with_reasoning(false))
+            .with_deepseek_options(
+                DeepSeekOptions::new()
+                    .with_reasoning_budget(4096)
+                    .with_param("foo", serde_json::json!("bar")),
+            )
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::deepseek()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_deepseek_options(DeepSeekOptions::new().with_reasoning(false))
+            .with_deepseek_options(
+                DeepSeekOptions::new()
+                    .with_reasoning_budget(4096)
+                    .with_param("foo", serde_json::json!("bar")),
+            )
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::deepseek::DeepSeekClient::from_config(
+            siumai::provider_ext::deepseek::DeepSeekConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_deepseek_options(DeepSeekOptions::new().with_reasoning(false))
+                .with_deepseek_options(
+                    DeepSeekOptions::new()
+                        .with_reasoning_budget(4096)
+                        .with_param("foo", serde_json::json!("bar")),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_deepseek_default_options_stream_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn deepseek_shared_builder_later_default_options_override_earlier_defaults() {
+        let transport = CaptureTransport::default();
+        let model = "deepseek-chat";
+        let base_url = "https://example.com/custom/v1";
+
+        let client = Siumai::builder()
+            .deepseek()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_deepseek_reasoning(false)
+            .with_deepseek_reasoning_budget(4096)
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let _ = client
+            .chat_request(make_chat_request_with_model(model))
+            .await;
+
+        let captured = transport.take().expect("captured request");
+        assert_eq!(captured.body["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(captured.body["reasoning_budget"], serde_json::json!(4096));
+    }
+
+    #[tokio::test]
+    async fn deepseek_shared_builder_custom_middleware_overrides_default_options() {
+        let transport = CaptureTransport::default();
+        let model = "deepseek-chat";
+        let base_url = "https://example.com/custom/v1";
+
+        let client = Siumai::builder()
+            .deepseek()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_deepseek_options(
+                DeepSeekOptions::new().with_param("foo", serde_json::json!("builder")),
+            )
+            .add_model_middleware(Arc::new(DeepSeekFooOverrideMiddleware))
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let _ = client
+            .chat_request(make_chat_request_with_model(model))
+            .await;
+
+        let captured = transport.take().expect("captured request");
+        assert_eq!(captured.body["foo"], serde_json::json!("middleware"));
     }
 
     #[tokio::test]
@@ -18933,6 +19899,24 @@ mod groq_public_path {
         assert_eq!(call.arguments, &serde_json::json!({ "city": "Tokyo" }));
     }
 
+    fn assert_groq_default_options_request(req: &HttpTransportRequest, model: &str) {
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(req.body["logprobs"], serde_json::json!(true));
+        assert_eq!(req.body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(req.body["service_tier"], serde_json::json!("flex"));
+        assert_eq!(req.body["reasoning_effort"], serde_json::json!("default"));
+        assert_eq!(req.body["reasoning_format"], serde_json::json!("parsed"));
+    }
+
+    fn assert_groq_default_options_stream_request(req: &HttpTransportRequest, model: &str) {
+        assert_groq_default_options_request(req, model);
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+    }
+
     async fn collect_groq_streamed_tool_call(
         stream: &mut siumai::prelude::unified::ChatStream,
     ) -> (
@@ -19201,6 +20185,79 @@ mod groq_public_path {
             siumai_req.body["reasoning_format"],
             serde_json::json!("parsed")
         );
+    }
+
+    #[tokio::test]
+    async fn groq_default_options_match_public_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "llama-3.1-70b-versatile";
+        let base_url = "https://example.com/custom";
+
+        let siumai_client = Siumai::builder()
+            .groq()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_groq_options(GroqOptions::new().with_logprobs(true).with_top_logprobs(2))
+            .with_groq_options(
+                GroqOptions::new()
+                    .with_service_tier(GroqServiceTier::Flex)
+                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_reasoning_format(GroqReasoningFormat::Parsed),
+            )
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::groq()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_groq_options(GroqOptions::new().with_logprobs(true).with_top_logprobs(2))
+            .with_groq_options(
+                GroqOptions::new()
+                    .with_service_tier(GroqServiceTier::Flex)
+                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_reasoning_format(GroqReasoningFormat::Parsed),
+            )
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::groq::GroqClient::from_config(
+            siumai::provider_ext::groq::GroqConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_groq_options(GroqOptions::new().with_logprobs(true).with_top_logprobs(2))
+                .with_groq_options(
+                    GroqOptions::new()
+                        .with_service_tier(GroqServiceTier::Flex)
+                        .with_reasoning_effort(GroqReasoningEffort::Default)
+                        .with_reasoning_format(GroqReasoningFormat::Parsed),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_groq_default_options_request(&siumai_req, model);
     }
 
     #[tokio::test]
@@ -20394,6 +21451,98 @@ data: [DONE]
             header_value(&siumai_req, "accept"),
             Some("text/event-stream".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn groq_default_options_match_public_stream_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "llama-3.1-70b-versatile";
+        let base_url = "https://example.com/custom";
+
+        let siumai_client = Siumai::builder()
+            .groq()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_groq_options(GroqOptions::new().with_logprobs(true).with_top_logprobs(2))
+            .with_groq_options(
+                GroqOptions::new()
+                    .with_service_tier(GroqServiceTier::Flex)
+                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_reasoning_format(GroqReasoningFormat::Parsed),
+            )
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::groq()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_groq_options(GroqOptions::new().with_logprobs(true).with_top_logprobs(2))
+            .with_groq_options(
+                GroqOptions::new()
+                    .with_service_tier(GroqServiceTier::Flex)
+                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_reasoning_format(GroqReasoningFormat::Parsed),
+            )
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::groq::GroqClient::from_config(
+            siumai::provider_ext::groq::GroqConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_groq_options(GroqOptions::new().with_logprobs(true).with_top_logprobs(2))
+                .with_groq_options(
+                    GroqOptions::new()
+                        .with_service_tier(GroqServiceTier::Flex)
+                        .with_reasoning_effort(GroqReasoningEffort::Default)
+                        .with_reasoning_format(GroqReasoningFormat::Parsed),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_groq_default_options_stream_request(&siumai_req, model);
     }
 
     #[tokio::test]
@@ -21721,6 +22870,33 @@ mod ollama_public_path {
         )
     }
 
+    fn assert_ollama_default_options_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{}api/chat", base_url));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["messages"],
+            serde_json::json!([{ "role": "user", "content": "hi" }])
+        );
+        assert_eq!(req.body["keep_alive"], serde_json::json!("1m"));
+        assert_eq!(req.body["raw"], serde_json::json!(true));
+        assert_eq!(req.body["think"], serde_json::json!(true));
+        assert_eq!(req.body["options"]["num_ctx"], serde_json::json!(4096));
+        assert_eq!(req.body["format"], serde_json::json!("json"));
+    }
+
+    fn assert_ollama_default_options_stream_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_ollama_default_options_request(req, base_url, model);
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+    }
+
     #[tokio::test]
     async fn ollama_siumai_provider_config_chat_request_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
@@ -21858,6 +23034,93 @@ mod ollama_public_path {
             serde_json::json!(4096)
         );
         assert_eq!(siumai_req.body["format"], serde_json::json!("json"));
+    }
+
+    #[tokio::test]
+    async fn ollama_default_options_match_public_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "llama3.2";
+        let base_url = "http://example.com:11434/";
+
+        let siumai_client = Siumai::builder()
+            .ollama()
+            .base_url(base_url)
+            .model(model)
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_keep_alive("1m")
+                    .with_raw_mode(false),
+            )
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_format("json")
+                    .with_param("think", serde_json::json!(true))
+                    .with_param("num_ctx", serde_json::json!(4096)),
+            )
+            .with_ollama_options(OllamaOptions::new().with_raw_mode(true))
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::ollama()
+            .base_url(base_url)
+            .model(model)
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_keep_alive("1m")
+                    .with_raw_mode(false),
+            )
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_format("json")
+                    .with_param("think", serde_json::json!(true))
+                    .with_param("num_ctx", serde_json::json!(4096)),
+            )
+            .with_ollama_options(OllamaOptions::new().with_raw_mode(true))
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::ollama::OllamaClient::from_config(
+            siumai::provider_ext::ollama::OllamaConfig::builder()
+                .base_url(base_url)
+                .model(model)
+                .with_ollama_options(
+                    OllamaOptions::new()
+                        .with_keep_alive("1m")
+                        .with_raw_mode(false),
+                )
+                .with_ollama_options(
+                    OllamaOptions::new()
+                        .with_format("json")
+                        .with_param("think", serde_json::json!(true))
+                        .with_param("num_ctx", serde_json::json!(4096)),
+                )
+                .with_ollama_options(OllamaOptions::new().with_raw_mode(true))
+                .http_transport(Arc::new(config_transport.clone()))
+                .build()
+                .expect("build ollama config"),
+        )
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_ollama_default_options_request(&siumai_req, base_url, model);
     }
 
     #[tokio::test]
@@ -22640,6 +23903,112 @@ mod ollama_public_path {
             serde_json::json!(4096)
         );
         assert_eq!(siumai_req.body["format"], serde_json::json!("json"));
+    }
+
+    #[tokio::test]
+    async fn ollama_default_options_match_public_stream_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "llama3.2";
+        let base_url = "http://example.com:11434/";
+
+        let siumai_client = Siumai::builder()
+            .ollama()
+            .base_url(base_url)
+            .model(model)
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_keep_alive("1m")
+                    .with_raw_mode(false),
+            )
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_format("json")
+                    .with_param("think", serde_json::json!(true))
+                    .with_param("num_ctx", serde_json::json!(4096)),
+            )
+            .with_ollama_options(OllamaOptions::new().with_raw_mode(true))
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::ollama()
+            .base_url(base_url)
+            .model(model)
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_keep_alive("1m")
+                    .with_raw_mode(false),
+            )
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_format("json")
+                    .with_param("think", serde_json::json!(true))
+                    .with_param("num_ctx", serde_json::json!(4096)),
+            )
+            .with_ollama_options(OllamaOptions::new().with_raw_mode(true))
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::ollama::OllamaClient::from_config(
+            siumai::provider_ext::ollama::OllamaConfig::builder()
+                .base_url(base_url)
+                .model(model)
+                .with_ollama_options(
+                    OllamaOptions::new()
+                        .with_keep_alive("1m")
+                        .with_raw_mode(false),
+                )
+                .with_ollama_options(
+                    OllamaOptions::new()
+                        .with_format("json")
+                        .with_param("think", serde_json::json!(true))
+                        .with_param("num_ctx", serde_json::json!(4096)),
+                )
+                .with_ollama_options(OllamaOptions::new().with_raw_mode(true))
+                .http_transport(Arc::new(config_transport.clone()))
+                .build()
+                .expect("build ollama config"),
+        )
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_ollama_default_options_stream_request(&siumai_req, base_url, model);
     }
 
     #[tokio::test]
@@ -24006,6 +25375,45 @@ mod minimaxi_public_path {
         )
     }
 
+    fn assert_minimaxi_default_options_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/v1/messages"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 1024
+            })
+        );
+        assert_eq!(
+            req.body["output_format"],
+            serde_json::json!({
+                "type": "json_object"
+            })
+        );
+        assert_eq!(
+            header_value(req, "authorization"),
+            Some("Bearer test-key".to_string())
+        );
+    }
+
+    fn assert_minimaxi_default_options_stream_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_minimaxi_default_options_request(req, base_url, model);
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+    }
+
     #[tokio::test]
     async fn minimaxi_siumai_provider_config_chat_request_are_equivalent() {
         let siumai_transport = MinimaxiCaptureTransport::default();
@@ -24056,6 +25464,62 @@ mod minimaxi_public_path {
             header_value(&siumai_req, "authorization"),
             Some("Bearer test-key".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn minimaxi_default_options_match_public_request_shape() {
+        let model = "MiniMax-M2";
+        let base_url = "https://example.com/custom";
+        let siumai_transport = MinimaxiCaptureTransport::default();
+        let provider_transport = MinimaxiCaptureTransport::default();
+        let config_transport = MinimaxiCaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .minimaxi()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_minimaxi_reasoning_budget(1024)
+            .with_minimaxi_json_object()
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::minimaxi()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_reasoning_budget(1024)
+            .with_json_object()
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::minimaxi::MinimaxiClient::from_config(
+            siumai::provider_ext::minimaxi::MinimaxiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_reasoning_budget(1024)
+                .with_json_object()
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_minimaxi_default_options_request(&siumai_req, base_url, model);
     }
 
     #[tokio::test]
@@ -24245,6 +25709,81 @@ mod minimaxi_public_path {
             header_value(&siumai_req, "accept"),
             Some("text/event-stream".to_string())
         );
+    }
+
+    #[tokio::test]
+    async fn minimaxi_default_options_match_public_stream_request_shape() {
+        let model = "MiniMax-M2";
+        let base_url = "https://example.com/custom";
+        let siumai_transport = MinimaxiCaptureTransport::default();
+        let provider_transport = MinimaxiCaptureTransport::default();
+        let config_transport = MinimaxiCaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .minimaxi()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_minimaxi_reasoning_budget(1024)
+            .with_minimaxi_json_object()
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::minimaxi()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_reasoning_budget(1024)
+            .with_json_object()
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::minimaxi::MinimaxiClient::from_config(
+            siumai::provider_ext::minimaxi::MinimaxiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_reasoning_budget(1024)
+                .with_json_object()
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_minimaxi_default_options_stream_request(&siumai_req, base_url, model);
     }
 
     #[tokio::test]
@@ -29210,7 +30749,7 @@ mod anthropic_public_path {
     };
     use siumai::provider_ext::anthropic::{
         AnthropicChatRequestExt, AnthropicChatResponseExt, AnthropicClient, AnthropicConfig,
-        AnthropicOptions, AnthropicStructuredOutputMode, ThinkingModeConfig,
+        AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode, ThinkingModeConfig,
     };
     use siumai::registry::ProviderBuildOverrides;
 
@@ -29316,6 +30855,16 @@ mod anthropic_public_path {
         request
     }
 
+    fn make_anthropic_default_options_request(model: &str) -> ChatRequest {
+        let mut request = make_chat_request_with_model(model)
+            .with_response_format(ResponseFormat::json_schema(anthropic_json_tool_schema()));
+        request.common_params.temperature = Some(0.5);
+        request.common_params.top_p = Some(0.7);
+        request.common_params.max_tokens = Some(2000);
+        request.stream = true;
+        request
+    }
+
     fn anthropic_reserved_json_tool_interrupted_stream_body(
         model: &str,
         partial_json: &str,
@@ -29368,6 +30917,51 @@ mod anthropic_public_path {
                 .split(',')
                 .any(|token| token.trim() == "structured-outputs-2025-11-13"),
             "jsonTool fallback should not enable structured outputs beta: {beta}"
+        );
+    }
+
+    fn assert_anthropic_default_options_stream_request(req: &HttpTransportRequest, base_url: &str) {
+        assert_anthropic_json_tool_stream_request(req, base_url);
+        assert_eq!(
+            req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 1000
+            })
+        );
+        assert_eq!(req.body["max_tokens"], serde_json::json!(3000));
+        assert!(req.body.get("temperature").is_none());
+        assert!(req.body.get("top_p").is_none());
+        assert_eq!(
+            req.body["context_management"],
+            serde_json::json!({
+                "clear_at_least": 1,
+                "exclude_tools": ["editor"]
+            })
+        );
+        assert_eq!(
+            req.body["output_config"],
+            serde_json::json!({
+                "effort": "high"
+            })
+        );
+
+        let beta = header_value(req, "anthropic-beta").unwrap_or_default();
+        assert!(
+            beta.split(',')
+                .any(|token| token.trim() == "context-management-2025-06-27"),
+            "missing context-management beta token: {beta}"
+        );
+        assert!(
+            beta.split(',')
+                .any(|token| token.trim() == "effort-2025-11-24"),
+            "missing effort beta token: {beta}"
+        );
+        assert!(
+            !beta
+                .split(',')
+                .any(|token| token.trim() == "fine-grained-tool-streaming-2025-05-14"),
+            "unexpected fine-grained tool streaming beta token: {beta}"
         );
     }
 
@@ -29638,6 +31232,109 @@ mod anthropic_public_path {
                 .any(|token| token.trim() == "fine-grained-tool-streaming-2025-05-14"),
             "unexpected fine-grained tool streaming beta token: {beta}"
         );
+    }
+
+    #[tokio::test]
+    async fn anthropic_default_options_match_public_stream_request_shape() {
+        let model = "claude-sonnet-4-5";
+        let base_url = "https://example.com/custom";
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .anthropic()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_anthropic_thinking_mode(ThinkingModeConfig {
+                enabled: true,
+                thinking_budget: Some(1000),
+            })
+            .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
+            .with_anthropic_context_management(serde_json::json!({
+                "clear_at_least": 1,
+                "exclude_tools": ["editor"]
+            }))
+            .with_anthropic_tool_streaming(false)
+            .with_anthropic_effort(AnthropicEffort::High)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_anthropic_thinking_mode(ThinkingModeConfig {
+                enabled: true,
+                thinking_budget: Some(1000),
+            })
+            .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
+            .with_anthropic_context_management(serde_json::json!({
+                "clear_at_least": 1,
+                "exclude_tools": ["editor"]
+            }))
+            .with_anthropic_tool_streaming(false)
+            .with_anthropic_effort(AnthropicEffort::High)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = AnthropicClient::from_config(
+            AnthropicConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_anthropic_thinking_mode(ThinkingModeConfig {
+                    enabled: true,
+                    thinking_budget: Some(1000),
+                })
+                .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
+                .with_anthropic_context_management(serde_json::json!({
+                    "clear_at_least": 1,
+                    "exclude_tools": ["editor"]
+                }))
+                .with_anthropic_tool_streaming(false)
+                .with_anthropic_effort(AnthropicEffort::High)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let request = make_anthropic_default_options_request(model);
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        use futures_util::StreamExt;
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_anthropic_default_options_stream_request(&siumai_req, base_url);
     }
 
     #[tokio::test]
@@ -30308,6 +32005,341 @@ mod anthropic_public_path {
     }
 
     #[tokio::test]
+    async fn anthropic_reasoning_response_is_equivalent_across_public_paths() {
+        let model = "claude-sonnet-4-5";
+        let base_url = "https://example.com/custom";
+        let response_json = serde_json::json!({
+            "id": "msg_reasoning",
+            "type": "message",
+            "role": "assistant",
+            "model": model,
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "Count the letters carefully. The word strawberry contains three r characters.",
+                    "signature": "sig-1"
+                },
+                {
+                    "type": "redacted_thinking",
+                    "data": "redacted-blob"
+                },
+                {
+                    "type": "text",
+                    "text": "There are three letter r's in strawberry."
+                }
+            ],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 18,
+                "output_tokens": 24
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let siumai_client = Siumai::builder()
+            .anthropic()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = AnthropicClient::from_config(
+            AnthropicConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic:claude-sonnet-4-5")
+            .expect("build registry language model");
+
+        let request = make_chat_request_with_model(model).with_anthropic_options(
+            AnthropicOptions::new().with_thinking_mode(ThinkingModeConfig {
+                enabled: true,
+                thinking_budget: Some(2048),
+            }),
+        );
+
+        let siumai_resp = siumai_client
+            .chat_request(request.clone())
+            .await
+            .expect("siumai response ok");
+        let provider_resp = provider_client
+            .chat_request(request.clone())
+            .await
+            .expect("provider response ok");
+        let config_resp = config_client
+            .chat_request(request.clone())
+            .await
+            .expect("config response ok");
+        let registry_resp = registry_model
+            .chat_request(request)
+            .await
+            .expect("registry response ok");
+
+        let expected_reasoning =
+            "Count the letters carefully. The word strawberry contains three r characters."
+                .to_string();
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_eq!(
+                response.content_text(),
+                Some("There are three letter r's in strawberry.")
+            );
+            assert_eq!(response.reasoning(), vec![expected_reasoning.clone()]);
+            assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+
+            let meta = response
+                .anthropic_metadata()
+                .expect("expected anthropic metadata");
+            assert_eq!(meta.thinking_signature.as_deref(), Some("sig-1"));
+            assert_eq!(
+                meta.redacted_thinking_data.as_deref(),
+                Some("redacted-blob")
+            );
+        }
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.body["thinking"]["type"],
+            serde_json::json!("enabled")
+        );
+        assert_eq!(
+            siumai_req.body["thinking"]["budget_tokens"],
+            serde_json::json!(2048)
+        );
+    }
+
+    #[tokio::test]
+    async fn anthropic_reasoning_stream_is_equivalent_across_public_paths() {
+        let model = "claude-sonnet-4-5";
+        let base_url = "https://example.com/custom";
+        let stream_body = concat!(
+            r#"data: {"type":"message_start","message":{"id":"msg_reasoning","model":"claude-sonnet-4-5","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":18,"output_tokens":1}}}
+
+"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Count the letters carefully. "}}
+
+"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The word strawberry contains three r characters."}}
+
+"#,
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}
+
+"#,
+            r#"data: {"type":"content_block_stop","index":0}
+
+"#,
+            r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"redacted-blob"}}
+
+"#,
+            r#"data: {"type":"content_block_stop","index":1}
+
+"#,
+            r#"data: {"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}
+
+"#,
+            r#"data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"There are three letter r's in strawberry."}}
+
+"#,
+            r#"data: {"type":"content_block_stop","index":2}
+
+"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":18,"output_tokens":24}}
+
+"#,
+            r#"data: {"type":"message_stop"}
+
+"#
+        )
+        .as_bytes()
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .anthropic()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = AnthropicClient::from_config(
+            AnthropicConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic:claude-sonnet-4-5")
+            .expect("build registry language model");
+
+        let request = make_chat_request_with_model(model).with_anthropic_options(
+            AnthropicOptions::new().with_thinking_mode(ThinkingModeConfig {
+                enabled: true,
+                thinking_budget: Some(2048),
+            }),
+        );
+
+        use futures_util::StreamExt;
+
+        let collect_stream_summary = async |stream: &mut siumai::prelude::unified::ChatStream| {
+            let mut end = None;
+            let mut reasoning = String::new();
+            while let Some(event) = stream.next().await {
+                match event.expect("stream event ok") {
+                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
+                        reasoning.push_str(&delta);
+                    }
+                    siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
+                        end = Some(response);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            (reasoning, end)
+        };
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry stream ok");
+
+        let (siumai_reasoning, siumai_resp) = collect_stream_summary(&mut siumai_stream).await;
+        let (provider_reasoning, provider_resp) =
+            collect_stream_summary(&mut provider_stream).await;
+        let (config_reasoning, config_resp) = collect_stream_summary(&mut config_stream).await;
+        let (registry_reasoning, registry_resp) =
+            collect_stream_summary(&mut registry_stream).await;
+
+        let siumai_resp = siumai_resp.expect("siumai stream end");
+        let provider_resp = provider_resp.expect("provider stream end");
+        let config_resp = config_resp.expect("config stream end");
+        let registry_resp = registry_resp.expect("registry stream end");
+
+        let expected_reasoning =
+            "Count the letters carefully. The word strawberry contains three r characters."
+                .to_string();
+
+        for reasoning in [
+            &siumai_reasoning,
+            &provider_reasoning,
+            &config_reasoning,
+            &registry_reasoning,
+        ] {
+            assert_eq!(reasoning, &expected_reasoning);
+        }
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_eq!(
+                response.content_text(),
+                Some("There are three letter r's in strawberry.")
+            );
+            assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+
+            let meta = response
+                .anthropic_metadata()
+                .expect("expected anthropic metadata");
+            assert_eq!(meta.thinking_signature.as_deref(), Some("sig-1"));
+            assert_eq!(
+                meta.redacted_thinking_data.as_deref(),
+                Some("redacted-blob")
+            );
+        }
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            siumai_req.body["thinking"]["type"],
+            serde_json::json!("enabled")
+        );
+        assert_eq!(
+            siumai_req.body["thinking"]["budget_tokens"],
+            serde_json::json!(2048)
+        );
+    }
+
+    #[tokio::test]
     async fn anthropic_registry_chat_response_metadata_match_config_path() {
         let model = "claude-sonnet-4-5";
         let base_url = "https://example.com/custom";
@@ -30750,7 +32782,10 @@ mod vertex_public_path {
     use siumai::experimental::client::LlmClient;
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
-        EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
+        ContentPart, EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
+    };
+    use siumai::provider_ext::anthropic_vertex::{
+        VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
     };
     use siumai::provider_ext::google_vertex::{
         VertexEmbeddingOptions, VertexEmbeddingRequestExt, VertexImagenEditOptions,
@@ -30777,6 +32812,25 @@ mod vertex_public_path {
         }
         sse.push_str("data: [DONE]\n\n");
         sse.into_bytes()
+    }
+
+    fn vertex_structured_output_success_stream_body() -> Vec<u8> {
+        concat!(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"answer\\\":\\\"hel\"}]}}]}\n\n",
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"lo\\\"}\"}]}}]}\n\n",
+            "data: {\"candidates\":[{\"finishReason\":\"STOP\",\"safetyRatings\":[{\"category\":\"HARM_CATEGORY_DEROGATORY\",\"probability\":\"NEGLIGIBLE\"}]}],\"usageMetadata\":{\"promptTokenCount\":7,\"candidatesTokenCount\":4,\"totalTokenCount\":11}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .as_bytes()
+        .to_vec()
+    }
+
+    fn vertex_structured_output_interrupted_stream_body() -> Vec<u8> {
+        concat!(
+            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"answer\\\":\"}]}}]}\n\n"
+        )
+        .as_bytes()
+        .to_vec()
     }
 
     fn custom_events_by_type(
@@ -30897,6 +32951,535 @@ mod vertex_public_path {
                 auto_middleware: true,
             }),
         )
+    }
+
+    fn anthropic_vertex_structured_output_success_stream_body(model: &str) -> Vec<u8> {
+        let mut body = String::new();
+        body.push_str(&format!(
+            r#"data: {{"type":"message_start","message":{{"id":"msg_test","model":"{model}","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{{"input_tokens":15,"output_tokens":0}}}}}}"#
+        ));
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+        );
+        body.push_str("\n\n");
+
+        let part1 =
+            serde_json::to_string("{\"value\":\"te").expect("serialize anthropic-vertex text part");
+        body.push_str(&format!(
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{part1}}}}}"#
+        ));
+        body.push_str("\n\n");
+
+        let part2 = serde_json::to_string("st\"}").expect("serialize anthropic-vertex text part");
+        body.push_str(&format!(
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{part2}}}}}"#
+        ));
+        body.push_str("\n\n");
+
+        body.push_str(r#"data: {"type":"content_block_stop","index":0}"#);
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":15,"output_tokens":4}}"#,
+        );
+        body.push_str("\n\n");
+        body.into_bytes()
+    }
+
+    fn anthropic_vertex_structured_output_interrupted_stream_body(model: &str) -> Vec<u8> {
+        let mut body = String::new();
+        body.push_str(&format!(
+            r#"data: {{"type":"message_start","message":{{"id":"msg_test","model":"{model}","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{{"input_tokens":15,"output_tokens":0}}}}}}"#
+        ));
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+        );
+        body.push_str("\n\n");
+
+        let partial =
+            serde_json::to_string("{\"value\":").expect("serialize anthropic-vertex partial");
+        body.push_str(&format!(
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{partial}}}}}"#
+        ));
+        body.push_str("\n\n");
+        body.into_bytes()
+    }
+
+    fn anthropic_vertex_structured_output_success_response(model: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "{\"value\":\"test\"}"
+                }
+            ],
+            "model": model,
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 15,
+                "output_tokens": 4
+            }
+        })
+    }
+
+    fn anthropic_vertex_structured_output_invalid_response(model: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "sorry, not valid json"
+                }
+            ],
+            "model": model,
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 15,
+                "output_tokens": 4
+            }
+        })
+    }
+
+    fn anthropic_vertex_reasoning_response(model: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": "msg_reasoning",
+            "type": "message",
+            "role": "assistant",
+            "model": model,
+            "content": [
+                {
+                    "type": "thinking",
+                    "thinking": "Count the letters carefully. The word strawberry contains three r characters.",
+                    "signature": "sig-1"
+                },
+                {
+                    "type": "redacted_thinking",
+                    "data": "redacted-blob"
+                },
+                {
+                    "type": "text",
+                    "text": "There are three letter r's in strawberry."
+                }
+            ],
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 18,
+                "output_tokens": 24
+            }
+        })
+    }
+
+    fn anthropic_vertex_reasoning_stream_body(model: &str) -> Vec<u8> {
+        let mut body = String::new();
+        body.push_str(&format!(
+            r#"data: {{"type":"message_start","message":{{"id":"msg_reasoning","model":"{model}","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{{"input_tokens":18,"output_tokens":1}}}}}}"#
+        ));
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Count the letters carefully. "}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"The word strawberry contains three r characters."}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-1"}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(r#"data: {"type":"content_block_stop","index":0}"#);
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"redacted_thinking","data":"redacted-blob"}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(r#"data: {"type":"content_block_stop","index":1}"#);
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_start","index":2,"content_block":{"type":"text","text":""}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"content_block_delta","index":2,"delta":{"type":"text_delta","text":"There are three letter r's in strawberry."}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(r#"data: {"type":"content_block_stop","index":2}"#);
+        body.push_str("\n\n");
+        body.push_str(
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":18,"output_tokens":24}}"#,
+        );
+        body.push_str("\n\n");
+        body.push_str(r#"data: {"type":"message_stop"}"#);
+        body.push_str("\n\n");
+        body.into_bytes()
+    }
+
+    fn make_anthropic_vertex_structured_output_request(
+        model: &str,
+        schema: serde_json::Value,
+    ) -> ChatRequest {
+        ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema))
+            .build()
+    }
+
+    fn make_anthropic_vertex_reasoning_request(model: &str) -> ChatRequest {
+        ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_anthropic_vertex_options(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicOptions::new()
+                    .with_thinking_mode(
+                    siumai::provider_ext::anthropic_vertex::VertexAnthropicThinkingMode::enabled(
+                        Some(2048),
+                    ),
+                ),
+            )
+    }
+
+    fn anthropic_vertex_default_options_schema() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        })
+    }
+
+    fn make_anthropic_vertex_default_options_request(model: &str) -> ChatRequest {
+        let assistant = ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("secret reasoning that should not be replayed"),
+            ContentPart::text("previous visible answer"),
+        ])
+        .build();
+
+        let mut request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build(), assistant])
+            .tools(vec![Tool::function(
+                "lookup_weather",
+                "Look up the weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    },
+                    "required": ["city"],
+                    "additionalProperties": false
+                }),
+            )])
+            .response_format(ResponseFormat::json_schema(
+                anthropic_vertex_default_options_schema(),
+            ))
+            .temperature(0.5)
+            .top_p(0.7)
+            .max_tokens(2000)
+            .build();
+        request.common_params.top_k = Some(16.0);
+        request
+    }
+
+    fn assert_anthropic_vertex_default_options_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+        schema: &serde_json::Value,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/models/{model}:rawPredict"));
+        assert_eq!(
+            header_value(req, "authorization"),
+            Some("Bearer test-token".to_string())
+        );
+        assert_eq!(
+            req.body["anthropic_version"],
+            serde_json::json!("vertex-2023-10-16")
+        );
+        assert_eq!(
+            req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+        assert_eq!(req.body["max_tokens"], serde_json::json!(4048));
+        assert!(req.body.get("temperature").is_none());
+        assert!(req.body.get("top_p").is_none());
+        assert!(req.body.get("top_k").is_none());
+        assert!(req.body.get("output_format").is_none());
+        assert!(req.body.get("model").is_none());
+        assert!(req.body.get("stream").is_none());
+
+        assert_eq!(
+            req.body["tool_choice"],
+            serde_json::json!({
+                "type": "any",
+                "disable_parallel_tool_use": true
+            })
+        );
+
+        let tools = req.body["tools"].as_array().expect("anthropic tools array");
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("lookup_weather")
+            }),
+            "expected user tool in request body: {:?}",
+            req.body["tools"]
+        );
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("json")
+                    && tool.get("input_schema") == Some(schema)
+            }),
+            "expected reserved json tool in request body: {:?}",
+            req.body["tools"]
+        );
+
+        let messages = req.body["messages"].as_array().expect("anthropic messages");
+        let serialized_messages =
+            serde_json::to_string(messages).expect("serialize anthropic messages");
+        assert!(
+            !serialized_messages.contains("<thinking>"),
+            "expected no <thinking> replay when send_reasoning=false: {serialized_messages}"
+        );
+        assert!(
+            !serialized_messages.contains("secret reasoning that should not be replayed"),
+            "expected no raw reasoning replay when send_reasoning=false: {serialized_messages}"
+        );
+
+        let assistant_content = messages[1]["content"]
+            .as_array()
+            .expect("assistant content array");
+        assert!(
+            assistant_content.iter().all(|part| {
+                !matches!(
+                    part.get("type").and_then(|value| value.as_str()),
+                    Some("thinking" | "redacted_thinking")
+                )
+            }),
+            "expected assistant content without thinking blocks: {assistant_content:?}"
+        );
+        assert!(
+            assistant_content.iter().any(|part| {
+                part.get("type").and_then(|value| value.as_str()) == Some("text")
+                    && part.get("text").and_then(|value| value.as_str())
+                        == Some("previous visible answer")
+            }),
+            "expected assistant visible text to remain after stripping reasoning: {assistant_content:?}"
+        );
+    }
+
+    fn assert_anthropic_vertex_default_options_stream_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+        schema: &serde_json::Value,
+    ) {
+        assert_eq!(
+            req.url,
+            format!("{base_url}/models/{model}:streamRawPredict")
+        );
+        assert_eq!(
+            header_value(req, "authorization"),
+            Some("Bearer test-token".to_string())
+        );
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            req.body["anthropic_version"],
+            serde_json::json!("vertex-2023-10-16")
+        );
+        assert_eq!(
+            req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+        assert_eq!(req.body["max_tokens"], serde_json::json!(4048));
+        assert!(req.body.get("temperature").is_none());
+        assert!(req.body.get("top_p").is_none());
+        assert!(req.body.get("top_k").is_none());
+        assert!(req.body.get("output_format").is_none());
+        assert!(req.body.get("model").is_none());
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+
+        assert_eq!(
+            req.body["tool_choice"],
+            serde_json::json!({
+                "type": "any",
+                "disable_parallel_tool_use": true
+            })
+        );
+
+        let tools = req.body["tools"].as_array().expect("anthropic tools array");
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("lookup_weather")
+            }),
+            "expected user tool in request body: {:?}",
+            req.body["tools"]
+        );
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("json")
+                    && tool.get("input_schema") == Some(schema)
+            }),
+            "expected reserved json tool in request body: {:?}",
+            req.body["tools"]
+        );
+
+        let messages = req.body["messages"].as_array().expect("anthropic messages");
+        let serialized_messages =
+            serde_json::to_string(messages).expect("serialize anthropic messages");
+        assert!(
+            !serialized_messages.contains("<thinking>"),
+            "expected no <thinking> replay when send_reasoning=false: {serialized_messages}"
+        );
+        assert!(
+            !serialized_messages.contains("secret reasoning that should not be replayed"),
+            "expected no raw reasoning replay when send_reasoning=false: {serialized_messages}"
+        );
+
+        let assistant_content = messages[1]["content"]
+            .as_array()
+            .expect("assistant content array");
+        assert!(
+            assistant_content.iter().all(|part| {
+                !matches!(
+                    part.get("type").and_then(|value| value.as_str()),
+                    Some("thinking" | "redacted_thinking")
+                )
+            }),
+            "expected assistant content without thinking blocks: {assistant_content:?}"
+        );
+        assert!(
+            assistant_content.iter().any(|part| {
+                part.get("type").and_then(|value| value.as_str()) == Some("text")
+                    && part.get("text").and_then(|value| value.as_str())
+                        == Some("previous visible answer")
+            }),
+            "expected assistant visible text to remain after stripping reasoning: {assistant_content:?}"
+        );
+    }
+
+    fn assert_anthropic_vertex_structured_output_stream_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+        schema: &serde_json::Value,
+    ) {
+        assert_eq!(
+            req.url,
+            format!("{base_url}/models/{model}:streamRawPredict")
+        );
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            header_value(req, "authorization"),
+            Some("Bearer test-token".to_string())
+        );
+        assert_eq!(
+            req.body["anthropic_version"],
+            serde_json::json!("vertex-2023-10-16")
+        );
+        assert_eq!(
+            req.body["output_format"],
+            serde_json::json!({
+                "type": "json_schema",
+                "schema": schema
+            })
+        );
+        assert!(req.body.get("model").is_none());
+        assert!(req.body.get("tools").is_none());
+    }
+
+    fn assert_anthropic_vertex_structured_output_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+        schema: &serde_json::Value,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/models/{model}:rawPredict"));
+        assert_eq!(
+            header_value(req, "authorization"),
+            Some("Bearer test-token".to_string())
+        );
+        assert_eq!(
+            req.body["anthropic_version"],
+            serde_json::json!("vertex-2023-10-16")
+        );
+        assert_eq!(
+            req.body["output_format"],
+            serde_json::json!({
+                "type": "json_schema",
+                "schema": schema
+            })
+        );
+        assert!(req.body.get("stream").is_none());
+        assert!(req.body.get("model").is_none());
+        assert!(req.body.get("tools").is_none());
+    }
+
+    fn assert_anthropic_vertex_reasoning_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+        stream: bool,
+    ) {
+        let suffix = if stream {
+            ":streamRawPredict"
+        } else {
+            ":rawPredict"
+        };
+        assert_eq!(req.url, format!("{base_url}/models/{model}{suffix}"));
+        assert_eq!(
+            header_value(req, "authorization"),
+            Some("Bearer test-token".to_string())
+        );
+        if stream {
+            assert_eq!(
+                header_value(req, "accept"),
+                Some("text/event-stream".to_string())
+            );
+            assert_eq!(req.body["stream"], serde_json::json!(true));
+        } else {
+            assert!(req.body.get("stream").is_none());
+        }
+        assert_eq!(
+            req.body["anthropic_version"],
+            serde_json::json!("vertex-2023-10-16")
+        );
+        assert_eq!(
+            req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+        assert!(req.body.get("model").is_none());
     }
 
     #[tokio::test]
@@ -31103,7 +33686,8 @@ mod vertex_public_path {
 
         let siumai_transport = SseSuccessTransport::new(stream_body.clone());
         let provider_transport = SseSuccessTransport::new(stream_body.clone());
-        let config_transport = SseSuccessTransport::new(stream_body);
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
 
         let model = "gemini-2.5-flash";
         let base_url = "https://example.com/custom";
@@ -31132,6 +33716,10 @@ mod vertex_public_path {
                 .with_http_transport(Arc::new(config_transport.clone())),
         )
         .expect("build config client");
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("vertex:gemini-2.5-flash")
+            .expect("build registry language model");
 
         let request = make_chat_request_with_model(model);
 
@@ -31147,14 +33735,20 @@ mod vertex_public_path {
             .chat_stream_request(request)
             .await
             .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(make_chat_request_with_model(model))
+            .await
+            .expect("registry stream ok");
 
         let siumai_events = collect_stream_events(&mut siumai_stream).await;
         let provider_events = collect_stream_events(&mut provider_stream).await;
         let config_events = collect_stream_events(&mut config_stream).await;
+        let registry_events = collect_stream_events(&mut registry_stream).await;
 
         let siumai_starts = custom_events_by_type(&siumai_events, "reasoning-start");
         let provider_starts = custom_events_by_type(&provider_events, "reasoning-start");
         let config_starts = custom_events_by_type(&config_events, "reasoning-start");
+        let registry_starts = custom_events_by_type(&registry_events, "reasoning-start");
         assert_eq!(
             siumai_starts.len(),
             1,
@@ -31170,10 +33764,16 @@ mod vertex_public_path {
             1,
             "expected one config reasoning-start"
         );
+        assert_eq!(
+            registry_starts.len(),
+            1,
+            "expected one registry reasoning-start"
+        );
 
         let siumai_deltas = custom_events_by_type(&siumai_events, "reasoning-delta");
         let provider_deltas = custom_events_by_type(&provider_events, "reasoning-delta");
         let config_deltas = custom_events_by_type(&config_events, "reasoning-delta");
+        let registry_deltas = custom_events_by_type(&registry_events, "reasoning-delta");
         assert_eq!(
             siumai_deltas.len(),
             1,
@@ -31189,14 +33789,21 @@ mod vertex_public_path {
             1,
             "expected one config reasoning-delta"
         );
+        assert_eq!(
+            registry_deltas.len(),
+            1,
+            "expected one registry reasoning-delta"
+        );
 
         for event in [
             &siumai_starts[0],
             &provider_starts[0],
             &config_starts[0],
+            &registry_starts[0],
             &siumai_deltas[0],
             &provider_deltas[0],
             &config_deltas[0],
+            &registry_deltas[0],
         ] {
             assert_eq!(
                 event
@@ -31213,6 +33820,27 @@ mod vertex_public_path {
                     .is_none(),
                 "did not expect providerMetadata.google on vertex path"
             );
+        }
+
+        let collect_reasoning = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
+                        Some(delta.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+
+        for reasoning in [
+            collect_reasoning(&siumai_events),
+            collect_reasoning(&provider_events),
+            collect_reasoning(&config_events),
+            collect_reasoning(&registry_events),
+        ] {
+            assert_eq!(reasoning, "thinking...");
         }
 
         let siumai_end = siumai_events
@@ -31236,8 +33864,15 @@ mod vertex_public_path {
                 _ => None,
             })
             .expect("expected config StreamEnd");
+        let registry_end = registry_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected registry StreamEnd");
 
-        for response in [siumai_end, provider_end, config_end] {
+        for response in [siumai_end, provider_end, config_end, registry_end] {
             let provider_metadata = response
                 .provider_metadata
                 .as_ref()
@@ -31276,9 +33911,13 @@ mod vertex_public_path {
         let config_req = config_transport
             .take_stream()
             .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
 
         assert_requests_equivalent(&siumai_req, &provider_req);
         assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
         assert!(
             siumai_req.url.contains(":streamGenerateContent?alt=sse"),
             "unexpected url: {}",
@@ -32037,6 +34676,387 @@ mod vertex_public_path {
     }
 
     #[tokio::test]
+    async fn vertex_structured_output_stream_end_preserves_metadata_and_extracts_json_consistently_across_public_paths()
+     {
+        let stream_body = vertex_structured_output_success_stream_body();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let model = "gemini-2.5-flash";
+        let base_url = "https://example.com/custom";
+
+        let siumai_client = Siumai::builder()
+            .vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
+            siumai::provider_ext::google_vertex::GoogleVertexConfig::new(base_url, model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("vertex:gemini-2.5-flash")
+            .expect("build registry language model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()))
+            .build()
+            .with_provider_option(
+                "vertex",
+                serde_json::json!({
+                    "structuredOutputs": true
+                }),
+            );
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry stream ok");
+
+        let siumai_events = collect_stream_events(&mut siumai_stream).await;
+        let provider_events = collect_stream_events(&mut provider_stream).await;
+        let config_events = collect_stream_events(&mut config_stream).await;
+        let registry_events = collect_stream_events(&mut registry_stream).await;
+
+        let collect_content = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    siumai::prelude::unified::ChatStreamEvent::ContentDelta { delta, .. } => {
+                        Some(delta.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+
+        for content in [
+            collect_content(&siumai_events),
+            collect_content(&provider_events),
+            collect_content(&config_events),
+            collect_content(&registry_events),
+        ] {
+            assert_eq!(content, "{\"answer\":\"hello\"}");
+        }
+
+        let siumai_end = siumai_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected siumai StreamEnd");
+        let provider_end = provider_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected provider StreamEnd");
+        let config_end = config_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected config StreamEnd");
+        let registry_end = registry_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected registry StreamEnd");
+
+        for response in [siumai_end, provider_end, config_end, registry_end] {
+            let provider_metadata = response
+                .provider_metadata
+                .as_ref()
+                .expect("expected stream-end provider metadata");
+            let vertex_meta = provider_metadata
+                .get("vertex")
+                .expect("expected provider_metadata.vertex");
+            assert!(
+                !provider_metadata.contains_key("google"),
+                "did not expect provider_metadata.google on vertex path"
+            );
+            assert_eq!(
+                vertex_meta
+                    .get("usageMetadata")
+                    .and_then(|usage| usage.get("totalTokenCount"))
+                    .and_then(|value| value.as_u64()),
+                Some(11)
+            );
+            assert_eq!(
+                vertex_meta
+                    .get("safetyRatings")
+                    .and_then(|ratings| ratings.as_array())
+                    .and_then(|ratings| ratings.first())
+                    .and_then(|rating| rating.get("category"))
+                    .and_then(|value| value.as_str()),
+                Some("HARM_CATEGORY_DEROGATORY")
+            );
+        }
+
+        let siumai_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(siumai_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("siumai structured output");
+        let provider_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(provider_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("provider structured output");
+        let config_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(config_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("config structured output");
+        let registry_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(registry_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("registry structured output");
+
+        assert_eq!(siumai_value["answer"], "hello");
+        assert_eq!(provider_value["answer"], "hello");
+        assert_eq!(config_value["answer"], "hello");
+        assert_eq!(registry_value["answer"], "hello");
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert!(
+            siumai_req
+                .url
+                .contains("models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=test-key"),
+            "unexpected url: {}",
+            siumai_req.url
+        );
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            siumai_req.body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(
+            siumai_req.body["generationConfig"]
+                .get("responseSchema")
+                .is_some()
+        );
+        assert!(
+            siumai_req.body["generationConfig"]
+                .get("responseJsonSchema")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_structured_output_interrupted_stream_fails_consistently_across_public_paths() {
+        let stream_body = vertex_structured_output_interrupted_stream_body();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let model = "gemini-2.5-flash";
+        let base_url = "https://example.com/custom";
+
+        let siumai_client = Siumai::builder()
+            .vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
+            siumai::provider_ext::google_vertex::GoogleVertexConfig::new(base_url, model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("vertex:gemini-2.5-flash")
+            .expect("build registry language model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()))
+            .build()
+            .with_provider_option(
+                "vertex",
+                serde_json::json!({
+                    "structuredOutputs": true
+                }),
+            );
+
+        let siumai_err = siumai::structured_output::extract_json_value_from_stream(
+            siumai_client
+                .chat_stream_request(request.clone())
+                .await
+                .expect("siumai stream ok"),
+        )
+        .await
+        .expect_err("siumai interrupted stream should fail");
+        let provider_err = siumai::structured_output::extract_json_value_from_stream(
+            provider_client
+                .chat_stream_request(request.clone())
+                .await
+                .expect("provider stream ok"),
+        )
+        .await
+        .expect_err("provider interrupted stream should fail");
+        let config_err = siumai::structured_output::extract_json_value_from_stream(
+            config_client
+                .chat_stream_request(request.clone())
+                .await
+                .expect("config stream ok"),
+        )
+        .await
+        .expect_err("config interrupted stream should fail");
+        let registry_err = siumai::structured_output::extract_json_value_from_stream(
+            registry_model
+                .chat_stream_request(request)
+                .await
+                .expect("registry stream ok"),
+        )
+        .await
+        .expect_err("registry interrupted stream should fail");
+
+        for err in [siumai_err, provider_err, config_err, registry_err] {
+            match err {
+                LlmError::ParseError(message) => {
+                    assert!(
+                        message.contains("stream ended before a complete JSON value was produced")
+                    )
+                }
+                other => panic!("expected ParseError, got {other:?}"),
+            }
+        }
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert!(
+            siumai_req
+                .url
+                .contains("models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=test-key"),
+            "unexpected url: {}",
+            siumai_req.url
+        );
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            siumai_req.body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(
+            siumai_req.body["generationConfig"]
+                .get("responseSchema")
+                .is_some()
+        );
+        assert!(
+            siumai_req.body["generationConfig"]
+                .get("responseJsonSchema")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn anthropic_vertex_siumai_provider_config_chat_request_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -32548,6 +35568,931 @@ mod vertex_public_path {
         assert_eq!(
             header_value(&registry_req, "accept"),
             Some("text/event-stream".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_reasoning_response_is_equivalent_across_public_paths() {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let response_json = anthropic_vertex_reasoning_response(model);
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let registry =
+            make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .expect("build registry language model");
+
+        let request = make_anthropic_vertex_reasoning_request(model);
+
+        let siumai_resp = siumai_client
+            .chat_request(request.clone())
+            .await
+            .expect("siumai response ok");
+        let provider_resp = provider_client
+            .chat_request(request.clone())
+            .await
+            .expect("provider response ok");
+        let config_resp = config_client
+            .chat_request(request.clone())
+            .await
+            .expect("config response ok");
+        let registry_resp = registry_model
+            .chat_request(request)
+            .await
+            .expect("registry response ok");
+
+        let expected_reasoning =
+            "Count the letters carefully. The word strawberry contains three r characters."
+                .to_string();
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_eq!(
+                response.content_text(),
+                Some("There are three letter r's in strawberry.")
+            );
+            assert_eq!(response.reasoning(), vec![expected_reasoning.clone()]);
+            assert_eq!(
+                response.finish_reason,
+                Some(siumai::prelude::unified::FinishReason::Stop)
+            );
+
+            let anthropic_meta = response
+                .anthropic_metadata()
+                .expect("expected typed anthropic metadata");
+            assert_eq!(anthropic_meta.thinking_signature.as_deref(), Some("sig-1"));
+            assert_eq!(
+                anthropic_meta.redacted_thinking_data.as_deref(),
+                Some("redacted-blob")
+            );
+        }
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_anthropic_vertex_reasoning_request(&siumai_req, base_url, model, false);
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_reasoning_stream_is_equivalent_across_public_paths() {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let stream_body = anthropic_vertex_reasoning_stream_body(model);
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let registry =
+            make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .expect("build registry language model");
+
+        let request = make_anthropic_vertex_reasoning_request(model);
+
+        use futures_util::StreamExt;
+        let collect_stream_summary = async |stream: &mut siumai::prelude::unified::ChatStream| {
+            let mut end = None;
+            let mut reasoning = String::new();
+            while let Some(event) = stream.next().await {
+                match event.expect("stream event ok") {
+                    siumai::prelude::unified::ChatStreamEvent::ThinkingDelta { delta } => {
+                        reasoning.push_str(&delta);
+                    }
+                    siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => {
+                        end = Some(response);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+            (reasoning, end)
+        };
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry stream ok");
+
+        let (siumai_reasoning, siumai_resp) = collect_stream_summary(&mut siumai_stream).await;
+        let (provider_reasoning, provider_resp) =
+            collect_stream_summary(&mut provider_stream).await;
+        let (config_reasoning, config_resp) = collect_stream_summary(&mut config_stream).await;
+        let (registry_reasoning, registry_resp) =
+            collect_stream_summary(&mut registry_stream).await;
+
+        let siumai_resp = siumai_resp.expect("siumai stream end");
+        let provider_resp = provider_resp.expect("provider stream end");
+        let config_resp = config_resp.expect("config stream end");
+        let registry_resp = registry_resp.expect("registry stream end");
+
+        let expected_reasoning =
+            "Count the letters carefully. The word strawberry contains three r characters."
+                .to_string();
+
+        for reasoning in [
+            &siumai_reasoning,
+            &provider_reasoning,
+            &config_reasoning,
+            &registry_reasoning,
+        ] {
+            assert_eq!(reasoning, &expected_reasoning);
+        }
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_eq!(
+                response.content_text(),
+                Some("There are three letter r's in strawberry.")
+            );
+            assert_eq!(
+                response.finish_reason,
+                Some(siumai::prelude::unified::FinishReason::Stop)
+            );
+
+            let anthropic_meta = response
+                .anthropic_metadata()
+                .expect("expected typed anthropic metadata");
+            assert_eq!(anthropic_meta.thinking_signature.as_deref(), Some("sig-1"));
+            assert_eq!(
+                anthropic_meta.redacted_thinking_data.as_deref(),
+                Some("redacted-blob")
+            );
+        }
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_anthropic_vertex_reasoning_request(&siumai_req, base_url, model, true);
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_default_options_match_public_request_shape() {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let schema = anthropic_vertex_default_options_schema();
+
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .with_anthropic_vertex_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+            .with_anthropic_vertex_structured_output_mode(
+                VertexAnthropicStructuredOutputMode::JsonTool,
+            )
+            .with_anthropic_vertex_disable_parallel_tool_use(true)
+            .with_anthropic_vertex_send_reasoning(false)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+            .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+            .with_disable_parallel_tool_use(true)
+            .with_send_reasoning(false)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+                    .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+                    .with_disable_parallel_tool_use(true)
+                    .with_send_reasoning(false)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let request = make_anthropic_vertex_default_options_request(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&provider_req, &config_req);
+        assert_anthropic_vertex_default_options_request(&siumai_req, base_url, model, &schema);
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_default_options_match_public_stream_request_shape() {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let schema = anthropic_vertex_default_options_schema();
+
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .with_anthropic_vertex_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+            .with_anthropic_vertex_structured_output_mode(
+                VertexAnthropicStructuredOutputMode::JsonTool,
+            )
+            .with_anthropic_vertex_disable_parallel_tool_use(true)
+            .with_anthropic_vertex_send_reasoning(false)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+            .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+            .with_disable_parallel_tool_use(true)
+            .with_send_reasoning(false)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
+                    .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
+                    .with_disable_parallel_tool_use(true)
+                    .with_send_reasoning(false)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let request = make_anthropic_vertex_default_options_request(model);
+
+        let siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        drop(siumai_stream);
+        drop(provider_stream);
+        drop(config_stream);
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&provider_req, &config_req);
+        assert_anthropic_vertex_default_options_stream_request(
+            &siumai_req,
+            base_url,
+            model,
+            &schema,
+        );
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_structured_output_stream_end_extracts_json_consistently_across_public_paths()
+     {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let stream_body = anthropic_vertex_structured_output_success_stream_body(model);
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let registry =
+            make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .expect("build registry language model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+        let request = make_anthropic_vertex_structured_output_request(model, schema.clone());
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry stream ok");
+
+        let siumai_events = collect_stream_events(&mut siumai_stream).await;
+        let provider_events = collect_stream_events(&mut provider_stream).await;
+        let config_events = collect_stream_events(&mut config_stream).await;
+        let registry_events = collect_stream_events(&mut registry_stream).await;
+
+        let collect_content = |events: &[siumai::prelude::unified::ChatStreamEvent]| {
+            events
+                .iter()
+                .filter_map(|event| match event {
+                    siumai::prelude::unified::ChatStreamEvent::ContentDelta { delta, .. } => {
+                        Some(delta.as_str())
+                    }
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+
+        for content in [
+            collect_content(&siumai_events),
+            collect_content(&provider_events),
+            collect_content(&config_events),
+            collect_content(&registry_events),
+        ] {
+            assert_eq!(content, "{\"value\":\"test\"}");
+        }
+
+        let siumai_end = siumai_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected siumai StreamEnd");
+        let provider_end = provider_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected provider StreamEnd");
+        let config_end = config_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected config StreamEnd");
+        let registry_end = registry_events
+            .iter()
+            .find_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::StreamEnd { response } => Some(response),
+                _ => None,
+            })
+            .expect("expected registry StreamEnd");
+
+        for response in [siumai_end, provider_end, config_end, registry_end] {
+            assert_eq!(
+                response.finish_reason,
+                Some(siumai::prelude::unified::FinishReason::Stop)
+            );
+            assert_eq!(response.id.as_deref(), Some("msg_test"));
+            assert_eq!(response.model.as_deref(), Some(model));
+            assert_eq!(response.content_text(), Some("{\"value\":\"test\"}"));
+        }
+
+        let siumai_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(siumai_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("siumai structured output");
+        let provider_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(provider_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("provider structured output");
+        let config_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(config_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("config structured output");
+        let registry_value = siumai::structured_output::extract_json_value_from_stream(Box::pin(
+            futures::stream::iter(registry_events.into_iter().map(Ok::<_, LlmError>)),
+        ))
+        .await
+        .expect("registry structured output");
+
+        assert_eq!(siumai_value["value"], "test");
+        assert_eq!(provider_value["value"], "test");
+        assert_eq!(config_value["value"], "test");
+        assert_eq!(registry_value["value"], "test");
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_anthropic_vertex_structured_output_stream_request(
+            &siumai_req,
+            base_url,
+            model,
+            &schema,
+        );
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_structured_output_response_extracts_json_consistently_across_public_paths()
+     {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let response = anthropic_vertex_structured_output_success_response(model);
+
+        let siumai_transport = JsonSuccessTransport::new(response.clone());
+        let provider_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let registry =
+            make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .expect("build registry language model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+        let request = make_anthropic_vertex_structured_output_request(model, schema.clone());
+
+        let siumai_response = siumai_client
+            .chat_request(request.clone())
+            .await
+            .expect("siumai response ok");
+        let provider_response = provider_client
+            .chat_request(request.clone())
+            .await
+            .expect("provider response ok");
+        let config_response = config_client
+            .chat_request(request.clone())
+            .await
+            .expect("config response ok");
+        let registry_response = registry_model
+            .chat_request(request)
+            .await
+            .expect("registry response ok");
+
+        for response in [
+            &siumai_response,
+            &provider_response,
+            &config_response,
+            &registry_response,
+        ] {
+            assert_eq!(
+                response.finish_reason,
+                Some(siumai::prelude::unified::FinishReason::Stop)
+            );
+            assert_eq!(response.id.as_deref(), Some("msg_test"));
+            assert_eq!(response.model.as_deref(), Some(model));
+            assert_eq!(response.content_text(), Some("{\"value\":\"test\"}"));
+        }
+
+        let siumai_value =
+            siumai::structured_output::extract_json_value_from_response(&siumai_response)
+                .expect("siumai structured output");
+        let provider_value =
+            siumai::structured_output::extract_json_value_from_response(&provider_response)
+                .expect("provider structured output");
+        let config_value =
+            siumai::structured_output::extract_json_value_from_response(&config_response)
+                .expect("config structured output");
+        let registry_value =
+            siumai::structured_output::extract_json_value_from_response(&registry_response)
+                .expect("registry structured output");
+
+        assert_eq!(siumai_value["value"], "test");
+        assert_eq!(provider_value["value"], "test");
+        assert_eq!(config_value["value"], "test");
+        assert_eq!(registry_value["value"], "test");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_anthropic_vertex_structured_output_request(&siumai_req, base_url, model, &schema);
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_structured_output_response_invalid_json_fails_consistently_across_public_paths()
+     {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let response = anthropic_vertex_structured_output_invalid_response(model);
+
+        let siumai_transport = JsonSuccessTransport::new(response.clone());
+        let provider_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let registry =
+            make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .expect("build registry language model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+        let request = make_anthropic_vertex_structured_output_request(model, schema.clone());
+
+        let siumai_err = siumai::structured_output::extract_json_value_from_response(
+            &siumai_client
+                .chat_request(request.clone())
+                .await
+                .expect("siumai response ok"),
+        )
+        .expect_err("siumai invalid response should fail");
+        let provider_err = siumai::structured_output::extract_json_value_from_response(
+            &provider_client
+                .chat_request(request.clone())
+                .await
+                .expect("provider response ok"),
+        )
+        .expect_err("provider invalid response should fail");
+        let config_err = siumai::structured_output::extract_json_value_from_response(
+            &config_client
+                .chat_request(request.clone())
+                .await
+                .expect("config response ok"),
+        )
+        .expect_err("config invalid response should fail");
+        let registry_err = siumai::structured_output::extract_json_value_from_response(
+            &registry_model
+                .chat_request(request)
+                .await
+                .expect("registry response ok"),
+        )
+        .expect_err("registry invalid response should fail");
+
+        for err in [siumai_err, provider_err, config_err, registry_err] {
+            match err {
+                LlmError::ParseError(message) => {
+                    assert!(message.contains("no valid JSON candidate found"))
+                }
+                other => panic!("expected ParseError, got {other:?}"),
+            }
+        }
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_anthropic_vertex_structured_output_request(&siumai_req, base_url, model, &schema);
+    }
+
+    #[tokio::test]
+    async fn anthropic_vertex_structured_output_interrupted_stream_fails_consistently_across_public_paths()
+     {
+        let model = "claude-sonnet-4-5-latest";
+        let base_url = "https://example.com/custom";
+        let stream_body = anthropic_vertex_structured_output_interrupted_stream_body(model);
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .http_header("authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::anthropic_vertex()
+            .base_url(base_url)
+            .model(model)
+            .bearer_token("test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client =
+            siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
+                siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(base_url, model)
+                    .with_bearer_token("test-token")
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let registry =
+            make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .expect("build registry language model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+        let request = make_anthropic_vertex_structured_output_request(model, schema.clone());
+
+        let siumai_err = siumai::structured_output::extract_json_value_from_stream(
+            siumai_client
+                .chat_stream_request(request.clone())
+                .await
+                .expect("siumai stream ok"),
+        )
+        .await
+        .expect_err("siumai interrupted stream should fail");
+        let provider_err = siumai::structured_output::extract_json_value_from_stream(
+            provider_client
+                .chat_stream_request(request.clone())
+                .await
+                .expect("provider stream ok"),
+        )
+        .await
+        .expect_err("provider interrupted stream should fail");
+        let config_err = siumai::structured_output::extract_json_value_from_stream(
+            config_client
+                .chat_stream_request(request.clone())
+                .await
+                .expect("config stream ok"),
+        )
+        .await
+        .expect_err("config interrupted stream should fail");
+        let registry_err = siumai::structured_output::extract_json_value_from_stream(
+            registry_model
+                .chat_stream_request(request)
+                .await
+                .expect("registry stream ok"),
+        )
+        .await
+        .expect_err("registry interrupted stream should fail");
+
+        for err in [siumai_err, provider_err, config_err, registry_err] {
+            match err {
+                LlmError::ParseError(message) => {
+                    assert!(
+                        message.contains("stream ended before a complete JSON value was produced")
+                    )
+                }
+                other => panic!("expected ParseError, got {other:?}"),
+            }
+        }
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_anthropic_vertex_structured_output_stream_request(
+            &siumai_req,
+            base_url,
+            model,
+            &schema,
         );
     }
 
@@ -33402,7 +37347,8 @@ mod xai_public_path {
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
     use siumai::provider_ext::xai::{
-        XaiChatRequestExt, XaiChatResponseExt, XaiTtsOptions, XaiTtsRequestExt,
+        SearchMode, SearchSource, SearchSourceType, XaiChatRequestExt, XaiChatResponseExt,
+        XaiOptions, XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
@@ -33543,6 +37489,89 @@ mod xai_public_path {
         assert_eq!(call.tool_call_id, "call_1");
         assert_eq!(call.tool_name, "get_weather");
         assert_eq!(call.arguments, &serde_json::json!({ "city": "Tokyo" }));
+    }
+
+    fn make_xai_default_search_parameters() -> XaiSearchParameters {
+        XaiSearchParameters {
+            mode: SearchMode::On,
+            return_citations: Some(true),
+            max_search_results: Some(4),
+            from_date: Some("2026-03-01".to_string()),
+            to_date: Some("2026-03-12".to_string()),
+            sources: Some(vec![SearchSource {
+                source_type: SearchSourceType::Web,
+                country: Some("US".to_string()),
+                allowed_websites: Some(vec![
+                    "blog.rust-lang.org".to_string(),
+                    "this-week-in-rust.org".to_string(),
+                ]),
+                excluded_websites: Some(vec!["example.com".to_string()]),
+                safe_search: Some(true),
+            }]),
+        }
+    }
+
+    fn assert_xai_default_options_request(req: &HttpTransportRequest, base_url: &str, model: &str) {
+        assert_eq!(req.url, format!("{base_url}/chat/completions"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["messages"],
+            serde_json::json!([{ "role": "user", "content": "hi" }])
+        );
+        assert_eq!(req.body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            req.body["search_parameters"]["mode"],
+            serde_json::json!("on")
+        );
+        assert_eq!(
+            req.body["search_parameters"]["return_citations"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            req.body["search_parameters"]["max_search_results"],
+            serde_json::json!(4)
+        );
+        assert_eq!(
+            req.body["search_parameters"]["from_date"],
+            serde_json::json!("2026-03-01")
+        );
+        assert_eq!(
+            req.body["search_parameters"]["to_date"],
+            serde_json::json!("2026-03-12")
+        );
+        assert_eq!(
+            req.body["search_parameters"]["sources"][0]["type"],
+            serde_json::json!("web")
+        );
+        assert_eq!(
+            req.body["search_parameters"]["sources"][0]["country"],
+            serde_json::json!("US")
+        );
+        assert_eq!(
+            req.body["search_parameters"]["sources"][0]["allowed_websites"],
+            serde_json::json!(["blog.rust-lang.org", "this-week-in-rust.org"])
+        );
+        assert_eq!(
+            req.body["search_parameters"]["sources"][0]["excluded_websites"],
+            serde_json::json!(["example.com"])
+        );
+        assert_eq!(
+            req.body["search_parameters"]["sources"][0]["safe_search"],
+            serde_json::json!(true)
+        );
+    }
+
+    fn assert_xai_default_options_stream_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_xai_default_options_request(req, base_url, model);
+        assert_eq!(req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            header_value(req, "accept"),
+            Some("text/event-stream".to_string())
+        );
     }
 
     async fn collect_streamed_tool_call(
@@ -33806,6 +37835,145 @@ mod xai_public_path {
                 }
             })
         );
+    }
+
+    #[tokio::test]
+    async fn xai_default_options_match_public_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "grok-4";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_xai_options(XaiOptions::new().with_reasoning_effort("high"))
+            .with_xai_options(XaiOptions::new().with_search(make_xai_default_search_parameters()))
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_xai_options(XaiOptions::new().with_reasoning_effort("high"))
+            .with_xai_options(XaiOptions::new().with_search(make_xai_default_search_parameters()))
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_xai_options(XaiOptions::new().with_reasoning_effort("high"))
+                .with_xai_options(
+                    XaiOptions::new().with_search(make_xai_default_search_parameters()),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_xai_default_options_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_default_options_match_public_stream_request_shape() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "grok-4";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_xai_options(XaiOptions::new().with_reasoning_effort("high"))
+            .with_xai_options(XaiOptions::new().with_search(make_xai_default_search_parameters()))
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_xai_options(XaiOptions::new().with_reasoning_effort("high"))
+            .with_xai_options(XaiOptions::new().with_search(make_xai_default_search_parameters()))
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_xai_options(XaiOptions::new().with_reasoning_effort("high"))
+                .with_xai_options(
+                    XaiOptions::new().with_search(make_xai_default_search_parameters()),
+                )
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request)
+            .await
+            .expect("config stream ok");
+
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_xai_default_options_stream_request(&siumai_req, base_url, model);
     }
 
     #[tokio::test]

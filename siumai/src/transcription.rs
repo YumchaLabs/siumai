@@ -2,6 +2,9 @@
 //!
 //! This is the recommended Rust-first surface for STT:
 //! - `transcribe`
+//!
+//! `transcribe` accepts the metadata-bearing `TranscriptionModel` family trait rather
+//! than the legacy `TranscriptionModelV3` compatibility layer.
 
 use crate::retry_api::{RetryOptions, retry_with};
 use siumai_core::error::LlmError;
@@ -46,7 +49,7 @@ fn apply_stt_call_options(
 }
 
 /// Transcribe audio into text.
-pub async fn transcribe<M: TranscriptionModelV3 + ?Sized>(
+pub async fn transcribe<M: TranscriptionModel + ?Sized>(
     model: &M,
     request: SttRequest,
     options: TranscribeOptions,

@@ -19,5 +19,11 @@ pub mod builder {
     pub use siumai_core::builder::*;
 }
 
+/// Provider-owned typed option structs (Azure-specific).
+pub mod provider_options;
+
+/// Provider-owned typed metadata structs (Azure-specific).
+pub mod provider_metadata;
+
 pub mod providers;
 pub mod standards;

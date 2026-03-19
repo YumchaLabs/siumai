@@ -428,6 +428,38 @@ fn responses_output_text_annotation_added_emits_source() {
 }
 
 #[test]
+fn responses_reasoning_summary_text_delta_emits_thinking_delta_and_custom_part() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let ev = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"Let me think."}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let out = futures::executor::block_on(conv.convert_event(ev));
+    assert_eq!(out.len(), 2);
+    assert!(out.iter().any(|event| {
+        matches!(
+            event.as_ref().expect("thinking delta event"),
+            crate::streaming::ChatStreamEvent::ThinkingDelta { delta }
+                if delta == "Let me think."
+        )
+    }));
+    assert!(out.iter().any(|event| {
+        matches!(
+            event.as_ref().expect("custom reasoning event"),
+            crate::streaming::ChatStreamEvent::Custom { event_type, data }
+                if event_type == "openai:reasoning-delta"
+                    && data["delta"] == serde_json::json!("Let me think.")
+                    && data["providerMetadata"]["openai"]["itemId"] == serde_json::json!("rs_1")
+        )
+    }));
+}
+
+#[test]
 fn responses_stream_proxy_serializes_basic_text_deltas() {
     let conv = OpenAiResponsesEventConverter::new();
 

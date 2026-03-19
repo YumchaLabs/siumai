@@ -93,8 +93,23 @@ impl CohereConfig {
         self
     }
 
+    pub fn with_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    pub fn with_http_interceptor(mut self, interceptor: Arc<dyn HttpInterceptor>) -> Self {
+        self.http_interceptors.push(interceptor);
         self
     }
 
@@ -120,5 +135,33 @@ impl CohereConfig {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, Default)]
+    struct NoopInterceptor;
+
+    impl HttpInterceptor for NoopInterceptor {}
+
+    #[test]
+    fn cohere_config_http_convenience_helpers_update_http_state() {
+        let cfg = CohereConfig::new("test-key")
+            .with_timeout(std::time::Duration::from_secs(15))
+            .with_connect_timeout(std::time::Duration::from_secs(3))
+            .with_http_interceptor(Arc::new(NoopInterceptor));
+
+        assert_eq!(
+            cfg.http_config.timeout,
+            Some(std::time::Duration::from_secs(15))
+        );
+        assert_eq!(
+            cfg.http_config.connect_timeout,
+            Some(std::time::Duration::from_secs(3))
+        );
+        assert_eq!(cfg.http_interceptors.len(), 1);
     }
 }

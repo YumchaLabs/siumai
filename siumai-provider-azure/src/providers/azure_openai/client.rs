@@ -250,6 +250,12 @@ impl AzureOpenAiClient {
         mut request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
+        if !self.config.provider_options_map.is_empty() {
+            let mut merged = self.config.provider_options_map.clone();
+            merged.merge_overrides(std::mem::take(&mut request.provider_options_map));
+            request.provider_options_map = merged;
+        }
+
         if request.common_params.model.trim().is_empty() {
             request.common_params.model = self.config.common_params.model.clone();
         }

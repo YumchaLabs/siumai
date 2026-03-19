@@ -160,13 +160,67 @@ mod config_first_tests {
         let cfg = TogetherAiBuilder::new(BuilderBase::default())
             .api_key("test-key")
             .model("Salesforce/Llama-Rank-v1")
+            .timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(3))
             .with_http_interceptor(Arc::new(NoopInterceptor))
             .into_config()
             .expect("into_config");
 
         assert_eq!(cfg.api_key.expose_secret(), "test-key");
         assert_eq!(cfg.common_params.model, "Salesforce/Llama-Rank-v1");
+        assert_eq!(
+            cfg.http_config.timeout,
+            Some(std::time::Duration::from_secs(15))
+        );
+        assert_eq!(
+            cfg.http_config.connect_timeout,
+            Some(std::time::Duration::from_secs(3))
+        );
         assert_eq!(cfg.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn into_config_matches_manual_config_for_http_conveniences() {
+        let builder_cfg = TogetherAiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("Salesforce/Llama-Rank-v1")
+            .timeout(std::time::Duration::from_secs(15))
+            .connect_timeout(std::time::Duration::from_secs(3))
+            .with_http_interceptor(Arc::new(NoopInterceptor))
+            .into_config()
+            .expect("builder into_config");
+
+        let manual_cfg = TogetherAiConfig::new("test-key")
+            .with_model("Salesforce/Llama-Rank-v1")
+            .with_timeout(std::time::Duration::from_secs(15))
+            .with_connect_timeout(std::time::Duration::from_secs(3))
+            .with_http_interceptor(Arc::new(NoopInterceptor));
+
+        assert_eq!(
+            builder_cfg.api_key.expose_secret(),
+            manual_cfg.api_key.expose_secret()
+        );
+        assert_eq!(builder_cfg.base_url, manual_cfg.base_url);
+        assert_eq!(
+            builder_cfg.common_params.model,
+            manual_cfg.common_params.model
+        );
+        assert_eq!(
+            builder_cfg.http_config.timeout,
+            manual_cfg.http_config.timeout
+        );
+        assert_eq!(
+            builder_cfg.http_config.connect_timeout,
+            manual_cfg.http_config.connect_timeout
+        );
+        assert_eq!(
+            builder_cfg.http_config.headers,
+            manual_cfg.http_config.headers
+        );
+        assert_eq!(
+            builder_cfg.http_interceptors.len(),
+            manual_cfg.http_interceptors.len()
+        );
     }
 
     #[test]

@@ -111,6 +111,23 @@ impl OpenAiSpec {
         &self,
         value: &serde_json::Value,
     ) -> serde_json::Value {
+        fn merge_values(base: &mut serde_json::Value, incoming: serde_json::Value) {
+            match (base, incoming) {
+                (serde_json::Value::Object(base_obj), serde_json::Value::Object(incoming_obj)) => {
+                    for (key, value) in incoming_obj {
+                        if let Some(existing) = base_obj.get_mut(&key) {
+                            merge_values(existing, value);
+                        } else {
+                            base_obj.insert(key, value);
+                        }
+                    }
+                }
+                (base_slot, value) => {
+                    *base_slot = value;
+                }
+            }
+        }
+
         fn is_responses_api_field(k: &str) -> bool {
             matches!(
                 k,
@@ -170,6 +187,8 @@ impl OpenAiSpec {
                         let nv = inner(v, Some(nk));
                         if is_top && nk != "responses_api" && is_responses_api_field(nk) {
                             responses_overlay.insert(nk.to_string(), nv);
+                        } else if let Some(existing) = out.get_mut(nk) {
+                            merge_values(existing, nv);
                         } else {
                             out.insert(nk.to_string(), nv);
                         }
@@ -1369,6 +1388,39 @@ mod tests {
         let hook = spec.chat_before_send(&req, &ctx).expect("hook");
         let out = hook(&serde_json::json!({})).expect("hook ok");
         assert_eq!(out["previous_response_id"], "resp_123");
+    }
+
+    #[test]
+    fn openai_spec_merges_duplicate_responses_api_keys_after_normalization() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "openai",
+                serde_json::json!({
+                    "responses_api": {
+                        "enabled": true,
+                        "previous_response_id": "resp_default",
+                        "reasoning_summary": "detailed"
+                    },
+                    "responsesApi": {
+                        "enabled": true
+                    },
+                    "reasoning_effort": "low"
+                }),
+            );
+
+        let hook = spec.chat_before_send(&req, &ctx).expect("hook");
+        let out = hook(&serde_json::json!({})).expect("hook ok");
+
+        assert_eq!(out["previous_response_id"], "resp_default");
+        assert_eq!(out["reasoning"]["summary"], "detailed");
+        assert_eq!(out["reasoning"]["effort"], "low");
     }
 
     #[test]

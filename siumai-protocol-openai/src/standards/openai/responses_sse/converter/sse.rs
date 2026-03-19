@@ -354,8 +354,24 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                     }
                 }
                 "response.reasoning_summary_text.delta" => {
+                    let mut out: Vec<
+                        Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>,
+                    > = Vec::new();
+
+                    if let Some(delta) = json.get("delta").and_then(|v| v.as_str())
+                        && !delta.is_empty()
+                    {
+                        out.push(Ok(crate::streaming::ChatStreamEvent::ThinkingDelta {
+                            delta: delta.to_string(),
+                        }));
+                    }
+
                     if let Some(evt) = self.convert_reasoning_summary_text_delta(&json) {
-                        return vec![Ok(evt)];
+                        out.push(Ok(evt));
+                    }
+
+                    if !out.is_empty() {
+                        return out;
                     }
                 }
                 _ => {

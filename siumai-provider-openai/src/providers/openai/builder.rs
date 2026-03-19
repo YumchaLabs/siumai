@@ -453,6 +453,16 @@ impl OpenAiBuilder {
         self
     }
 
+    /// Merge typed default OpenAI provider options.
+    pub fn with_openai_options(
+        self,
+        options: crate::provider_options::openai::OpenAiOptions,
+    ) -> Self {
+        self.with_provider_options(
+            serde_json::to_value(options).expect("OpenAI options should serialize"),
+        )
+    }
+
     /// Replace the full provider options map (advanced usage).
     pub fn provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
         self.default_provider_options_map = map;

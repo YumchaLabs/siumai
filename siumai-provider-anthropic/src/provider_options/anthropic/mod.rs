@@ -25,10 +25,13 @@ pub enum AnthropicStructuredOutputMode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AnthropicOptions {
     /// Prompt caching configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_caching: Option<PromptCachingConfig>,
     /// Thinking mode (extended thinking)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_mode: Option<ThinkingModeConfig>,
     /// Structured output configuration (JSON object or JSON schema)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub response_format: Option<AnthropicResponseFormat>,
     /// Structured output routing strategy (`outputFormat` vs reserved `json` tool fallback).
     #[serde(
@@ -37,15 +40,19 @@ pub struct AnthropicOptions {
     )]
     pub structured_output_mode: Option<AnthropicStructuredOutputMode>,
     /// Container configuration (agent skills, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub container: Option<AnthropicContainerConfig>,
     /// Context management configuration (Vercel `contextManagement` -> API `context_management`).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub context_management: Option<serde_json::Value>,
     /// Fine-grained tool streaming toggle (Vercel `toolStreaming`).
     ///
     /// Vercel default is `true` when streaming; when enabled we add the
     /// `fine-grained-tool-streaming-2025-05-14` beta header token.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_streaming: Option<bool>,
     /// Output effort (Vercel `effort`), sent as `output_config: { effort }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<AnthropicEffort>,
 }
 
@@ -236,5 +243,26 @@ mod tests {
             options.structured_output_mode,
             Some(AnthropicStructuredOutputMode::OutputFormat)
         );
+    }
+
+    #[test]
+    fn options_serialization_omits_unset_fields() {
+        let value = serde_json::to_value(AnthropicOptions::new().with_context_management(
+            serde_json::json!({
+                "clear_at_least": 1
+            }),
+        ))
+        .expect("serialize anthropic options");
+
+        let obj = value.as_object().expect("anthropic options object");
+        assert_eq!(
+            obj.get("context_management"),
+            Some(&serde_json::json!({
+                "clear_at_least": 1
+            }))
+        );
+        assert!(!obj.contains_key("thinking_mode"));
+        assert!(!obj.contains_key("tool_streaming"));
+        assert!(!obj.contains_key("effort"));
     }
 }

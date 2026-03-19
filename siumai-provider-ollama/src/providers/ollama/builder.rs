@@ -1,5 +1,6 @@
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::provider_options::ollama::OllamaOptions;
 use crate::providers::ollama::config::OllamaParams;
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmError};
@@ -104,6 +105,31 @@ impl OllamaBuilder {
     /// Alias for `ollama_params(...)` on the config-first parity surface.
     pub fn with_ollama_params(self, params: OllamaParams) -> Self {
         self.ollama_params(params)
+    }
+
+    /// Apply typed Ollama default options on the provider-owned builder surface.
+    pub fn with_ollama_options(mut self, options: OllamaOptions) -> Self {
+        if let Some(keep_alive) = options.keep_alive {
+            self.ollama_params.keep_alive = Some(keep_alive);
+        }
+        if let Some(raw) = options.raw {
+            self.ollama_params.raw = Some(raw);
+        }
+        if let Some(format) = options.format {
+            self.ollama_params.format = Some(format);
+        }
+        for (key, value) in options.extra_params {
+            if key == "think" {
+                if let Some(think) = value.as_bool() {
+                    self.ollama_params.think = Some(think);
+                    continue;
+                }
+            }
+            let mut merged = self.ollama_params.options.unwrap_or_default();
+            merged.insert(key, value);
+            self.ollama_params.options = Some(merged);
+        }
+        self
     }
 
     /// Set how long to keep the model loaded in memory
@@ -439,6 +465,8 @@ mod tests {
             .temperature(0.5)
             .max_tokens(256)
             .timeout(Duration::from_secs(13))
+            .connect_timeout(Duration::from_secs(3))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .into_config()
             .expect("into_config ok");
@@ -449,6 +477,11 @@ mod tests {
         assert_eq!(config.common_params.temperature, Some(0.5));
         assert_eq!(config.common_params.max_tokens, Some(256));
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(13)));
+        assert_eq!(
+            config.http_config.connect_timeout,
+            Some(Duration::from_secs(3))
+        );
+        assert!(config.http_config.stream_disable_compression);
         assert_eq!(config.http_interceptors.len(), 1);
     }
 
@@ -461,12 +494,12 @@ mod tests {
             .max_tokens(256)
             .keep_alive("5m")
             .timeout(Duration::from_secs(13))
+            .connect_timeout(Duration::from_secs(3))
+            .http_stream_disable_compression(true)
             .http_debug(true)
             .into_config()
             .expect("builder config");
 
-        let mut http_config = crate::types::HttpConfig::default();
-        http_config.timeout = Some(Duration::from_secs(13));
         let manual_config = crate::providers::ollama::OllamaConfig::builder()
             .base_url("http://localhost:11434")
             .model("llama3.2")
@@ -476,11 +509,13 @@ mod tests {
                 max_tokens: Some(256),
                 ..Default::default()
             })
-            .http_config(http_config)
+            .timeout(Duration::from_secs(13))
+            .connect_timeout(Duration::from_secs(3))
+            .http_stream_disable_compression(true)
             .keep_alive("5m")
-            .http_interceptors(vec![Arc::new(
+            .http_interceptor(Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
-            )])
+            ))
             .model_middlewares(crate::execution::middleware::build_auto_middlewares_vec(
                 "ollama", "llama3.2",
             ))
@@ -508,6 +543,14 @@ mod tests {
         assert_eq!(
             builder_config.http_config.timeout,
             manual_config.http_config.timeout
+        );
+        assert_eq!(
+            builder_config.http_config.connect_timeout,
+            manual_config.http_config.connect_timeout
+        );
+        assert_eq!(
+            builder_config.http_config.stream_disable_compression,
+            manual_config.http_config.stream_disable_compression
         );
         assert_eq!(
             builder_config.http_interceptors.len(),
@@ -593,6 +636,35 @@ mod tests {
                     "llama3.2:latest"
                 )
                 .len()
+        );
+    }
+
+    #[test]
+    fn ollama_builder_with_ollama_options_merges_into_params() {
+        let config = OllamaBuilder::new(BuilderBase::default())
+            .model("llama3.2")
+            .with_ollama_options(
+                OllamaOptions::new()
+                    .with_keep_alive("1m")
+                    .with_raw_mode(true)
+                    .with_format("json")
+                    .with_param("think", serde_json::json!(true))
+                    .with_param("num_ctx", serde_json::json!(4096)),
+            )
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.ollama_params.keep_alive, Some("1m".to_string()));
+        assert_eq!(config.ollama_params.raw, Some(true));
+        assert_eq!(config.ollama_params.format, Some("json".to_string()));
+        assert_eq!(config.ollama_params.think, Some(true));
+        assert_eq!(
+            config
+                .ollama_params
+                .options
+                .as_ref()
+                .and_then(|options| options.get("num_ctx")),
+            Some(&serde_json::json!(4096))
         );
     }
 }

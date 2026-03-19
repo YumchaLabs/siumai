@@ -830,7 +830,12 @@ mod tests {
             );
 
         let exec = client.build_chat_executor(&request);
-        let json = exec.request_transformer.transform_chat(&request).unwrap();
+        let json = exec
+            .request_transformer
+            .as_ref()
+            .expect("ollama chat executor should install a request transformer")
+            .transform_chat(&request)
+            .unwrap();
 
         assert_eq!(json["keep_alive"], "1m");
         assert_eq!(json["raw"], false);

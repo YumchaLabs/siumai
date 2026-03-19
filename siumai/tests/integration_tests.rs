@@ -415,7 +415,7 @@ mod builder_tests {
         // Test SiliconFlow default model
         let siliconflow_default = siumai_provider_openai::providers::openai_compatible::default_models::get_default_chat_model("siliconflow")
             .expect("siliconflow should have a default chat model");
-        assert_eq!(siliconflow_default, siumai_provider_openai::providers::openai_compatible::providers::models::siliconflow::DEEPSEEK_V3_1);
+        assert_eq!(siliconflow_default, siumai_provider_openai::providers::openai_compatible::providers::models::siliconflow::DEEPSEEK_V3);
 
         // Test OpenRouter default model
         let openrouter_default = siumai_provider_openai::providers::openai_compatible::default_models::get_default_chat_model("openrouter")
