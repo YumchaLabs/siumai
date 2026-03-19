@@ -195,3 +195,5 @@ examples all have explicit owners**.
   - Wrapper + batch follow-up regressions:
     - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai-registry --lib embedding_model_handle_embed_many_uses_native_family_batch_path_when_available --quiet`
     - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test azure_embedding_request_extensions_parity_test --features azure --quiet`
+    - `cargo check --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai-provider-gemini --features google --quiet`
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test gemini_embedding_batch_helper_parity_test --features google --quiet`

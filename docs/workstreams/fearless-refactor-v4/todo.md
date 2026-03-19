@@ -1348,6 +1348,10 @@ Status legend:
 
 - [x] Gemini native embedding-family path validated.
 
+  - Gemini now also has a provider-owned `embed_batch(...)` path for the public batch helper surface: homogeneous `BatchEmbeddingRequest` values are coalesced into one native `:batchEmbedContents` request when that mapping is lossless, while mixed-shape batches still fall back to per-request execution instead of forcing an unsafe merge.
+
+  - Top-level no-network parity now also locks `siumai::embedding::embed_many(...)` across `Siumai::builder().gemini()`, `Provider::gemini()`, config-first `GeminiClient`, and `registry.embedding_model("gemini:...")`, so the public batch helper no longer trails the provider-owned Gemini embedding route.
+
 
 
 - [x] Minimal `ImageModel` trait added as a family-model bridge.
