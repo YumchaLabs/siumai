@@ -1466,6 +1466,10 @@ Status legend:
 - [x] Google Vertex registry-native embedding-family path validated.
 - [x] Google Vertex top-level public-path parity now covers chat / chat-stream / embedding / image generation / image editing across `Siumai::builder().vertex()` / `Provider::vertex()` / config-first clients.
 
+  - Google Vertex now also has a provider-owned `embed_batch(...)` path for the public batch helper surface: homogeneous `BatchEmbeddingRequest` values are coalesced into one native `:predict` embedding request with multiple `instances` when that transformation is lossless, while mixed-shape batches still fall back to per-request execution instead of forcing an unsafe merge.
+
+  - Top-level no-network parity now also locks `siumai::embedding::embed_many(...)` across `Siumai::builder().vertex()`, `Provider::vertex()`, config-first `GoogleVertexClient`, and `registry.embedding_model("vertex:...")`, so the public batch helper no longer trails the provider-owned Vertex embedding route.
+
 
 
 - [x] Ollama builder now also emits canonical config via `into_config()`, and registry factory construction is aligned with the expanded config shape.

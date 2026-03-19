@@ -5,6 +5,7 @@
 use async_trait::async_trait;
 use reqwest::Client as HttpClient;
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::auth::TokenProvider;
@@ -21,9 +22,138 @@ use crate::traits::{
     ImageGenerationCapability, ProviderCapabilities,
 };
 use crate::types::{
-    ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, ImageEditRequest,
-    ImageGenerationRequest, ImageGenerationResponse, Tool,
+    BatchEmbeddingRequest, BatchEmbeddingResponse, ChatMessage, ChatRequest, ChatResponse,
+    EmbeddingRequest, EmbeddingResponse, HttpConfig, ImageEditRequest, ImageGenerationRequest,
+    ImageGenerationResponse, Tool,
 };
+
+fn effective_embedding_model(request: &EmbeddingRequest, default_model: &str) -> String {
+    request
+        .model
+        .clone()
+        .filter(|model| !model.trim().is_empty())
+        .unwrap_or_else(|| default_model.to_string())
+}
+
+fn http_configs_match(left: Option<&HttpConfig>, right: Option<&HttpConfig>) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.timeout == right.timeout
+                && left.connect_timeout == right.connect_timeout
+                && left.headers == right.headers
+                && left.proxy == right.proxy
+                && left.user_agent == right.user_agent
+                && left.stream_disable_compression == right.stream_disable_compression
+        }
+        _ => false,
+    }
+}
+
+fn requests_can_be_coalesced(
+    baseline: &EmbeddingRequest,
+    candidate: &EmbeddingRequest,
+    default_model: &str,
+) -> bool {
+    !baseline.input.is_empty()
+        && !candidate.input.is_empty()
+        && effective_embedding_model(baseline, default_model)
+            == effective_embedding_model(candidate, default_model)
+        && baseline.dimensions == candidate.dimensions
+        && baseline.encoding_format == candidate.encoding_format
+        && baseline.user == candidate.user
+        && baseline.task_type == candidate.task_type
+        && baseline.title == candidate.title
+        && baseline.provider_options_map.0 == candidate.provider_options_map.0
+        && http_configs_match(
+            baseline.http_config.as_ref(),
+            candidate.http_config.as_ref(),
+        )
+}
+
+fn coalesce_batch_requests(
+    requests: &[EmbeddingRequest],
+    default_model: &str,
+    max_values_per_call: usize,
+) -> Option<(EmbeddingRequest, Vec<usize>)> {
+    let baseline = requests.first()?;
+    if requests
+        .iter()
+        .skip(1)
+        .any(|request| !requests_can_be_coalesced(baseline, request, default_model))
+    {
+        return None;
+    }
+
+    let lengths: Vec<usize> = requests.iter().map(|request| request.input.len()).collect();
+    let total_inputs: usize = lengths.iter().sum();
+    if total_inputs > max_values_per_call {
+        return None;
+    }
+
+    let mut merged = baseline.clone();
+    merged.model = Some(effective_embedding_model(baseline, default_model));
+    merged.input = requests
+        .iter()
+        .flat_map(|request| request.input.iter().cloned())
+        .collect();
+    Some((merged, lengths))
+}
+
+fn split_coalesced_response(
+    response: EmbeddingResponse,
+    lengths: &[usize],
+) -> Result<BatchEmbeddingResponse, LlmError> {
+    let total_inputs: usize = lengths.iter().sum();
+    if total_inputs != response.embeddings.len() {
+        return Err(LlmError::ParseError(format!(
+            "Vertex batch embedding returned {} vectors for {} flattened inputs",
+            response.embeddings.len(),
+            total_inputs
+        )));
+    }
+
+    let mut index = 0usize;
+    let mut responses = Vec::with_capacity(lengths.len());
+    for len in lengths {
+        let next = index + len;
+        responses.push(Ok(EmbeddingResponse {
+            embeddings: response.embeddings[index..next].to_vec(),
+            model: response.model.clone(),
+            usage: None,
+            metadata: response.metadata.clone(),
+            response: None,
+        }));
+        index = next;
+    }
+
+    let mut metadata = HashMap::new();
+    metadata.insert("coalesced".to_string(), serde_json::Value::Bool(true));
+    if let Some(usage) = response.usage {
+        metadata.insert(
+            "aggregated_usage".to_string(),
+            serde_json::json!({
+                "prompt_tokens": usage.prompt_tokens,
+                "total_tokens": usage.total_tokens,
+            }),
+        );
+    }
+    if let Some(http_response) = response.response {
+        metadata.insert(
+            "response".to_string(),
+            serde_json::to_value(http_response).map_err(|error| {
+                LlmError::ParseError(format!(
+                    "Serialize Vertex batch response envelope failed: {error}"
+                ))
+            })?,
+        );
+    }
+
+    Ok(BatchEmbeddingResponse {
+        responses,
+        metadata,
+    })
+}
 
 /// Minimal config for Google Vertex client (delegate auth to HttpConfig headers / token providers).
 #[derive(Clone)]
@@ -658,6 +788,44 @@ impl EmbeddingExtensions for GoogleVertexClient {
         };
 
         EmbeddingExecutor::execute(&*exec, request).await
+    }
+
+    async fn embed_batch(
+        &self,
+        requests: BatchEmbeddingRequest,
+    ) -> Result<BatchEmbeddingResponse, LlmError> {
+        if requests.requests.is_empty() {
+            return Ok(BatchEmbeddingResponse {
+                responses: Vec::new(),
+                metadata: HashMap::new(),
+            });
+        }
+
+        if let Some((merged_request, lengths)) =
+            coalesce_batch_requests(&requests.requests, &self.common_params.model, 2048)
+        {
+            match self.embed_with_config(merged_request).await {
+                Ok(response) => return split_coalesced_response(response, &lengths),
+                Err(_) => {}
+            }
+        }
+
+        let mut responses = Vec::new();
+        for request in requests.requests {
+            let result = self
+                .embed_with_config(request)
+                .await
+                .map_err(|error| error.to_string());
+            responses.push(result);
+            if requests.batch_options.fail_fast && responses.last().is_some_and(|r| r.is_err()) {
+                break;
+            }
+        }
+
+        Ok(BatchEmbeddingResponse {
+            responses,
+            metadata: HashMap::new(),
+        })
     }
 }
 

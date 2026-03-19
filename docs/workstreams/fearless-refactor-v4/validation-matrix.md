@@ -197,3 +197,5 @@ examples all have explicit owners**.
     - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test azure_embedding_request_extensions_parity_test --features azure --quiet`
     - `cargo check --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai-provider-gemini --features google --quiet`
     - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test gemini_embedding_batch_helper_parity_test --features google --quiet`
+    - `cargo check --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai-provider-google-vertex --features google-vertex --quiet`
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test vertex_embedding_batch_helper_parity_test --features google-vertex --quiet`
