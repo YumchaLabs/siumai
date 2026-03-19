@@ -175,3 +175,20 @@ This matrix is not trying to:
 
 The goal is a layered gate system where **package boundaries, feature boundaries, and public
 examples all have explicit owners**.
+
+## Recent targeted validations
+
+- `embedding-request-aware-bridge`
+  - Build matrix pass:
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-core --lib --quiet`
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-provider-openai --features openai --quiet`
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-provider-openai-compatible --features openai-standard --quiet`
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-provider-gemini --features google --quiet`
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-provider-google-vertex --features google-vertex --quiet`
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-provider-ollama --features ollama --quiet`
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-provider-azure --features azure --quiet`
+    - `cargo check --target-dir C:\Temp\siumai-target -p siumai-registry --quiet`
+  - Focused runtime regression:
+    - `cargo test --target-dir C:\Temp\siumai-target -p siumai-registry --lib embedding_model_handle_family_trait_preserves_request_config_on_bridge_path --quiet`
+  - Public helper regression:
+    - `cargo test --target-dir C:\Temp\siumai-target -p siumai --test openai_embedding_public_helper_request_parity_test --features openai --quiet`

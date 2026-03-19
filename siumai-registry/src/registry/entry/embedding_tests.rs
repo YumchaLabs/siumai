@@ -1,5 +1,6 @@
 use super::*;
 use crate::types::{BatchEmbeddingRequest, BatchEmbeddingResponse, EmbeddingRequest};
+use std::sync::{Arc, Mutex};
 
 #[tokio::test]
 async fn embedding_model_handle_builds_client() {
@@ -270,4 +271,141 @@ async fn embedding_model_handle_uses_native_family_path_when_available() {
         .await
         .unwrap();
     assert_eq!(response.embeddings[0][0], 2.0);
+}
+
+#[tokio::test]
+async fn embedding_model_handle_family_trait_preserves_request_config_on_bridge_path() {
+    #[derive(Clone)]
+    struct RequestAwareEmbeddingClient {
+        seen: Arc<Mutex<Option<EmbeddingRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingCapability for RequestAwareEmbeddingClient {
+        async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
+            Ok(EmbeddingResponse::new(
+                vec![vec![input.len() as f32]],
+                "fallback".to_string(),
+            ))
+        }
+
+        fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+            Some(self)
+        }
+
+        fn embedding_dimension(&self) -> usize {
+            3
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl EmbeddingExtensions for RequestAwareEmbeddingClient {
+        async fn embed_with_config(
+            &self,
+            request: EmbeddingRequest,
+        ) -> Result<EmbeddingResponse, LlmError> {
+            *self.seen.lock().expect("request lock") = Some(request.clone());
+
+            Ok(EmbeddingResponse::new(
+                vec![vec![request.dimensions.unwrap_or_default() as f32]],
+                request
+                    .model
+                    .clone()
+                    .unwrap_or_else(|| "request-aware".to_string()),
+            ))
+        }
+    }
+
+    impl LlmClient for RequestAwareEmbeddingClient {
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("request-aware-embed")
+        }
+
+        fn supported_models(&self) -> Vec<String> {
+            vec!["request-aware-model".to_string()]
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_embedding()
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+
+        fn clone_box(&self) -> Box<dyn LlmClient> {
+            Box::new(self.clone())
+        }
+
+        fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+            Some(self)
+        }
+
+        fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+            Some(self)
+        }
+    }
+
+    struct RequestAwareEmbeddingFactory {
+        seen: Arc<Mutex<Option<EmbeddingRequest>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl ProviderFactory for RequestAwareEmbeddingFactory {
+        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+            Ok(Arc::new(RequestAwareEmbeddingClient {
+                seen: Arc::clone(&self.seen),
+            }))
+        }
+
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("request-aware-embed")
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_embedding()
+        }
+    }
+
+    let seen = Arc::new(Mutex::new(None));
+    let mut providers = HashMap::new();
+    providers.insert(
+        "request-aware-embed".to_string(),
+        Arc::new(RequestAwareEmbeddingFactory {
+            seen: Arc::clone(&seen),
+        }) as Arc<dyn ProviderFactory>,
+    );
+
+    let registry = create_provider_registry(providers, None);
+    let handle = registry
+        .embedding_model("request-aware-embed:model")
+        .expect("embedding handle");
+
+    let response = siumai_core::embedding::EmbeddingModelV3::embed(
+        &handle,
+        EmbeddingRequest::single("hello")
+            .with_model("request-model")
+            .with_dimensions(64)
+            .with_user("user-42")
+            .with_header("x-embed-test", "yes"),
+    )
+    .await
+    .expect("embedding response");
+
+    assert_eq!(response.model, "request-model");
+    assert_eq!(response.embeddings[0][0], 64.0);
+
+    let seen = seen.lock().expect("request lock");
+    let request = seen.as_ref().expect("captured request");
+    assert_eq!(request.model.as_deref(), Some("request-model"));
+    assert_eq!(request.dimensions, Some(64));
+    assert_eq!(request.user.as_deref(), Some("user-42"));
+    assert_eq!(
+        request
+            .http_config
+            .as_ref()
+            .and_then(|config| config.headers.get("x-embed-test"))
+            .map(String::as_str),
+        Some("yes")
+    );
 }

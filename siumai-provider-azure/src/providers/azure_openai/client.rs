@@ -20,9 +20,9 @@ use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    AudioCapability, ChatCapability, EmbeddingCapability, FileManagementCapability,
-    ImageGenerationCapability, ModelMetadata, ProviderCapabilities, SpeechCapability, SpeechExtras,
-    TranscriptionCapability, TranscriptionExtras,
+    AudioCapability, ChatCapability, EmbeddingCapability, EmbeddingExtensions,
+    FileManagementCapability, ImageGenerationCapability, ModelMetadata, ProviderCapabilities,
+    SpeechCapability, SpeechExtras, TranscriptionCapability, TranscriptionExtras,
 };
 use crate::types::{
     AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse,
@@ -335,8 +335,32 @@ impl EmbeddingCapability for AzureOpenAiClient {
         EmbeddingExecutor::execute(&*exec, req).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         1536
+    }
+}
+
+#[async_trait]
+impl EmbeddingExtensions for AzureOpenAiClient {
+    async fn embed_with_config(
+        &self,
+        request: EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, LlmError> {
+        let mut request = request;
+        if request.model.as_deref().unwrap_or("").trim().is_empty() {
+            request.model = Some(if self.config.common_params.model.trim().is_empty() {
+                "text-embedding-3-small".to_string()
+            } else {
+                self.config.common_params.model.clone()
+            });
+        }
+
+        let exec = self.build_embedding_executor(&request);
+        EmbeddingExecutor::execute(&*exec, request).await
     }
 }
 
@@ -476,6 +500,10 @@ impl LlmClient for AzureOpenAiClient {
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+        Some(self)
+    }
+
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
         Some(self)
     }
 

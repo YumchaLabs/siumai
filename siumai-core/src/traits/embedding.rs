@@ -12,6 +12,10 @@ use std::collections::HashMap;
 pub trait EmbeddingCapability: Send + Sync {
     async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError>;
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        None
+    }
+
     fn embedding_dimension(&self) -> usize;
 
     fn max_tokens_per_embedding(&self) -> usize {

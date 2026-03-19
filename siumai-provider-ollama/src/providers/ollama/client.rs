@@ -595,6 +595,10 @@ impl LlmClient for OllamaClient {
         Some(self)
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn crate::traits::EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn as_model_listing_capability(&self) -> Option<&dyn crate::traits::ModelListingCapability> {
         Some(self)
     }

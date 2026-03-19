@@ -253,6 +253,8 @@ Notes:
 
 - `EmbeddingModelHandle` now also carries family-model metadata.
 
+- The embedding-family bridge is now request-aware end to end: when a provider/client exposes `EmbeddingExtensions`, family helpers and registry handles preserve the full `EmbeddingRequest` instead of collapsing to raw inputs, so request-scoped `model`, `dimensions`, `user`, provider options, and HTTP overrides survive both native and client-bridge paths.
+
 - `RerankingModelHandle` now also carries family-model metadata and prefers the parallel reranking-family factory path when available.
 
 

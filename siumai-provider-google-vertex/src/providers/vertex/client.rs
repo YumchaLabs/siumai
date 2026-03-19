@@ -606,6 +606,10 @@ impl EmbeddingCapability for GoogleVertexClient {
         EmbeddingExecutor::execute(&*exec, req).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         768
     }
@@ -697,6 +701,10 @@ impl LlmClient for GoogleVertexClient {
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+        Some(self)
+    }
+
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
         Some(self)
     }
 }

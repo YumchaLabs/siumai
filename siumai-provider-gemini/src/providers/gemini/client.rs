@@ -776,6 +776,10 @@ impl LlmClient for GeminiClient {
         Some(self)
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn crate::traits::EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn as_image_generation_capability(
         &self,
     ) -> Option<&dyn crate::traits::ImageGenerationCapability> {

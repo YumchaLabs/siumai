@@ -24,6 +24,10 @@ impl LlmClient for Siumai {
         self.client.as_embedding_capability()
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        self.client.as_embedding_extensions()
+    }
+
     fn as_audio_capability(&self) -> Option<&dyn AudioCapability> {
         self.client.as_audio_capability()
     }

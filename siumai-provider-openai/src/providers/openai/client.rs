@@ -784,6 +784,10 @@ impl LlmClient for OpenAiClient {
         Some(self)
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn crate::traits::EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn as_audio_capability(&self) -> Option<&dyn AudioCapability> {
         // Provide audio via executor-backed implementation
         Some(self)

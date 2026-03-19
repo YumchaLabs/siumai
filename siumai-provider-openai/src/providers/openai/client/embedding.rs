@@ -16,6 +16,10 @@ impl EmbeddingCapability for OpenAiClient {
         EmbeddingExecutor::execute(&*exec, request).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         let model = if !self.common_params.model.is_empty() {
             &self.common_params.model

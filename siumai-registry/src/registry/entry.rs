@@ -347,11 +347,29 @@ impl EmbeddingCapability for ClientBackedEmbeddingModel {
         embedding.embed(input).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         self.client
             .as_embedding_capability()
             .map(|embedding| embedding.embedding_dimension())
             .unwrap_or(0)
+    }
+}
+
+#[async_trait::async_trait]
+impl EmbeddingExtensions for ClientBackedEmbeddingModel {
+    async fn embed_with_config(
+        &self,
+        request: EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, LlmError> {
+        if let Some(extensions) = self.client.as_embedding_extensions() {
+            return extensions.embed_with_config(request).await;
+        }
+
+        self.embed(request.input).await
     }
 }
 
@@ -1973,6 +1991,10 @@ impl EmbeddingCapability for EmbeddingModelHandle {
             .await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         // Default dimension - providers should override this
         // We can't get this without building a client, so we return a default
@@ -2009,58 +2031,11 @@ impl EmbeddingExtensions for EmbeddingModelHandle {
             None,
             None,
         );
-        let client = self
+        let model = self
             .factory
-            .embedding_model_with_ctx(&self.model_id, &ctx)
+            .embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
-
-        #[cfg(feature = "openai")]
-        if let Some(client) = client
-            .as_any()
-            .downcast_ref::<siumai_provider_openai::providers::openai::OpenAiClient>()
-        {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "openai")]
-        if let Some(client) = client.as_any().downcast_ref::<
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
-        >() {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "google")]
-        if let Some(client) = client
-            .as_any()
-            .downcast_ref::<siumai_provider_gemini::providers::gemini::GeminiClient>()
-        {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "google-vertex")]
-        if let Some(client) = client
-            .as_any()
-            .downcast_ref::<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient>(
-        ) {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "ollama")]
-        if let Some(client) = client
-            .as_any()
-            .downcast_ref::<siumai_provider_ollama::providers::ollama::OllamaClient>()
-        {
-            return client.embed_with_config(request).await;
-        }
-
-        if let Some(embedding_client) = client.as_embedding_capability() {
-            embedding_client.embed(request.input).await
-        } else {
-            Err(LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support embedding functionality. Consider using OpenAI, Gemini, or Ollama for embeddings.",
-                client.provider_id()
-            )))
-        }
+        model.embed(request).await
     }
 }
 

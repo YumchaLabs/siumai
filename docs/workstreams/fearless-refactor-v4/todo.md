@@ -1426,6 +1426,10 @@ Status legend:
 
 - [x] `EmbeddingModelHandle` execution now routes through the embedding-family path.
 
+  - `EmbeddingModelV3` now prefers request-aware `EmbeddingExtensions` when the underlying capability exposes them, so family helpers and registry/bridge paths no longer downgrade `EmbeddingRequest` into a bare `Vec<String>` and silently drop `model`, `dimensions`, `user`, `provider_options_map`, or `http_config`.
+
+  - Focused no-network coverage now also locks the public helper lane: `siumai::embedding::embed(&registry.embedding_model("openai:..."), ...)` preserves request-level embedding fields plus helper-injected headers on the final OpenAI `/embeddings` request.
+
 
 
 - [x] `ImageModelHandle` execution now routes through the image-family path.

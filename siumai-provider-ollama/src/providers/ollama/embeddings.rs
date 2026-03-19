@@ -169,6 +169,10 @@ impl EmbeddingCapability for OllamaEmbeddings {
         exec.execute(request).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         let model = self.default_model();
         self.get_model_info(model).dimension

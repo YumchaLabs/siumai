@@ -39,6 +39,10 @@ where
     T: EmbeddingCapability + Send + Sync + ?Sized,
 {
     async fn embed(&self, request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
+        if let Some(extensions) = EmbeddingCapability::as_embedding_extensions(self) {
+            return extensions.embed_with_config(request).await;
+        }
+
         EmbeddingCapability::embed(self, request.input).await
     }
 
@@ -46,6 +50,10 @@ where
         &self,
         requests: BatchEmbeddingRequest,
     ) -> Result<BatchEmbeddingResponse, LlmError> {
+        if let Some(extensions) = EmbeddingCapability::as_embedding_extensions(self) {
+            return extensions.embed_batch(requests).await;
+        }
+
         let mut responses = Vec::new();
         for request in requests.requests {
             let result = EmbeddingCapability::embed(self, request.input)
@@ -67,6 +75,7 @@ where
 mod tests {
     use super::*;
     use crate::traits::ModelSpecVersion;
+    use std::sync::{Arc, Mutex};
 
     struct FakeEmbedding {
         dim: usize,
@@ -198,5 +207,93 @@ mod tests {
         }
 
         assert_embedding_model(&model);
+    }
+
+    struct RequestAwareEmbedding {
+        seen: Arc<Mutex<Vec<EmbeddingRequest>>>,
+    }
+
+    impl crate::traits::ModelMetadata for RequestAwareEmbedding {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "request-aware-embedding"
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingCapability for RequestAwareEmbedding {
+        async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
+            Ok(EmbeddingResponse::new(
+                vec![vec![input.len() as f32]],
+                "fallback".to_string(),
+            ))
+        }
+
+        fn as_embedding_extensions(&self) -> Option<&dyn crate::traits::EmbeddingExtensions> {
+            Some(self)
+        }
+
+        fn embedding_dimension(&self) -> usize {
+            1
+        }
+    }
+
+    #[async_trait]
+    impl crate::traits::EmbeddingExtensions for RequestAwareEmbedding {
+        async fn embed_with_config(
+            &self,
+            request: EmbeddingRequest,
+        ) -> Result<EmbeddingResponse, LlmError> {
+            self.seen
+                .lock()
+                .expect("request lock")
+                .push(request.clone());
+
+            Ok(EmbeddingResponse::new(
+                vec![vec![request.dimensions.unwrap_or_default() as f32]],
+                request
+                    .model
+                    .unwrap_or_else(|| "request-aware-embedding".to_string()),
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn embedding_model_v3_prefers_request_aware_extensions_when_available() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let model = RequestAwareEmbedding {
+            seen: Arc::clone(&seen),
+        };
+
+        let response = EmbeddingModelV3::embed(
+            &model,
+            EmbeddingRequest::single("hello")
+                .with_model("embed-model")
+                .with_dimensions(42)
+                .with_user("user-123")
+                .with_header("x-test", "yes"),
+        )
+        .await
+        .expect("embedding response");
+
+        assert_eq!(response.model, "embed-model");
+        assert_eq!(response.embeddings[0][0], 42.0);
+
+        let seen = seen.lock().expect("request lock");
+        let request = seen.first().expect("captured request");
+        assert_eq!(request.model.as_deref(), Some("embed-model"));
+        assert_eq!(request.dimensions, Some(42));
+        assert_eq!(request.user.as_deref(), Some("user-123"));
+        assert_eq!(
+            request
+                .http_config
+                .as_ref()
+                .and_then(|config| config.headers.get("x-test"))
+                .map(String::as_str),
+            Some("yes")
+        );
     }
 }

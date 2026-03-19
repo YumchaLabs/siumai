@@ -34,6 +34,10 @@ impl EmbeddingCapability for GeminiClient {
         EmbeddingExecutor::execute(&*exec, req).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         3072
     }

@@ -17,6 +17,10 @@ impl EmbeddingCapability for Siumai {
         }
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn crate::traits::EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         // Use the new capability method to get dimension
         if let Some(embedding_client) = self.client.as_embedding_capability() {

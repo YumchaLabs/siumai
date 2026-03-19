@@ -46,6 +46,14 @@ pub trait LlmClient: Send + Sync {
         None
     }
 
+    /// Get as embedding extensions if supported
+    ///
+    /// Returns None by default. Providers that support request-aware embedding
+    /// execution should override this method to return Some(self).
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        None
+    }
+
     /// Get as audio capability if supported
     ///
     /// Returns None by default. Providers that support audio
@@ -383,6 +391,10 @@ impl LlmClient for ClientWrapper {
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         self.client().as_embedding_capability()
+    }
+
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        self.client().as_embedding_extensions()
     }
 
     fn as_audio_capability(&self) -> Option<&dyn AudioCapability> {

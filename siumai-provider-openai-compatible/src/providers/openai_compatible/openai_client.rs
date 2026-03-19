@@ -757,6 +757,10 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
         EmbeddingExecutor::execute(&*exec, req).await
     }
 
+    fn as_embedding_extensions(&self) -> Option<&dyn crate::traits::EmbeddingExtensions> {
+        Some(self)
+    }
+
     fn embedding_dimension(&self) -> usize {
         // Default dimension, could be made configurable per model
         1536
@@ -1264,6 +1268,14 @@ impl LlmClient for OpenAiCompatibleClient {
     }
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+        if self.config.adapter.capabilities().embedding {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    fn as_embedding_extensions(&self) -> Option<&dyn crate::traits::EmbeddingExtensions> {
         if self.config.adapter.capabilities().embedding {
             Some(self)
         } else {
