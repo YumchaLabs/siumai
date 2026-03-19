@@ -25,13 +25,13 @@ use crate::traits::{
     ProviderCapabilities, RerankCapability, VideoGenerationCapability,
 };
 use crate::types::{
-    AudioFeature, AudioStream, AudioTranslationRequest, ChatMessage, ChatRequest, ChatResponse,
-    EmbeddingRequest, EmbeddingResponse, FileDeleteResponse, FileListQuery, FileListResponse,
-    FileObject, FileUploadRequest, ImageEditRequest, ImageGenerationRequest,
-    ImageGenerationResponse, ImageVariationRequest, LanguageInfo, MusicGenerationRequest,
-    MusicGenerationResponse, RerankRequest, RerankResponse, SttRequest, SttResponse, Tool,
-    TtsRequest, TtsResponse, VideoGenerationRequest, VideoGenerationResponse,
-    VideoTaskStatusResponse, VoiceInfo,
+    AudioFeature, AudioStream, AudioTranslationRequest, BatchEmbeddingRequest,
+    BatchEmbeddingResponse, ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest,
+    EmbeddingResponse, FileDeleteResponse, FileListQuery, FileListResponse, FileObject,
+    FileUploadRequest, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse,
+    ImageVariationRequest, LanguageInfo, MusicGenerationRequest, MusicGenerationResponse,
+    RerankRequest, RerankResponse, SttRequest, SttResponse, Tool, TtsRequest, TtsResponse,
+    VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatusResponse, VoiceInfo,
 };
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
@@ -370,6 +370,32 @@ impl EmbeddingExtensions for ClientBackedEmbeddingModel {
         }
 
         self.embed(request.input).await
+    }
+
+    async fn embed_batch(
+        &self,
+        requests: BatchEmbeddingRequest,
+    ) -> Result<BatchEmbeddingResponse, LlmError> {
+        if let Some(extensions) = self.client.as_embedding_extensions() {
+            return extensions.embed_batch(requests).await;
+        }
+
+        let mut responses = Vec::new();
+        for request in requests.requests {
+            let result = self
+                .embed(request.input)
+                .await
+                .map_err(|error| error.to_string());
+            responses.push(result);
+            if requests.batch_options.fail_fast && responses.last().is_some_and(|r| r.is_err()) {
+                break;
+            }
+        }
+
+        Ok(BatchEmbeddingResponse {
+            responses,
+            metadata: std::collections::HashMap::new(),
+        })
     }
 }
 
@@ -2036,6 +2062,29 @@ impl EmbeddingExtensions for EmbeddingModelHandle {
             .embedding_model_family_with_ctx(&self.model_id, &ctx)
             .await?;
         model.embed(request).await
+    }
+
+    async fn embed_batch(
+        &self,
+        requests: BatchEmbeddingRequest,
+    ) -> Result<BatchEmbeddingResponse, LlmError> {
+        let ctx = build_registry_context(
+            &self.provider_id,
+            &self.http_interceptors,
+            &self.retry_options,
+            &self.http_client,
+            &self.http_transport,
+            &self.http_config,
+            &self.api_key,
+            &self.base_url,
+            None,
+            None,
+        );
+        let model = self
+            .factory
+            .embedding_model_family_with_ctx(&self.model_id, &ctx)
+            .await?;
+        model.embed_many(requests).await
     }
 }
 

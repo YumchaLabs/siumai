@@ -255,6 +255,8 @@ Notes:
 
 - The embedding-family bridge is now request-aware end to end: when a provider/client exposes `EmbeddingExtensions`, family helpers and registry handles preserve the full `EmbeddingRequest` instead of collapsing to raw inputs, so request-scoped `model`, `dimensions`, `user`, provider options, and HTTP overrides survive both native and client-bridge paths.
 
+- That request-aware closure now also reaches the top-level wrapper and batch handle lanes: `Siumai` delegates embedding extensions generically through `as_embedding_extensions()` instead of a provider-specific downcast ladder, and `EmbeddingModelHandle::embed_many(...)` now resolves the family model once and forwards to `embed_many(...)` directly instead of silently flattening native batch execution into repeated single-call fallbacks.
+
 - `RerankingModelHandle` now also carries family-model metadata and prefers the parallel reranking-family factory path when available.
 
 

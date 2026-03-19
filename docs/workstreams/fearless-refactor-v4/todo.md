@@ -1430,6 +1430,10 @@ Status legend:
 
   - Focused no-network coverage now also locks the public helper lane: `siumai::embedding::embed(&registry.embedding_model("openai:..."), ...)` preserves request-level embedding fields plus helper-injected headers on the final OpenAI `/embeddings` request.
 
+  - The public `Siumai` wrapper no longer hardcodes a provider-specific downcast ladder for request-aware embeddings; it now delegates through `LlmClient::as_embedding_extensions()`, so Azure and future embedding providers inherit request-aware `embed_with_config(...)` behavior without wrapper-local branching.
+
+  - `EmbeddingModelHandle::embed_many(...)` now also routes through the family-model batch path instead of defaulting to repeated single-request execution, so native batch embedding models keep their provider-owned batch semantics on the public registry surface.
+
 
 
 - [x] `ImageModelHandle` execution now routes through the image-family path.

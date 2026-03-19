@@ -41,47 +41,8 @@ impl EmbeddingExtensions for Siumai {
         &self,
         request: EmbeddingRequest,
     ) -> Result<EmbeddingResponse, LlmError> {
-        #[cfg(feature = "openai")]
-        if let Some(client) =
-            self.client
-                .as_any()
-                .downcast_ref::<siumai_provider_openai::providers::openai::OpenAiClient>()
-        {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "openai")]
-        if let Some(client) = self.client.as_any().downcast_ref::<
-            siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient,
-        >() {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "google")]
-        if let Some(client) =
-            self.client
-                .as_any()
-                .downcast_ref::<siumai_provider_gemini::providers::gemini::GeminiClient>()
-        {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "google-vertex")]
-        if let Some(client) = self
-            .client
-            .as_any()
-            .downcast_ref::<siumai_provider_google_vertex::providers::vertex::GoogleVertexClient>(
-        ) {
-            return client.embed_with_config(request).await;
-        }
-
-        #[cfg(feature = "ollama")]
-        if let Some(client) =
-            self.client
-                .as_any()
-                .downcast_ref::<siumai_provider_ollama::providers::ollama::OllamaClient>()
-        {
-            return client.embed_with_config(request).await;
+        if let Some(extensions) = self.client.as_embedding_extensions() {
+            return extensions.embed_with_config(request).await;
         }
 
         if let Some(embedding_client) = self.client.as_embedding_capability() {
@@ -92,6 +53,39 @@ impl EmbeddingExtensions for Siumai {
                 self.client.provider_id()
             )))
         }
+    }
+
+    async fn embed_batch(
+        &self,
+        requests: BatchEmbeddingRequest,
+    ) -> Result<BatchEmbeddingResponse, LlmError> {
+        if let Some(extensions) = self.client.as_embedding_extensions() {
+            return extensions.embed_batch(requests).await;
+        }
+
+        let embedding_client = self.client.as_embedding_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support embedding functionality. Consider using OpenAI, Gemini, or Ollama for embeddings.",
+                self.client.provider_id()
+            ))
+        })?;
+
+        let mut responses = Vec::new();
+        for request in requests.requests {
+            let result = embedding_client
+                .embed(request.input)
+                .await
+                .map_err(|error| error.to_string());
+            responses.push(result);
+            if requests.batch_options.fail_fast && responses.last().is_some_and(|r| r.is_err()) {
+                break;
+            }
+        }
+
+        Ok(BatchEmbeddingResponse {
+            responses,
+            metadata: std::collections::HashMap::new(),
+        })
     }
 
     /// List available embedding models with their capabilities.

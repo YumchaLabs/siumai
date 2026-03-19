@@ -409,3 +409,114 @@ async fn embedding_model_handle_family_trait_preserves_request_config_on_bridge_
         Some("yes")
     );
 }
+
+#[tokio::test]
+async fn embedding_model_handle_embed_many_uses_native_family_batch_path_when_available() {
+    #[derive(Clone)]
+    struct NativeBatchOnlyEmbeddingModel;
+
+    impl crate::traits::ModelMetadata for NativeBatchOnlyEmbeddingModel {
+        fn provider_id(&self) -> &str {
+            "native-batch-embed"
+        }
+
+        fn model_id(&self) -> &str {
+            "native-batch-embed-model"
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl siumai_core::embedding::EmbeddingModelV3 for NativeBatchOnlyEmbeddingModel {
+        async fn embed(&self, _request: EmbeddingRequest) -> Result<EmbeddingResponse, LlmError> {
+            panic!("native batch test should not fall back to single-request embedding path")
+        }
+
+        async fn embed_many(
+            &self,
+            requests: BatchEmbeddingRequest,
+        ) -> Result<BatchEmbeddingResponse, LlmError> {
+            Ok(BatchEmbeddingResponse {
+                responses: requests
+                    .requests
+                    .into_iter()
+                    .map(|request| {
+                        Ok(EmbeddingResponse::new(
+                            vec![vec![request.dimensions.unwrap_or_default() as f32]],
+                            request
+                                .model
+                                .unwrap_or_else(|| "native-batch-embed-model".to_string()),
+                        ))
+                    })
+                    .collect(),
+                metadata: HashMap::new(),
+            })
+        }
+    }
+
+    struct NativeBatchEmbeddingFactory;
+
+    #[async_trait::async_trait]
+    impl ProviderFactory for NativeBatchEmbeddingFactory {
+        async fn language_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+            panic!("legacy generic-client path should not be used by native batch embedding test")
+        }
+
+        async fn embedding_model(&self, _model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+            panic!("legacy embedding client path should not be used by native batch embedding test")
+        }
+
+        async fn embedding_model_family_with_ctx(
+            &self,
+            _model_id: &str,
+            _ctx: &BuildContext,
+        ) -> Result<Arc<dyn siumai_core::embedding::EmbeddingModel>, LlmError> {
+            Ok(Arc::new(NativeBatchOnlyEmbeddingModel))
+        }
+
+        fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+            std::borrow::Cow::Borrowed("native-batch-embed")
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities::new().with_embedding()
+        }
+    }
+
+    let mut providers = HashMap::new();
+    providers.insert(
+        "native-batch-embed".to_string(),
+        Arc::new(NativeBatchEmbeddingFactory) as Arc<dyn ProviderFactory>,
+    );
+
+    let registry = create_provider_registry(providers, None);
+    let handle = registry
+        .embedding_model("native-batch-embed:model")
+        .expect("embedding handle");
+
+    let response = siumai_core::embedding::EmbeddingModelV3::embed_many(
+        &handle,
+        BatchEmbeddingRequest {
+            requests: vec![
+                EmbeddingRequest::single("hello")
+                    .with_model("batch-model-a")
+                    .with_dimensions(8),
+                EmbeddingRequest::single("world")
+                    .with_model("batch-model-b")
+                    .with_dimensions(16),
+            ],
+            batch_options: crate::types::BatchOptions::default(),
+        },
+    )
+    .await
+    .expect("batch embedding response");
+
+    assert_eq!(response.responses.len(), 2);
+
+    let first = response.responses[0].as_ref().expect("first response");
+    assert_eq!(first.model, "batch-model-a");
+    assert_eq!(first.embeddings[0][0], 8.0);
+
+    let second = response.responses[1].as_ref().expect("second response");
+    assert_eq!(second.model, "batch-model-b");
+    assert_eq!(second.embeddings[0][0], 16.0);
+}

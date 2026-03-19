@@ -192,3 +192,6 @@ examples all have explicit owners**.
     - `cargo test --target-dir C:\Temp\siumai-target -p siumai-registry --lib embedding_model_handle_family_trait_preserves_request_config_on_bridge_path --quiet`
   - Public helper regression:
     - `cargo test --target-dir C:\Temp\siumai-target -p siumai --test openai_embedding_public_helper_request_parity_test --features openai --quiet`
+  - Wrapper + batch follow-up regressions:
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai-registry --lib embedding_model_handle_embed_many_uses_native_family_batch_path_when_available --quiet`
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test azure_embedding_request_extensions_parity_test --features azure --quiet`
