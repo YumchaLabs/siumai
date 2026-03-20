@@ -446,6 +446,10 @@ Current implementation note:
   transport errors
 - synthetic terminal responses still use `finish_reason = Unknown` when upstream EOF arrives without
   any terminal finish signal, by design
+- same-protocol stream roundtrip tests should compare semantic summaries or projected views, not raw
+  event-for-event equality, because target serializers may legitimately regenerate protocol-native
+  frames, timestamps, and duplicated deltas during replay while still preserving the intended
+  response semantics
 
 ### D8 - Separate planner, pair bridge, and gateway policy
 

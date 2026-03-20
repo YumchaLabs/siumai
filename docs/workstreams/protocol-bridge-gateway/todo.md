@@ -106,6 +106,15 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Preserve tool calls, provider-executed tool results, and OpenAI response sources where
   representable
 - [ ] Audit remaining reasoning / structured output / usage fidelity gaps per target
+  - OpenAI Responses same-protocol response roundtrip now has initial fixture coverage with:
+    - exact cases for core text / reasoning / tool items
+    - a documented lossy web-search case where message-level citations survive but embedded
+      tool-result source payloads are not yet treated as exact roundtrip state
+  - Anthropic Messages same-protocol response roundtrip now has initial projected fixture
+    coverage with:
+    - exact/projected JSON output cases
+    - documented lossy tool-search cases where visible assistant text and tool-call sequence are
+      preserved but provider-executed synthetic tool-result replay is not yet exact
 
 ## 5) Make streaming bridges explicit
 
@@ -116,6 +125,21 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Ensure OpenAI final finish chunk behavior is consistent
 - [x] Add no-network finalization tests for incomplete upstream termination
 - [x] Ensure `BridgeMode::Strict` is enforced consistently for lossy stream routes
+- [x] Add initial same-protocol stream roundtrip fixture coverage using semantic summaries instead
+  of raw event-list equality
+  - OpenAI Responses stream roundtrip coverage now validates:
+    - response metadata
+    - finish reason
+    - prompt/completion totals
+    - text reconstruction
+    - reasoning boundary identity
+  - Anthropic Messages stream roundtrip coverage now validates:
+    - start metadata
+    - finish reason
+    - prompt/completion totals
+    - text reconstruction
+  - raw SSE event-for-event equality is intentionally not the target because same-protocol bridge
+    serialization can legitimately regenerate protocol frames, timestamps, and duplicate deltas
 
 ## 6) Add customization hooks
 
@@ -201,6 +225,18 @@ This TODO list is intentionally organized as mergeable tracks.
     - function tool choice and provider-defined tool restoration
     - structured output and MCP server options
     - thinking body/provider option restoration
+  - OpenAI Responses response roundtrip now has initial fixture coverage for:
+    - exact same-protocol cases
+    - documented lossy web-search source-citation replay
+  - Anthropic Messages response roundtrip now has initial fixture coverage for:
+    - projected JSON output/tool cases
+    - documented lossy tool-search replay
+  - OpenAI Responses stream roundtrip now has initial semantic-summary fixture coverage for:
+    - text delta replay
+    - reasoning start/end replay
+  - Anthropic Messages stream roundtrip now has initial semantic-summary fixture coverage for:
+    - JSON output text replay
+    - reserved json-tool replay
 - [ ] Add explicit tests for lossy conversions
 - [ ] Add tests for custom hooks and primitive remappers
 - [ ] Add tests for strict vs best-effort behavior

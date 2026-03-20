@@ -69,6 +69,10 @@ Current state:
 - loss reporting and no-network response bridge tests exist
 - OpenAI Responses fidelity now preserves provider-executed tool items and response sources where
   representable
+- initial same-protocol response roundtrip fixture coverage now exists for OpenAI Responses and
+  Anthropic Messages
+- that coverage is intentionally split into exact, projected, and documented-lossy cases rather
+  than claiming full wire-level losslessness
 - remaining work is mainly cross-target usage / reasoning / structured-output audit
 
 Status: in progress
@@ -99,6 +103,9 @@ Current state:
 - stream bridge inspection now records cross-protocol best-effort normalization as a lossy route,
   so `BridgeMode::Strict` rejects those conversions consistently while same-protocol strict routes
   still pass
+- same-protocol OpenAI Responses and Anthropic Messages stream roundtrip fixtures now validate
+  semantic summaries instead of raw event-for-event equality because target serializers may
+  legitimately regenerate protocol frames, timestamps, and duplicate deltas during replay
 
 Status: completed
 
@@ -177,7 +184,9 @@ Current state:
   - OpenAI Responses exact and best-effort lossy restoration
   - OpenAI Chat Completions exact and best-effort request restoration
   - Anthropic Messages settings / tools / structured output / MCP / thinking restoration
-- remaining work is mainly second-route examples, response/stream fixture expansion, and
-  stabilization docs
+- response/stream fixture expansion has now started with initial same-protocol roundtrip coverage
+  for OpenAI Responses and Anthropic Messages
+- remaining work is mainly second-route examples, broader cross-target fixture expansion, gateway
+  smoke coverage, and stabilization docs
 
 Status: in progress
