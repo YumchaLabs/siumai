@@ -1075,7 +1075,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             MessageContent::MultiModal(content_parts)
         };
 
-        // Provider metadata (Vercel-aligned): sources extracted from web_search_call results.
+        // Provider metadata (Vercel-aligned): sources extracted from provider tool results and
+        // message annotations.
         let provider_metadata = {
             let mut item_id: Option<String> = None;
             if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
@@ -1095,12 +1096,15 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             }
 
             let mut sources: Vec<serde_json::Value> = Vec::new();
-            let mut seen_urls: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut seen_source_keys: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
             if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
                 for item in output {
-                    if item.get("type").and_then(|v| v.as_str()) != Some("web_search_call") {
+                    let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                    if !matches!(item_type, "web_search_call" | "file_search_call") {
                         continue;
                     }
+
                     let tool_call_id = item
                         .get("id")
                         .and_then(|v| v.as_str())
@@ -1110,20 +1114,95 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     if tool_call_id.is_empty() {
                         continue;
                     }
+
                     let Some(arr) = item.get("results").and_then(|v| v.as_array()) else {
                         continue;
                     };
+
                     for (i, r) in arr.iter().enumerate() {
                         let Some(obj) = r.as_object() else {
                             continue;
                         };
-                        let url = obj.get("url").and_then(|v| v.as_str()).unwrap_or("");
-                        if url.is_empty() {
+
+                        if item_type == "web_search_call" {
+                            let url = obj.get("url").and_then(|v| v.as_str()).unwrap_or("");
+                            if url.is_empty() {
+                                continue;
+                            }
+                            let source_key = format!("tool:{tool_call_id}:url:{url}");
+                            if !seen_source_keys.insert(source_key) {
+                                continue;
+                            }
+
+                            let title = obj
+                                .get("title")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let snippet = obj
+                                .get("snippet")
+                                .or_else(|| obj.get("text"))
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let source_id = obj
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| format!("{tool_call_id}:{i}"));
+
+                            let mut src = serde_json::Map::new();
+                            src.insert("id".to_string(), serde_json::Value::String(source_id));
+                            src.insert(
+                                "source_type".to_string(),
+                                serde_json::Value::String("url".to_string()),
+                            );
+                            src.insert(
+                                "url".to_string(),
+                                serde_json::Value::String(url.to_string()),
+                            );
+                            if let Some(t) = title {
+                                src.insert("title".to_string(), serde_json::Value::String(t));
+                            }
+                            src.insert(
+                                "tool_call_id".to_string(),
+                                serde_json::Value::String(tool_call_id.clone()),
+                            );
+                            if let Some(s) = snippet {
+                                src.insert("snippet".to_string(), serde_json::Value::String(s));
+                            }
+                            sources.push(serde_json::Value::Object(src));
                             continue;
                         }
-                        if !seen_urls.insert(url.to_string()) {
+
+                        let file_id = obj
+                            .get("file_id")
+                            .or_else(|| obj.get("fileId"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if file_id.is_empty() {
                             continue;
                         }
+
+                        let container_id = obj
+                            .get("container_id")
+                            .or_else(|| obj.get("containerId"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let index = obj.get("index").and_then(|v| v.as_u64()).map(|v| v as u32);
+                        let source_key = format!(
+                            "tool:{tool_call_id}:document:{file_id}:{}:{}",
+                            container_id.as_deref().unwrap_or(""),
+                            index.map(|v| v.to_string()).unwrap_or_default()
+                        );
+                        if !seen_source_keys.insert(source_key) {
+                            continue;
+                        }
+
+                        let source_id = obj
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string())
+                            .unwrap_or_else(|| format!("{tool_call_id}:{i}"));
                         let title = obj
                             .get("title")
                             .and_then(|v| v.as_str())
@@ -1133,30 +1212,61 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             .or_else(|| obj.get("text"))
                             .and_then(|v| v.as_str())
                             .map(|s| s.to_string());
+                        let filename = obj
+                            .get("filename")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+                        let media_type = obj
+                            .get("media_type")
+                            .or_else(|| obj.get("mediaType"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
+
+                        let mut openai_source_meta = serde_json::Map::new();
+                        openai_source_meta.insert(
+                            "fileId".to_string(),
+                            serde_json::Value::String(file_id.clone()),
+                        );
+                        if let Some(container_id) = &container_id {
+                            openai_source_meta.insert(
+                                "containerId".to_string(),
+                                serde_json::Value::String(container_id.clone()),
+                            );
+                        }
+                        if let Some(index) = index {
+                            openai_source_meta
+                                .insert("index".to_string(), serde_json::json!(index));
+                        }
 
                         let mut src = serde_json::Map::new();
-                        src.insert(
-                            "id".to_string(),
-                            serde_json::Value::String(format!("{tool_call_id}:{i}")),
-                        );
+                        src.insert("id".to_string(), serde_json::Value::String(source_id));
                         src.insert(
                             "source_type".to_string(),
-                            serde_json::Value::String("url".to_string()),
+                            serde_json::Value::String("document".to_string()),
                         );
-                        src.insert(
-                            "url".to_string(),
-                            serde_json::Value::String(url.to_string()),
-                        );
-                        if let Some(t) = title {
-                            src.insert("title".to_string(), serde_json::Value::String(t));
-                        }
+                        src.insert("url".to_string(), serde_json::Value::String(file_id));
                         src.insert(
                             "tool_call_id".to_string(),
                             serde_json::Value::String(tool_call_id.clone()),
                         );
+                        if let Some(t) = title {
+                            src.insert("title".to_string(), serde_json::Value::String(t));
+                        }
                         if let Some(s) = snippet {
                             src.insert("snippet".to_string(), serde_json::Value::String(s));
                         }
+                        if let Some(fn_) = filename {
+                            src.insert("filename".to_string(), serde_json::Value::String(fn_));
+                        }
+                        if let Some(mt) = media_type {
+                            src.insert("media_type".to_string(), serde_json::Value::String(mt));
+                        }
+                        src.insert(
+                            "provider_metadata".to_string(),
+                            self.single_provider_metadata_value(serde_json::Value::Object(
+                                openai_source_meta,
+                            )),
+                        );
                         sources.push(serde_json::Value::Object(src));
                     }
                 }
@@ -1189,7 +1299,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                 if url.is_empty() {
                                     continue;
                                 }
-                                if !seen_urls.insert(url.to_string()) {
+                                let source_key = format!("message:url:{url}");
+                                if !seen_source_keys.insert(source_key) {
                                     continue;
                                 }
                                 let title = ann
@@ -1231,9 +1342,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     continue;
                                 }
 
-                                // A pseudo-url key to dedup document sources in the same list.
-                                let doc_key = format!("doc:{ann_type}:{file_id}");
-                                if !seen_urls.insert(doc_key) {
+                                let source_key = format!("message:doc:{ann_type}:{file_id}");
+                                if !seen_source_keys.insert(source_key) {
                                     continue;
                                 }
 
@@ -1260,13 +1370,13 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     "file_citation" => Some(self.single_provider_metadata_value(
                                         serde_json::json!({ "fileId": file_id }),
                                     )),
-                                    "container_file_citation" => Some(self.single_provider_metadata_value(
-                                        serde_json::json!({
+                                    "container_file_citation" => Some(
+                                        self.single_provider_metadata_value(serde_json::json!({
                                             "fileId": file_id,
                                             "containerId": ann.get("container_id").cloned().unwrap_or(serde_json::Value::Null),
                                             "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
-                                        }),
-                                    )),
+                                        })),
+                                    ),
                                     "file_path" => Some(self.single_provider_metadata_value(
                                         serde_json::json!({
                                             "fileId": file_id,
@@ -1440,24 +1550,37 @@ mod tests {
         let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&resp)
             .expect("openai metadata present");
         let sources = meta.sources.expect("sources present");
-        assert_eq!(sources.len(), 3);
+        assert_eq!(sources.len(), 4);
         assert!(
             sources
                 .iter()
                 .any(|s| s.url == "https://blog.rust-lang.org/")
         );
         assert!(sources.iter().any(|s| s.url == "https://www.rust-lang.org"));
-        assert!(sources.iter().any(|s| s.source_type == "document"));
         let document = sources
             .iter()
-            .find(|s| s.source_type == "document")
-            .expect("document source present");
+            .find(|s| s.tool_call_id.as_deref() == Some("fs_1"))
+            .expect("file search document source present");
         let source_meta =
             crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(document)
                 .expect("typed source metadata");
-        assert_eq!(source_meta.file_id.as_deref(), Some("file_123"));
+        assert_eq!(document.filename.as_deref(), Some("notes.md"));
+        assert_eq!(document.snippet.as_deref(), Some("..."));
+        assert_eq!(document.tool_call_id.as_deref(), Some("fs_1"));
+        assert_eq!(source_meta.file_id.as_deref(), Some("file_1"));
         assert!(source_meta.container_id.is_none());
         assert!(source_meta.index.is_none());
+
+        let cited_document = sources
+            .iter()
+            .find(|s| s.url == "file_123")
+            .expect("message annotation document source present");
+        let cited_source_meta =
+            crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(cited_document)
+                .expect("typed cited source metadata");
+        assert_eq!(cited_source_meta.file_id.as_deref(), Some("file_123"));
+        assert!(cited_source_meta.container_id.is_none());
+        assert!(cited_source_meta.index.is_none());
     }
 
     #[test]
@@ -1672,6 +1795,135 @@ mod tests {
         );
         assert_eq!(value["output"][0]["id"], serde_json::json!("ct_1"));
         assert_eq!(value["output"][0]["is_error"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn responses_file_search_sources_roundtrip_with_tool_scoped_metadata() {
+        let mut response =
+            crate::types::ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+                crate::types::ContentPart::ToolCall {
+                    tool_call_id: "fs_1".to_string(),
+                    tool_name: "fileSearch".to_string(),
+                    arguments: serde_json::json!({ "query": "bridge design" }),
+                    provider_executed: Some(true),
+                    provider_metadata: Some(std::collections::HashMap::from([(
+                        "openai".to_string(),
+                        serde_json::json!({ "itemId": "fs_item_1" }),
+                    )])),
+                },
+                crate::types::ContentPart::ToolResult {
+                    tool_call_id: "fs_1".to_string(),
+                    tool_name: "fileSearch".to_string(),
+                    output: crate::types::ToolResultOutput::json(serde_json::json!({
+                        "queries": ["bridge design"]
+                    })),
+                    provider_executed: Some(true),
+                    provider_metadata: None,
+                },
+                crate::types::ContentPart::ToolCall {
+                    tool_call_id: "fs_2".to_string(),
+                    tool_name: "fileSearch".to_string(),
+                    arguments: serde_json::json!({ "query": "bridge design" }),
+                    provider_executed: Some(true),
+                    provider_metadata: Some(std::collections::HashMap::from([(
+                        "openai".to_string(),
+                        serde_json::json!({ "itemId": "fs_item_2" }),
+                    )])),
+                },
+                crate::types::ContentPart::ToolResult {
+                    tool_call_id: "fs_2".to_string(),
+                    tool_name: "fileSearch".to_string(),
+                    output: crate::types::ToolResultOutput::json(serde_json::json!({
+                        "queries": ["bridge design"]
+                    })),
+                    provider_executed: Some(true),
+                    provider_metadata: None,
+                },
+            ]));
+        response.id = Some("resp_fs_roundtrip".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+        response.provider_metadata = Some(std::collections::HashMap::from([(
+            "openai".to_string(),
+            std::collections::HashMap::from([(
+                "sources".to_string(),
+                serde_json::json!([
+                    {
+                        "id": "src_fs_1",
+                        "source_type": "document",
+                        "url": "file_shared",
+                        "filename": "design-a.md",
+                        "title": "Design A",
+                        "snippet": "first hit",
+                        "media_type": "text/markdown",
+                        "tool_call_id": "fs_1",
+                        "provider_metadata": {
+                            "openai": {
+                                "fileId": "file_shared",
+                                "containerId": "container_a",
+                                "index": 1
+                            }
+                        }
+                    },
+                    {
+                        "id": "src_fs_2",
+                        "source_type": "document",
+                        "url": "file_shared",
+                        "filename": "design-b.md",
+                        "title": "Design B",
+                        "snippet": "second hit",
+                        "media_type": "text/markdown",
+                        "tool_call_id": "fs_2",
+                        "provider_metadata": {
+                            "openai": {
+                                "fileId": "file_shared",
+                                "containerId": "container_b",
+                                "index": 2
+                            }
+                        }
+                    }
+                ]),
+            )]),
+        )]));
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+        let raw: serde_json::Value = serde_json::from_slice(&out).expect("json");
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&resp)
+            .expect("openai metadata present");
+        let sources = meta.sources.expect("sources present");
+
+        assert_eq!(sources.len(), 2);
+
+        let source_a = sources
+            .iter()
+            .find(|source| source.tool_call_id.as_deref() == Some("fs_item_1"))
+            .expect("tool scoped source a");
+        let meta_a = crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(source_a)
+            .expect("typed source metadata a");
+        assert_eq!(meta_a.file_id.as_deref(), Some("file_shared"));
+        assert_eq!(meta_a.container_id.as_deref(), Some("container_a"));
+        assert_eq!(meta_a.index, Some(1));
+        assert_eq!(source_a.filename.as_deref(), Some("design-a.md"));
+        assert_eq!(source_a.media_type.as_deref(), Some("text/markdown"));
+        assert_eq!(source_a.snippet.as_deref(), Some("first hit"));
+
+        let source_b = sources
+            .iter()
+            .find(|source| source.tool_call_id.as_deref() == Some("fs_item_2"))
+            .expect("tool scoped source b");
+        let meta_b = crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(source_b)
+            .expect("typed source metadata b");
+        assert_eq!(meta_b.file_id.as_deref(), Some("file_shared"));
+        assert_eq!(meta_b.container_id.as_deref(), Some("container_b"));
+        assert_eq!(meta_b.index, Some(2));
+        assert_eq!(source_b.filename.as_deref(), Some("design-b.md"));
+        assert_eq!(source_b.media_type.as_deref(), Some("text/markdown"));
+        assert_eq!(source_b.snippet.as_deref(), Some("second hit"));
     }
 }
 

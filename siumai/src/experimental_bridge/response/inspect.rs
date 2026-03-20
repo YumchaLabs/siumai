@@ -383,7 +383,7 @@ fn inspect_openai_response_provider_metadata(
             ),
             "sources" => report.record_lossy_field(
                 "provider_metadata.openai.sources",
-                "OpenAI Responses response encoding replays sources as output_text annotations and may lose source ids, tool_call_id, or snippets",
+                "OpenAI Responses response encoding preserves tool linkage and typed file metadata where possible, but source ids are still regenerated and message citations are replayed via annotations",
             ),
             _ => report.record_dropped_field(
                 format!("provider_metadata.openai.{key}"),

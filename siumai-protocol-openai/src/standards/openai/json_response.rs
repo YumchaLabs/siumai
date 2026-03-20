@@ -441,13 +441,14 @@ fn openai_sources_to_file_search_results(sources: &[OpenAiSource]) -> Vec<serde_
         .iter()
         .filter(|source| source.source_type == "document")
         .map(|source| {
+            let source_meta = source.openai_metadata();
             let mut obj = serde_json::Map::new();
             obj.insert(
                 "file_id".to_string(),
                 serde_json::json!(
-                    source
-                        .openai_metadata()
-                        .and_then(|meta| meta.file_id)
+                    source_meta
+                        .as_ref()
+                        .and_then(|meta| meta.file_id.clone())
                         .unwrap_or_else(|| source.url.clone())
                 ),
             );
@@ -462,6 +463,15 @@ fn openai_sources_to_file_search_results(sources: &[OpenAiSource]) -> Vec<serde_
             }
             if let Some(media_type) = &source.media_type {
                 obj.insert("media_type".to_string(), serde_json::json!(media_type));
+            }
+            if let Some(container_id) = source_meta
+                .as_ref()
+                .and_then(|meta| meta.container_id.clone())
+            {
+                obj.insert("container_id".to_string(), serde_json::json!(container_id));
+            }
+            if let Some(index) = source_meta.as_ref().and_then(|meta| meta.index) {
+                obj.insert("index".to_string(), serde_json::json!(index));
             }
             serde_json::Value::Object(obj)
         })
