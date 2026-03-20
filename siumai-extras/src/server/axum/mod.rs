@@ -7,10 +7,12 @@
 //! - **SSE Response**: `to_sse_response()` converts `ChatStream` to `Sse<impl Stream>`
 //! - **Text Response**: `to_text_stream()` converts `ChatStream` to plain text stream
 //! - **Gateway Helpers**: provider-native SSE/JSON transcoding helpers
+//! - **Runtime Helpers**: policy-aware request/upstream body reads
 //! - **Error Handling**: automatic error masking for production environments
 //! - **Type Safety**: strong typing with Axum SSE primitives
 
 mod bridge_hooks;
+mod runtime;
 mod sse;
 mod transcode_json;
 mod transcode_sse;
@@ -19,6 +21,10 @@ pub use crate::server::GatewayBridgePolicy;
 pub use bridge_hooks::{
     ClosurePrimitiveRemapper, ClosureResponseBridgeHook, ClosureStreamBridgeHook,
     response_bridge_hook, stream_bridge_hook,
+};
+pub use runtime::{
+    GatewayBodyReadError, GatewayBodyRole, read_request_body_with_policy,
+    read_request_json_with_policy, read_upstream_body_with_policy, read_upstream_json_with_policy,
 };
 pub use sse::{SseOptions, to_sse_response, to_text_stream};
 pub use transcode_json::{

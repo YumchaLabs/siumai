@@ -198,6 +198,19 @@ fn handler(stream: ChatStream) -> Response<Body> {
 }
 ```
 
+If your gateway route also needs to read downstream request bodies or buffered upstream bodies
+under `GatewayBridgePolicy`, use the Axum runtime helpers instead of open-coding `to_bytes(...)`:
+
+```rust
+use axum::body::Body;
+use siumai_extras::server::{GatewayBridgePolicy};
+use siumai_extras::server::axum::read_request_json_with_policy;
+
+let policy = GatewayBridgePolicy::default().with_request_body_limit_bytes(128 * 1024);
+let request_json: serde_json::Value =
+    read_request_json_with_policy(Body::from(r#"{"input":"hello"}"#), &policy).await?;
+```
+
 If you need to customize the conversion logic, the recommended path is
 `GatewayBridgePolicy + BridgeOptions + typed bridge hooks` as demonstrated in
 `siumai-extras/examples/gateway-custom-transform.rs`.

@@ -41,6 +41,7 @@ once_cell = { workspace = true, optional = true }
 
 # Server adapters (optional)
 axum = { workspace = true, optional = true }
+http-body-util = { workspace = true, optional = true }
 futures = { workspace = true }
 
 # MCP integration (optional)
@@ -90,7 +91,7 @@ opentelemetry = [
 ]
 
 # Server adapters feature
-server = ["dep:axum"]
+server = ["dep:axum", "dep:http-body-util"]
 
 # MCP integration feature
 mcp = ["dep:rmcp"]

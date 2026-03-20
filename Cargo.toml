@@ -116,6 +116,7 @@ opentelemetry-stdout = { version = "0.31", features = ["trace", "metrics"] }
 
 # Server adapters (for siumai-extras)
 axum = "0.8"
+http-body-util = "0.1"
 
 # Dev dependencies
 tokio-test = "0.4"

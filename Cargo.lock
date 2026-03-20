@@ -3018,6 +3018,7 @@ dependencies = [
  "axum",
  "chrono",
  "futures",
+ "http-body-util",
  "jsonschema",
  "once_cell",
  "opentelemetry",

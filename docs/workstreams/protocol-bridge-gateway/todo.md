@@ -147,8 +147,8 @@ This TODO list is intentionally organized as mergeable tracks.
 
 - [x] Define `GatewayBridgePolicy` in `siumai-extras`
 - [ ] Cover:
-  - [ ] body limits
-  - [ ] upstream read limits
+  - [x] body limits
+  - [x] upstream read limits
   - [x] stream idle timeout
   - [x] keepalive interval
   - [x] header filtering

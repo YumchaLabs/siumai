@@ -356,9 +356,10 @@ Current implementation note:
   `GatewayBridgePolicy`
 - Axum JSON/SSE helpers already apply bridge header filtering, warning headers, error passthrough,
   and default bridge-option composition
-- request body limits and upstream read limits remain route/runtime responsibilities because the
-  current transcode helper boundary does not own downstream request parsing or upstream HTTP body
-  reads
+- request body limits and upstream read limits now have explicit Axum runtime helpers for body and
+  JSON reads, instead of being pushed into transcode helpers
+- broader non-Axum route/runtime ownership is still future work because the current helper surface
+  is intentionally framework-specific
 
 ### D7 - Streaming correctness is part of the bridge contract
 

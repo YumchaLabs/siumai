@@ -133,8 +133,8 @@ Current state:
   headers are emitted for SSE routes when enabled
 - Axum SSE transcode helpers now enforce keepalive interval and idle-timeout behavior directly from
   `GatewayBridgePolicy`
-- remaining work is mainly request-body / upstream-read limit ownership at route-runtime level and
-  broader framework-agnostic integration beyond the current helper layer
+- Axum runtime helpers now enforce request-body and upstream-read limits for body / JSON reads
+- remaining work is mainly broader framework-agnostic integration beyond the current helper layer
 
 Status: in progress
 

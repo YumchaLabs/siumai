@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hooks` as the primary extension path for Axum SSE/JSON transcoders.
 - Axum SSE transcode helpers now enforce policy-driven keepalive and idle-timeout behavior when
   configured.
+- Axum server adapters now expose policy-aware request/upstream body read helpers for enforcing
+  request-body and upstream-read limits at route/runtime level.
 
 ## [0.11.0-beta.5] - 2026-01-15
 
