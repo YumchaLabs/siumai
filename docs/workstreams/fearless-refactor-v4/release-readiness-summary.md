@@ -2,6 +2,8 @@
 
 Last updated: 2026-03-20
 
+See also: `release-notes-draft.md`
+
 ## Executive summary
 
 The V4 line is now best understood as **architecturally complete and stabilization-complete enough
