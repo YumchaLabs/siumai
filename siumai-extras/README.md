@@ -198,8 +198,11 @@ fn handler(stream: ChatStream) -> Response<Body> {
 }
 ```
 
-If you need to customize the conversion logic (redaction/rewrites/custom part mapping),
-you can provide an event transform hook:
+If you need to customize the conversion logic, the recommended path is
+`GatewayBridgePolicy + BridgeOptions + typed bridge hooks` as demonstrated in
+`siumai-extras/examples/gateway-custom-transform.rs`.
+
+The raw event-transform helper is still available as an escape hatch:
 
 ```rust
 use axum::{body::Body, response::Response};

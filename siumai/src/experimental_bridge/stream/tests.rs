@@ -1,14 +1,39 @@
+use std::sync::Arc;
+
 use futures_util::{StreamExt, stream};
-use siumai_core::bridge::{BridgeMode, BridgeTarget};
+use siumai_core::bridge::{
+    BridgeMode, BridgeOptions, BridgeTarget, StreamBridgeContext, StreamBridgeHook,
+};
 use siumai_core::streaming::ChatByteStream;
 use siumai_core::types::{
     ChatResponse, ChatStreamEvent, FinishReason, MessageContent, ResponseMetadata,
 };
 
-#[cfg(feature = "anthropic")]
-use super::bridge_chat_stream_to_anthropic_messages_sse;
 #[cfg(feature = "openai")]
 use super::bridge_chat_stream_to_openai_responses_sse;
+#[cfg(feature = "anthropic")]
+use super::{
+    bridge_chat_stream_to_anthropic_messages_sse,
+    bridge_chat_stream_to_anthropic_messages_sse_with_options,
+};
+
+struct UppercaseStreamHook;
+
+impl StreamBridgeHook for UppercaseStreamHook {
+    fn map_event(
+        &self,
+        _ctx: &StreamBridgeContext,
+        event: ChatStreamEvent,
+    ) -> Vec<ChatStreamEvent> {
+        match event {
+            ChatStreamEvent::ContentDelta { delta, index } => vec![ChatStreamEvent::ContentDelta {
+                delta: delta.to_uppercase(),
+                index,
+            }],
+            other => vec![other],
+        }
+    }
+}
 
 async fn collect_bytes(mut stream: ChatByteStream) -> String {
     let mut out = Vec::new();
@@ -146,4 +171,51 @@ async fn anthropic_stream_bridge_serializes_standard_events() {
     assert!(body.contains("event: message_start"));
     assert!(body.contains("event: content_block_delta"));
     assert!(body.contains("event: message_stop"));
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn stream_bridge_options_can_transform_events() {
+    let response = ChatResponse {
+        id: Some("msg_1".to_string()),
+        model: Some("claude-sonnet-4-5".to_string()),
+        content: MessageContent::Text("HELLO".to_string()),
+        usage: None,
+        finish_reason: Some(FinishReason::Stop),
+        audio: None,
+        system_fingerprint: None,
+        service_tier: None,
+        warnings: None,
+        provider_metadata: None,
+    };
+
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("msg_1".to_string()),
+                model: Some("claude-sonnet-4-5".to_string()),
+                created: None,
+                provider: "anthropic".to_string(),
+                request_id: None,
+            },
+        }),
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "hello".to_string(),
+            index: None,
+        }),
+        Ok(ChatStreamEvent::StreamEnd { response }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_anthropic_messages_sse_with_options(
+        stream,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.stream.transform")
+            .with_stream_hook(Arc::new(UppercaseStreamHook)),
+    )
+    .expect("bridge");
+
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+
+    assert!(body.contains("HELLO"));
 }

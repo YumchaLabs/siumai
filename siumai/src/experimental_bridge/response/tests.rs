@@ -1,7 +1,10 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::json;
-use siumai_core::bridge::{BridgeMode, BridgeTarget};
+use siumai_core::bridge::{
+    BridgeMode, BridgeOptions, BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget,
+};
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
 
@@ -10,8 +13,17 @@ use super::bridge_chat_response_to_anthropic_messages_json_value;
 #[cfg(feature = "openai")]
 use super::{
     bridge_chat_response_to_openai_chat_completions_json_value,
+    bridge_chat_response_to_openai_chat_completions_json_value_with_options,
     bridge_chat_response_to_openai_responses_json_value,
 };
+
+struct PrefixRemapper;
+
+impl BridgePrimitiveRemapper for PrefixRemapper {
+    fn remap_tool_name(&self, _ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
+        Some(format!("gw_{name}"))
+    }
+}
 
 #[cfg(feature = "openai")]
 #[test]
@@ -262,4 +274,31 @@ fn strict_openai_responses_bridge_preserves_provider_executed_custom_tool_items(
         json!(r#"{"url":"https://example.com"}"#)
     );
     assert_eq!(value["output"][0]["output"]["message"], json!("ok"));
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn response_bridge_options_can_remap_tool_call_names() {
+    let response = ChatResponse::new(MessageContent::MultiModal(vec![ContentPart::tool_call(
+        "call_1",
+        "weather",
+        json!({ "city": "Tokyo" }),
+        None,
+    )]));
+
+    let bridged = bridge_chat_response_to_openai_chat_completions_json_value_with_options(
+        &response,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.response.remap")
+            .with_primitive_remapper(Arc::new(PrefixRemapper)),
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+        json!("gw_weather")
+    );
 }

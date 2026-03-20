@@ -5,6 +5,13 @@
 //! in protocol crates or gateway adapters built on top of this contract.
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+use crate::{
+    error::LlmError,
+    streaming::ChatStreamEvent,
+    types::{ChatRequest, ChatResponse},
+};
 
 /// Named protocol targets that bridge implementations can produce or consume.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -294,6 +301,332 @@ impl<T> BridgeResult<T> {
     }
 }
 
+/// Typed bridge primitive categories exposed to remap policies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BridgePrimitiveKind {
+    ToolDefinition,
+    ToolChoice,
+    ToolCall,
+    ToolResult,
+}
+
+/// Request bridge lifecycle context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestBridgeContext {
+    pub source: Option<BridgeTarget>,
+    pub target: BridgeTarget,
+    pub mode: BridgeMode,
+    pub route_label: Option<String>,
+    pub path_label: Option<String>,
+}
+
+impl RequestBridgeContext {
+    pub fn new(
+        source: Option<BridgeTarget>,
+        target: BridgeTarget,
+        mode: BridgeMode,
+        route_label: Option<String>,
+        path_label: Option<String>,
+    ) -> Self {
+        Self {
+            source,
+            target,
+            mode,
+            route_label,
+            path_label,
+        }
+    }
+}
+
+/// Response bridge lifecycle context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResponseBridgeContext {
+    pub source: Option<BridgeTarget>,
+    pub target: BridgeTarget,
+    pub mode: BridgeMode,
+    pub route_label: Option<String>,
+    pub path_label: Option<String>,
+}
+
+impl ResponseBridgeContext {
+    pub fn new(
+        source: Option<BridgeTarget>,
+        target: BridgeTarget,
+        mode: BridgeMode,
+        route_label: Option<String>,
+        path_label: Option<String>,
+    ) -> Self {
+        Self {
+            source,
+            target,
+            mode,
+            route_label,
+            path_label,
+        }
+    }
+}
+
+/// Stream bridge lifecycle context.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StreamBridgeContext {
+    pub source: Option<BridgeTarget>,
+    pub target: BridgeTarget,
+    pub mode: BridgeMode,
+    pub route_label: Option<String>,
+    pub path_label: Option<String>,
+}
+
+impl StreamBridgeContext {
+    pub fn new(
+        source: Option<BridgeTarget>,
+        target: BridgeTarget,
+        mode: BridgeMode,
+        route_label: Option<String>,
+        path_label: Option<String>,
+    ) -> Self {
+        Self {
+            source,
+            target,
+            mode,
+            route_label,
+            path_label,
+        }
+    }
+}
+
+/// Primitive remap context shared by request/response/stream remappers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgePrimitiveContext {
+    pub source: Option<BridgeTarget>,
+    pub target: BridgeTarget,
+    pub mode: BridgeMode,
+    pub route_label: Option<String>,
+    pub path_label: Option<String>,
+    pub primitive: BridgePrimitiveKind,
+}
+
+impl BridgePrimitiveContext {
+    pub fn new(
+        source: Option<BridgeTarget>,
+        target: BridgeTarget,
+        mode: BridgeMode,
+        route_label: Option<String>,
+        path_label: Option<String>,
+        primitive: BridgePrimitiveKind,
+    ) -> Self {
+        Self {
+            source,
+            target,
+            mode,
+            route_label,
+            path_label,
+            primitive,
+        }
+    }
+}
+
+/// Request bridge customization hook.
+pub trait RequestBridgeHook: Send + Sync {
+    fn transform_request(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _request: &mut ChatRequest,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    fn transform_json(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _body: &mut serde_json::Value,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    fn validate_json(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _body: &serde_json::Value,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+}
+
+/// Response bridge customization hook.
+pub trait ResponseBridgeHook: Send + Sync {
+    fn transform_response(
+        &self,
+        _ctx: &ResponseBridgeContext,
+        _response: &mut ChatResponse,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+}
+
+/// Stream bridge customization hook.
+pub trait StreamBridgeHook: Send + Sync {
+    fn map_event(
+        &self,
+        _ctx: &StreamBridgeContext,
+        event: ChatStreamEvent,
+    ) -> Vec<ChatStreamEvent> {
+        vec![event]
+    }
+}
+
+/// Primitive remapper for small, reusable semantic rewrites.
+pub trait BridgePrimitiveRemapper: Send + Sync {
+    fn remap_tool_name(&self, _ctx: &BridgePrimitiveContext, _name: &str) -> Option<String> {
+        None
+    }
+
+    fn remap_tool_call_id(&self, _ctx: &BridgePrimitiveContext, _id: &str) -> Option<String> {
+        None
+    }
+}
+
+/// Final decision emitted by loss policies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BridgeLossAction {
+    Continue,
+    Reject,
+}
+
+/// Policy for deciding whether a bridge report should continue or reject.
+pub trait BridgeLossPolicy: Send + Sync {
+    fn request_action(&self, ctx: &RequestBridgeContext, report: &BridgeReport)
+    -> BridgeLossAction;
+
+    fn response_action(
+        &self,
+        ctx: &ResponseBridgeContext,
+        report: &BridgeReport,
+    ) -> BridgeLossAction;
+
+    fn stream_action(&self, ctx: &StreamBridgeContext, report: &BridgeReport) -> BridgeLossAction;
+}
+
+/// Default mode-aware loss policy.
+#[derive(Debug, Default)]
+pub struct DefaultBridgeLossPolicy;
+
+fn default_loss_action(mode: BridgeMode, report: &BridgeReport) -> BridgeLossAction {
+    if report.is_rejected() || (matches!(mode, BridgeMode::Strict) && report.is_lossy()) {
+        BridgeLossAction::Reject
+    } else {
+        BridgeLossAction::Continue
+    }
+}
+
+impl BridgeLossPolicy for DefaultBridgeLossPolicy {
+    fn request_action(
+        &self,
+        ctx: &RequestBridgeContext,
+        report: &BridgeReport,
+    ) -> BridgeLossAction {
+        default_loss_action(ctx.mode, report)
+    }
+
+    fn response_action(
+        &self,
+        ctx: &ResponseBridgeContext,
+        report: &BridgeReport,
+    ) -> BridgeLossAction {
+        default_loss_action(ctx.mode, report)
+    }
+
+    fn stream_action(&self, ctx: &StreamBridgeContext, report: &BridgeReport) -> BridgeLossAction {
+        default_loss_action(ctx.mode, report)
+    }
+}
+
+/// Shared bridge configuration surface.
+#[derive(Clone)]
+pub struct BridgeOptions {
+    pub mode: BridgeMode,
+    pub route_label: Option<String>,
+    pub request_hook: Option<Arc<dyn RequestBridgeHook>>,
+    pub response_hook: Option<Arc<dyn ResponseBridgeHook>>,
+    pub stream_hook: Option<Arc<dyn StreamBridgeHook>>,
+    pub primitive_remapper: Option<Arc<dyn BridgePrimitiveRemapper>>,
+    pub loss_policy: Arc<dyn BridgeLossPolicy>,
+}
+
+impl Default for BridgeOptions {
+    fn default() -> Self {
+        Self::new(BridgeMode::default())
+    }
+}
+
+impl BridgeOptions {
+    pub fn new(mode: BridgeMode) -> Self {
+        Self {
+            mode,
+            route_label: None,
+            request_hook: None,
+            response_hook: None,
+            stream_hook: None,
+            primitive_remapper: None,
+            loss_policy: Arc::new(DefaultBridgeLossPolicy),
+        }
+    }
+
+    pub fn with_route_label(mut self, route_label: impl Into<String>) -> Self {
+        self.route_label = Some(route_label.into());
+        self
+    }
+
+    pub fn with_request_hook(mut self, hook: Arc<dyn RequestBridgeHook>) -> Self {
+        self.request_hook = Some(hook);
+        self
+    }
+
+    pub fn with_response_hook(mut self, hook: Arc<dyn ResponseBridgeHook>) -> Self {
+        self.response_hook = Some(hook);
+        self
+    }
+
+    pub fn with_stream_hook(mut self, hook: Arc<dyn StreamBridgeHook>) -> Self {
+        self.stream_hook = Some(hook);
+        self
+    }
+
+    pub fn with_primitive_remapper(mut self, remapper: Arc<dyn BridgePrimitiveRemapper>) -> Self {
+        self.primitive_remapper = Some(remapper);
+        self
+    }
+
+    pub fn with_loss_policy(mut self, policy: Arc<dyn BridgeLossPolicy>) -> Self {
+        self.loss_policy = policy;
+        self
+    }
+
+    pub fn merged_with(mut self, overlay: BridgeOptions) -> Self {
+        self.mode = overlay.mode;
+        if overlay.route_label.is_some() {
+            self.route_label = overlay.route_label;
+        }
+        if overlay.request_hook.is_some() {
+            self.request_hook = overlay.request_hook;
+        }
+        if overlay.response_hook.is_some() {
+            self.response_hook = overlay.response_hook;
+        }
+        if overlay.stream_hook.is_some() {
+            self.stream_hook = overlay.stream_hook;
+        }
+        if overlay.primitive_remapper.is_some() {
+            self.primitive_remapper = overlay.primitive_remapper;
+        }
+        self.loss_policy = overlay.loss_policy;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,5 +726,48 @@ mod tests {
         assert!(err.is_rejected());
         assert_eq!(err.warnings.len(), 1);
         assert_eq!(err.warnings[0].kind, BridgeWarningKind::Custom);
+    }
+
+    #[test]
+    fn default_bridge_options_use_best_effort_mode() {
+        let options = BridgeOptions::default();
+
+        assert_eq!(options.mode, BridgeMode::BestEffort);
+        assert!(options.route_label.is_none());
+        assert!(options.request_hook.is_none());
+        assert!(options.response_hook.is_none());
+        assert!(options.stream_hook.is_none());
+        assert!(options.primitive_remapper.is_none());
+    }
+
+    #[test]
+    fn default_loss_policy_rejects_strict_lossy_reports() {
+        let ctx = RequestBridgeContext::new(
+            Some(BridgeTarget::AnthropicMessages),
+            BridgeTarget::OpenAiChatCompletions,
+            BridgeMode::Strict,
+            None,
+            Some("via-normalized".to_string()),
+        );
+        let mut report = BridgeReport::with_source(ctx.source, ctx.target, ctx.mode);
+        report.record_lossy_field(
+            "messages[0].thinking",
+            "thinking blocks were flattened into plain assistant text",
+        );
+
+        assert_eq!(
+            DefaultBridgeLossPolicy.request_action(&ctx, &report),
+            BridgeLossAction::Reject
+        );
+    }
+
+    #[test]
+    fn bridge_options_overlay_replaces_mode_and_present_hooks() {
+        let base = BridgeOptions::new(BridgeMode::BestEffort).with_route_label("base");
+        let overlay = BridgeOptions::new(BridgeMode::Strict);
+        let merged = base.merged_with(overlay);
+
+        assert_eq!(merged.mode, BridgeMode::Strict);
+        assert_eq!(merged.route_label.as_deref(), Some("base"));
     }
 }

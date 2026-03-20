@@ -10,10 +10,16 @@
 //! - **Error Handling**: automatic error masking for production environments
 //! - **Type Safety**: strong typing with Axum SSE primitives
 
+mod bridge_hooks;
 mod sse;
 mod transcode_json;
 mod transcode_sse;
 
+pub use crate::server::GatewayBridgePolicy;
+pub use bridge_hooks::{
+    ClosurePrimitiveRemapper, ClosureResponseBridgeHook, ClosureStreamBridgeHook,
+    response_bridge_hook, stream_bridge_hook,
+};
 pub use sse::{SseOptions, to_sse_response, to_text_stream};
 pub use transcode_json::{
     TargetJsonFormat, TranscodeJsonOptions, to_transcoded_json_response,

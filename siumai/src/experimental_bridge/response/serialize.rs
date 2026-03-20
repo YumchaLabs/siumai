@@ -1,9 +1,14 @@
 //! Response bridge serialization.
 
 use siumai_core::LlmError;
-use siumai_core::bridge::{BridgeMode, BridgeReport, BridgeResult, BridgeTarget};
+use siumai_core::bridge::{
+    BridgeLossAction, BridgeMode, BridgeOptions, BridgeReport, BridgeResult, BridgeTarget,
+    ResponseBridgeContext,
+};
 use siumai_core::encoding::{JsonEncodeOptions, encode_chat_response_as_json};
 use siumai_core::types::ChatResponse;
+
+use crate::experimental_bridge::customize::apply_response_remapper;
 
 use super::inspect::inspect_chat_response_bridge;
 
@@ -15,24 +20,49 @@ pub fn bridge_chat_response_to_json_bytes(
     mode: BridgeMode,
     opts: JsonEncodeOptions,
 ) -> Result<BridgeResult<Vec<u8>>, LlmError> {
-    let mut report = BridgeReport::with_source(source, target, mode);
-    inspect_chat_response_bridge(response, target, &mut report);
+    bridge_chat_response_to_json_bytes_with_options(
+        response,
+        source,
+        target,
+        BridgeOptions::new(mode),
+        opts,
+    )
+}
 
-    if matches!(mode, BridgeMode::Strict) && report.is_lossy() {
-        report.reject(format!(
-            "strict bridge mode rejected lossy response conversion to {}",
-            target.as_str()
-        ));
+/// Bridge a normalized `ChatResponse` into a target protocol JSON body with bridge customization.
+pub fn bridge_chat_response_to_json_bytes_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    target: BridgeTarget,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<Vec<u8>>, LlmError> {
+    let ctx = ResponseBridgeContext::new(
+        source,
+        target,
+        options.mode,
+        options.route_label.clone(),
+        Some("normalized-response".to_string()),
+    );
+    let mut report = BridgeReport::with_source(source, target, options.mode);
+    let mut working_response = response.clone();
+
+    if let Some(remapper) = options.primitive_remapper.as_deref() {
+        apply_response_remapper(&mut working_response, &ctx, remapper);
+    }
+    if let Some(hook) = options.response_hook.as_deref() {
+        hook.transform_response(&ctx, &mut working_response, &mut report)?;
+    }
+
+    inspect_chat_response_bridge(&working_response, target, &mut report);
+
+    if should_reject_response(&options, &ctx, &mut report) {
         return Ok(BridgeResult::rejected(report));
     }
 
-    let bytes = transform_chat_response_to_json_bytes(response, target, opts)?;
+    let bytes = transform_chat_response_to_json_bytes(&working_response, target, opts)?;
 
-    if matches!(mode, BridgeMode::Strict) && report.is_lossy() {
-        report.reject(format!(
-            "strict bridge mode rejected lossy response conversion to {}",
-            target.as_str()
-        ));
+    if should_reject_response(&options, &ctx, &mut report) {
         return Ok(BridgeResult::rejected(report));
     }
 
@@ -51,6 +81,19 @@ pub fn bridge_chat_response_to_json_value(
     result.map_or_json_value()
 }
 
+/// Bridge a normalized `ChatResponse` into a target protocol JSON value with bridge customization.
+pub fn bridge_chat_response_to_json_value_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    target: BridgeTarget,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<serde_json::Value>, LlmError> {
+    let result =
+        bridge_chat_response_to_json_bytes_with_options(response, source, target, options, opts)?;
+    result.map_or_json_value()
+}
+
 /// Convenience wrapper for `OpenAI Responses`.
 #[cfg(feature = "openai")]
 pub fn bridge_chat_response_to_openai_responses_json_bytes(
@@ -62,6 +105,23 @@ pub fn bridge_chat_response_to_openai_responses_json_bytes(
     bridge_chat_response_to_json_bytes(response, source, BridgeTarget::OpenAiResponses, mode, opts)
 }
 
+/// Convenience wrapper for `OpenAI Responses` with bridge customization.
+#[cfg(feature = "openai")]
+pub fn bridge_chat_response_to_openai_responses_json_bytes_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<Vec<u8>>, LlmError> {
+    bridge_chat_response_to_json_bytes_with_options(
+        response,
+        source,
+        BridgeTarget::OpenAiResponses,
+        options,
+        opts,
+    )
+}
+
 /// Convenience wrapper for `OpenAI Responses`.
 #[cfg(feature = "openai")]
 pub fn bridge_chat_response_to_openai_responses_json_value(
@@ -71,6 +131,23 @@ pub fn bridge_chat_response_to_openai_responses_json_value(
     opts: JsonEncodeOptions,
 ) -> Result<BridgeResult<serde_json::Value>, LlmError> {
     bridge_chat_response_to_json_value(response, source, BridgeTarget::OpenAiResponses, mode, opts)
+}
+
+/// Convenience wrapper for `OpenAI Responses` with bridge customization.
+#[cfg(feature = "openai")]
+pub fn bridge_chat_response_to_openai_responses_json_value_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<serde_json::Value>, LlmError> {
+    bridge_chat_response_to_json_value_with_options(
+        response,
+        source,
+        BridgeTarget::OpenAiResponses,
+        options,
+        opts,
+    )
 }
 
 /// Convenience wrapper for `OpenAI Chat Completions`.
@@ -86,6 +163,23 @@ pub fn bridge_chat_response_to_openai_chat_completions_json_bytes(
         source,
         BridgeTarget::OpenAiChatCompletions,
         mode,
+        opts,
+    )
+}
+
+/// Convenience wrapper for `OpenAI Chat Completions` with bridge customization.
+#[cfg(feature = "openai")]
+pub fn bridge_chat_response_to_openai_chat_completions_json_bytes_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<Vec<u8>>, LlmError> {
+    bridge_chat_response_to_json_bytes_with_options(
+        response,
+        source,
+        BridgeTarget::OpenAiChatCompletions,
+        options,
         opts,
     )
 }
@@ -107,6 +201,23 @@ pub fn bridge_chat_response_to_openai_chat_completions_json_value(
     )
 }
 
+/// Convenience wrapper for `OpenAI Chat Completions` with bridge customization.
+#[cfg(feature = "openai")]
+pub fn bridge_chat_response_to_openai_chat_completions_json_value_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<serde_json::Value>, LlmError> {
+    bridge_chat_response_to_json_value_with_options(
+        response,
+        source,
+        BridgeTarget::OpenAiChatCompletions,
+        options,
+        opts,
+    )
+}
+
 /// Convenience wrapper for `Anthropic Messages`.
 #[cfg(feature = "anthropic")]
 pub fn bridge_chat_response_to_anthropic_messages_json_bytes(
@@ -120,6 +231,23 @@ pub fn bridge_chat_response_to_anthropic_messages_json_bytes(
         source,
         BridgeTarget::AnthropicMessages,
         mode,
+        opts,
+    )
+}
+
+/// Convenience wrapper for `Anthropic Messages` with bridge customization.
+#[cfg(feature = "anthropic")]
+pub fn bridge_chat_response_to_anthropic_messages_json_bytes_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<Vec<u8>>, LlmError> {
+    bridge_chat_response_to_json_bytes_with_options(
+        response,
+        source,
+        BridgeTarget::AnthropicMessages,
+        options,
         opts,
     )
 }
@@ -141,6 +269,23 @@ pub fn bridge_chat_response_to_anthropic_messages_json_value(
     )
 }
 
+/// Convenience wrapper for `Anthropic Messages` with bridge customization.
+#[cfg(feature = "anthropic")]
+pub fn bridge_chat_response_to_anthropic_messages_json_value_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<serde_json::Value>, LlmError> {
+    bridge_chat_response_to_json_value_with_options(
+        response,
+        source,
+        BridgeTarget::AnthropicMessages,
+        options,
+        opts,
+    )
+}
+
 /// Convenience wrapper for `Gemini GenerateContent`.
 #[cfg(feature = "google")]
 pub fn bridge_chat_response_to_gemini_generate_content_json_bytes(
@@ -154,6 +299,23 @@ pub fn bridge_chat_response_to_gemini_generate_content_json_bytes(
         source,
         BridgeTarget::GeminiGenerateContent,
         mode,
+        opts,
+    )
+}
+
+/// Convenience wrapper for `Gemini GenerateContent` with bridge customization.
+#[cfg(feature = "google")]
+pub fn bridge_chat_response_to_gemini_generate_content_json_bytes_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<Vec<u8>>, LlmError> {
+    bridge_chat_response_to_json_bytes_with_options(
+        response,
+        source,
+        BridgeTarget::GeminiGenerateContent,
+        options,
         opts,
     )
 }
@@ -173,6 +335,46 @@ pub fn bridge_chat_response_to_gemini_generate_content_json_value(
         mode,
         opts,
     )
+}
+
+/// Convenience wrapper for `Gemini GenerateContent` with bridge customization.
+#[cfg(feature = "google")]
+pub fn bridge_chat_response_to_gemini_generate_content_json_value_with_options(
+    response: &ChatResponse,
+    source: Option<BridgeTarget>,
+    options: BridgeOptions,
+    opts: JsonEncodeOptions,
+) -> Result<BridgeResult<serde_json::Value>, LlmError> {
+    bridge_chat_response_to_json_value_with_options(
+        response,
+        source,
+        BridgeTarget::GeminiGenerateContent,
+        options,
+        opts,
+    )
+}
+
+fn should_reject_response(
+    options: &BridgeOptions,
+    ctx: &ResponseBridgeContext,
+    report: &mut BridgeReport,
+) -> bool {
+    if report.is_rejected() {
+        return true;
+    }
+
+    if matches!(
+        options.loss_policy.response_action(ctx, report),
+        BridgeLossAction::Reject
+    ) {
+        report.reject(format!(
+            "bridge policy rejected response conversion to {}",
+            ctx.target.as_str()
+        ));
+        return true;
+    }
+
+    false
 }
 
 fn transform_chat_response_to_json_bytes(

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Gateway bridge customization now recommends `GatewayBridgePolicy + BridgeOptions + typed bridge
+  hooks` as the primary extension path for Axum SSE/JSON transcoders.
+- Axum SSE transcode helpers now enforce policy-driven keepalive and idle-timeout behavior when
+  configured.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

@@ -2,9 +2,24 @@
 //!
 //! English-only comments in code as requested.
 
+use std::fmt;
+
 use axum::{body::Body, http::header, response::Response};
 
+#[cfg(feature = "anthropic")]
+use siumai::experimental::bridge::bridge_chat_response_to_anthropic_messages_json_bytes_with_options;
+#[cfg(feature = "google")]
+use siumai::experimental::bridge::bridge_chat_response_to_gemini_generate_content_json_bytes_with_options;
+use siumai::experimental::bridge::{BridgeOptions, BridgeReport, BridgeTarget};
+#[cfg(feature = "openai")]
+use siumai::experimental::bridge::{
+    bridge_chat_response_to_openai_chat_completions_json_bytes_with_options,
+    bridge_chat_response_to_openai_responses_json_bytes_with_options,
+};
+use siumai::experimental::encoding::JsonEncodeOptions;
 use siumai::prelude::unified::{ChatResponse, LlmError};
+
+use crate::server::GatewayBridgePolicy;
 
 /// Target JSON wire format for non-streaming response transcoding helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -20,10 +35,38 @@ pub enum TargetJsonFormat {
 }
 
 /// Options for transcoding a `ChatResponse` into a provider JSON response body.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct TranscodeJsonOptions {
     /// Whether to pretty-print the JSON output.
     pub pretty: bool,
+    /// Optional bridge customization applied before target JSON serialization.
+    pub bridge_options: Option<BridgeOptions>,
+    /// Optional gateway bridge policy applied by the helper.
+    pub policy: Option<GatewayBridgePolicy>,
+}
+
+impl fmt::Debug for TranscodeJsonOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TranscodeJsonOptions")
+            .field("pretty", &self.pretty)
+            .field("has_bridge_options", &self.bridge_options.is_some())
+            .field("has_policy", &self.policy.is_some())
+            .finish()
+    }
+}
+
+impl TranscodeJsonOptions {
+    /// Attach bridge customization options to the JSON transcode helper.
+    pub fn with_bridge_options(mut self, bridge_options: BridgeOptions) -> Self {
+        self.bridge_options = Some(bridge_options);
+        self
+    }
+
+    /// Attach a gateway bridge policy to the JSON transcode helper.
+    pub fn with_policy(mut self, policy: GatewayBridgePolicy) -> Self {
+        self.policy = Some(policy);
+        self
+    }
 }
 
 /// Convert a unified `ChatResponse` into a provider-native JSON response body (best-effort).
@@ -34,82 +77,15 @@ pub fn transcode_chat_response_to_json(
     response: &ChatResponse,
     target: TargetJsonFormat,
 ) -> serde_json::Value {
-    use siumai::experimental::encoding::JsonEncodeOptions;
-
-    let bytes: Result<Vec<u8>, LlmError> = match target {
-        TargetJsonFormat::OpenAiResponses => {
-            #[cfg(feature = "openai")]
-            {
-                use siumai::protocol::openai::json_response::OpenAiResponsesJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    response,
-                    OpenAiResponsesJsonResponseConverter::new(),
-                    JsonEncodeOptions::default(),
-                )
-            }
-            #[cfg(not(feature = "openai"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "openai feature is disabled".to_string(),
-                ))
-            }
-        }
-        TargetJsonFormat::OpenAiChatCompletions => {
-            #[cfg(feature = "openai")]
-            {
-                use siumai::protocol::openai::json_response::OpenAiChatCompletionsJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    response,
-                    OpenAiChatCompletionsJsonResponseConverter::new(),
-                    JsonEncodeOptions::default(),
-                )
-            }
-            #[cfg(not(feature = "openai"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "openai feature is disabled".to_string(),
-                ))
-            }
-        }
-        TargetJsonFormat::AnthropicMessages => {
-            #[cfg(feature = "anthropic")]
-            {
-                use siumai::protocol::anthropic::json_response::AnthropicMessagesJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    response,
-                    AnthropicMessagesJsonResponseConverter::new(),
-                    JsonEncodeOptions::default(),
-                )
-            }
-            #[cfg(not(feature = "anthropic"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "anthropic feature is disabled".to_string(),
-                ))
-            }
-        }
-        TargetJsonFormat::GeminiGenerateContent => {
-            #[cfg(feature = "google")]
-            {
-                use siumai::protocol::gemini::json_response::GeminiGenerateContentJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    response,
-                    GeminiGenerateContentJsonResponseConverter::new(),
-                    JsonEncodeOptions::default(),
-                )
-            }
-            #[cfg(not(feature = "google"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "google feature is disabled".to_string(),
-                ))
-            }
-        }
-    };
+    let bytes =
+        transcode_chat_response_to_json_bytes(response, target, &TranscodeJsonOptions::default());
 
     match bytes {
-        Ok(bytes) => serde_json::from_slice(&bytes)
+        Ok(payload) => serde_json::from_slice(&payload.bytes)
             .unwrap_or_else(|_| serde_json::json!({ "error": "failed to parse encoded json" })),
+        Err(TranscodeJsonError::Rejected(report)) => {
+            serde_json::json!({ "error": "bridge rejected", "report": report })
+        }
         Err(e) => serde_json::json!({ "error": e.user_message() }),
     }
 }
@@ -120,95 +96,51 @@ pub fn to_transcoded_json_response(
     target: TargetJsonFormat,
     opts: TranscodeJsonOptions,
 ) -> Response<Body> {
-    use siumai::experimental::encoding::JsonEncodeOptions;
-
-    let json_opts = JsonEncodeOptions {
-        pretty: opts.pretty,
-    };
-    let bytes: Result<Vec<u8>, LlmError> = match target {
-        TargetJsonFormat::OpenAiResponses => {
-            #[cfg(feature = "openai")]
-            {
-                use siumai::protocol::openai::json_response::OpenAiResponsesJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    &response,
-                    OpenAiResponsesJsonResponseConverter::new(),
-                    json_opts,
-                )
-            }
-            #[cfg(not(feature = "openai"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "openai feature is disabled".to_string(),
-                ))
-            }
-        }
-        TargetJsonFormat::OpenAiChatCompletions => {
-            #[cfg(feature = "openai")]
-            {
-                use siumai::protocol::openai::json_response::OpenAiChatCompletionsJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    &response,
-                    OpenAiChatCompletionsJsonResponseConverter::new(),
-                    json_opts,
-                )
-            }
-            #[cfg(not(feature = "openai"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "openai feature is disabled".to_string(),
-                ))
-            }
-        }
-        TargetJsonFormat::AnthropicMessages => {
-            #[cfg(feature = "anthropic")]
-            {
-                use siumai::protocol::anthropic::json_response::AnthropicMessagesJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    &response,
-                    AnthropicMessagesJsonResponseConverter::new(),
-                    json_opts,
-                )
-            }
-            #[cfg(not(feature = "anthropic"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "anthropic feature is disabled".to_string(),
-                ))
-            }
-        }
-        TargetJsonFormat::GeminiGenerateContent => {
-            #[cfg(feature = "google")]
-            {
-                use siumai::protocol::gemini::json_response::GeminiGenerateContentJsonResponseConverter;
-                siumai::experimental::encoding::encode_chat_response_as_json(
-                    &response,
-                    GeminiGenerateContentJsonResponseConverter::new(),
-                    json_opts,
-                )
-            }
-            #[cfg(not(feature = "google"))]
-            {
-                Err(LlmError::UnsupportedOperation(
-                    "google feature is disabled".to_string(),
-                ))
-            }
-        }
-    };
+    let bytes = transcode_chat_response_to_json_bytes(&response, target, &opts);
+    let policy = opts.policy.clone();
 
     match bytes {
-        Ok(bytes) => {
-            let mut resp = Response::new(Body::from(bytes));
+        Ok(payload) => {
+            let mut resp = Response::new(Body::from(payload.bytes));
             resp.headers_mut().insert(
                 header::CONTENT_TYPE,
                 header::HeaderValue::from_static("application/json"),
             );
+            if let Some(policy) = policy.as_ref() {
+                apply_gateway_policy_headers(
+                    resp.headers_mut(),
+                    policy,
+                    payload.target,
+                    &payload.report,
+                );
+            }
             resp
         }
+        Err(TranscodeJsonError::Rejected(report)) => Response::builder()
+            .status(422)
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::to_vec(&serde_json::json!({
+                    "error": "bridge rejected",
+                    "report": report,
+                }))
+                .unwrap_or_else(|_| b"{\"error\":\"bridge rejected\"}".to_vec()),
+            ))
+            .unwrap_or_else(|_| Response::new(Body::from("internal error"))),
         Err(e) => Response::builder()
             .status(501)
             .header("content-type", "text/plain")
-            .body(Body::from(e.user_message()))
+            .body(Body::from(
+                if policy
+                    .as_ref()
+                    .map(|policy| policy.passthrough_runtime_errors)
+                    .unwrap_or(true)
+                {
+                    e.user_message()
+                } else {
+                    "gateway bridge runtime error".to_string()
+                },
+            ))
             .unwrap_or_else(|_| Response::new(Body::from("internal error"))),
     }
 }
@@ -264,11 +196,214 @@ where
     to_transcoded_json_response(response, target, opts)
 }
 
+#[derive(Debug)]
+enum TranscodeJsonError {
+    Runtime(LlmError),
+    Rejected(siumai::experimental::bridge::BridgeReport),
+}
+
+struct TranscodedJsonPayload {
+    bytes: Vec<u8>,
+    report: BridgeReport,
+    target: BridgeTarget,
+}
+
+impl TranscodeJsonError {
+    fn user_message(&self) -> String {
+        match self {
+            Self::Runtime(error) => error.user_message().to_string(),
+            Self::Rejected(_) => "bridge rejected".to_string(),
+        }
+    }
+}
+
+impl From<LlmError> for TranscodeJsonError {
+    fn from(value: LlmError) -> Self {
+        Self::Runtime(value)
+    }
+}
+
+fn transcode_chat_response_to_json_bytes(
+    response: &ChatResponse,
+    target: TargetJsonFormat,
+    opts: &TranscodeJsonOptions,
+) -> Result<TranscodedJsonPayload, TranscodeJsonError> {
+    let bridge_options = opts
+        .policy
+        .as_ref()
+        .map(|policy| policy.resolve_bridge_options(opts.bridge_options.as_ref()))
+        .or_else(|| opts.bridge_options.clone())
+        .unwrap_or_default();
+    let json_opts = JsonEncodeOptions {
+        pretty: opts.pretty,
+    };
+    let bridge_target = bridge_target_for_json(target);
+    let bridged = match target {
+        TargetJsonFormat::OpenAiResponses => {
+            #[cfg(feature = "openai")]
+            {
+                bridge_chat_response_to_openai_responses_json_bytes_with_options(
+                    response,
+                    None,
+                    bridge_options,
+                    json_opts,
+                )
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "openai feature is disabled".to_string(),
+                ))
+            }
+        }
+        TargetJsonFormat::OpenAiChatCompletions => {
+            #[cfg(feature = "openai")]
+            {
+                bridge_chat_response_to_openai_chat_completions_json_bytes_with_options(
+                    response,
+                    None,
+                    bridge_options,
+                    json_opts,
+                )
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "openai feature is disabled".to_string(),
+                ))
+            }
+        }
+        TargetJsonFormat::AnthropicMessages => {
+            #[cfg(feature = "anthropic")]
+            {
+                bridge_chat_response_to_anthropic_messages_json_bytes_with_options(
+                    response,
+                    None,
+                    bridge_options,
+                    json_opts,
+                )
+            }
+            #[cfg(not(feature = "anthropic"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "anthropic feature is disabled".to_string(),
+                ))
+            }
+        }
+        TargetJsonFormat::GeminiGenerateContent => {
+            #[cfg(feature = "google")]
+            {
+                bridge_chat_response_to_gemini_generate_content_json_bytes_with_options(
+                    response,
+                    None,
+                    bridge_options,
+                    json_opts,
+                )
+            }
+            #[cfg(not(feature = "google"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "google feature is disabled".to_string(),
+                ))
+            }
+        }
+    }
+    .map_err(TranscodeJsonError::Runtime)?;
+
+    match bridged.into_parts() {
+        (Some(bytes), report) => Ok(TranscodedJsonPayload {
+            bytes,
+            report,
+            target: bridge_target,
+        }),
+        (None, report) => Err(TranscodeJsonError::Rejected(report)),
+    }
+}
+
+fn bridge_target_for_json(target: TargetJsonFormat) -> BridgeTarget {
+    match target {
+        TargetJsonFormat::OpenAiResponses => BridgeTarget::OpenAiResponses,
+        TargetJsonFormat::OpenAiChatCompletions => BridgeTarget::OpenAiChatCompletions,
+        TargetJsonFormat::AnthropicMessages => BridgeTarget::AnthropicMessages,
+        TargetJsonFormat::GeminiGenerateContent => BridgeTarget::GeminiGenerateContent,
+    }
+}
+
+fn apply_gateway_policy_headers(
+    headers: &mut axum::http::HeaderMap,
+    policy: &GatewayBridgePolicy,
+    target: BridgeTarget,
+    report: &BridgeReport,
+) {
+    if policy.emit_bridge_headers {
+        insert_policy_header(headers, policy, "x-siumai-bridge-target", target.as_str());
+        insert_policy_header(
+            headers,
+            policy,
+            "x-siumai-bridge-mode",
+            match report.mode {
+                siumai::experimental::bridge::BridgeMode::Strict => "strict",
+                siumai::experimental::bridge::BridgeMode::BestEffort => "best-effort",
+                siumai::experimental::bridge::BridgeMode::ProviderTolerant => "provider-tolerant",
+            },
+        );
+        insert_policy_header(
+            headers,
+            policy,
+            "x-siumai-bridge-decision",
+            match report.decision {
+                siumai::experimental::bridge::BridgeDecision::Exact => "exact",
+                siumai::experimental::bridge::BridgeDecision::Lossy => "lossy",
+                siumai::experimental::bridge::BridgeDecision::Rejected => "rejected",
+            },
+        );
+    }
+
+    if policy.emit_bridge_warning_headers {
+        insert_policy_header(
+            headers,
+            policy,
+            "x-siumai-bridge-warnings",
+            &report.warnings.len().to_string(),
+        );
+        insert_policy_header(
+            headers,
+            policy,
+            "x-siumai-bridge-lossy-fields",
+            &report.lossy_fields.len().to_string(),
+        );
+        insert_policy_header(
+            headers,
+            policy,
+            "x-siumai-bridge-dropped-fields",
+            &report.dropped_fields.len().to_string(),
+        );
+    }
+}
+
+fn insert_policy_header(
+    headers: &mut axum::http::HeaderMap,
+    policy: &GatewayBridgePolicy,
+    name: &'static str,
+    value: &str,
+) {
+    if !policy.allows_response_header(name) {
+        return;
+    }
+    if let Ok(value) = axum::http::HeaderValue::from_str(value) {
+        headers.insert(name, value);
+    }
+}
+
 #[cfg(test)]
 mod json_transcode_tests {
     use super::*;
+    use std::sync::Arc;
+
     use serde_json::json;
     use siumai::prelude::unified::{ContentPart, MessageContent};
+
+    use super::super::bridge_hooks::{ClosurePrimitiveRemapper, response_bridge_hook};
 
     #[test]
     #[cfg(feature = "openai")]
@@ -334,5 +469,85 @@ mod json_transcode_tests {
         assert_eq!(v["output"][0]["type"], "message");
         assert_eq!(v["output"][1]["type"], "function_call");
         assert_eq!(v["output"][1]["call_id"], "call_1");
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn openai_chat_completions_json_applies_bridge_primitive_remapper() {
+        let resp = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::text("ok"),
+            ContentPart::tool_call("call_1", "search", json!({"q":"rust"}), None),
+        ]));
+
+        let payload = transcode_chat_response_to_json_bytes(
+            &resp,
+            TargetJsonFormat::OpenAiChatCompletions,
+            &TranscodeJsonOptions::default().with_bridge_options(
+                BridgeOptions::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+                    .with_route_label("tests.axum.json.remap")
+                    .with_primitive_remapper(Arc::new(
+                        ClosurePrimitiveRemapper::default()
+                            .with_tool_name(|_, name| Some(format!("gw_{name}"))),
+                    )),
+            ),
+        )
+        .expect("json bytes");
+
+        let v: serde_json::Value = serde_json::from_slice(&payload.bytes).expect("json value");
+        assert_eq!(
+            v["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+            "gw_search"
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn openai_responses_json_applies_response_bridge_hook() {
+        let resp = ChatResponse::new(MessageContent::Text("original".to_string()));
+
+        let payload = transcode_chat_response_to_json_bytes(
+            &resp,
+            TargetJsonFormat::OpenAiResponses,
+            &TranscodeJsonOptions::default().with_bridge_options(
+                BridgeOptions::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+                    .with_route_label("tests.axum.json.response-hook")
+                    .with_response_hook(response_bridge_hook(|ctx, response, _report| {
+                        assert_eq!(
+                            ctx.target,
+                            siumai::experimental::bridge::BridgeTarget::OpenAiResponses
+                        );
+                        response.content = MessageContent::Text("hooked".to_string());
+                        Ok(())
+                    })),
+            ),
+        )
+        .expect("json bytes");
+
+        let v: serde_json::Value = serde_json::from_slice(&payload.bytes).expect("json value");
+        assert_eq!(v["output"][0]["content"][0]["text"], "hooked");
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn json_gateway_policy_emits_bridge_headers() {
+        let resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
+
+        let response = to_transcoded_json_response(
+            resp,
+            TargetJsonFormat::OpenAiResponses,
+            TranscodeJsonOptions::default().with_policy(
+                GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+                    .with_bridge_headers(true)
+                    .with_bridge_warning_headers(true),
+            ),
+        );
+
+        assert_eq!(
+            response.headers()["x-siumai-bridge-target"],
+            "openai-responses"
+        );
+        assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+        assert_eq!(response.headers()["x-siumai-bridge-decision"], "exact");
+        assert_eq!(response.headers()["x-siumai-bridge-warnings"], "0");
     }
 }

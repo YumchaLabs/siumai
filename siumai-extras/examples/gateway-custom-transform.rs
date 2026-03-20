@@ -1,8 +1,11 @@
 //! Gateway Custom Transform Example
 //!
-//! This example demonstrates how to implement **user-defined conversion logic** for:
-//! - Streaming (SSE): `ChatStreamEvent` transform hook
-//! - Non-streaming (JSON): `ChatResponse` transform hook (preferred, no JSON round-trip)
+//! This example demonstrates the recommended bridge customization surface for gateways:
+//! - `GatewayBridgePolicy` for runtime policy and route defaults
+//! - `BridgeOptions` for typed bridge customization
+//! - `response_bridge_hook(...)` for non-streaming response mutation before serialization
+//! - `stream_bridge_hook(...)` for streaming event mutation before SSE serialization
+//! - `ClosurePrimitiveRemapper` for reusable tool-name / tool-call-id rewrites
 //!
 //! Upstream backend: Gemini.
 //! Downstream surface: OpenAI Responses (SSE + JSON).
@@ -20,12 +23,12 @@
 //! ## Test
 //! ```bash
 //! curl -N "http://127.0.0.1:3000/v1/responses?redact=1"
-//! curl -N "http://127.0.0.1:3000/v1/responses"
+//! curl -N "http://127.0.0.1:3000/v1/responses?tool_prefix=tenant"
 //! curl "http://127.0.0.1:3000/v1/responses.json?redact=1"
-//! curl "http://127.0.0.1:3000/v1/responses.json"
+//! curl "http://127.0.0.1:3000/v1/responses.json?tool_prefix=tenant"
 //! ```
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -34,11 +37,15 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
+use siumai::experimental::bridge::{BridgeMode, BridgeOptions};
 use siumai::prelude::unified::*;
-use siumai_extras::server::axum::{
-    TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions, TranscodeSseOptions,
-    to_transcoded_json_response, to_transcoded_json_response_with_response_transform,
-    to_transcoded_sse_response, to_transcoded_sse_response_with_transform,
+use siumai_extras::server::{
+    GatewayBridgePolicy,
+    axum::{
+        ClosurePrimitiveRemapper, TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions,
+        TranscodeSseOptions, response_bridge_hook, stream_bridge_hook, to_transcoded_json_response,
+        to_transcoded_sse_response,
+    },
 };
 
 #[derive(Clone)]
@@ -54,8 +61,10 @@ struct GatewayQuery {
     lossy: Option<bool>,
     /// Enable OpenAI Responses bridge (tool/source/reasoning v3 parts -> openai:*).
     bridge: Option<bool>,
-    /// Redact output (example of user-defined conversion).
+    /// Redact assistant output through typed bridge hooks.
     redact: Option<bool>,
+    /// Prefix tool names / tool-call ids when the bridge sees tool primitives.
+    tool_prefix: Option<String>,
 }
 
 fn internal_error_response(error: &LlmError) -> Response {
@@ -67,7 +76,55 @@ fn internal_error_response(error: &LlmError) -> Response {
         .unwrap_or_else(|_| Response::new(axum::body::Body::from("internal error")))
 }
 
-fn transcode_opts(q: &GatewayQuery) -> TranscodeSseOptions {
+fn build_bridge_options(q: &GatewayQuery) -> BridgeOptions {
+    let tool_name_prefix = q.tool_prefix.clone().unwrap_or_else(|| "gw".to_string());
+    let tool_call_prefix = tool_name_prefix.clone();
+
+    let mut bridge_options = BridgeOptions::new(BridgeMode::BestEffort)
+        .with_route_label("examples.gateway-custom-transform")
+        .with_primitive_remapper(Arc::new(
+            ClosurePrimitiveRemapper::default()
+                .with_tool_name(move |_, name| Some(format!("{tool_name_prefix}_{name}")))
+                .with_tool_call_id(move |_, id| Some(format!("{tool_call_prefix}_{id}"))),
+        ));
+
+    if q.redact.unwrap_or(false) {
+        bridge_options = bridge_options
+            .with_response_hook(response_bridge_hook(|_, response, report| {
+                response.content = MessageContent::Text("[REDACTED]".to_string());
+                report.record_lossy_field(
+                    "response.content",
+                    "route policy redacted assistant output before target serialization",
+                );
+                Ok(())
+            }))
+            .with_stream_hook(stream_bridge_hook(|_, event| match event {
+                ChatStreamEvent::ContentDelta { index, .. } => {
+                    vec![ChatStreamEvent::ContentDelta {
+                        delta: "[REDACTED]\n".to_string(),
+                        index,
+                    }]
+                }
+                ChatStreamEvent::ThinkingDelta { .. } => vec![ChatStreamEvent::ThinkingDelta {
+                    delta: "[REDACTED]\n".to_string(),
+                }],
+                other => vec![other],
+            }));
+    }
+
+    bridge_options
+}
+
+fn gateway_policy(q: &GatewayQuery) -> GatewayBridgePolicy {
+    GatewayBridgePolicy::new(BridgeMode::BestEffort)
+        .with_bridge_options(build_bridge_options(q))
+        .with_bridge_headers(true)
+        .with_bridge_warning_headers(true)
+        .with_keepalive_interval(Duration::from_secs(15))
+        .with_stream_idle_timeout(Duration::from_secs(60))
+}
+
+fn sse_transcode_opts(q: &GatewayQuery) -> TranscodeSseOptions {
     let mut opts = if q.lossy.unwrap_or(false) {
         TranscodeSseOptions::lossy_text()
     } else {
@@ -76,7 +133,11 @@ fn transcode_opts(q: &GatewayQuery) -> TranscodeSseOptions {
     if let Some(bridge) = q.bridge {
         opts.bridge_openai_responses_stream_parts = bridge;
     }
-    opts
+    opts.with_policy(gateway_policy(q))
+}
+
+fn json_transcode_opts(q: &GatewayQuery) -> TranscodeJsonOptions {
+    TranscodeJsonOptions::default().with_policy(gateway_policy(q))
 }
 
 async fn responses(State(state): State<AppState>, Query(q): Query<GatewayQuery>) -> Response {
@@ -96,22 +157,11 @@ async fn responses(State(state): State<AppState>, Query(q): Query<GatewayQuery>)
         Err(e) => return internal_error_response(&e),
     };
 
-    if q.redact.unwrap_or(false) {
-        return to_transcoded_sse_response_with_transform(
-            stream,
-            TargetSseFormat::OpenAiResponses,
-            transcode_opts(&q),
-            |ev| match ev {
-                ChatStreamEvent::ContentDelta { .. } => vec![ChatStreamEvent::ContentDelta {
-                    delta: "[REDACTED]\n".to_string(),
-                    index: None,
-                }],
-                other => vec![other],
-            },
-        );
-    }
-
-    to_transcoded_sse_response(stream, TargetSseFormat::OpenAiResponses, transcode_opts(&q))
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiResponses,
+        sse_transcode_opts(&q),
+    )
 }
 
 async fn responses_json(State(state): State<AppState>, Query(q): Query<GatewayQuery>) -> Response {
@@ -131,21 +181,10 @@ async fn responses_json(State(state): State<AppState>, Query(q): Query<GatewayQu
         Err(e) => return internal_error_response(&e),
     };
 
-    if q.redact.unwrap_or(false) {
-        return to_transcoded_json_response_with_response_transform(
-            resp,
-            TargetJsonFormat::OpenAiResponses,
-            TranscodeJsonOptions::default(),
-            |r| {
-                r.content = MessageContent::Text("[REDACTED]".to_string());
-            },
-        );
-    }
-
     to_transcoded_json_response(
         resp,
         TargetJsonFormat::OpenAiResponses,
-        TranscodeJsonOptions::default(),
+        json_transcode_opts(&q),
     )
 }
 

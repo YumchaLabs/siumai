@@ -2,8 +2,12 @@
 //!
 //! This module provides utilities for integrating siumai with web frameworks.
 
+mod gateway_policy;
+
 /// Axum-specific server adapters
 pub mod axum;
 
 /// Tool-loop gateway helpers (execute tools in-process while keeping one downstream stream open).
 pub mod tool_loop;
+
+pub use gateway_policy::GatewayBridgePolicy;

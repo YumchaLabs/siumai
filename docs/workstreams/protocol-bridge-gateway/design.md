@@ -19,25 +19,28 @@ Today the workspace already has:
 
 That direction is correct.
 
-The bridge work since this document was first added has confirmed two additional points:
+The bridge work since this document was first added has confirmed three additional points:
 
 - bridge contracts should exist independently from protocol implementations
-- explicit request bridge APIs are required even before pairwise direct bridges land
+- explicit request/response/stream bridge APIs are required instead of route-local glue
+- bridge customization must be bridge-aware, not only "mutate some JSON before send"
 
 The current codebase now already has:
 
 - typed bridge contracts in `siumai-core::bridge`
-- an experimental explicit request bridge facade in `siumai::experimental::bridge`
+- an experimental explicit bridge facade in `siumai::experimental::bridge`
+- a request bridge planner plus direct pair bridge modules
 - initial bridge reporting for lossy fields, dropped fields, and unsupported request semantics
+- gateway helper transforms in `siumai-extras` for JSON and SSE post-processing
 
-The recent Anthropic/OpenAI streaming fixes confirmed the main architectural point: correctness now
-depends on explicit end-of-stream semantics, event typing, loss handling, and protocol-owned state
-machines, not only on "generic chat" request forwarding.
+The recent Anthropic/OpenAI request and response roundtrip fixes confirmed the main architectural
+point: correctness now depends on explicit end-of-stream semantics, event typing, loss handling,
+provider-executed tool preservation, source preservation, and protocol-owned state machines, not
+only on "generic chat" request forwarding.
 
 This workstream is inspired by two external reference lines:
 
-- the Vercel AI SDK style of maintaining a normalized internal stream model and protocol-specific
-  views
+- the Vercel AI SDK style of maintaining a normalized internal model and protocol-specific views
 - `repo-ref/sub2api`, which makes some cross-protocol bridges explicit instead of hiding them
   inside route handlers
 
@@ -45,7 +48,7 @@ We will follow the architectural idea, not copy either implementation literally.
 
 ## Assessment of the current implementation
 
-## What is already correct
+### What is already correct
 
 - The internal normalized model is the right anchor.
   - `ChatRequest`, `ChatResponse`, `ChatStream`, and V3 stream parts are the correct place to
@@ -57,32 +60,62 @@ We will follow the architectural idea, not copy either implementation literally.
 - Provider-specific capabilities should remain opt-in and typed where possible.
   - Prompt caching, reasoning, hosted tools, and provider-owned extensions are already moving in
     the right direction.
+- The hybrid bridge strategy is already proving itself.
+  - The normalized model remains the backbone while a small number of direct pair bridges reduce
+    loss where that cost is justified.
 
-## What is missing
+### What is missing
 
-- There is no explicit "protocol bridge" package or module with a stable contract.
-  - The logic is currently spread across serializers, converter state, and gateway helpers.
-- Request bridging is not modeled as a first-class API.
-  - We can serialize unified responses into other protocols more easily than we can bridge incoming
-    request shapes across protocols in a reusable way.
-- Lossy conversion is not yet a named contract.
-  - Some conversions are exact, some are lossy, and some should be rejected, but that policy is
-    not consistently represented in types.
-- Customization is too narrow.
-  - We already support some response transform hooks, but we do not yet have a unified request,
-    response, and stream bridge hook story.
+- There is no stable bridge customization contract yet.
+  - We can inspect and serialize bridges, but we cannot yet inject bridge-aware user policy
+    through one explicit API.
+- Lossy conversion policy is still mostly mode-driven.
+  - `Strict` vs `BestEffort` exists, but custom rejection/warn/carry policy is not yet a first-
+    class object.
+- Current customization points are adjacent to the bridge, not owned by the bridge.
+  - Existing hooks mostly operate at execution or gateway helper boundaries, which is too late or
+    too untyped for many bridge semantics.
 - Gateway runtime policy is not yet a stable layer.
-  - Timeouts, header allowlists, strict vs best-effort behavior, error passthrough, stream
-    keepalive, and loss reporting should be modeled intentionally instead of living only in route
-    code.
+  - SSE keepalive / idle-timeout handling and bridge response headers now have one explicit home,
+    but request body limits and upstream read limits still need route/runtime-level ownership
+    instead of being treated as transcode-helper concerns.
+
+### Current customization surface today
+
+The repository already exposes several useful hooks, but they are not yet the right long-term
+bridge API.
+
+- Request construction and provider body hooks already exist:
+  - `siumai-core::execution::transformers::request::{RequestTransformer, ProviderRequestHooks}`
+  - `ExecutionPolicy::before_send`
+  - `LanguageModelMiddleware::transform_json_body`
+- Gateway helper transforms already exist:
+  - `to_transcoded_json_response_with_transform(...)`
+  - `to_transcoded_json_response_with_response_transform(...)`
+  - `to_transcoded_sse_response_with_transform(...)`
+- Stream/event middleware already exists:
+  - `LanguageModelMiddleware::on_stream_event`
+  - `LanguageModelMiddleware::on_stream_end`
+  - `LanguageModelMiddleware::on_stream_error`
+
+These hooks are still useful, but they are not sufficient as the primary bridge customization
+story because:
+
+- they do not expose source/target bridge context explicitly
+- they do not compose with `BridgeReport`
+- they do not know whether the planner chose a direct pair bridge or a normalized path
+- many of them operate on already-flattened provider JSON or already-encoded SSE
+- they encourage route-local glue instead of reusable bridge primitives
 
 ## Goals
 
 1. Introduce an explicit bidirectional protocol bridge surface.
 2. Keep the normalized internal model as the semantic source of truth.
 3. Make lossiness explicit, inspectable, and configurable.
-4. Support request, response, and stream customization as first-class hooks.
-5. Add a gateway runtime policy layer suitable for embeddable single-tenant or app-level gateways.
+4. Support request, response, and stream customization as first-class bridge hooks.
+5. Add a gateway runtime policy layer suitable for embeddable single-tenant or app-level
+   gateways.
+6. Let users customize conversion behavior without forking pair bridge modules.
 
 ## Non-goals
 
@@ -92,6 +125,7 @@ We will follow the architectural idea, not copy either implementation literally.
 - Do not pretend all protocol conversions are exact.
 - Do not force all public APIs to become protocol-specific; the normalized family APIs remain the
   recommended application surface.
+- Do not make raw provider JSON patching the default bridge extension mechanism.
 
 ## Design decisions
 
@@ -112,11 +146,13 @@ This keeps provider semantics concentrated in one place and avoids route-specifi
 The work should be split across layers:
 
 - protocol crates own protocol wire models, parsers, serializers, and event state machines
-- `siumai-core` owns bridge contracts, loss reporting types, and protocol-view conversion traits
-- `siumai-extras` owns gateway-ready adapters, route helpers, runtime policy types, and framework
-  integrations
+- `siumai-core` owns bridge contracts, loss reporting types, context types, and policy traits
+- `siumai` owns planner/facade code plus experimental bridge implementations
+- `siumai-extras` owns gateway-ready adapters, route helpers, closure-friendly wrappers, and
+  framework integrations
 
-This keeps the core reusable without forcing Axum or route concerns into the protocol/runtime layer.
+This keeps the core reusable without forcing Axum or route concerns into the protocol/runtime
+layer.
 
 ### D3 - Make bidirectional bridges explicit
 
@@ -190,15 +226,15 @@ Examples:
 - OpenAI hosted tool result details -> Anthropic tool result may be lossy
 - protocol-specific admin fields may be dropped but reported
 
-### D5 - Support customization as a first-class contract
+### D5 - Support customization as a first-class bridge contract
 
-This workstream should explicitly support custom bridge behavior.
+This workstream must explicitly support custom bridge behavior.
 
 Required customization points:
 
 - request pre-bridge transform
 - request post-bridge validation
-- response post-bridge transform
+- response bridge transform before target serialization
 - stream-part transform before target serialization
 - tool name / tool id remapping
 - strictness override per route or per request
@@ -231,6 +267,66 @@ themselves.
 That keeps direct bridges maintainable and prevents every new protocol pair from becoming a new
 copy-paste conversion layer.
 
+### D5b - Use typed bridge policy traits in core, not a mega override hook
+
+The core bridge contract should prefer small, bridge-aware policy traits with typed context.
+
+Recommended shape:
+
+- `BridgeOptions`
+  - mode
+  - optional route label
+  - request/response/stream hook objects
+  - primitive remapper policy
+  - lossy handling policy
+- typed contexts
+  - `RequestBridgeContext`
+  - `ResponseBridgeContext`
+  - `StreamBridgeContext`
+  - `BridgePrimitiveContext`
+- policy traits
+  - `RequestBridgeHook`
+  - `ResponseBridgeHook`
+  - `StreamBridgeHook`
+  - `BridgePrimitiveRemapper`
+  - `BridgeLossPolicy`
+
+This is preferable to a single "override the whole bridge" trait because:
+
+- it stays object-safe and easy to store behind `Arc<dyn ...>`
+- it keeps request/response/stream concerns separate
+- it avoids generic explosion in public APIs
+- it preserves planner and report visibility
+- it remains testable without running a full gateway
+
+### D5c - Closure-friendly wrappers belong in `siumai-extras`
+
+The low-level bridge contracts should be trait/policy based.
+Gateway helpers may provide closure-friendly adapters on top.
+
+Examples:
+
+- build a `BridgeOptions` from a request closure
+- build a `BridgeOptions` from an SSE event mapping closure
+- attach route-local labels or strictness defaults in Axum helpers
+
+This gives end users convenient ergonomics without making the core bridge API depend on ad hoc
+closure types or framework concerns.
+
+### D5d - Raw JSON patching is an escape hatch, not the primary customization model
+
+We should not recommend "just mutate provider JSON" as the main bridge story.
+
+Why:
+
+- it is protocol-specific by definition
+- it usually runs after semantics are already flattened
+- it bypasses bridge reports unless the caller re-implements reporting manually
+- it does not compose well with direct pair bridges or stream state machines
+
+JSON post-processing may still remain available for gateway experiments, debugging, or
+provider-specific one-offs, but it should not be the primary abstraction.
+
 ### D6 - Introduce a gateway runtime policy layer
 
 `siumai-extras` should expose a stable gateway policy object rather than only narrow helper
@@ -246,10 +342,23 @@ The policy layer should cover:
 - protocol strictness defaults
 - bridge warning emission
 - whether lossy conversions fail or continue
-- optional custom per-route hooks
+- optional route-local bridge options
 
 This layer is intentionally smaller than a full control plane.
 It is meant for embeddable gateways inside Rust applications.
+
+Gateway policy must compose bridge customization; it must not invent a second, parallel hook
+system.
+
+Current implementation note:
+
+- Axum SSE transcode helpers now enforce keepalive interval and idle-timeout behavior directly from
+  `GatewayBridgePolicy`
+- Axum JSON/SSE helpers already apply bridge header filtering, warning headers, error passthrough,
+  and default bridge-option composition
+- request body limits and upstream read limits remain route/runtime responsibilities because the
+  current transcode helper boundary does not own downstream request parsing or upstream HTTP body
+  reads
 
 ### D7 - Streaming correctness is part of the bridge contract
 
@@ -303,28 +412,52 @@ modules.
 The exact module names can change, but the shape should look roughly like this:
 
 ```rust
-pub enum BridgeTarget {
-    OpenAiResponses,
-    OpenAiChatCompletions,
-    AnthropicMessages,
-    GeminiGenerateContent,
-}
-
 pub struct BridgeOptions {
     pub mode: BridgeMode,
-    pub report_warnings: bool,
-    pub hooks: BridgeHooks,
+    pub route_label: Option<String>,
+    pub request_hook: Option<Arc<dyn RequestBridgeHook>>,
+    pub response_hook: Option<Arc<dyn ResponseBridgeHook>>,
+    pub stream_hook: Option<Arc<dyn StreamBridgeHook>>,
+    pub primitive_remapper: Option<Arc<dyn BridgePrimitiveRemapper>>,
+    pub loss_policy: Arc<dyn BridgeLossPolicy>,
 }
 
-pub struct BridgeHooks {
-    pub request_transform: Option<...>,
-    pub response_transform: Option<...>,
-    pub stream_transform: Option<...>,
+pub struct RequestBridgeContext {
+    pub source: Option<BridgeTarget>,
+    pub target: BridgeTarget,
+    pub mode: BridgeMode,
+    pub route_label: Option<String>,
+    pub path_label: Option<String>,
 }
 
-pub struct BridgeResult<T> {
-    pub value: T,
-    pub report: BridgeReport,
+pub trait RequestBridgeHook: Send + Sync {
+    fn transform_request(
+        &self,
+        ctx: &RequestBridgeContext,
+        request: &mut ChatRequest,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError>;
+
+    fn validate_json(
+        &self,
+        ctx: &RequestBridgeContext,
+        body: &serde_json::Value,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError>;
+}
+
+pub trait BridgePrimitiveRemapper: Send + Sync {
+    fn remap_tool_name(
+        &self,
+        ctx: &BridgePrimitiveContext,
+        name: &str,
+    ) -> Option<String>;
+
+    fn remap_tool_call_id(
+        &self,
+        ctx: &BridgePrimitiveContext,
+        id: &str,
+    ) -> Option<String>;
 }
 ```
 
@@ -343,7 +476,7 @@ Possible surface split:
 Recommended implementation split:
 
 - `siumai-core::bridge`
-  - bridge contracts and reports only
+  - bridge contracts, reports, contexts, and policy traits
 - `siumai::experimental::bridge`
   - planner and facade entry points
 - `siumai::experimental::bridge::request`
@@ -367,14 +500,14 @@ Recommended internal shape for request bridges:
 
 ## Recommended implementation order
 
-1. Define bridge contracts and loss-reporting types.
+1. Define bridge contracts, typed contexts, and default loss policy.
 2. Refactor request bridge code into planner + primitives + pair modules.
 3. Stabilize explicit normalized request -> target protocol request bridges.
-4. Add the first direct pair bridge: Anthropic Messages <-> OpenAI Responses.
-5. Stabilize non-streaming response bridges.
-6. Stabilize streaming bridges and finalization semantics.
-7. Add gateway runtime policy objects and route helpers.
-8. Expand customization hooks.
+4. Stabilize non-streaming response bridges.
+5. Stabilize streaming bridges and finalization semantics.
+6. Add bridge customization policies and primitive remappers.
+7. Add gateway runtime policy objects and route helpers on top of bridge customization.
+8. Add examples, fixtures, and migration notes.
 
 ## Success criteria
 
@@ -384,4 +517,5 @@ This workstream is successful when:
 - lossy behavior is reported and configurable
 - gateway helpers are built on top of the bridge layer, not vice versa
 - protocol semantics are preserved by protocol-owned state machines
-- custom hooks are supported without patching internal converter code
+- custom hooks are supported through stable typed options instead of patching internal converter code
+- adding one new bridge route does not require writing a new layer of pairwise glue

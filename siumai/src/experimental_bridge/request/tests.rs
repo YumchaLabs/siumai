@@ -1,7 +1,10 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde_json::json;
-use siumai_core::bridge::{BridgeMode, BridgeTarget};
+use siumai_core::bridge::{
+    BridgeMode, BridgeOptions, BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget,
+};
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 
 #[cfg(feature = "anthropic")]
@@ -9,8 +12,17 @@ use super::bridge_chat_request_to_anthropic_messages_json;
 #[cfg(feature = "openai")]
 use super::{
     bridge_chat_request_to_openai_chat_completions_json,
+    bridge_chat_request_to_openai_chat_completions_json_with_options,
     bridge_chat_request_to_openai_responses_json,
 };
+
+struct PrefixRemapper;
+
+impl BridgePrimitiveRemapper for PrefixRemapper {
+    fn remap_tool_name(&self, _ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
+        Some(format!("gw_{name}"))
+    }
+}
 
 #[cfg(feature = "openai")]
 #[test]
@@ -469,4 +481,40 @@ fn anthropic_bridge_reports_cache_breakpoints_beyond_limit() {
         "messages[4].metadata.cache_control"
     );
     assert!(bridged.value.is_some());
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn request_bridge_options_can_remap_tool_names_and_tool_choice() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("hi").build())
+        .tools(vec![siumai_core::types::Tool::function(
+            "weather",
+            "Get weather",
+            json!({
+                "type": "object",
+                "properties": {
+                    "city": { "type": "string" }
+                }
+            }),
+        )])
+        .tool_choice(siumai_core::types::ToolChoice::tool("weather"))
+        .model("gpt-4.1-mini")
+        .build();
+
+    let bridged = bridge_chat_request_to_openai_chat_completions_json_with_options(
+        &request,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.request.remap")
+            .with_primitive_remapper(Arc::new(PrefixRemapper)),
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["tools"][0]["function"]["name"], json!("gw_weather"));
+    assert_eq!(
+        value["tool_choice"]["function"]["name"],
+        json!("gw_weather")
+    );
 }
