@@ -8,12 +8,16 @@ use siumai_core::bridge::{
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 
 #[cfg(feature = "anthropic")]
-use super::bridge_chat_request_to_anthropic_messages_json;
+use super::{
+    bridge_anthropic_messages_json_to_chat_request, bridge_chat_request_to_anthropic_messages_json,
+};
 #[cfg(feature = "openai")]
 use super::{
     bridge_chat_request_to_openai_chat_completions_json,
     bridge_chat_request_to_openai_chat_completions_json_with_options,
     bridge_chat_request_to_openai_responses_json,
+    bridge_openai_chat_completions_json_to_chat_request,
+    bridge_openai_responses_json_to_chat_request,
 };
 
 struct PrefixRemapper;
@@ -517,4 +521,574 @@ fn request_bridge_options_can_remap_tool_names_and_tool_choice() {
         value["tool_choice"]["function"]["name"],
         json!("gw_weather")
     );
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn openai_chat_request_normalization_roundtrip_preserves_tools_and_response_format() {
+    use siumai_core::types::ToolChoice;
+    use siumai_core::types::chat::ResponseFormat;
+
+    let schema = json!({
+        "type": "object",
+        "properties": {
+            "value": { "type": "string" }
+        },
+        "required": ["value"],
+        "additionalProperties": false
+    });
+
+    let request = ChatRequest::builder()
+        .message(ChatMessage::system("sys").build())
+        .message(
+            ChatMessage::user("hello")
+                .with_content_parts(vec![ContentPart::image_url("https://example.com/a.png")])
+                .build(),
+        )
+        .message(
+            ChatMessage::assistant_with_content(vec![
+                ContentPart::text("searching"),
+                ContentPart::tool_call("call_1", "weather", json!({ "city": "Tokyo" }), None),
+            ])
+            .build(),
+        )
+        .message(
+            ChatMessage::tool_result_json("call_1", "weather", json!({ "temperature": 18 }))
+                .build(),
+        )
+        .tools(vec![siumai_core::types::Tool::function(
+            "weather",
+            "Get weather",
+            json!({
+                "type": "object",
+                "properties": {
+                    "city": { "type": "string" }
+                },
+                "required": ["city"]
+            }),
+        )])
+        .tool_choice(ToolChoice::tool("weather"))
+        .response_format(
+            ResponseFormat::json_schema(schema)
+                .with_name("result")
+                .with_description("desc")
+                .with_strict(false),
+        )
+        .model("gpt-4.1-mini")
+        .temperature(0.2)
+        .top_p(0.8)
+        .max_tokens(128)
+        .seed(7)
+        .stream(true)
+        .build();
+
+    let value = bridge_chat_request_to_openai_chat_completions_json(
+        &request,
+        Some(BridgeTarget::OpenAiChatCompletions),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge")
+    .value
+    .expect("json body");
+
+    let normalized = bridge_openai_chat_completions_json_to_chat_request(&value).expect("parse");
+
+    assert_eq!(normalized.common_params.model, "gpt-4.1-mini");
+    assert_eq!(normalized.common_params.temperature, Some(0.2));
+    assert_eq!(normalized.common_params.top_p, Some(0.8));
+    assert_eq!(normalized.common_params.max_tokens, Some(128));
+    assert_eq!(normalized.common_params.seed, Some(7));
+    assert!(normalized.stream);
+    assert_eq!(normalized.tool_choice, Some(ToolChoice::tool("weather")));
+    assert_eq!(normalized.response_format, request.response_format);
+
+    let tools = normalized.tools.expect("tools");
+    assert_eq!(tools.len(), 1);
+    let siumai_core::types::Tool::Function { function } = &tools[0] else {
+        panic!("expected function tool");
+    };
+    assert_eq!(function.name, "weather");
+
+    assert_eq!(normalized.messages.len(), 4);
+    assert_eq!(normalized.messages[0].content_text(), Some("sys"));
+    assert!(normalized.messages[1].content.as_multimodal().is_some());
+    assert_eq!(normalized.messages[2].tool_calls().len(), 1);
+    assert_eq!(normalized.messages[3].tool_results().len(), 1);
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn openai_responses_request_normalization_restores_instructions_and_options() {
+    use siumai_core::types::ToolChoice;
+
+    let value = json!({
+        "model": "gpt-5-mini",
+        "instructions": "follow system",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "hi" }
+                ]
+            },
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [
+                    { "type": "summary_text", "text": "step 1" }
+                ],
+                "encrypted_content": "enc_payload"
+            },
+            {
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "web_search",
+                "arguments": "{\"q\":\"rust\"}"
+            },
+            {
+                "type": "function_call_output",
+                "call_id": "call_1",
+                "output": "{\"ok\":true}"
+            },
+            {
+                "role": "assistant",
+                "id": "msg_1",
+                "content": [
+                    { "type": "output_text", "text": "done" }
+                ]
+            }
+        ],
+        "tools": [
+            {
+                "type": "web_search",
+                "filters": {
+                    "allowed_domains": ["example.com"]
+                }
+            },
+            {
+                "type": "function",
+                "name": "math",
+                "description": "Math",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" }
+                    }
+                },
+                "strict": true
+            }
+        ],
+        "tool_choice": { "type": "web_search" },
+        "parallel_tool_calls": false,
+        "store": false,
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "answer",
+                "strict": true,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    },
+                    "required": ["value"],
+                    "additionalProperties": false
+                }
+            }
+        },
+        "reasoning": {
+            "effort": "high"
+        }
+    });
+
+    let normalized = bridge_openai_responses_json_to_chat_request(&value).expect("parse");
+
+    assert_eq!(normalized.common_params.model, "gpt-5-mini");
+    assert_eq!(normalized.tool_choice, Some(ToolChoice::tool("webSearch")));
+    assert_eq!(
+        normalized.messages[0].role,
+        siumai_core::types::MessageRole::System
+    );
+    assert_eq!(normalized.messages[0].content_text(), Some("follow system"));
+
+    let openai_options = normalized
+        .provider_option("openai")
+        .and_then(|value| value.as_object())
+        .expect("openai options");
+    assert_eq!(openai_options["parallelToolCalls"], json!(false));
+    assert_eq!(openai_options["store"], json!(false));
+    assert_eq!(openai_options["reasoningEffort"], json!("high"));
+
+    let tools = normalized.tools.expect("tools");
+    assert_eq!(tools.len(), 2);
+    let siumai_core::types::Tool::ProviderDefined(provider_tool) = &tools[0] else {
+        panic!("expected provider-defined tool");
+    };
+    assert_eq!(provider_tool.id, "openai.web_search");
+    assert_eq!(provider_tool.name, "webSearch");
+
+    let reasoning_message = &normalized.messages[2];
+    let reasoning_parts = reasoning_message
+        .content
+        .as_multimodal()
+        .expect("reasoning multimodal");
+    let ContentPart::Reasoning {
+        text,
+        provider_metadata,
+    } = &reasoning_parts[0]
+    else {
+        panic!("expected reasoning part");
+    };
+    assert_eq!(text, "step 1");
+    assert_eq!(
+        provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("openai"))
+            .and_then(|meta| meta.get("itemId"))
+            .and_then(|value| value.as_str()),
+        Some("rs_1")
+    );
+
+    assert_eq!(normalized.messages[2].tool_calls().len(), 1);
+    assert_eq!(normalized.messages[3].tool_results().len(), 1);
+    assert_eq!(normalized.messages[4].metadata.id.as_deref(), Some("msg_1"));
+    assert!(normalized.response_format.is_some());
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn openai_responses_request_normalization_restores_provider_tool_calls_and_outputs() {
+    let value = json!({
+        "model": "gpt-5-codex",
+        "input": [
+            {
+                "type": "local_shell_call",
+                "id": "lsh_1",
+                "call_id": "call_shell_1",
+                "action": {
+                    "type": "exec",
+                    "command": ["ls", "-a"]
+                }
+            },
+            {
+                "type": "local_shell_call_output",
+                "call_id": "call_shell_1",
+                "output": [
+                    {
+                        "stdout": "ok",
+                        "stderr": "",
+                        "outcome": { "type": "exit", "exitCode": 0 }
+                    }
+                ]
+            },
+            {
+                "type": "apply_patch_call",
+                "id": "apc_1",
+                "call_id": "call_patch_1",
+                "status": "completed",
+                "operation": {
+                    "type": "update_file",
+                    "path": "src/lib.rs",
+                    "diff": "*** Begin Patch\n*** End Patch\n"
+                }
+            },
+            {
+                "type": "apply_patch_call_output",
+                "call_id": "call_patch_1",
+                "status": "completed",
+                "output": "applied"
+            }
+        ],
+        "tools": [
+            { "type": "local_shell" },
+            { "type": "apply_patch" }
+        ]
+    });
+
+    let normalized = bridge_openai_responses_json_to_chat_request(&value).expect("parse");
+
+    let tools = normalized.tools.as_ref().expect("tools");
+    let siumai_core::types::Tool::ProviderDefined(local_shell) = &tools[0] else {
+        panic!("expected provider-defined local shell tool");
+    };
+    assert_eq!(local_shell.id, "openai.local_shell");
+    assert_eq!(local_shell.name, "shell");
+
+    let siumai_core::types::Tool::ProviderDefined(apply_patch) = &tools[1] else {
+        panic!("expected provider-defined apply patch tool");
+    };
+    assert_eq!(apply_patch.id, "openai.apply_patch");
+    assert_eq!(apply_patch.name, "apply_patch");
+
+    assert_eq!(normalized.messages.len(), 4);
+
+    let shell_call_parts = normalized.messages[0]
+        .content
+        .as_multimodal()
+        .expect("shell call parts");
+    let ContentPart::ToolCall {
+        tool_call_id,
+        tool_name,
+        arguments,
+        provider_metadata,
+        ..
+    } = &shell_call_parts[0]
+    else {
+        panic!("expected shell tool call");
+    };
+    assert_eq!(tool_call_id, "call_shell_1");
+    assert_eq!(tool_name, "shell");
+    assert_eq!(
+        arguments,
+        &json!({
+            "action": {
+                "type": "exec",
+                "command": ["ls", "-a"]
+            }
+        })
+    );
+    assert_eq!(
+        provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("openai"))
+            .and_then(|meta| meta.get("itemId"))
+            .and_then(|value| value.as_str()),
+        Some("lsh_1")
+    );
+
+    let shell_output_parts = normalized.messages[1]
+        .content
+        .as_multimodal()
+        .expect("shell output parts");
+    let ContentPart::ToolResult {
+        tool_call_id,
+        tool_name,
+        output,
+        ..
+    } = &shell_output_parts[0]
+    else {
+        panic!("expected shell tool result");
+    };
+    assert_eq!(tool_call_id, "call_shell_1");
+    assert_eq!(tool_name, "shell");
+    assert_eq!(
+        output,
+        &siumai_core::types::ToolResultOutput::json(json!({
+            "output": [
+                {
+                    "stdout": "ok",
+                    "stderr": "",
+                    "outcome": { "type": "exit", "exitCode": 0 }
+                }
+            ]
+        }))
+    );
+
+    let apply_patch_call_parts = normalized.messages[2]
+        .content
+        .as_multimodal()
+        .expect("apply patch call parts");
+    let ContentPart::ToolCall {
+        tool_call_id,
+        tool_name,
+        arguments,
+        provider_metadata,
+        ..
+    } = &apply_patch_call_parts[0]
+    else {
+        panic!("expected apply patch tool call");
+    };
+    assert_eq!(tool_call_id, "call_patch_1");
+    assert_eq!(tool_name, "apply_patch");
+    assert_eq!(
+        arguments,
+        &json!({
+            "operation": {
+                "type": "update_file",
+                "path": "src/lib.rs",
+                "diff": "*** Begin Patch\n*** End Patch\n"
+            }
+        })
+    );
+    assert_eq!(
+        provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("openai"))
+            .and_then(|meta| meta.get("itemId"))
+            .and_then(|value| value.as_str()),
+        Some("apc_1")
+    );
+
+    let apply_patch_output_parts = normalized.messages[3]
+        .content
+        .as_multimodal()
+        .expect("apply patch output parts");
+    let ContentPart::ToolResult {
+        tool_call_id,
+        tool_name,
+        output,
+        ..
+    } = &apply_patch_output_parts[0]
+    else {
+        panic!("expected apply patch tool result");
+    };
+    assert_eq!(tool_call_id, "call_patch_1");
+    assert_eq!(tool_name, "apply_patch");
+    assert_eq!(
+        output,
+        &siumai_core::types::ToolResultOutput::json(json!({
+            "status": "completed",
+            "output": "applied"
+        }))
+    );
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn anthropic_messages_request_normalization_restores_system_thinking_and_provider_options() {
+    use siumai_core::types::MessageRole;
+    use siumai_core::types::ToolChoice;
+
+    let value = json!({
+        "model": "claude-sonnet-4-5",
+        "system": [
+            {
+                "type": "text",
+                "text": "sys",
+                "cache_control": { "type": "ephemeral" }
+            },
+            {
+                "type": "text",
+                "text": "Developer instructions: dev"
+            }
+        ],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "hi" },
+                    {
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "application/pdf",
+                            "data": "Zm9v"
+                        },
+                        "title": "doc.pdf",
+                        "context": "ctx",
+                        "citations": { "enabled": true }
+                    }
+                ]
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": "call_1",
+                        "content": "{\"done\":true}",
+                        "is_error": false
+                    }
+                ]
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    { "type": "thinking", "thinking": "step", "signature": "sig" },
+                    { "type": "tool_use", "id": "call_1", "name": "weather", "input": { "city": "Tokyo" } },
+                    { "type": "text", "text": "ok" }
+                ]
+            }
+        ],
+        "temperature": 0.2,
+        "top_p": 0.9,
+        "top_k": 8,
+        "max_tokens": 512,
+        "stream": true,
+        "tools": [
+            {
+                "name": "weather",
+                "description": "Get weather",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    }
+                },
+                "strict": true,
+                "defer_loading": true
+            },
+            {
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "allowed_domains": ["example.com"]
+            }
+        ],
+        "tool_choice": {
+            "type": "tool",
+            "name": "weather",
+            "disable_parallel_tool_use": true
+        },
+        "output_format": {
+            "type": "json_schema",
+            "strict": true,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "value": { "type": "string" }
+                }
+            }
+        },
+        "output_config": {
+            "effort": "high"
+        }
+    });
+
+    let normalized = bridge_anthropic_messages_json_to_chat_request(&value).expect("parse");
+
+    assert_eq!(normalized.common_params.model, "claude-sonnet-4-5");
+    assert_eq!(normalized.common_params.temperature, Some(0.2));
+    assert_eq!(normalized.common_params.top_p, Some(0.9));
+    assert_eq!(normalized.common_params.top_k, Some(8.0));
+    assert_eq!(normalized.common_params.max_tokens, Some(512));
+    assert!(normalized.stream);
+    assert_eq!(normalized.tool_choice, Some(ToolChoice::tool("weather")));
+
+    assert_eq!(normalized.messages[0].role, MessageRole::System);
+    assert!(normalized.messages[0].metadata.cache_control.is_some());
+    assert_eq!(normalized.messages[1].role, MessageRole::Developer);
+    assert_eq!(normalized.messages[1].content_text(), Some("dev"));
+    assert_eq!(normalized.messages[3].role, MessageRole::Tool);
+    assert_eq!(normalized.messages[4].role, MessageRole::Assistant);
+    assert_eq!(normalized.messages[4].tool_calls().len(), 1);
+
+    let anthropic_options = normalized
+        .provider_option("anthropic")
+        .and_then(|value| value.as_object())
+        .expect("anthropic options");
+    assert_eq!(anthropic_options["disableParallelToolUse"], json!(true));
+    assert_eq!(
+        anthropic_options["structuredOutputMode"],
+        json!("outputFormat")
+    );
+    assert_eq!(anthropic_options["effort"], json!("high"));
+
+    let tools = normalized.tools.expect("tools");
+    assert_eq!(tools.len(), 2);
+    let siumai_core::types::Tool::Function { function } = &tools[0] else {
+        panic!("expected function tool");
+    };
+    assert_eq!(function.name, "weather");
+    assert_eq!(function.strict, Some(true));
+    assert_eq!(
+        function
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|value| value.get("deferLoading"))
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+
+    assert!(normalized.response_format.is_some());
 }

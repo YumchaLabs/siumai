@@ -34,7 +34,7 @@ pub use stream::{
 
 #[cfg(feature = "anthropic")]
 pub use request::{
-    bridge_chat_request_to_anthropic_messages_json,
+    bridge_anthropic_messages_json_to_chat_request, bridge_chat_request_to_anthropic_messages_json,
     bridge_chat_request_to_anthropic_messages_json_with_options,
 };
 #[cfg(feature = "google")]
@@ -48,6 +48,8 @@ pub use request::{
     bridge_chat_request_to_openai_chat_completions_json_with_options,
     bridge_chat_request_to_openai_responses_json,
     bridge_chat_request_to_openai_responses_json_with_options,
+    bridge_openai_chat_completions_json_to_chat_request,
+    bridge_openai_responses_json_to_chat_request,
 };
 #[cfg(feature = "anthropic")]
 pub use response::{

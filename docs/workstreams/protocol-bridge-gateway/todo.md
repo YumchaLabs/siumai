@@ -80,7 +80,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - planner
   - reusable primitives
   - pair bridge modules
-- [ ] Add explicit protocol-source typed request -> normalized request bridge entry points for:
+- [x] Add explicit protocol-source typed request -> normalized request bridge entry points for:
   - Anthropic Messages -> normalized request
   - OpenAI Responses -> normalized request
   - OpenAI Chat Completions -> normalized request
@@ -141,6 +141,10 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Integrate customization with direct request pair bridges and normalized request bridges
 - [x] Integrate customization with response and stream bridge paths
 - [x] Provide closure-friendly wrappers in `siumai-extras`
+- [x] Decide whether protocol-source -> normalized request normalization needs a typed
+  post-normalize customization hook, or should remain wrapper-composed by callers
+  - decision: remain wrapper-composed by callers for now
+  - do not add a whole-parser override trait unless repeated concrete needs emerge
 - [ ] Do not expose raw provider JSON patching as the default bridge extension story
 
 ## 7) Add gateway runtime policy
@@ -184,6 +188,19 @@ This TODO list is intentionally organized as mergeable tracks.
 ## 9) Validation
 
 - [ ] Add fixture-based bridge tests for request, response, and streaming paths
+  - OpenAI Responses request normalization now has initial fixture coverage for:
+    - exact assistant/tool/provider-tool input cases
+    - best-effort `item_reference` restoration cases
+    - known lossy `function_call_output`-only cases where tool name is not recoverable
+  - OpenAI Chat Completions request normalization now has fixture coverage for:
+    - exact system / assistant tool-call / tool-result / file input restoration cases
+    - best-effort system-message-mode cases
+    - response-format JSON schema restoration
+  - Anthropic Messages request normalization now has fixture coverage for:
+    - base request settings
+    - function tool choice and provider-defined tool restoration
+    - structured output and MCP server options
+    - thinking body/provider option restoration
 - [ ] Add explicit tests for lossy conversions
 - [ ] Add tests for custom hooks and primitive remappers
 - [ ] Add tests for strict vs best-effort behavior

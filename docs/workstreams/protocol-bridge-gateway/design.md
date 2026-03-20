@@ -30,6 +30,10 @@ The current codebase now already has:
 - typed bridge contracts in `siumai-core::bridge`
 - an experimental explicit bridge facade in `siumai::experimental::bridge`
 - a request bridge planner plus direct pair bridge modules
+- explicit protocol-source typed request -> normalized request entry points for Anthropic
+  Messages, OpenAI Responses, and OpenAI Chat Completions
+- fixture-based request normalization coverage for Anthropic Messages, OpenAI Responses, and
+  OpenAI Chat Completions
 - initial bridge reporting for lossy fields, dropped fields, and unsupported request semantics
 - bridge-owned customization through `BridgeOptions`, typed contexts, hook traits, primitive
   remappers, and loss-policy traits
@@ -79,6 +83,12 @@ We will follow the architectural idea, not copy either implementation literally.
 - Lossy conversion policy now has a stable contract, but coverage is still incomplete.
   - The `BridgeLossPolicy` trait exists, but most production behavior is still exercised through
     default mode-driven policies and needs more custom-policy validation.
+- Protocol-source request normalization is now explicit, but not yet bridge-customizable through
+  the same hook surface.
+  - The new typed source request parsers return `ChatRequest` directly.
+  - The remaining design question is whether callers should keep composing a follow-up normalized
+    transform themselves, or whether we should add a typed post-normalize hook without turning
+    parser ownership into another glue layer.
 - Legacy customization points still sit adjacent to the bridge.
   - Existing execution and gateway hooks remain useful escape hatches, but bridge-owned typed hooks
     should become the clearly documented primary extension path.
@@ -126,6 +136,32 @@ story because:
 - they do not know whether the planner chose a direct pair bridge or a normalized path
 - many of them operate on already-flattened provider JSON or already-encoded SSE
 - they encourage route-local glue instead of reusable bridge primitives
+
+### Current recommendation for user-defined conversion
+
+Users should customize at the smallest typed layer that matches their need.
+
+- If the goal is stable cross-bridge naming or ID policy, implement `BridgePrimitiveRemapper`.
+- If the goal is "warn vs reject vs tolerate" on lossy routes, implement `BridgeLossPolicy`.
+- If the goal is to rewrite a normalized request before target serialization, implement
+  `RequestBridgeHook::transform_request`.
+- If the goal is a target-protocol JSON tweak after semantic mapping, use
+  `RequestBridgeHook::transform_json` and `validate_json`.
+- If the goal is response-side filtering or enrichment, implement `ResponseBridgeHook`.
+- If the goal is stream event rewriting, implement `StreamBridgeHook`.
+
+For protocol-source typed request -> normalized request conversion, the current recommendation is:
+
+- keep the source parser explicit and protocol-owned
+- normalize into `ChatRequest` first
+- then compose a follow-up normalized transform in application or gateway code if needed
+
+We should avoid introducing a single "override the whole source parser" trait unless a clear,
+repeated need appears, because that would:
+
+- recreate pairwise glue at the parser boundary
+- hide parser/report semantics behind route-local code
+- make protocol-owned parsing rules harder to test and maintain
 
 ## Goals
 

@@ -38,6 +38,8 @@ Acceptance criteria:
 Current state:
 
 - normalized request -> target protocol JSON APIs exist
+- protocol-source typed request -> normalized request APIs now exist for Anthropic Messages,
+  OpenAI Responses, and OpenAI Chat Completions
 - request bridge reports and strict rejection exist
 - the direct Anthropic Messages <-> OpenAI Responses request bridge exists
 
@@ -116,6 +118,8 @@ Current state:
   now exist in `siumai-core::bridge`
 - experimental request / response / stream bridge entry points now consume bridge customization
   options
+- protocol-source request normalization is now explicit, and its extension story is intentionally
+  wrapper-first instead of exposing a whole-parser override trait
 - `siumai-extras` Axum JSON/SSE transcode helpers now accept bridge customization, and closure-
   friendly adapters exist for response hooks, stream hooks, and primitive remappers
 - remaining work is mainly custom loss-policy coverage, gateway-policy composition, and broader
@@ -165,7 +169,12 @@ Current state:
 
 - `gateway-custom-transform` now demonstrates `GatewayBridgePolicy`, typed response/stream hooks,
   and primitive remappers as the primary customization path
-- remaining work is mainly second-route examples, fixture-based bridge coverage, and stabilization
-  docs
+- request normalization now has fixture-based coverage across the three currently supported source
+  protocols:
+  - OpenAI Responses exact and best-effort lossy restoration
+  - OpenAI Chat Completions exact and best-effort request restoration
+  - Anthropic Messages settings / tools / structured output / MCP / thinking restoration
+- remaining work is mainly second-route examples, response/stream fixture expansion, and
+  stabilization docs
 
 Status: in progress
