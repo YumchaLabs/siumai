@@ -1147,11 +1147,6 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                     }
                 }
 
-                // stream options
-                if req.stream {
-                    body["stream_options"] = serde_json::json!({ "include_usage": true });
-                }
-
                 // temperature
                 if let Some(temp) = req.common_params.temperature {
                     body["temperature"] = serde_json::json!(temp);
@@ -1266,6 +1261,23 @@ mod tests {
         let body = tx.transform_chat(&req).expect("transform chat");
         assert_eq!(body["stream"], true);
         assert_eq!(body["stream_options"]["include_usage"], true);
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_stream_omits_chat_completions_stream_options() {
+        use crate::types::ChatMessage;
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let req = ChatRequest::builder()
+            .message(ChatMessage::user("hi").build())
+            .model("gpt-4.1-mini")
+            .stream(true)
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+        assert_eq!(body["stream"], true);
+        assert!(body.get("stream_options").is_none());
     }
 
     #[test]

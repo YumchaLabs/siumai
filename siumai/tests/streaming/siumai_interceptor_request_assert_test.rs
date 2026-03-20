@@ -99,10 +99,16 @@ async fn siumai_openai_streaming_headers_and_body() {
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     assert!(stream_flag);
-    let include_usage = data.body["stream_options"]["include_usage"]
-        .as_bool()
-        .unwrap_or(false);
-    assert!(include_usage);
+    if data.ctx.url.ends_with("/chat/completions") {
+        let include_usage = data.body["stream_options"]["include_usage"]
+            .as_bool()
+            .unwrap_or(false);
+        assert!(include_usage);
+    } else if data.ctx.url.ends_with("/responses") {
+        assert!(data.body.get("stream_options").is_none());
+    } else {
+        panic!("unexpected OpenAI streaming URL: {}", data.ctx.url);
+    }
 }
 
 #[cfg(feature = "google")]

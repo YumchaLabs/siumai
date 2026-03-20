@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Validation Matrix
 
-Last updated: 2026-03-19
+Last updated: 2026-03-20
 
 ## Purpose
 
@@ -177,6 +177,18 @@ The goal is a layered gate system where **package boundaries, feature boundaries
 examples all have explicit owners**.
 
 ## Recent targeted validations
+
+- `openai-live-smoke-gpt-5.2`
+  - Root-cause fix:
+    - OpenAI native streaming `/responses` requests no longer inject Chat Completions-only `stream_options.include_usage`; live `gpt-5.2` validation surfaced that OpenAI rejects `stream_options.include_usage` on the Responses route.
+  - Package-local regression coverage:
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai-protocol-openai --features openai-responses --quiet`
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai-provider-openai --lib --quiet`
+  - Targeted live smoke:
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test openai_live_smoke_test --features openai -- --ignored --nocapture`
+  - Covered surface:
+    - registry-first `openai:gpt-5.2` non-stream + stream text generation
+    - registry-first `openai:text-embedding-3-small` batch embedding helper
 
 - `embedding-request-aware-bridge`
   - Build matrix pass:

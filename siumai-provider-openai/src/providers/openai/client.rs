@@ -1659,10 +1659,7 @@ mod tests {
 
         let body = captured.lock().unwrap().clone().expect("captured body");
         assert_eq!(body["stream"], serde_json::json!(true));
-        assert_eq!(
-            body["stream_options"],
-            serde_json::json!({ "include_usage": true })
-        );
+        assert!(body.get("stream_options").is_none());
         assert_eq!(body["model"], serde_json::json!("gpt-4.1-mini"));
     }
 

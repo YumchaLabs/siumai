@@ -1456,6 +1456,8 @@ It should wait for the following minimum bar:
 
 - V4-M5 completed
 
+- OpenAI live validation now also closes one real post-refactor compatibility gap instead of relying only on no-network parity: a targeted `gpt-5.2` registry smoke surfaced that streaming `/responses` requests were still carrying Chat Completions-only `stream_options.include_usage`, the Responses transformer now omits that field, package-local regression coverage locks the route-specific contract, and the new ignored `siumai/tests/openai_live_smoke_test.rs` validates non-stream text, stream text, and batch embeddings against real credentials.
+
 
 
 
