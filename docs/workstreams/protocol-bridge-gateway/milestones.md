@@ -84,10 +84,12 @@ Current state:
 
 - explicit stream bridge adapters already exist
 - protocol-owned event converters are already on the serialization path
+- target serializers now preserve finish reasons in terminal protocol frames across Anthropic,
+  OpenAI-compatible, OpenAI Responses, and Gemini stream views
 - clean EOF finalization is now explicit in bridge and Axum SSE serialization paths, and no-network
   tests cover incomplete upstream termination
-- remaining work is strict-mode enforcement, finish-reason fidelity, block ordering validation, and
-  OpenAI final finish chunk consistency
+- remaining work is strict-mode enforcement, block ordering validation, and OpenAI final finish
+  chunk consistency
 
 Status: in progress
 

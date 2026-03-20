@@ -25,6 +25,67 @@ pub(super) fn serialize_event(
         b"data: [DONE]\n\n".to_vec()
     }
 
+    fn openai_finish_reason_str(
+        reason: Option<&crate::types::FinishReason>,
+    ) -> Option<&'static str> {
+        match reason? {
+            crate::types::FinishReason::Stop | crate::types::FinishReason::StopSequence => {
+                Some("stop")
+            }
+            crate::types::FinishReason::Length => Some("length"),
+            crate::types::FinishReason::ToolCalls => Some("tool_calls"),
+            crate::types::FinishReason::ContentFilter => Some("content_filter"),
+            crate::types::FinishReason::Error => Some("error"),
+            crate::types::FinishReason::Unknown | crate::types::FinishReason::Other(_) => None,
+        }
+    }
+
+    fn openai_finish_reason_str_from_candidate(candidate: Option<&str>) -> Option<&'static str> {
+        let normalized = candidate?.trim().to_ascii_lowercase();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        match normalized.as_str() {
+            "stop" | "end_turn" | "end-turn" | "stop_sequence" | "stop-sequence"
+            | "stop_symbol" | "stop-symbol" => Some("stop"),
+            "length" | "max_tokens" | "max_output_tokens" | "max_token" | "max_output_token" => {
+                Some("length")
+            }
+            "tool_calls" | "tool-calls" | "function_call" => Some("tool_calls"),
+            "content_filter" | "content-filter" | "safety" | "refusal" => Some("content_filter"),
+            "error" | "failed" | "failure" => Some("error"),
+            _ if normalized.contains("tool") => Some("tool_calls"),
+            _ if normalized.contains("content")
+                || normalized.contains("filter")
+                || normalized.contains("safety")
+                || normalized.contains("refusal") =>
+            {
+                Some("content_filter")
+            }
+            _ if normalized.contains("length") || normalized.contains("max") => Some("length"),
+            _ if normalized.contains("error") || normalized.contains("fail") => Some("error"),
+            _ => None,
+        }
+    }
+
+    fn openai_finish_reason_str_from_finish_payload(
+        data: &serde_json::Value,
+    ) -> Option<&'static str> {
+        let finish = data.get("finishReason")?;
+        openai_finish_reason_str_from_candidate(finish.get("unified").and_then(|v| v.as_str()))
+            .or_else(|| {
+                openai_finish_reason_str_from_candidate(finish.get("raw").and_then(|v| v.as_str()))
+            })
+    }
+
+    fn openai_response_status(finish_reason: Option<&str>) -> &'static str {
+        match finish_reason {
+            Some("error") => "failed",
+            _ => "completed",
+        }
+    }
+
     fn now_epoch_seconds() -> i64 {
         chrono::Utc::now().timestamp()
     }
@@ -538,6 +599,7 @@ pub(super) fn serialize_event(
                     "total_tokens": u.total_tokens,
                 })
             });
+            let finish_reason = openai_finish_reason_str(response.finish_reason.as_ref());
 
             let payload = serde_json::json!({
                 "type": "response.completed",
@@ -546,10 +608,11 @@ pub(super) fn serialize_event(
                     "id": response_id,
                     "object": "response",
                     "created_at": created_at,
-                    "status": "completed",
+                    "status": openai_response_status(finish_reason),
                     "model": model_id,
                     "output": output,
                     "usage": usage_json.unwrap_or(serde_json::Value::Null),
+                    "finish_reason": finish_reason,
                     "metadata": {},
                 }
             });
@@ -1414,6 +1477,7 @@ pub(super) fn serialize_event(
                             "total_tokens": u.total_tokens,
                         })
                     });
+                    let finish_reason = openai_finish_reason_str_from_finish_payload(data);
 
                     let payload = serde_json::json!({
                         "type": "response.completed",
@@ -1422,10 +1486,11 @@ pub(super) fn serialize_event(
                             "id": response_id,
                             "object": "response",
                             "created_at": created_at,
-                            "status": "completed",
+                            "status": openai_response_status(finish_reason),
                             "model": model_id,
                             "output": output,
                             "usage": usage_json.unwrap_or(serde_json::Value::Null),
+                            "finish_reason": finish_reason,
                             "metadata": {},
                         }
                     });

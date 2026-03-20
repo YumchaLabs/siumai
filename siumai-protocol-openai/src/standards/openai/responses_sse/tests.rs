@@ -519,9 +519,20 @@ fn responses_stream_proxy_serializes_basic_text_deltas() {
         })
         .expect("serialize end");
     let end_frames = parse_sse_frames(&end_bytes);
-    assert!(end_frames.iter().any(|(ev, v)| {
-        ev == "response.completed" && v["type"] == serde_json::json!("response.completed")
-    }));
+    let completed = end_frames
+        .iter()
+        .find(|(ev, _)| ev == "response.completed")
+        .map(|(_, value)| value)
+        .expect("response.completed frame");
+    assert_eq!(completed["type"], serde_json::json!("response.completed"));
+    assert_eq!(
+        completed["response"]["finish_reason"],
+        serde_json::json!("stop")
+    );
+    assert_eq!(
+        completed["response"]["status"],
+        serde_json::json!("completed")
+    );
 }
 
 #[test]
@@ -1370,8 +1381,50 @@ fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
         })
         .expect("serialize finish");
     let frames = parse_sse_frames(&bytes);
-    assert!(frames.iter().any(|(ev, v)| ev == "response.completed"
-        && v["response"]["id"] == serde_json::json!("resp_test")));
+    let completed = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.completed")
+        .map(|(_, value)| value)
+        .expect("response.completed frame");
+    assert_eq!(completed["response"]["id"], serde_json::json!("resp_test"));
+    assert_eq!(
+        completed["response"]["finish_reason"],
+        serde_json::json!("stop")
+    );
+    assert_eq!(
+        completed["response"]["status"],
+        serde_json::json!("completed")
+    );
+}
+
+#[test]
+fn responses_stream_proxy_maps_v3_tool_finish_to_tool_calls_finish_reason() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:finish".to_string(),
+            data: serde_json::json!({
+                "type": "finish",
+                "finishReason": { "raw": null, "unified": "tool-calls" },
+                "usage": {
+                    "inputTokens": { "total": 1, "cacheRead": 0, "cacheWrite": null, "noCache": 1 },
+                    "outputTokens": { "total": 2, "reasoning": 0, "text": 2 },
+                    "raw": null
+                }
+            }),
+        })
+        .expect("serialize finish");
+
+    let completed = parse_sse_frames(&bytes)
+        .into_iter()
+        .find(|(ev, _)| ev == "response.completed")
+        .map(|(_, value)| value)
+        .expect("response.completed frame");
+    assert_eq!(
+        completed["response"]["finish_reason"],
+        serde_json::json!("tool_calls")
+    );
 }
 
 #[test]
@@ -1461,6 +1514,7 @@ fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
             &tx, &completed,
         )
         .expect("transform completed response");
+    assert_eq!(response.finish_reason, Some(FinishReason::Stop));
 
     let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&response)
         .expect("openai metadata");

@@ -120,6 +120,10 @@ async fn openai_responses_stream_bridge_rewrites_anthropic_custom_parts() {
         "expected output_text.delta frame"
     );
     assert!(
+        body.contains("\"finish_reason\":\"stop\""),
+        "expected response.completed finish_reason stop"
+    );
+    assert!(
         body.contains("data: [DONE]"),
         "expected terminal done frame"
     );

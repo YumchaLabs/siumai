@@ -399,10 +399,12 @@ Current implementation note:
 
 - bridge and Axum SSE serialization paths now run an explicit `ensure_stream_end(...)` step before
   target SSE encoding
+- target serializers now preserve terminal finish semantics in protocol-native terminal frames
+  (`finish_reason`, `stop_reason`, or equivalent) instead of only closing the transport
 - synthetic finalization only happens for clean EOF without `StreamEnd`, protocol error events, or
   transport errors
-- synthetic terminal responses currently use `finish_reason = Unknown` until target-specific finish
-  fidelity is completed
+- synthetic terminal responses still use `finish_reason = Unknown` when upstream EOF arrives without
+  any terminal finish signal, by design
 
 ### D8 - Separate planner, pair bridge, and gateway policy
 
