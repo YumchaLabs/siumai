@@ -1,6 +1,6 @@
 //! Stream bridge inspection.
 
-use siumai_core::bridge::{BridgeReport, BridgeTarget, BridgeWarning, BridgeWarningKind};
+use siumai_core::bridge::{BridgeReport, BridgeTarget};
 
 /// Inspect a stream bridge route before the stream is consumed.
 pub fn inspect_chat_stream_bridge(
@@ -11,13 +11,13 @@ pub fn inspect_chat_stream_bridge(
     if let Some(source) = source
         && source != target
     {
-        report.add_warning(BridgeWarning::new(
-            BridgeWarningKind::Custom,
+        report.record_lossy_field(
+            "stream.protocol",
             format!(
                 "stream bridge {} -> {} runs through best-effort event normalization",
                 source.as_str(),
                 target.as_str()
             ),
-        ));
+        );
     }
 }

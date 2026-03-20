@@ -347,3 +347,67 @@ async fn openai_responses_stream_bridge_finalizes_clean_eof_without_stream_end()
     assert!(body.contains("event: response.completed"));
     assert!(body.contains("data: [DONE]"));
 }
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn cross_protocol_stream_bridge_rejects_in_strict_mode() {
+    let stream = stream::iter(vec![Ok(ChatStreamEvent::ContentDelta {
+        delta: "Hello".to_string(),
+        index: None,
+    })]);
+
+    let bridged = bridge_chat_stream_to_anthropic_messages_sse(
+        stream,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::Strict,
+    )
+    .expect("bridge");
+
+    assert!(
+        bridged.is_rejected(),
+        "strict cross-protocol stream should reject"
+    );
+    assert!(bridged.report.is_rejected());
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "stream.protocol")
+    );
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn same_protocol_stream_bridge_allows_strict_mode() {
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("resp_1".to_string()),
+                model: Some("gpt-4.1-mini".to_string()),
+                created: None,
+                provider: "openai".to_string(),
+                request_id: None,
+            },
+        }),
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "Hello".to_string(),
+            index: None,
+        }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_openai_responses_sse(
+        stream,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::Strict,
+    )
+    .expect("bridge");
+
+    assert!(
+        !bridged.is_rejected(),
+        "same-protocol stream should remain allowed in strict mode"
+    );
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+    assert!(body.contains("event: response.completed"));
+    assert!(body.contains("data: [DONE]"));
+}

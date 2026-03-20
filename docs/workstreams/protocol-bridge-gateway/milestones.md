@@ -91,9 +91,14 @@ Current state:
   same behavior end to end
 - clean EOF finalization is now explicit in bridge and Axum SSE serialization paths, and no-network
   tests cover incomplete upstream termination
-- remaining work is strict-mode enforcement and OpenAI final finish chunk consistency
+- OpenAI Chat Completions terminal serialization now uses one shared final-chunk path for both
+  V3 `finish` parts and `StreamEnd`, and V3 `response-metadata` now seeds the terminal chunk state
+  so bridged final frames keep the upstream response id / model / timestamp
+- stream bridge inspection now records cross-protocol best-effort normalization as a lossy route,
+  so `BridgeMode::Strict` rejects those conversions consistently while same-protocol strict routes
+  still pass
 
-Status: in progress
+Status: completed
 
 ## PBG-M5 - Bridge customization contracts exist
 
