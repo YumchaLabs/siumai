@@ -241,4 +241,7 @@ This TODO list is intentionally organized as mergeable tracks.
 - [ ] Add tests for custom hooks and primitive remappers
 - [ ] Add tests for strict vs best-effort behavior
 - [x] Add tests showing custom loss-policy behavior on request / response / stream bridges
-- [ ] Add gateway smoke coverage for JSON and SSE output paths
+- [x] Add gateway smoke coverage for JSON and SSE output paths
+  - `siumai-extras` Axum integration now has router-level smoke coverage for:
+    - JSON gateway output path
+    - SSE gateway output path

@@ -102,6 +102,7 @@ all = ["schema", "telemetry", "opentelemetry", "server", "mcp"]
 [dev-dependencies]
 tokio.workspace = true
 tokio-test.workspace = true
+tower = "0.5"
 
 [[example]]
 name = "opentelemetry_tracing"
