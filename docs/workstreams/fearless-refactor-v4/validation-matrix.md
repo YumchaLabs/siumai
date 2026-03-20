@@ -192,6 +192,13 @@ examples all have explicit owners**.
   - Validation:
     - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --no-run --quiet`
 
+- `openai-public-path-contract-sweep`
+  - Wider no-network contract sweep:
+    - `cargo nextest run --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --features openai --test provider_public_path_parity_test --test openai_embedding_public_helper_request_parity_test --test streaming_tests`
+  - Result:
+    - 144 tests passed, 1 skipped
+    - covers OpenAI native public-path parity, selected OpenAI-compatible public-path parity enrolled under the `openai` facade feature, embedding helper request preservation, interceptor request assertions, and streaming cancel/retry invariants
+
 - `openai-live-smoke-gpt-5.2`
   - Root-cause fix:
     - OpenAI native streaming `/responses` requests no longer inject Chat Completions-only `stream_options.include_usage`; live `gpt-5.2` validation surfaced that OpenAI rejects `stream_options.include_usage` on the Responses route.
