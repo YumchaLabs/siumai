@@ -1426,6 +1426,8 @@ Notes:
 
 The release should not wait for every provider to be perfectly reshaped internally.
 
+See also: `release-readiness-summary.md`
+
 
 
 It should wait for the following minimum bar:
