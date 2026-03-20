@@ -1557,6 +1557,8 @@ Status legend:
 
   - Fresh contract-sweep evidence now exists for the three main non-OpenAI native lanes too: Anthropic / Google / Vertex passed a combined no-network facade contract run (`provider_public_path_parity_test`, Anthropic fixture alignment, Gemini fixture alignment, Vertex typed metadata, Gemini/Vertex embedding helpers) with 238 tests passed and 0 skipped, so the remaining provider work on those paths is no longer basic contract uncertainty.
 
+  - The remaining secondary native lanes now also have fresh contract-sweep evidence: Groq / xAI / DeepSeek / Ollama passed a combined no-network facade contract run with 275 tests passed and 0 skipped after two root-cause fixes — Ollama raw `providerOptions["ollama"].extra_params` compatibility was restored alongside the canonical flattened shape, and registry embedding handles now prefer provider-owned request-aware embedding extensions for `embed_with_config(...)` before falling back to the family-model path.
+
   - Groq config-first construction now also avoids direct field mutation for HTTP config in parity tests.
 
   - OpenAI public-path parity now also covers typed reasoning options on both Responses and Chat Completions routes, so Stable `response_format` / `tool_choice` plus provider-owned `OpenAiOptions` reasoning settings are guarded across siumai/provider/config-first construction.

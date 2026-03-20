@@ -1408,6 +1408,7 @@ Notes:
 - The `openai,json-repair` cross-feature lane now also guards a concrete semantic invariant: refusal/content-filter structured-output failures still surface the dedicated parse error unless a complete strict JSON value or reserved `json` tool payload already exists, so JSON repair cannot silently convert plain refusal text into a successful result.
 - `pr-facade-guardrails` continues to compile `siumai` examples under `all-providers` and run `public_surface_imports_test`, so the example tree and public export paths remain part of the release gate rather than informal follow-up work.
 - Recent broad sweeps now back that release story with fresh execution evidence instead of only structural gates: OpenAI facade contracts passed with 144 tests passed / 1 skipped, the targeted live `gpt-5.2` smoke verified real `/responses` non-stream + stream plus embedding, and Anthropic / Google / Vertex facade contracts passed with 238 tests passed / 0 skipped.
+- The same validation story now also reaches the remaining first-line secondary provider lanes: Groq / xAI / DeepSeek / Ollama facade contracts passed with 275 tests passed / 0 skipped, and that sweep closed two real stabilization gaps rather than just adding more green bars — legacy nested Ollama `providerOptions.extra_params` payloads now normalize onto the canonical flattened request surface, and registry embedding handles now preserve provider-specific request config on request-aware embedding paths before falling back to the generic family-model route.
 
 
 

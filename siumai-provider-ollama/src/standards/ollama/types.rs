@@ -404,7 +404,7 @@ impl OllamaEmbeddingOptions {
         let existing_value = request.provider_options_map.get("ollama").cloned();
 
         let mut opts = existing_value
-            .and_then(|v| serde_json::from_value::<OllamaOptions>(v).ok())
+            .and_then(crate::provider_options::parse_ollama_options_value)
             .unwrap_or_else(OllamaOptions::new);
         if let Some(keep_alive) = self.keep_alive {
             opts = opts.with_keep_alive(keep_alive);
@@ -459,7 +459,7 @@ impl OllamaEmbeddingRequestExt for crate::types::EmbeddingRequest {
         let existing_value = self.provider_options_map.get("ollama").cloned();
 
         let mut opts = existing_value
-            .and_then(|v| serde_json::from_value::<OllamaOptions>(v).ok())
+            .and_then(crate::provider_options::parse_ollama_options_value)
             .unwrap_or_else(OllamaOptions::new);
         opts = opts.with_param("truncate", serde_json::json!(truncate));
         let value = serde_json::to_value(&opts).unwrap_or(serde_json::Value::Null);
@@ -470,7 +470,7 @@ impl OllamaEmbeddingRequestExt for crate::types::EmbeddingRequest {
         let existing_value = self.provider_options_map.get("ollama").cloned();
 
         let mut opts = existing_value
-            .and_then(|v| serde_json::from_value::<OllamaOptions>(v).ok())
+            .and_then(crate::provider_options::parse_ollama_options_value)
             .unwrap_or_else(OllamaOptions::new);
         opts = opts.with_keep_alive(duration);
         let value = serde_json::to_value(&opts).unwrap_or(serde_json::Value::Null);
@@ -481,7 +481,7 @@ impl OllamaEmbeddingRequestExt for crate::types::EmbeddingRequest {
         let existing_value = self.provider_options_map.get("ollama").cloned();
 
         let mut opts = existing_value
-            .and_then(|v| serde_json::from_value::<OllamaOptions>(v).ok())
+            .and_then(crate::provider_options::parse_ollama_options_value)
             .unwrap_or_else(OllamaOptions::new);
         opts = opts.with_param(key, value);
         let value = serde_json::to_value(&opts).unwrap_or(serde_json::Value::Null);

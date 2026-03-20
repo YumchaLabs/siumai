@@ -6,7 +6,6 @@ use super::params::OllamaParams;
 use super::types::*;
 use crate::error::LlmError;
 use crate::execution::http::headers::HttpHeaderBuilder;
-use crate::provider_options::OllamaOptions;
 use crate::types::{
     ChatMessage, ChatRequest, CommonParams, EmbeddingRequest, EmbeddingResponse, Tool,
 };
@@ -580,7 +579,8 @@ fn apply_common_params_options(
 /// This function merges:
 /// - `ChatRequest.common_params` (temperature/max_tokens/top_p/stop/seed)
 /// - client-level `OllamaParams` (keep_alive/format/think + runtime options)
-/// - per-request `providerOptions["ollama"]` (keep_alive/format + extra_params)
+/// - per-request `providerOptions["ollama"]` (keep_alive/format + flattened vendor params)
+///   - legacy nested `extra_params` payloads are also accepted for compatibility
 pub fn build_chat_request(
     request: &ChatRequest,
     default_params: &OllamaParams,
@@ -705,7 +705,7 @@ pub fn build_chat_request(
     let options_value = request.provider_options_map.get("ollama").cloned();
 
     if let Some(val) = options_value
-        && let Ok(opts) = serde_json::from_value::<OllamaOptions>(val)
+        && let Some(opts) = crate::provider_options::parse_ollama_options_value(val)
     {
         if opts.keep_alive.is_some() {
             keep_alive = opts.keep_alive.clone();
@@ -784,11 +784,12 @@ pub fn build_chat_request(
 /// This function merges:
 /// - `EmbeddingRequest.model` (fallback to `default_model`)
 /// - client-level `OllamaParams.keep_alive` and `OllamaParams.options`
-/// - per-request `providerOptions["ollama"]` (`keep_alive`, plus `extra_params`)
+/// - per-request `providerOptions["ollama"]` (`keep_alive`, plus flattened vendor params)
+///   - legacy nested `extra_params` payloads are also accepted for compatibility
 ///
 /// Notes:
-/// - `truncate` is carried via `providerOptions["ollama"].extra_params["truncate"]`.
-/// - Other `extra_params` are merged into `options`.
+/// - `truncate` is carried via `providerOptions["ollama"]["truncate"]`.
+/// - Other provider-specific params are merged into `options`.
 pub fn build_embedding_request(
     request: &EmbeddingRequest,
     default_model: &str,
@@ -827,7 +828,7 @@ pub fn build_embedding_request(
     let options_value = request.provider_options_map.get("ollama").cloned();
 
     if let Some(val) = options_value
-        && let Ok(opts) = serde_json::from_value::<OllamaOptions>(val)
+        && let Some(opts) = crate::provider_options::parse_ollama_options_value(val)
     {
         if opts.keep_alive.is_some() {
             keep_alive = opts.keep_alive.clone();

@@ -218,6 +218,16 @@ examples all have explicit owners**.
     - 238 tests passed, 0 skipped
     - covers Anthropic public-path parity plus fixture-alignment invariants, Gemini/Google public-path and streaming fixture parity, Vertex typed-metadata boundary coverage, and Gemini/Vertex embedding batch-helper request preservation
 
+- `groq-xai-deepseek-ollama-contract-sweep`
+  - Wider no-network contract sweep:
+    - `cargo nextest run --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --features groq,xai,deepseek,ollama --test provider_public_path_parity_test --test groq_chat_request_fixtures_alignment_test --test groq_http_error_fixtures_alignment_test --test groq_chat_custom_transport_alignment_test --test xai_chat_request_fixtures_alignment_test --test xai_http_error_fixtures_alignment_test --test xai_responses_request_tool_mapping_test --test xai_responses_response_fixtures_alignment_test --test xai_responses_text_stream_alignment_test --test xai_responses_x_search_stream_alignment_test --test xai_responses_web_search_stream_alignment_test --test deepseek_chat_response_alignment_test --test deepseek_chat_stream_alignment_test --test ollama_chat_request_fixtures_alignment_test --test ollama_http_error_fixtures_alignment_test`
+  - Root-cause fixes exercised by the sweep:
+    - Ollama now accepts both the canonical flattened `providerOptions["ollama"]` shape and the historical nested `extra_params` payload on request-side escape hatches, so raw request fixtures and typed request helpers converge on the same final wire body again.
+    - `EmbeddingModelHandle::embed_with_config(...)` now prefers provider-owned request-aware embedding extensions when available before falling back to the family-model path, so registry embedding handles stop dropping request-level provider config on Ollama-style paths while keeping native batch-family execution unchanged.
+  - Result:
+    - 275 tests passed, 0 skipped
+    - covers Groq, xAI, DeepSeek, and Ollama facade public-path parity, fixture alignment, request-tool mapping, typed metadata preservation, streaming reasoning/tool-call invariants, and provider-specific override routing
+
 - `embedding-request-aware-bridge`
   - Build matrix pass:
     - `cargo check --target-dir C:\Temp\siumai-target -p siumai-core --lib --quiet`

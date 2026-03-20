@@ -54,6 +54,28 @@ impl OllamaOptions {
     }
 }
 
+pub(crate) fn parse_ollama_options_value(value: serde_json::Value) -> Option<OllamaOptions> {
+    let mut options = serde_json::from_value::<OllamaOptions>(value).ok()?;
+
+    if let Some(nested_extra_params) = options.extra_params.remove("extra_params") {
+        if let Some(map) = nested_extra_params.as_object() {
+            for (key, value) in map {
+                options
+                    .extra_params
+                    .entry(key.clone())
+                    .or_insert_with(|| value.clone());
+            }
+        } else {
+            options
+                .extra_params
+                .entry("extra_params".to_string())
+                .or_insert(nested_extra_params);
+        }
+    }
+
+    Some(options)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -71,5 +93,29 @@ mod tests {
         assert_eq!(value["think"], serde_json::json!(true));
         assert!(value.get("raw").is_none());
         assert!(value.get("format").is_none());
+    }
+
+    #[test]
+    fn ollama_options_parse_legacy_nested_extra_params() {
+        let value = serde_json::json!({
+            "keep_alive": "1m",
+            "extra_params": {
+                "think": true,
+                "top_k": 40
+            }
+        });
+
+        let parsed = parse_ollama_options_value(value).expect("parse legacy options");
+
+        assert_eq!(parsed.keep_alive.as_deref(), Some("1m"));
+        assert_eq!(
+            parsed.extra_params.get("think"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            parsed.extra_params.get("top_k"),
+            Some(&serde_json::json!(40))
+        );
+        assert!(!parsed.extra_params.contains_key("extra_params"));
     }
 }
