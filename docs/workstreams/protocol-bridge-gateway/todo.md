@@ -133,7 +133,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - tool name remap
   - tool call id remap
   - tool choice remap
-- [ ] Add route-level override for `BridgeMode`
+- [x] Add route-level override for `BridgeMode`
 - [ ] Add lossy field handling policy:
   - reject
   - warn and continue
@@ -204,4 +204,5 @@ This TODO list is intentionally organized as mergeable tracks.
 - [ ] Add explicit tests for lossy conversions
 - [ ] Add tests for custom hooks and primitive remappers
 - [ ] Add tests for strict vs best-effort behavior
+- [x] Add tests showing custom loss-policy behavior on request / response / stream bridges
 - [ ] Add gateway smoke coverage for JSON and SSE output paths

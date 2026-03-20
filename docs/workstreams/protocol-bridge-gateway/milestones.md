@@ -120,10 +120,13 @@ Current state:
   options
 - protocol-source request normalization is now explicit, and its extension story is intentionally
   wrapper-first instead of exposing a whole-parser override trait
+- `BridgeOptionsOverride` and gateway helper mode-override entry points now exist for route-level
+  strictness/customization without rebuilding full bridge options
 - `siumai-extras` Axum JSON/SSE transcode helpers now accept bridge customization, and closure-
   friendly adapters exist for response hooks, stream hooks, and primitive remappers
-- remaining work is mainly custom loss-policy coverage, gateway-policy composition, and broader
-  examples
+- request / response / stream tests now also cover custom loss-policy behavior beyond the default
+  mode-aware policy
+- remaining work is mainly gateway-policy composition and broader examples
 
 Status: in progress
 

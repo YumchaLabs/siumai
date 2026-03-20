@@ -16,7 +16,8 @@ use futures::{Stream, StreamExt};
 use tokio::time::Sleep;
 
 use siumai::experimental::bridge::{
-    BridgeMode, BridgeOptions, BridgeTarget, transform_chat_stream_with_bridge_options,
+    BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeTarget,
+    transform_chat_stream_with_bridge_options,
 };
 use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
 
@@ -50,6 +51,8 @@ pub struct TranscodeSseOptions {
     pub gemini_emit_function_response_tool_results: bool,
     /// Optional bridge customization applied before target SSE serialization.
     pub bridge_options: Option<BridgeOptions>,
+    /// Optional partial bridge override applied on top of route/policy defaults.
+    pub bridge_options_override: Option<BridgeOptionsOverride>,
     /// Optional gateway bridge policy applied by the helper.
     pub policy: Option<GatewayBridgePolicy>,
 }
@@ -70,6 +73,10 @@ impl fmt::Debug for TranscodeSseOptions {
                 &self.gemini_emit_function_response_tool_results,
             )
             .field("has_bridge_options", &self.bridge_options.is_some())
+            .field(
+                "has_bridge_options_override",
+                &self.bridge_options_override.is_some(),
+            )
             .field("has_policy", &self.policy.is_some())
             .finish()
     }
@@ -83,6 +90,7 @@ impl Default for TranscodeSseOptions {
             bridge_openai_responses_stream_parts: true,
             gemini_emit_function_response_tool_results: false,
             bridge_options: None,
+            bridge_options_override: None,
             policy: None,
         }
     }
@@ -106,6 +114,26 @@ impl TranscodeSseOptions {
     /// Attach bridge customization options to the SSE transcode helper.
     pub fn with_bridge_options(mut self, bridge_options: BridgeOptions) -> Self {
         self.bridge_options = Some(bridge_options);
+        self
+    }
+
+    /// Attach a partial bridge override to the SSE transcode helper.
+    pub fn with_bridge_options_override(
+        mut self,
+        bridge_options_override: BridgeOptionsOverride,
+    ) -> Self {
+        self.bridge_options_override = Some(bridge_options_override);
+        self
+    }
+
+    /// Override only the effective bridge mode used by the SSE transcode helper.
+    pub fn with_bridge_mode_override(mut self, mode: BridgeMode) -> Self {
+        let override_options = self
+            .bridge_options_override
+            .take()
+            .unwrap_or_default()
+            .with_mode(mode);
+        self.bridge_options_override = Some(override_options);
         self
     }
 
@@ -347,11 +375,7 @@ fn apply_bridge_stream_options(
     target: TargetSseFormat,
     opts: &TranscodeSseOptions,
 ) -> ChatStream {
-    let bridge_options = opts
-        .policy
-        .as_ref()
-        .map(|policy| policy.resolve_bridge_options(opts.bridge_options.as_ref()))
-        .or_else(|| opts.bridge_options.clone());
+    let bridge_options = resolve_bridge_options(opts);
     let Some(bridge_options) = bridge_options.as_ref() else {
         return stream;
     };
@@ -575,14 +599,29 @@ fn feature_disabled_response(message: &'static str) -> Response<Body> {
 }
 
 fn effective_bridge_mode(opts: &TranscodeSseOptions) -> Option<BridgeMode> {
-    opts.policy
-        .as_ref()
-        .map(|policy| {
-            policy
-                .resolve_bridge_options(opts.bridge_options.as_ref())
-                .mode
-        })
-        .or_else(|| opts.bridge_options.as_ref().map(|options| options.mode))
+    resolve_bridge_options(opts).map(|options| options.mode)
+}
+
+fn resolve_bridge_options(opts: &TranscodeSseOptions) -> Option<BridgeOptions> {
+    let mut effective = match (opts.policy.as_ref(), opts.bridge_options.clone()) {
+        (Some(policy), Some(route_options)) => policy.resolve_bridge_options(Some(&route_options)),
+        (Some(policy), None) => policy.bridge_options.clone(),
+        (None, Some(route_options)) => route_options,
+        (None, None) => {
+            return opts
+                .bridge_options_override
+                .clone()
+                .map(|override_options| {
+                    BridgeOptions::default().merged_with_override(override_options)
+                });
+        }
+    };
+
+    if let Some(override_options) = opts.bridge_options_override.clone() {
+        effective = effective.merged_with_override(override_options);
+    }
+
+    Some(effective)
 }
 
 fn apply_runtime_stream_policy(
@@ -855,6 +894,34 @@ mod transcode_tests {
 
         assert_eq!(resp.headers()["x-siumai-bridge-target"], "openai-responses");
         assert_eq!(resp.headers()["x-siumai-bridge-mode"], "best-effort");
+    }
+
+    #[tokio::test]
+    async fn transcode_sse_route_mode_override_updates_effective_headers() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatResponse, MessageContent};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text("done".to_string())),
+            }),
+        ]));
+
+        let resp = to_transcoded_sse_response(
+            chat_stream,
+            TargetSseFormat::OpenAiResponses,
+            TranscodeSseOptions::default()
+                .with_policy(
+                    GatewayBridgePolicy::new(BridgeMode::BestEffort).with_bridge_headers(true),
+                )
+                .with_bridge_mode_override(BridgeMode::Strict),
+        );
+
+        assert_eq!(resp.headers()["x-siumai-bridge-mode"], "strict");
     }
 
     #[tokio::test]

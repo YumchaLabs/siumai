@@ -103,7 +103,7 @@ The repository now exposes both bridge-owned customization and older adjacent ho
 Recommended primary surface:
 
 - `siumai-core::bridge::{BridgeOptions, RequestBridgeHook, ResponseBridgeHook, StreamBridgeHook}`
-- `siumai-core::bridge::{BridgePrimitiveRemapper, BridgeLossPolicy}`
+- `siumai-core::bridge::{BridgeOptionsOverride, BridgePrimitiveRemapper, BridgeLossPolicy}`
 - typed contexts:
   - `RequestBridgeContext`
   - `ResponseBridgeContext`
@@ -145,6 +145,8 @@ Users should customize at the smallest typed layer that matches their need.
 - If the goal is "warn vs reject vs tolerate" on lossy routes, implement `BridgeLossPolicy`.
 - If the goal is to rewrite a normalized request before target serialization, implement
   `RequestBridgeHook::transform_request`.
+- If the goal is route-local strictness override without rebuilding the whole bridge config, use
+  `BridgeOptionsOverride` or helper-level `with_bridge_mode_override(...)`.
 - If the goal is a target-protocol JSON tweak after semantic mapping, use
   `RequestBridgeHook::transform_json` and `validate_json`.
 - If the goal is response-side filtering or enrichment, implement `ResponseBridgeHook`.

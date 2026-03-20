@@ -556,6 +556,21 @@ pub struct BridgeOptions {
     pub loss_policy: Arc<dyn BridgeLossPolicy>,
 }
 
+/// Partial bridge configuration override.
+///
+/// This is primarily useful for route-level or gateway-level customization where callers want
+/// to override only selected fields, without having to restate the base `BridgeMode`.
+#[derive(Clone, Default)]
+pub struct BridgeOptionsOverride {
+    pub mode: Option<BridgeMode>,
+    pub route_label: Option<String>,
+    pub request_hook: Option<Arc<dyn RequestBridgeHook>>,
+    pub response_hook: Option<Arc<dyn ResponseBridgeHook>>,
+    pub stream_hook: Option<Arc<dyn StreamBridgeHook>>,
+    pub primitive_remapper: Option<Arc<dyn BridgePrimitiveRemapper>>,
+    pub loss_policy: Option<Arc<dyn BridgeLossPolicy>>,
+}
+
 impl Default for BridgeOptions {
     fn default() -> Self {
         Self::new(BridgeMode::default())
@@ -624,6 +639,86 @@ impl BridgeOptions {
         }
         self.loss_policy = overlay.loss_policy;
         self
+    }
+
+    pub fn merged_with_override(mut self, overlay: BridgeOptionsOverride) -> Self {
+        if let Some(mode) = overlay.mode {
+            self.mode = mode;
+        }
+        if overlay.route_label.is_some() {
+            self.route_label = overlay.route_label;
+        }
+        if overlay.request_hook.is_some() {
+            self.request_hook = overlay.request_hook;
+        }
+        if overlay.response_hook.is_some() {
+            self.response_hook = overlay.response_hook;
+        }
+        if overlay.stream_hook.is_some() {
+            self.stream_hook = overlay.stream_hook;
+        }
+        if overlay.primitive_remapper.is_some() {
+            self.primitive_remapper = overlay.primitive_remapper;
+        }
+        if let Some(loss_policy) = overlay.loss_policy {
+            self.loss_policy = loss_policy;
+        }
+        self
+    }
+}
+
+impl BridgeOptionsOverride {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_mode(mut self, mode: BridgeMode) -> Self {
+        self.mode = Some(mode);
+        self
+    }
+
+    pub fn with_route_label(mut self, route_label: impl Into<String>) -> Self {
+        self.route_label = Some(route_label.into());
+        self
+    }
+
+    pub fn with_request_hook(mut self, hook: Arc<dyn RequestBridgeHook>) -> Self {
+        self.request_hook = Some(hook);
+        self
+    }
+
+    pub fn with_response_hook(mut self, hook: Arc<dyn ResponseBridgeHook>) -> Self {
+        self.response_hook = Some(hook);
+        self
+    }
+
+    pub fn with_stream_hook(mut self, hook: Arc<dyn StreamBridgeHook>) -> Self {
+        self.stream_hook = Some(hook);
+        self
+    }
+
+    pub fn with_primitive_remapper(mut self, remapper: Arc<dyn BridgePrimitiveRemapper>) -> Self {
+        self.primitive_remapper = Some(remapper);
+        self
+    }
+
+    pub fn with_loss_policy(mut self, policy: Arc<dyn BridgeLossPolicy>) -> Self {
+        self.loss_policy = Some(policy);
+        self
+    }
+}
+
+impl From<BridgeOptions> for BridgeOptionsOverride {
+    fn from(value: BridgeOptions) -> Self {
+        Self {
+            mode: Some(value.mode),
+            route_label: value.route_label,
+            request_hook: value.request_hook,
+            response_hook: value.response_hook,
+            stream_hook: value.stream_hook,
+            primitive_remapper: value.primitive_remapper,
+            loss_policy: Some(value.loss_policy),
+        }
     }
 }
 
@@ -766,6 +861,26 @@ mod tests {
         let base = BridgeOptions::new(BridgeMode::BestEffort).with_route_label("base");
         let overlay = BridgeOptions::new(BridgeMode::Strict);
         let merged = base.merged_with(overlay);
+
+        assert_eq!(merged.mode, BridgeMode::Strict);
+        assert_eq!(merged.route_label.as_deref(), Some("base"));
+    }
+
+    #[test]
+    fn bridge_options_override_only_replaces_present_fields() {
+        let base = BridgeOptions::new(BridgeMode::Strict).with_route_label("base");
+        let merged =
+            base.merged_with_override(BridgeOptionsOverride::new().with_route_label("route"));
+
+        assert_eq!(merged.mode, BridgeMode::Strict);
+        assert_eq!(merged.route_label.as_deref(), Some("route"));
+    }
+
+    #[test]
+    fn bridge_options_override_can_set_mode_without_rebuilding_full_options() {
+        let base = BridgeOptions::new(BridgeMode::BestEffort).with_route_label("base");
+        let merged =
+            base.merged_with_override(BridgeOptionsOverride::new().with_mode(BridgeMode::Strict));
 
         assert_eq!(merged.mode, BridgeMode::Strict);
         assert_eq!(merged.route_label.as_deref(), Some("base"));

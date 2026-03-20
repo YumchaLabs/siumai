@@ -2,7 +2,7 @@
 
 use std::{fmt, time::Duration};
 
-use siumai::experimental::bridge::{BridgeMode, BridgeOptions};
+use siumai::experimental::bridge::{BridgeMode, BridgeOptions, BridgeOptionsOverride};
 
 /// Stable gateway policy for bridge-backed server adapters.
 #[derive(Clone)]
@@ -79,6 +79,18 @@ impl GatewayBridgePolicy {
     /// Replace the default bridge options used by this policy.
     pub fn with_bridge_options(mut self, bridge_options: BridgeOptions) -> Self {
         self.bridge_options = bridge_options;
+        self
+    }
+
+    /// Partially override the default bridge options used by this policy.
+    pub fn with_bridge_options_override(mut self, override_options: BridgeOptionsOverride) -> Self {
+        self.bridge_options = self.bridge_options.merged_with_override(override_options);
+        self
+    }
+
+    /// Override only the default bridge mode used by this policy.
+    pub fn with_bridge_mode(mut self, mode: BridgeMode) -> Self {
+        self.bridge_options.mode = mode;
         self
     }
 
@@ -164,6 +176,20 @@ impl GatewayBridgePolicy {
         }
     }
 
+    /// Resolve the effective bridge options after overlaying partial route-local overrides.
+    pub fn resolve_bridge_options_override(
+        &self,
+        override_options: Option<&BridgeOptionsOverride>,
+    ) -> BridgeOptions {
+        match override_options {
+            Some(override_options) => self
+                .bridge_options
+                .clone()
+                .merged_with_override(override_options.clone()),
+            None => self.bridge_options.clone(),
+        }
+    }
+
     /// Check whether a gateway-emitted response header is allowed.
     pub fn allows_response_header(&self, name: &str) -> bool {
         let lower = name.to_ascii_lowercase();
@@ -196,6 +222,17 @@ mod tests {
 
         assert_eq!(effective.mode, BridgeMode::Strict);
         assert_eq!(effective.route_label.as_deref(), Some("policy"));
+    }
+
+    #[test]
+    fn resolve_bridge_options_override_keeps_base_mode_when_not_overridden() {
+        let policy = GatewayBridgePolicy::new(BridgeMode::Strict).with_route_label("policy");
+        let effective = policy.resolve_bridge_options_override(Some(
+            &BridgeOptionsOverride::new().with_route_label("route"),
+        ));
+
+        assert_eq!(effective.mode, BridgeMode::Strict);
+        assert_eq!(effective.route_label.as_deref(), Some("route"));
     }
 
     #[test]

@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use serde_json::json;
 use siumai_core::bridge::{
-    BridgeMode, BridgeOptions, BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget,
+    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
+    BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext, ResponseBridgeContext,
+    StreamBridgeContext,
 };
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 
@@ -25,6 +27,46 @@ struct PrefixRemapper;
 impl BridgePrimitiveRemapper for PrefixRemapper {
     fn remap_tool_name(&self, _ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
         Some(format!("gw_{name}"))
+    }
+}
+
+struct RejectLossyPolicy;
+
+impl BridgeLossPolicy for RejectLossyPolicy {
+    fn request_action(
+        &self,
+        _ctx: &RequestBridgeContext,
+        report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        if report.is_lossy() || report.is_rejected() {
+            BridgeLossAction::Reject
+        } else {
+            BridgeLossAction::Continue
+        }
+    }
+
+    fn response_action(
+        &self,
+        _ctx: &ResponseBridgeContext,
+        report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        if report.is_lossy() || report.is_rejected() {
+            BridgeLossAction::Reject
+        } else {
+            BridgeLossAction::Continue
+        }
+    }
+
+    fn stream_action(
+        &self,
+        _ctx: &StreamBridgeContext,
+        report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        if report.is_lossy() || report.is_rejected() {
+            BridgeLossAction::Reject
+        } else {
+            BridgeLossAction::Continue
+        }
     }
 }
 
@@ -50,6 +92,35 @@ fn strict_openai_chat_bridge_rejects_reasoning_loss() {
     assert!(bridged.is_rejected());
     assert!(bridged.report.is_rejected());
     assert_eq!(bridged.report.lossy_fields.len(), 1);
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn custom_request_loss_policy_can_reject_lossy_bridge_in_best_effort_mode() {
+    let mut request = ChatRequest::new(vec![
+        ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("step by step"),
+            ContentPart::text("final answer"),
+        ])
+        .build(),
+    ]);
+    request.common_params.model = "gpt-4o-mini".to_string();
+
+    let bridged = bridge_chat_request_to_openai_chat_completions_json_with_options(
+        &request,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort).with_loss_policy(Arc::new(RejectLossyPolicy)),
+    )
+    .expect("bridge");
+
+    assert!(bridged.is_rejected());
+    assert!(bridged.report.is_rejected());
+    assert!(
+        bridged.report.warnings.iter().any(|warning| warning
+            .message
+            .contains("bridge policy rejected request conversion")),
+        "expected custom loss policy rejection"
+    );
 }
 
 #[cfg(feature = "openai")]

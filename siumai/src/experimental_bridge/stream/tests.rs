@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use futures_util::{StreamExt, stream};
 use siumai_core::bridge::{
-    BridgeMode, BridgeOptions, BridgeTarget, StreamBridgeContext, StreamBridgeHook,
+    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgeTarget,
+    RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext, StreamBridgeHook,
 };
 use siumai_core::streaming::ChatByteStream;
 use siumai_core::types::{
@@ -32,6 +33,34 @@ impl StreamBridgeHook for UppercaseStreamHook {
             }],
             other => vec![other],
         }
+    }
+}
+
+struct ContinueLossyPolicy;
+
+impl BridgeLossPolicy for ContinueLossyPolicy {
+    fn request_action(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        BridgeLossAction::Continue
+    }
+
+    fn response_action(
+        &self,
+        _ctx: &ResponseBridgeContext,
+        _report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        BridgeLossAction::Continue
+    }
+
+    fn stream_action(
+        &self,
+        _ctx: &StreamBridgeContext,
+        _report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        BridgeLossAction::Continue
     }
 }
 
@@ -375,6 +404,28 @@ async fn cross_protocol_stream_bridge_rejects_in_strict_mode() {
             .iter()
             .any(|field| field == "stream.protocol")
     );
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn custom_stream_loss_policy_can_allow_cross_protocol_strict_mode() {
+    let stream = stream::iter(vec![Ok(ChatStreamEvent::ContentDelta {
+        delta: "Hello".to_string(),
+        index: None,
+    })]);
+
+    let bridged = super::bridge_chat_stream_to_openai_responses_sse_with_options(
+        stream,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::Strict).with_loss_policy(Arc::new(ContinueLossyPolicy)),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_lossy());
+
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+    assert!(body.contains("event: response.completed"));
 }
 
 #[cfg(feature = "openai")]

@@ -3,7 +3,9 @@ use std::sync::Arc;
 
 use serde_json::json;
 use siumai_core::bridge::{
-    BridgeMode, BridgeOptions, BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget,
+    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
+    BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext, ResponseBridgeContext,
+    StreamBridgeContext,
 };
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
@@ -22,6 +24,34 @@ struct PrefixRemapper;
 impl BridgePrimitiveRemapper for PrefixRemapper {
     fn remap_tool_name(&self, _ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
         Some(format!("gw_{name}"))
+    }
+}
+
+struct ContinueLossyPolicy;
+
+impl BridgeLossPolicy for ContinueLossyPolicy {
+    fn request_action(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        BridgeLossAction::Continue
+    }
+
+    fn response_action(
+        &self,
+        _ctx: &ResponseBridgeContext,
+        _report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        BridgeLossAction::Continue
+    }
+
+    fn stream_action(
+        &self,
+        _ctx: &StreamBridgeContext,
+        _report: &siumai_core::bridge::BridgeReport,
+    ) -> BridgeLossAction {
+        BridgeLossAction::Continue
     }
 }
 
@@ -158,6 +188,43 @@ fn anthropic_response_bridge_reports_usage_and_metadata_loss() {
     assert_eq!(value["usage"]["input_tokens"], json!(10));
     assert_eq!(value["content"][1]["type"], json!("tool_use"));
     assert_eq!(value["content"][1]["id"], json!("call_1"));
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn custom_response_loss_policy_can_allow_lossy_bridge_in_strict_mode() {
+    let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::text("searching"),
+        ContentPart::tool_call("call_1", "web_search", json!({ "q": "rust" }), Some(true)),
+    ]));
+    response.id = Some("msg_1".to_string());
+    response.model = Some("claude-sonnet-4-5".to_string());
+    response.finish_reason = Some(FinishReason::ToolCalls);
+    response.usage = Some(
+        Usage::builder()
+            .prompt_tokens(10)
+            .completion_tokens(5)
+            .total_tokens(15)
+            .with_cached_tokens(3)
+            .with_reasoning_tokens(2)
+            .build(),
+    );
+    response.provider_metadata = Some(HashMap::from([(
+        "openai".to_string(),
+        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+    )]));
+
+    let bridged = super::bridge_chat_response_to_anthropic_messages_json_value_with_options(
+        &response,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeOptions::new(BridgeMode::Strict).with_loss_policy(Arc::new(ContinueLossyPolicy)),
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_lossy());
+    assert!(bridged.value.is_some());
 }
 
 #[cfg(feature = "anthropic")]

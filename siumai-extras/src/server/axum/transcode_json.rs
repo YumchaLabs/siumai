@@ -10,7 +10,9 @@ use axum::{body::Body, http::header, response::Response};
 use siumai::experimental::bridge::bridge_chat_response_to_anthropic_messages_json_bytes_with_options;
 #[cfg(feature = "google")]
 use siumai::experimental::bridge::bridge_chat_response_to_gemini_generate_content_json_bytes_with_options;
-use siumai::experimental::bridge::{BridgeOptions, BridgeReport, BridgeTarget};
+use siumai::experimental::bridge::{
+    BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeReport, BridgeTarget,
+};
 #[cfg(feature = "openai")]
 use siumai::experimental::bridge::{
     bridge_chat_response_to_openai_chat_completions_json_bytes_with_options,
@@ -41,6 +43,8 @@ pub struct TranscodeJsonOptions {
     pub pretty: bool,
     /// Optional bridge customization applied before target JSON serialization.
     pub bridge_options: Option<BridgeOptions>,
+    /// Optional partial bridge override applied on top of route/policy defaults.
+    pub bridge_options_override: Option<BridgeOptionsOverride>,
     /// Optional gateway bridge policy applied by the helper.
     pub policy: Option<GatewayBridgePolicy>,
 }
@@ -50,6 +54,10 @@ impl fmt::Debug for TranscodeJsonOptions {
         f.debug_struct("TranscodeJsonOptions")
             .field("pretty", &self.pretty)
             .field("has_bridge_options", &self.bridge_options.is_some())
+            .field(
+                "has_bridge_options_override",
+                &self.bridge_options_override.is_some(),
+            )
             .field("has_policy", &self.policy.is_some())
             .finish()
     }
@@ -59,6 +67,26 @@ impl TranscodeJsonOptions {
     /// Attach bridge customization options to the JSON transcode helper.
     pub fn with_bridge_options(mut self, bridge_options: BridgeOptions) -> Self {
         self.bridge_options = Some(bridge_options);
+        self
+    }
+
+    /// Attach a partial bridge override to the JSON transcode helper.
+    pub fn with_bridge_options_override(
+        mut self,
+        bridge_options_override: BridgeOptionsOverride,
+    ) -> Self {
+        self.bridge_options_override = Some(bridge_options_override);
+        self
+    }
+
+    /// Override only the effective bridge mode used by the JSON transcode helper.
+    pub fn with_bridge_mode_override(mut self, mode: BridgeMode) -> Self {
+        let override_options = self
+            .bridge_options_override
+            .take()
+            .unwrap_or_default()
+            .with_mode(mode);
+        self.bridge_options_override = Some(override_options);
         self
     }
 
@@ -228,12 +256,7 @@ fn transcode_chat_response_to_json_bytes(
     target: TargetJsonFormat,
     opts: &TranscodeJsonOptions,
 ) -> Result<TranscodedJsonPayload, TranscodeJsonError> {
-    let bridge_options = opts
-        .policy
-        .as_ref()
-        .map(|policy| policy.resolve_bridge_options(opts.bridge_options.as_ref()))
-        .or_else(|| opts.bridge_options.clone())
-        .unwrap_or_default();
+    let bridge_options = resolve_bridge_options(opts);
     let json_opts = JsonEncodeOptions {
         pretty: opts.pretty,
     };
@@ -318,6 +341,21 @@ fn transcode_chat_response_to_json_bytes(
         }),
         (None, report) => Err(TranscodeJsonError::Rejected(report)),
     }
+}
+
+fn resolve_bridge_options(opts: &TranscodeJsonOptions) -> BridgeOptions {
+    let mut effective = match (opts.policy.as_ref(), opts.bridge_options.clone()) {
+        (Some(policy), Some(route_options)) => policy.resolve_bridge_options(Some(&route_options)),
+        (Some(policy), None) => policy.bridge_options.clone(),
+        (None, Some(route_options)) => route_options,
+        (None, None) => BridgeOptions::default(),
+    };
+
+    if let Some(override_options) = opts.bridge_options_override.clone() {
+        effective = effective.merged_with_override(override_options);
+    }
+
+    effective
 }
 
 fn bridge_target_for_json(target: TargetJsonFormat) -> BridgeTarget {
@@ -549,5 +587,23 @@ mod json_transcode_tests {
         assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
         assert_eq!(response.headers()["x-siumai-bridge-decision"], "exact");
         assert_eq!(response.headers()["x-siumai-bridge-warnings"], "0");
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn json_gateway_route_mode_override_updates_effective_headers() {
+        let resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
+
+        let response = to_transcoded_json_response(
+            resp,
+            TargetJsonFormat::OpenAiResponses,
+            TranscodeJsonOptions::default()
+                .with_policy(
+                    GatewayBridgePolicy::new(BridgeMode::BestEffort).with_bridge_headers(true),
+                )
+                .with_bridge_mode_override(BridgeMode::Strict),
+        );
+
+        assert_eq!(response.headers()["x-siumai-bridge-mode"], "strict");
     }
 }

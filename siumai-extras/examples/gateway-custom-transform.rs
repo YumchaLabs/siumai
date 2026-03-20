@@ -37,7 +37,7 @@ use axum::{
     routing::get,
 };
 use serde::Deserialize;
-use siumai::experimental::bridge::{BridgeMode, BridgeOptions};
+use siumai::experimental::bridge::{BridgeMode, BridgeOptionsOverride};
 use siumai::prelude::unified::*;
 use siumai_extras::server::{
     GatewayBridgePolicy,
@@ -76,11 +76,11 @@ fn internal_error_response(error: &LlmError) -> Response {
         .unwrap_or_else(|_| Response::new(axum::body::Body::from("internal error")))
 }
 
-fn build_bridge_options(q: &GatewayQuery) -> BridgeOptions {
+fn build_bridge_options(q: &GatewayQuery) -> BridgeOptionsOverride {
     let tool_name_prefix = q.tool_prefix.clone().unwrap_or_else(|| "gw".to_string());
     let tool_call_prefix = tool_name_prefix.clone();
 
-    let mut bridge_options = BridgeOptions::new(BridgeMode::BestEffort)
+    let mut bridge_options = BridgeOptionsOverride::new()
         .with_route_label("examples.gateway-custom-transform")
         .with_primitive_remapper(Arc::new(
             ClosurePrimitiveRemapper::default()
@@ -117,7 +117,7 @@ fn build_bridge_options(q: &GatewayQuery) -> BridgeOptions {
 
 fn gateway_policy(q: &GatewayQuery) -> GatewayBridgePolicy {
     GatewayBridgePolicy::new(BridgeMode::BestEffort)
-        .with_bridge_options(build_bridge_options(q))
+        .with_bridge_options_override(build_bridge_options(q))
         .with_bridge_headers(true)
         .with_bridge_warning_headers(true)
         .with_keepalive_interval(Duration::from_secs(15))
