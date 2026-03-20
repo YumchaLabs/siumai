@@ -251,6 +251,188 @@ fn anthropic_direct_pair_bridge_maps_tool_result_to_function_call_output() {
     assert_eq!(tool_output["output"], serde_json::json!("done"));
 }
 
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn openai_direct_pair_bridge_lifts_instructions_to_system() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("hi").build())
+        .provider_option(
+            "openai",
+            json!({
+                "responsesApi": {
+                    "instructions": "follow system"
+                }
+            }),
+        )
+        .model("claude-3-5-sonnet-latest")
+        .build();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["system"], serde_json::json!("follow system"));
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn openai_direct_pair_bridge_maps_web_search_choice_and_parallel_policy() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("search rust").build())
+        .tools(vec![crate::tools::openai::web_search().with_args(json!({
+            "filters": {
+                "allowedDomains": ["example.com"]
+            }
+        }))])
+        .tool_choice(siumai_core::types::ToolChoice::tool("web_search"))
+        .provider_option(
+            "openai",
+            json!({
+                "parallelToolCalls": false
+            }),
+        )
+        .model("claude-3-5-sonnet-latest")
+        .build();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    let tools = value
+        .get("tools")
+        .and_then(|value| value.as_array())
+        .expect("anthropic tools array");
+
+    assert_eq!(tools[0]["type"], serde_json::json!("web_search_20250305"));
+    assert_eq!(tools[0]["name"], serde_json::json!("web_search"));
+    assert_eq!(
+        tools[0]["allowed_domains"],
+        serde_json::json!(["example.com"])
+    );
+    assert_eq!(
+        value["tool_choice"],
+        serde_json::json!({
+            "type": "tool",
+            "name": "web_search",
+            "disable_parallel_tool_use": true
+        })
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn openai_direct_pair_bridge_maps_reasoning_encrypted_content_to_redacted_thinking() {
+    let request = ChatRequest::builder()
+        .message(
+            ChatMessage::assistant_with_content(vec![
+                ContentPart::Reasoning {
+                    text: "hidden chain of thought".to_string(),
+                    provider_metadata: Some(HashMap::from([(
+                        "openai".to_string(),
+                        json!({
+                            "itemId": "rs_1",
+                            "reasoningEncryptedContent": "enc_payload"
+                        }),
+                    )])),
+                },
+                ContentPart::text("final answer"),
+            ])
+            .build(),
+        )
+        .model("claude-3-5-sonnet-latest")
+        .build();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    let messages = value
+        .get("messages")
+        .and_then(|value| value.as_array())
+        .expect("anthropic messages array");
+    let content = messages[0]
+        .get("content")
+        .and_then(|value| value.as_array())
+        .expect("assistant content");
+
+    assert!(
+        content.iter().any(|part| {
+            part.get("type")
+                .and_then(|value| value.as_str())
+                .is_some_and(|kind| kind == "redacted_thinking")
+                && part
+                    .get("data")
+                    .and_then(|value| value.as_str())
+                    .is_some_and(|value| value == "enc_payload")
+        }),
+        "expected redacted thinking block"
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn openai_direct_pair_bridge_lifts_response_format_and_reasoning_effort() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("hi").build())
+        .provider_option(
+            "openai",
+            json!({
+                "reasoningEffort": "xhigh",
+                "responsesApi": {
+                    "responseFormat": {
+                        "type": "json_schema",
+                        "name": "result",
+                        "strict": true,
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "value": { "type": "string" }
+                            },
+                            "required": ["value"],
+                            "additionalProperties": false
+                        }
+                    }
+                }
+            }),
+        )
+        .model("claude-sonnet-4-5")
+        .build();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(
+        value["output_format"]["type"],
+        serde_json::json!("json_schema")
+    );
+    assert_eq!(value["output_config"]["effort"], serde_json::json!("high"));
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| { field == "provider_options_map.openai.reasoning_effort" }),
+        "expected lossy effort mapping warning"
+    );
+}
+
 #[cfg(feature = "anthropic")]
 #[test]
 fn anthropic_bridge_reports_cache_breakpoints_beyond_limit() {

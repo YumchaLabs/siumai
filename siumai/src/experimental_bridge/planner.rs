@@ -69,6 +69,19 @@ mod tests {
     }
 
     #[test]
+    fn planner_selects_direct_pair_for_openai_responses_to_anthropic() {
+        let plan = plan_chat_request_bridge(
+            Some(BridgeTarget::OpenAiResponses),
+            BridgeTarget::AnthropicMessages,
+        );
+
+        assert_eq!(
+            plan.path,
+            RequestBridgePath::Direct(DirectRequestBridgePair::OpenAiResponsesToAnthropicMessages,)
+        );
+    }
+
+    #[test]
     fn planner_uses_normalized_path_for_non_direct_target_pair() {
         let plan = plan_chat_request_bridge(
             Some(BridgeTarget::AnthropicMessages),

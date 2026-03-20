@@ -5,6 +5,8 @@
 
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 mod anthropic_messages_to_openai_responses;
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+mod openai_responses_to_anthropic_messages;
 
 use siumai_core::LlmError;
 use siumai_core::bridge::BridgeReport;
@@ -50,6 +52,9 @@ pub const fn direct_request_bridge_pair(
         (BridgeTarget::AnthropicMessages, BridgeTarget::OpenAiResponses) => {
             Some(DirectRequestBridgePair::AnthropicMessagesToOpenAiResponses)
         }
+        (BridgeTarget::OpenAiResponses, BridgeTarget::AnthropicMessages) => {
+            Some(DirectRequestBridgePair::OpenAiResponsesToAnthropicMessages)
+        }
         _ => None,
     }
 }
@@ -77,11 +82,19 @@ pub(crate) fn serialize_direct_request_bridge_pair(
             }
         }
         DirectRequestBridgePair::OpenAiResponsesToAnthropicMessages => {
-            let _ = (request, report);
-            Err(LlmError::UnsupportedOperation(
-                "openai-responses-to-anthropic-messages direct request bridge is not implemented yet"
-                    .to_string(),
-            ))
+            #[cfg(all(feature = "anthropic", feature = "openai"))]
+            {
+                openai_responses_to_anthropic_messages::serialize_openai_responses_to_anthropic_messages(
+                    request, report,
+                )
+            }
+            #[cfg(not(all(feature = "anthropic", feature = "openai")))]
+            {
+                let _ = (request, report);
+                Err(LlmError::UnsupportedOperation(
+                    "anthropic/openai direct bridge requires both features".to_string(),
+                ))
+            }
         }
     }
 }
