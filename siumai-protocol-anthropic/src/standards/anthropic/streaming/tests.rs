@@ -919,9 +919,13 @@ fn serializes_text_stream_events_to_anthropic_sse() {
             },
         })
         .expect("serialize start");
-    let start_frames = parse_sse_json_frames(&start);
+    let start_frames = parse_sse_frames(&start);
     assert_eq!(start_frames.len(), 1);
-    assert_eq!(start_frames[0]["type"], serde_json::json!("message_start"));
+    assert_eq!(start_frames[0].event.as_deref(), Some("message_start"));
+    assert_eq!(
+        start_frames[0].data["type"],
+        serde_json::json!("message_start")
+    );
 
     let delta = converter
         .serialize_event(&ChatStreamEvent::ContentDelta {
@@ -929,16 +933,18 @@ fn serializes_text_stream_events_to_anthropic_sse() {
             index: None,
         })
         .expect("serialize delta");
-    let delta_frames = parse_sse_json_frames(&delta);
+    let delta_frames = parse_sse_frames(&delta);
     assert!(
         delta_frames
             .iter()
-            .any(|v| v["type"] == "content_block_start")
+            .any(|v| v.event.as_deref() == Some("content_block_start")
+                && v.data["type"] == "content_block_start")
     );
     assert!(
         delta_frames
             .iter()
-            .any(|v| v["type"] == "content_block_delta")
+            .any(|v| v.event.as_deref() == Some("content_block_delta")
+                && v.data["type"] == "content_block_delta")
     );
 
     let end = converter
@@ -963,10 +969,16 @@ fn serializes_text_stream_events_to_anthropic_sse() {
             },
         })
         .expect("serialize end");
-    let end_frames = parse_sse_json_frames(&end);
-    assert!(end_frames.iter().any(|v| v["type"] == "content_block_stop"));
-    assert!(end_frames.iter().any(|v| v["type"] == "message_delta"));
-    assert!(end_frames.iter().any(|v| v["type"] == "message_stop"));
+    let end_frames = parse_sse_frames(&end);
+    assert!(end_frames.iter().any(|v| {
+        v.event.as_deref() == Some("content_block_stop") && v.data["type"] == "content_block_stop"
+    }));
+    assert!(end_frames.iter().any(|v| {
+        v.event.as_deref() == Some("message_delta") && v.data["type"] == "message_delta"
+    }));
+    assert!(end_frames.iter().any(|v| {
+        v.event.as_deref() == Some("message_stop") && v.data["type"] == "message_stop"
+    }));
 }
 
 #[test]
@@ -1205,9 +1217,160 @@ fn serializes_blocks_in_order_and_closes_before_message_stop() {
     assert!(
         frames
             .iter()
-            .filter(|f| f.data.get("type").and_then(|v| v.as_str()) != Some("error"))
-            .all(|f| f.event.is_none()),
-        "only error frames should have an SSE event name"
+            .all(|f| { f.event.as_deref() == f.data.get("type").and_then(|v| v.as_str()) }),
+        "expected every frame event name to match payload type"
+    );
+}
+
+#[test]
+fn serializes_repeated_thinking_deltas_with_single_start_and_single_stop() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("msg_thinking".to_string()),
+                    model: Some("claude-test".to_string()),
+                    created: None,
+                    provider: "anthropic".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start"),
+    );
+
+    for delta in ["I ", "am ", "thinking"] {
+        bytes.extend_from_slice(
+            &converter
+                .serialize_event(&ChatStreamEvent::ThinkingDelta {
+                    delta: delta.to_string(),
+                })
+                .expect("serialize thinking delta"),
+        );
+    }
+
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&ChatStreamEvent::StreamEnd {
+                response: ChatResponse {
+                    id: Some("msg_thinking".to_string()),
+                    model: Some("claude-test".to_string()),
+                    content: MessageContent::Text(String::new()),
+                    usage: None,
+                    finish_reason: Some(FinishReason::Stop),
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
+                    provider_metadata: None,
+                },
+            })
+            .expect("serialize end"),
+    );
+
+    let frames = parse_sse_frames(&bytes);
+    let thinking_starts: Vec<&SseFrame> = frames
+        .iter()
+        .filter(|frame| {
+            frame.event.as_deref() == Some("content_block_start")
+                && frame.data["content_block"]["type"] == "thinking"
+        })
+        .collect();
+    assert_eq!(thinking_starts.len(), 1, "expected a single thinking start");
+
+    let thinking_index = thinking_starts[0].data["index"]
+        .as_u64()
+        .expect("thinking index");
+
+    let thinking_deltas: Vec<&SseFrame> = frames
+        .iter()
+        .filter(|frame| {
+            frame.event.as_deref() == Some("content_block_delta")
+                && frame.data["index"].as_u64() == Some(thinking_index)
+                && frame.data["delta"]["type"] == "thinking_delta"
+        })
+        .collect();
+    assert_eq!(thinking_deltas.len(), 3, "expected all thinking deltas");
+
+    let thinking_stops: Vec<&SseFrame> = frames
+        .iter()
+        .filter(|frame| {
+            frame.event.as_deref() == Some("content_block_stop")
+                && frame.data["index"].as_u64() == Some(thinking_index)
+        })
+        .collect();
+    assert_eq!(thinking_stops.len(), 1, "expected a single thinking stop");
+}
+
+#[test]
+fn stream_end_clears_open_block_state_before_next_end() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let _ = converter
+        .serialize_event(&ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("msg_first".to_string()),
+                model: Some("claude-test".to_string()),
+                created: None,
+                provider: "anthropic".to_string(),
+                request_id: None,
+            },
+        })
+        .expect("serialize first start");
+    let _ = converter
+        .serialize_event(&ChatStreamEvent::ContentDelta {
+            delta: "hello".to_string(),
+            index: None,
+        })
+        .expect("serialize first delta");
+    let _ = converter
+        .serialize_event(&ChatStreamEvent::StreamEnd {
+            response: ChatResponse {
+                id: Some("msg_first".to_string()),
+                model: Some("claude-test".to_string()),
+                content: MessageContent::Text("hello".to_string()),
+                usage: None,
+                finish_reason: Some(FinishReason::Stop),
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                warnings: None,
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize first end");
+
+    let second_end = converter
+        .serialize_event(&ChatStreamEvent::StreamEnd {
+            response: ChatResponse {
+                id: Some("msg_second".to_string()),
+                model: Some("claude-test".to_string()),
+                content: MessageContent::Text(String::new()),
+                usage: None,
+                finish_reason: Some(FinishReason::Stop),
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                warnings: None,
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize second end");
+
+    let frames = parse_sse_frames(&second_end);
+    assert!(
+        frames
+            .iter()
+            .all(|frame| frame.event.as_deref() != Some("content_block_stop")),
+        "expected no stale content_block_stop frames after stream reset: {frames:?}"
+    );
+    assert!(
+        frames
+            .iter()
+            .any(|frame| frame.event.as_deref() == Some("message_delta")),
+        "expected the second end to remain serializable"
     );
 }
 

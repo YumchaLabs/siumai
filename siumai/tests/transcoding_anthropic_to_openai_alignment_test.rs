@@ -342,3 +342,90 @@ fn anthropic_mcp_transcodes_to_openai_chat_completions_with_lossy_tool_result_fa
         "expected lossy fallback text for tool-result"
     );
 }
+
+#[test]
+fn anthropic_message_delta_transcodes_to_openai_chat_completions_with_single_stop_finish() {
+    let path = anthropic_fixtures_dir().join("anthropic-message-delta-input-tokens.chunks.txt");
+    assert!(path.exists(), "fixture missing: {:?}", path);
+
+    let lines = read_fixture_lines(&path);
+    assert!(!lines.is_empty(), "fixture empty");
+
+    let upstream = run_anthropic_converter(lines);
+    let bytes = encode_openai_chat_completions(
+        upstream,
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+    );
+
+    let encoded = String::from_utf8_lossy(&bytes);
+    assert_eq!(
+        encoded.matches("\"finish_reason\":\"stop\"").count(),
+        1,
+        "expected exactly one final stop chunk, got: {encoded}"
+    );
+    assert_eq!(
+        encoded.matches("data: [DONE]").count(),
+        1,
+        "expected exactly one DONE marker, got: {encoded}"
+    );
+
+    let downstream = decode_openai_chat_completions(&bytes);
+    let stop_count = downstream
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::StreamEnd { response }
+                    if response.finish_reason == Some(FinishReason::Stop)
+            )
+        })
+        .count();
+    assert_eq!(stop_count, 1, "expected a single downstream stop StreamEnd");
+}
+
+#[test]
+fn anthropic_v3_finish_part_serializes_to_openai_chat_completion_finish_chunk() {
+    let bytes = encode_openai_chat_completions(
+        vec![ChatStreamEvent::Custom {
+            event_type: "anthropic:finish".to_string(),
+            data: serde_json::json!({
+                "type": "finish",
+                "finishReason": {
+                    "unified": "stop",
+                    "raw": "end_turn"
+                },
+                "usage": {
+                    "inputTokens": { "total": 11 },
+                    "outputTokens": { "total": 7 }
+                }
+            }),
+        }],
+        siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
+    );
+
+    let encoded = String::from_utf8_lossy(&bytes);
+    assert!(
+        encoded.contains("\"finish_reason\":\"stop\""),
+        "expected finish_reason stop, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("\"prompt_tokens\":11"),
+        "expected prompt token usage, got: {encoded}"
+    );
+    assert!(
+        encoded.contains("\"completion_tokens\":7"),
+        "expected completion token usage, got: {encoded}"
+    );
+
+    let downstream = decode_openai_chat_completions(&bytes);
+    assert!(
+        downstream.iter().any(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::StreamEnd { response }
+                    if response.finish_reason == Some(FinishReason::Stop)
+            )
+        }),
+        "expected downstream StreamEnd with stop finish reason"
+    );
+}

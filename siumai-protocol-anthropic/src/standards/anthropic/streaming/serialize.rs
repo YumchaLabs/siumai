@@ -4,16 +4,6 @@ pub(super) fn serialize_event(
     this: &AnthropicEventConverter,
     event: &ChatStreamEvent,
 ) -> Result<Vec<u8>, LlmError> {
-    fn sse_data_frame(value: &serde_json::Value) -> Result<Vec<u8>, LlmError> {
-        let data = serde_json::to_vec(value)
-            .map_err(|e| LlmError::JsonError(format!("Failed to serialize SSE JSON: {e}")))?;
-        let mut out = Vec::with_capacity(data.len() + 8);
-        out.extend_from_slice(b"data: ");
-        out.extend_from_slice(&data);
-        out.extend_from_slice(b"\n\n");
-        Ok(out)
-    }
-
     fn sse_event_data_frame(event: &str, value: &serde_json::Value) -> Result<Vec<u8>, LlmError> {
         let data = serde_json::to_vec(value)
             .map_err(|e| LlmError::JsonError(format!("Failed to serialize SSE JSON: {e}")))?;
@@ -25,6 +15,17 @@ pub(super) fn serialize_event(
         out.extend_from_slice(&data);
         out.extend_from_slice(b"\n\n");
         Ok(out)
+    }
+
+    fn sse_typed_frame(value: &serde_json::Value) -> Result<Vec<u8>, LlmError> {
+        let event = value.get("type").and_then(|v| v.as_str()).ok_or_else(|| {
+            LlmError::InternalError("Anthropic SSE payload is missing `type`".to_string())
+        })?;
+        sse_event_data_frame(event, value)
+    }
+
+    fn reset_stream_state(state: &mut AnthropicSerializeState) {
+        *state = AnthropicSerializeState::default();
     }
 
     fn map_stop_reason(reason: &FinishReason) -> Option<&'static str> {
@@ -87,7 +88,7 @@ pub(super) fn serialize_event(
                             "usage": { "input_tokens": 0, "output_tokens": 0 }
                         }
                 });
-                sse_data_frame(&payload)
+                sse_typed_frame(&payload)
             }
             ChatStreamEvent::ContentDelta { delta, .. } => {
                 let mut out = Vec::new();
@@ -109,7 +110,7 @@ pub(super) fn serialize_event(
                         "index": idx,
                         "content_block": { "type": "text", "text": "" }
                     });
-                    out.extend_from_slice(&sse_data_frame(&start)?);
+                    out.extend_from_slice(&sse_typed_frame(&start)?);
                 }
 
                 let delta_payload = serde_json::json!({
@@ -117,7 +118,7 @@ pub(super) fn serialize_event(
                     "index": idx,
                     "delta": { "type": "text_delta", "text": delta }
                 });
-                out.extend_from_slice(&sse_data_frame(&delta_payload)?);
+                out.extend_from_slice(&sse_typed_frame(&delta_payload)?);
                 Ok(out)
             }
             ChatStreamEvent::ThinkingDelta { delta } => {
@@ -139,7 +140,7 @@ pub(super) fn serialize_event(
                         "index": idx,
                         "content_block": { "type": "thinking", "thinking": "" }
                     });
-                    out.extend_from_slice(&sse_data_frame(&start)?);
+                    out.extend_from_slice(&sse_typed_frame(&start)?);
                 }
 
                 let delta_payload = serde_json::json!({
@@ -147,7 +148,7 @@ pub(super) fn serialize_event(
                     "index": idx,
                     "delta": { "type": "thinking_delta", "thinking": delta }
                 });
-                out.extend_from_slice(&sse_data_frame(&delta_payload)?);
+                out.extend_from_slice(&sse_typed_frame(&delta_payload)?);
                 Ok(out)
             }
             ChatStreamEvent::ToolCallDelta {
@@ -180,7 +181,7 @@ pub(super) fn serialize_event(
                             "input": {}
                         }
                     });
-                    out.extend_from_slice(&sse_data_frame(&start)?);
+                    out.extend_from_slice(&sse_typed_frame(&start)?);
                 }
 
                 if let Some(delta) = arguments_delta.clone() {
@@ -189,7 +190,7 @@ pub(super) fn serialize_event(
                         "index": idx,
                         "delta": { "type": "input_json_delta", "partial_json": delta }
                     });
-                    out.extend_from_slice(&sse_data_frame(&delta_payload)?);
+                    out.extend_from_slice(&sse_typed_frame(&delta_payload)?);
                 }
 
                 Ok(out)
@@ -217,7 +218,7 @@ pub(super) fn serialize_event(
                 indices.sort_unstable();
                 for idx in indices {
                     let stop = serde_json::json!({ "type": "content_block_stop", "index": idx });
-                    out.extend_from_slice(&sse_data_frame(&stop)?);
+                    out.extend_from_slice(&sse_typed_frame(&stop)?);
                 }
 
                 let stop_reason = response
@@ -240,10 +241,11 @@ pub(super) fn serialize_event(
                     "delta": { "stop_reason": stop_reason, "stop_sequence": serde_json::Value::Null },
                     "usage": usage_obj
                 });
-                out.extend_from_slice(&sse_data_frame(&msg_delta)?);
+                out.extend_from_slice(&sse_typed_frame(&msg_delta)?);
 
                 let msg_stop = serde_json::json!({ "type": "message_stop" });
-                out.extend_from_slice(&sse_data_frame(&msg_stop)?);
+                out.extend_from_slice(&sse_typed_frame(&msg_stop)?);
+                reset_stream_state(state);
 
                 Ok(out)
             }
@@ -308,7 +310,7 @@ pub(super) fn serialize_event(
                             "usage": { "input_tokens": 0, "output_tokens": 0 }
                         }
                     });
-                    out.extend_from_slice(&sse_data_frame(&payload)?);
+                    out.extend_from_slice(&sse_typed_frame(&payload)?);
                     state.message_start_emitted = true;
                 }
 
@@ -316,12 +318,9 @@ pub(super) fn serialize_event(
                 indices.sort_unstable();
                 for idx in indices {
                     let stop = serde_json::json!({ "type": "content_block_stop", "index": idx });
-                    out.extend_from_slice(&sse_data_frame(&stop)?);
+                    out.extend_from_slice(&sse_typed_frame(&stop)?);
                 }
-                state.started_block_indices.clear();
-                state.text_block_index = None;
-                state.thinking_block_index = None;
-                state.tool_block_index_by_id.clear();
+                reset_stream_state(&mut state);
 
                 let stop_reason = map_v3_finish_reason_unified(&finish_reason.unified)
                     .map(|s| serde_json::Value::String(s.to_string()))
@@ -339,10 +338,10 @@ pub(super) fn serialize_event(
                     "delta": { "stop_reason": stop_reason, "stop_sequence": serde_json::Value::Null },
                     "usage": usage_obj
                 });
-                out.extend_from_slice(&sse_data_frame(&msg_delta)?);
+                out.extend_from_slice(&sse_typed_frame(&msg_delta)?);
 
                 let msg_stop = serde_json::json!({ "type": "message_stop" });
-                out.extend_from_slice(&sse_data_frame(&msg_stop)?);
+                out.extend_from_slice(&sse_typed_frame(&msg_stop)?);
                 return Ok(out);
             }
 

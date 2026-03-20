@@ -103,10 +103,11 @@ async fn applies_model_middlewares_before_mapping() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: http,
-        request_transformer,
-        response_transformer,
+        request_transformer: Some(request_transformer),
+        response_transformer: Some(response_transformer),
         stream_transformer: None,
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new()
             .with_stream_disable_compression(true)
             .with_retry_options(None),
@@ -215,10 +216,11 @@ async fn wrap_stream_async_orders_and_short_circuits() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: http,
-        request_transformer,
-        response_transformer,
+        request_transformer: Some(request_transformer),
+        response_transformer: Some(response_transformer),
         stream_transformer: Some(std::sync::Arc::new(DummyStreamTx)),
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new().with_stream_disable_compression(true),
         middlewares: vec![std::sync::Arc::new(Outer), std::sync::Arc::new(Inner)],
         provider_spec: Arc::new(TestProviderSpec),
@@ -298,10 +300,11 @@ async fn wrap_generate_async_orders_and_short_circuits() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: http,
-        request_transformer,
-        response_transformer,
+        request_transformer: Some(request_transformer),
+        response_transformer: Some(response_transformer),
         stream_transformer: None,
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new().with_stream_disable_compression(true),
         middlewares: vec![Arc::new(Outer), Arc::new(Inner)],
         provider_spec: Arc::new(TestProviderSpec),
@@ -352,10 +355,11 @@ async fn pre_generate_short_circuits_before_http() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: http,
-        request_transformer,
-        response_transformer,
+        request_transformer: Some(request_transformer),
+        response_transformer: Some(response_transformer),
         stream_transformer: None,
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new()
             .with_stream_disable_compression(true)
             .with_before_send(hook),
@@ -418,10 +422,11 @@ async fn pre_stream_short_circuits_before_http() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: http,
-        request_transformer,
-        response_transformer,
+        request_transformer: Some(request_transformer),
+        response_transformer: Some(response_transformer),
         stream_transformer: Some(Arc::new(DummyTx)),
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new().with_stream_disable_compression(true),
         middlewares: vec![Arc::new(PreMwStream)],
         provider_spec: Arc::new(TestProviderSpec),
@@ -509,10 +514,11 @@ async fn applies_provider_spec_chat_before_send_before_policy_hook() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: reqwest::Client::new(),
-        request_transformer: Arc::new(EchoRequestTransformer),
-        response_transformer: Arc::new(NoopResponseTransformer),
+        request_transformer: Some(Arc::new(EchoRequestTransformer)),
+        response_transformer: Some(Arc::new(NoopResponseTransformer)),
         stream_transformer: None,
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new()
             .with_stream_disable_compression(true)
             .with_before_send(policy_hook),
@@ -611,10 +617,11 @@ async fn merges_request_headers_into_base_nonstream() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: http,
-        request_transformer,
-        response_transformer,
+        request_transformer: Some(request_transformer),
+        response_transformer: Some(response_transformer),
         stream_transformer: None,
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new()
             .with_stream_disable_compression(true)
             .with_interceptors(vec![Arc::new(interceptor)]),
@@ -725,10 +732,11 @@ async fn merges_request_headers_into_base_stream() {
     let exec = HttpChatExecutor {
         provider_id: "test".into(),
         http_client: http,
-        request_transformer,
-        response_transformer,
+        request_transformer: Some(request_transformer),
+        response_transformer: Some(response_transformer),
         stream_transformer: Some(Arc::new(DummyTx)),
         json_stream_converter: None,
+        defer_transformer_selection: false,
         policy: crate::execution::ExecutionPolicy::new()
             .with_stream_disable_compression(true)
             .with_interceptors(vec![Arc::new(interceptor)]),

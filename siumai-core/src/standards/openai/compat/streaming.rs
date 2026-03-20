@@ -30,6 +30,7 @@ struct OpenAiCompatSerializeState {
     emitted_role: bool,
     tool_call_index_by_id: std::collections::HashMap<String, u32>,
     next_tool_call_index: u32,
+    finished: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -831,6 +832,51 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             }
         }
 
+        fn finish_reason_str_from_v3(
+            reason: &crate::streaming::LanguageModelV3FinishReason,
+        ) -> Option<&'static str> {
+            fn map_candidate(candidate: &str) -> Option<&'static str> {
+                let normalized = candidate.trim().to_ascii_lowercase();
+                if normalized.is_empty() {
+                    return None;
+                }
+
+                match normalized.as_str() {
+                    "stop" | "end_turn" | "end-turn" | "stop_sequence" | "stop-sequence"
+                    | "stop_symbol" | "stop-symbol" => Some("stop"),
+                    "length"
+                    | "max_tokens"
+                    | "max-tokens"
+                    | "max_completion_tokens"
+                    | "max-completion-tokens" => Some("length"),
+                    "tool_calls" | "tool-calls" | "tool_use" | "tool-use" | "function_call"
+                    | "function-call" => Some("tool_calls"),
+                    "content_filter" | "content-filter" | "refusal" => Some("content_filter"),
+                    "error" => Some("error"),
+                    _ => {
+                        if normalized.contains("tool") {
+                            Some("tool_calls")
+                        } else if normalized.contains("length") || normalized.contains("max") {
+                            Some("length")
+                        } else if normalized.contains("content")
+                            || normalized.contains("filter")
+                            || normalized.contains("refusal")
+                        {
+                            Some("content_filter")
+                        } else if normalized.contains("stop") || normalized.contains("end") {
+                            Some("stop")
+                        } else if normalized.contains("error") {
+                            Some("error")
+                        } else {
+                            None
+                        }
+                    }
+                }
+            }
+
+            map_candidate(&reason.unified).or_else(|| reason.raw.as_deref().and_then(map_candidate))
+        }
+
         fn now_epoch_secs() -> u64 {
             chrono::Utc::now().timestamp().max(0) as u64
         }
@@ -993,6 +1039,9 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     sse_data_frame(&payload)
                 }
                 ChatStreamEvent::StreamEnd { response } => {
+                    if state.finished {
+                        return Ok(Vec::new());
+                    }
                     ensure_state(&mut state);
                     if state.model.is_none() {
                         state.model = response.model.clone();
@@ -1029,6 +1078,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
 
                     let mut out = sse_data_frame(&payload)?;
                     out.extend_from_slice(&done_frame());
+                    state.finished = true;
                     Ok(out)
                 }
                 ChatStreamEvent::Error { error } => {
@@ -1048,6 +1098,52 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {
                     return Ok(Vec::new());
                 };
+
+                if let LanguageModelV3StreamPart::Finish {
+                    usage,
+                    finish_reason,
+                    ..
+                } = &part
+                {
+                    if state.finished {
+                        return Ok(Vec::new());
+                    }
+
+                    ensure_state(&mut state);
+
+                    let finish_reason = finish_reason_str_from_v3(finish_reason)
+                        .map(|reason| serde_json::Value::String(reason.to_string()))
+                        .unwrap_or(serde_json::Value::Null);
+
+                    let prompt = usage.input_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                    let completion =
+                        usage.output_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                    let usage = serde_json::json!({
+                        "prompt_tokens": prompt,
+                        "completion_tokens": completion,
+                        "total_tokens": prompt.saturating_add(completion),
+                    });
+
+                    let payload = serde_json::json!({
+                        "id": state.id.clone(),
+                        "object": "chat.completion.chunk",
+                        "created": state.created,
+                        "model": state.model.clone(),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "delta": {},
+                                "finish_reason": finish_reason
+                            }
+                        ],
+                        "usage": usage,
+                    });
+
+                    let mut out = sse_data_frame(&payload)?;
+                    out.extend_from_slice(&done_frame());
+                    state.finished = true;
+                    return Ok(out);
+                }
 
                 let mut out = Vec::new();
                 let mut events = part.to_best_effort_chat_events();

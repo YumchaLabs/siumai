@@ -261,7 +261,7 @@ pub fn to_anthropic_messages_sse_response(stream: ChatStream) -> Response<Body> 
         Ok::<axum::body::Bytes, Infallible>(match item {
             Ok(bytes) => bytes,
             Err(e) => axum::body::Bytes::from(format!(
-                "data: {}\n\n",
+                "event: error\ndata: {}\n\n",
                 serde_json::json!({
                     "type": "error",
                     "error": { "type": "api_error", "message": e.user_message() }
@@ -384,7 +384,7 @@ pub fn to_transcoded_sse_response(
                     Ok::<axum::body::Bytes, Infallible>(match item {
                         Ok(bytes) => bytes,
                         Err(e) => axum::body::Bytes::from(format!(
-                            "data: {}\n\n",
+                            "event: error\ndata: {}\n\n",
                             serde_json::json!({
                                 "type": "error",
                                 "error": { "type": "api_error", "message": e.user_message() }
