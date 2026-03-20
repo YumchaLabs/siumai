@@ -29,3 +29,4 @@ This folder is intentionally organized by **concern** to keep the Alpha.5 refact
 ## Workstreams
 
 - Fearless refactor (design + TODOs + milestones): `docs/workstreams/fearless-refactor/`
+- Protocol bridge + gateway runtime: `docs/workstreams/protocol-bridge-gateway/`
