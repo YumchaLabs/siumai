@@ -6,7 +6,7 @@
 
 
 
-Last updated: 2026-03-19
+Last updated: 2026-03-20
 
 
 
@@ -1407,6 +1407,7 @@ Notes:
 - PR CI now also runs cross-feature contract bundles for the current multi-feature coupling set (`openai,openai-websocket`, `google,gcp`, `openai,json-repair`), so non-default feature interactions are release-gated by execution instead of compile-only coverage.
 - The `openai,json-repair` cross-feature lane now also guards a concrete semantic invariant: refusal/content-filter structured-output failures still surface the dedicated parse error unless a complete strict JSON value or reserved `json` tool payload already exists, so JSON repair cannot silently convert plain refusal text into a successful result.
 - `pr-facade-guardrails` continues to compile `siumai` examples under `all-providers` and run `public_surface_imports_test`, so the example tree and public export paths remain part of the release gate rather than informal follow-up work.
+- Recent broad sweeps now back that release story with fresh execution evidence instead of only structural gates: OpenAI facade contracts passed with 144 tests passed / 1 skipped, the targeted live `gpt-5.2` smoke verified real `/responses` non-stream + stream plus embedding, and Anthropic / Google / Vertex facade contracts passed with 238 tests passed / 0 skipped.
 
 
 

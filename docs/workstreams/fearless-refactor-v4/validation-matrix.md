@@ -211,6 +211,13 @@ examples all have explicit owners**.
     - registry-first `openai:gpt-5.2` non-stream + stream text generation
     - registry-first `openai:text-embedding-3-small` batch embedding helper
 
+- `anthropic-google-vertex-contract-sweep`
+  - Wider no-network contract sweep:
+    - `cargo nextest run --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --features anthropic,google,google-vertex --test provider_public_path_parity_test --test anthropic_messages_fixtures_alignment_test --test anthropic_messages_stream_fixtures_alignment_test --test google_generative_ai_fixtures_alignment_test --test google_generative_ai_stream_fixtures_alignment_test --test google_vertex_typed_metadata_boundary_test --test gemini_embedding_batch_helper_parity_test --test vertex_embedding_batch_helper_parity_test`
+  - Result:
+    - 238 tests passed, 0 skipped
+    - covers Anthropic public-path parity plus fixture-alignment invariants, Gemini/Google public-path and streaming fixture parity, Vertex typed-metadata boundary coverage, and Gemini/Vertex embedding batch-helper request preservation
+
 - `embedding-request-aware-bridge`
   - Build matrix pass:
     - `cargo check --target-dir C:\Temp\siumai-target -p siumai-core --lib --quiet`

@@ -6,7 +6,7 @@
 
 
 
-Last updated: 2026-03-19
+Last updated: 2026-03-20
 
 
 
@@ -1554,6 +1554,8 @@ Status legend:
 - [~] Secondary provider cleanup notes:
 
 
+
+  - Fresh contract-sweep evidence now exists for the three main non-OpenAI native lanes too: Anthropic / Google / Vertex passed a combined no-network facade contract run (`provider_public_path_parity_test`, Anthropic fixture alignment, Gemini fixture alignment, Vertex typed metadata, Gemini/Vertex embedding helpers) with 238 tests passed and 0 skipped, so the remaining provider work on those paths is no longer basic contract uncertainty.
 
   - Groq config-first construction now also avoids direct field mutation for HTTP config in parity tests.
 
