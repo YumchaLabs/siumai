@@ -6,15 +6,19 @@ This TODO list is intentionally organized as mergeable tracks.
 
 ## 0) Lock the boundary
 
-- [ ] Confirm the workstream scope:
+- [x] Confirm the workstream scope:
   - explicit protocol bridges
   - gateway runtime policy
   - no multi-tenant billing or admin control plane
-- [ ] Confirm package boundaries:
+- [x] Confirm package boundaries:
   - protocol crates own wire formats and serializer/parser state machines
   - `siumai-core` owns bridge contracts and reports
   - `siumai-extras` owns gateway adapters and runtime policy
-- [ ] Decide final module names for the bridge surface
+- [ ] Finish the internal bridge module layout:
+  - planner
+  - request / response / stream
+  - primitives
+  - pair bridges
 
 ## 1) Audit the current bridge path
 
@@ -32,27 +36,46 @@ This TODO list is intentionally organized as mergeable tracks.
 
 ## 2) Define bridge contracts
 
-- [ ] Add bridge contract types:
+- [x] Add bridge contract types:
   - `BridgeTarget`
   - `BridgeMode`
   - `BridgeReport`
   - `BridgeWarning`
   - `BridgeResult<T>`
-- [ ] Define a stable representation for lossy conversion reasons
-- [ ] Define a stable representation for unsupported semantics
-- [ ] Decide how provider metadata is carried across bridges
+- [x] Define a stable representation for lossy conversion reasons
+- [x] Define a stable representation for unsupported semantics
+- [x] Decide how provider metadata is carried across bridges
 
 ## 3) Make request bridges explicit
 
-- [ ] Add explicit request bridge entry points for:
+- [x] Add explicit normalized request -> target protocol JSON bridge entry points:
+  - normalized -> Anthropic Messages
+  - normalized -> OpenAI Responses
+  - normalized -> OpenAI Chat Completions
+  - normalized -> Gemini GenerateContent
+- [x] Ensure request bridges can emit `BridgeReport`
+- [x] Ensure request bridges can reject unsupported shapes in `Strict` mode
+- [ ] Refactor request bridge implementation into:
+  - planner
+  - reusable primitives
+  - pair bridge modules
+- [ ] Add explicit protocol-source typed request -> normalized request bridge entry points for:
   - Anthropic Messages -> normalized request
   - OpenAI Responses -> normalized request
   - OpenAI Chat Completions -> normalized request
 - [ ] Add direct compat helpers where they materially reduce loss:
   - Anthropic Messages -> OpenAI Responses
   - OpenAI Responses -> Anthropic Messages
-- [ ] Ensure request bridges can emit `BridgeReport`
-- [ ] Ensure request bridges can reject unsupported shapes in `Strict` mode
+
+## 3a) Avoid N x M glue code
+
+- [ ] Add a request bridge planner that can choose:
+  - direct pair bridge
+  - via normalized bridge
+  - rejected
+- [ ] Keep direct bridges limited to high-value / high-loss pairs
+- [ ] Move reasoning / tools / cache control / approval logic into reusable primitives
+- [ ] Ensure pair bridges compose primitives instead of embedding all mapping logic inline
 
 ## 4) Make non-streaming response bridges explicit
 
@@ -99,13 +122,17 @@ This TODO list is intentionally organized as mergeable tracks.
 
 ## 8) Documentation and examples
 
-- [ ] Add a bridge-focused architecture note after the contract lands
+- [x] Add a bridge-focused architecture note after the contract lands
+- [x] Document the hybrid bridge strategy:
+  - normalized backbone
+  - selected direct bridges
+  - no full N x M pairwise mesh
 - [ ] Add runnable examples for:
   - Anthropic -> OpenAI Responses gateway
   - OpenAI Responses -> Anthropic gateway
   - custom lossy-policy handling
   - custom stream transform
-- [ ] Update `docs/README.md` to include this workstream
+- [x] Update `docs/README.md` to include this workstream
 - [ ] Add a migration note if any public gateway helpers change shape
 
 ## 9) Validation
@@ -115,4 +142,3 @@ This TODO list is intentionally organized as mergeable tracks.
 - [ ] Add tests for custom hooks
 - [ ] Add tests for strict vs best-effort behavior
 - [ ] Add gateway smoke coverage for JSON and SSE output paths
-

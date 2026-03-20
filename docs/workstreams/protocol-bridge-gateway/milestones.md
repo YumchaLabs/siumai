@@ -13,7 +13,7 @@ Acceptance criteria:
 - Non-goals clearly exclude billing, subscriptions, admin dashboards, and account-pool control
   plane work.
 
-Status: planned
+Status: completed
 
 ## PBG-M1 - Bridge contracts exist
 
@@ -23,20 +23,36 @@ Acceptance criteria:
 - Lossy conversion and unsupported semantics are represented in types.
 - No-network tests verify report behavior for exact, lossy, and rejected cases.
 
-Status: planned
+Status: completed
 
 ## PBG-M2 - Request bridges are explicit
 
 Acceptance criteria:
 
-- Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions inbound shapes can be bridged
-  through explicit APIs.
+- Explicit request bridge APIs exist for normalized request -> target protocol request conversion.
 - At least the highest-value direct compat path exists:
   - Anthropic Messages <-> OpenAI Responses
 - Request bridges emit `BridgeReport`.
 - `Strict` mode rejects unsupported input semantics.
 
-Status: planned
+Current state:
+
+- normalized request -> target protocol JSON APIs exist
+- request bridge reports and strict rejection exist
+- the direct Anthropic Messages <-> OpenAI Responses request bridge is not implemented yet
+- the implementation is being refactored toward planner + primitives + pair modules
+
+Status: in progress
+
+## PBG-M2a - Request bridge structure is reusable
+
+Acceptance criteria:
+
+- request bridge code is split into planner, primitives, and pair bridge modules
+- reusable reasoning / tools / cache / approval inspection logic is shared across targets
+- adding a new direct pair bridge does not require editing one large request bridge file
+
+Status: in progress
 
 ## PBG-M3 - Non-streaming response bridges are explicit
 
@@ -92,4 +108,3 @@ Acceptance criteria:
   gateway adapter layer third.
 
 Status: planned
-

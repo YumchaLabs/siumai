@@ -72,6 +72,8 @@ pub const ENABLED_PROVIDERS: &str = env!("SIUMAI_ENABLED_PROVIDERS");
 /// Number of enabled providers at compile time
 pub const PROVIDER_COUNT: &str = env!("SIUMAI_PROVIDER_COUNT");
 
+mod experimental_bridge;
+
 // Workspace split facade (beta.5):
 // - siumai-core: provider-agnostic runtime + types
 // - siumai-registry: registry handle + factories
@@ -165,6 +167,15 @@ pub mod builder {
 pub mod experimental {
     pub mod core {
         pub use siumai_core::core::*;
+    }
+
+    /// Protocol bridge contracts (advanced API).
+    ///
+    /// This exposes bridge decision/report types used by cross-protocol request,
+    /// response, and stream adapters.
+    pub mod bridge {
+        pub use crate::experimental_bridge::*;
+        pub use siumai_core::bridge::*;
     }
 
     /// Non-streaming response encoding utilities (advanced API).

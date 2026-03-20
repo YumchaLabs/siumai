@@ -19,6 +19,17 @@ Today the workspace already has:
 
 That direction is correct.
 
+The bridge work since this document was first added has confirmed two additional points:
+
+- bridge contracts should exist independently from protocol implementations
+- explicit request bridge APIs are required even before pairwise direct bridges land
+
+The current codebase now already has:
+
+- typed bridge contracts in `siumai-core::bridge`
+- an experimental explicit request bridge facade in `siumai::experimental::bridge`
+- initial bridge reporting for lossy fields, dropped fields, and unsupported request semantics
+
 The recent Anthropic/OpenAI streaming fixes confirmed the main architectural point: correctness now
 depends on explicit end-of-stream semantics, event typing, loss handling, and protocol-owned state
 machines, not only on "generic chat" request forwarding.
@@ -122,6 +133,36 @@ The first iteration does not need to cover every pairwise protocol combination d
 Some conversions can remain "via normalized request/response" rather than "direct protocol A ->
 protocol B" helpers.
 
+### D3a - Do not build a full N x M direct-bridge matrix
+
+We should not model protocol bridging as "every protocol gets a handwritten direct bridge to every
+other protocol".
+
+That approach creates too much glue code and pushes the maintenance burden into pairwise field
+rewrites.
+
+The recommended strategy is a hybrid model:
+
+- the normalized request/response/stream model remains the main semantic backbone
+- most routes bridge via the normalized model
+- only a small number of high-value and high-loss protocol pairs get direct bridges
+
+This is effectively a star topology with selected direct bridges, not a full mesh.
+
+The first direct bridge pair should be:
+
+- Anthropic Messages <-> OpenAI Responses
+
+because both sides carry richer semantics than simpler chat-only formats:
+
+- reasoning / thinking
+- provider-hosted tools
+- approval-oriented tool flows
+- more stateful streaming behavior
+
+If we route these through a thinner intermediate protocol view such as Chat Completions, we lose
+too much fidelity.
+
 ### D4 - Represent loss and unsupported semantics in types
 
 Bridges must produce a report, not only a payload.
@@ -168,6 +209,28 @@ Some gateways want exact protocol mimicry.
 Some want best-effort compatibility.
 Some want provider-specific enrichment or filtering.
 
+### D5a - Prefer reusable bridge primitives over pairwise glue code
+
+Direct bridges are still necessary for a few protocol pairs, but they must not become large
+pairwise monoliths.
+
+The implementation should be split into reusable bridge primitives:
+
+- reasoning policy
+- tool definition mapping
+- tool call mapping
+- tool result mapping
+- cache control handling
+- approval handling
+- provider metadata carry/drop policy
+- stream finalization policy
+
+Pairwise bridges should compose these primitives instead of owning all field-level logic
+themselves.
+
+That keeps direct bridges maintainable and prevents every new protocol pair from becoming a new
+copy-paste conversion layer.
+
 ### D6 - Introduce a gateway runtime policy layer
 
 `siumai-extras` should expose a stable gateway policy object rather than only narrow helper
@@ -201,6 +264,39 @@ Requirements:
 - end-of-stream finalization must be testable without a network
 
 The recent Anthropic SSE fixes fall directly under this rule.
+
+### D8 - Separate planner, pair bridge, and gateway policy
+
+The public bridge surface should have three distinct responsibilities:
+
+- planner
+  - decides whether a conversion should use a direct bridge, a normalized path, or rejection
+- bridge implementation
+  - request / response / stream bridge code that performs the actual conversion
+- gateway policy
+  - route/runtime concerns such as strictness defaults, warning emission, headers, and limits
+
+These responsibilities must stay separate.
+
+In particular:
+
+- gateway code must not embed pairwise conversion logic
+- pairwise bridges must not embed route-level policy
+- the planner must not own protocol wire serialization
+
+### D9 - Request, response, and stream bridges are different systems
+
+The workstream must not collapse request, response, and stream bridges into one generic
+"protocol bridge" implementation.
+
+They share contracts and reports, but they have different correctness constraints:
+
+- request bridges care about request shape, tool declarations, prompt caching, and structured input
+- response bridges care about usage, finish semantics, and output shape
+- stream bridges care about ordering, terminal events, deduplication, and finalization
+
+They should therefore reuse contracts and primitives, but still live in separate implementation
+modules.
 
 ## Proposed public shape
 
@@ -244,14 +340,41 @@ Possible surface split:
   - `to_transcoded_json_response(...)`
   - future route-policy wrappers using `GatewayBridgePolicy`
 
+Recommended implementation split:
+
+- `siumai-core::bridge`
+  - bridge contracts and reports only
+- `siumai::experimental::bridge`
+  - planner and facade entry points
+- `siumai::experimental::bridge::request`
+  - explicit request bridges
+- `siumai::experimental::bridge::response`
+  - explicit non-streaming response bridges
+- `siumai::experimental::bridge::stream`
+  - explicit stream bridges
+- protocol crates
+  - protocol-owned wire types, serializers, parsers, and state machines
+
+Recommended internal shape for request bridges:
+
+- `planner`
+- `request::primitives`
+- `request::pairs`
+- `request::inspect`
+- `request::serialize`
+
+`pairs` should compose `primitives`; they should not become field-mapping dumping grounds.
+
 ## Recommended implementation order
 
 1. Define bridge contracts and loss-reporting types.
-2. Make request bridges explicit for Anthropic Messages and OpenAI Responses.
-3. Stabilize non-streaming response bridges.
-4. Stabilize streaming bridges and finalization semantics.
-5. Add gateway runtime policy objects and route helpers.
-6. Expand customization hooks.
+2. Refactor request bridge code into planner + primitives + pair modules.
+3. Stabilize explicit normalized request -> target protocol request bridges.
+4. Add the first direct pair bridge: Anthropic Messages <-> OpenAI Responses.
+5. Stabilize non-streaming response bridges.
+6. Stabilize streaming bridges and finalization semantics.
+7. Add gateway runtime policy objects and route helpers.
+8. Expand customization hooks.
 
 ## Success criteria
 
@@ -262,4 +385,3 @@ This workstream is successful when:
 - gateway helpers are built on top of the bridge layer, not vice versa
 - protocol semantics are preserved by protocol-owned state machines
 - custom hooks are supported without patching internal converter code
-

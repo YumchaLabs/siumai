@@ -4,6 +4,7 @@
 #![deny(unsafe_code)]
 
 pub mod auth;
+pub mod bridge;
 pub mod builder;
 pub mod client;
 pub mod core;
