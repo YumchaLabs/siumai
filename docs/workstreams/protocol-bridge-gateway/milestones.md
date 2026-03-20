@@ -186,8 +186,11 @@ Current state:
   - Anthropic Messages settings / tools / structured output / MCP / thinking restoration
 - response/stream fixture expansion has now started with initial same-protocol roundtrip coverage
   for OpenAI Responses and Anthropic Messages
-- `siumai-extras` now also has Axum router-level smoke coverage for both JSON and SSE gateway
-  output paths
+- `siumai-extras` now also has Axum router-level smoke coverage for:
+  - OpenAI Responses JSON/SSE output routes
+  - Anthropic Messages JSON/SSE output routes
+  - fixture-backed Anthropic -> OpenAI Responses SSE route transcoding
+  - fixture-backed OpenAI Responses -> Anthropic Messages SSE route transcoding
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and
   stabilization docs
 

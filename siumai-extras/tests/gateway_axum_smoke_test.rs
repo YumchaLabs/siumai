@@ -8,8 +8,13 @@ use axum::{
     response::Response,
     routing::get,
 };
+#[cfg(feature = "anthropic")]
+use eventsource_stream::Event;
 use futures::stream;
-use siumai::prelude::unified::{ChatResponse, ChatStream, ChatStreamEvent, MessageContent};
+use siumai::prelude::unified::{
+    ChatResponse, ChatStream, ChatStreamEvent, MessageContent, ProviderDefinedTool,
+    SseEventConverter, Tool,
+};
 use siumai_extras::server::{
     GatewayBridgePolicy,
     axum::{
@@ -17,6 +22,8 @@ use siumai_extras::server::{
         to_transcoded_json_response, to_transcoded_sse_response,
     },
 };
+#[cfg(feature = "anthropic")]
+use std::path::{Path, PathBuf};
 use tower::ServiceExt;
 
 #[derive(Clone)]
@@ -24,7 +31,7 @@ struct AppState {
     policy: GatewayBridgePolicy,
 }
 
-fn app() -> Router {
+fn openai_app() -> Router {
     let state = AppState {
         policy: GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
             .with_bridge_headers(true)
@@ -34,6 +41,40 @@ fn app() -> Router {
     Router::new()
         .route("/json", get(json_route))
         .route("/sse", get(sse_route))
+        .with_state(state)
+}
+
+#[cfg(feature = "anthropic")]
+fn anthropic_app() -> Router {
+    let state = AppState {
+        policy: GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+            .with_bridge_headers(true)
+            .with_bridge_warning_headers(true),
+    };
+
+    Router::new()
+        .route("/json", get(anthropic_json_route))
+        .route("/sse", get(anthropic_sse_route))
+        .with_state(state)
+}
+
+#[cfg(feature = "anthropic")]
+fn cross_protocol_app() -> Router {
+    let state = AppState {
+        policy: GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+            .with_bridge_headers(true)
+            .with_bridge_warning_headers(true),
+    };
+
+    Router::new()
+        .route(
+            "/anthropic-to-openai",
+            get(anthropic_fixture_to_openai_sse_route),
+        )
+        .route(
+            "/openai-to-anthropic",
+            get(openai_fixture_to_anthropic_sse_route),
+        )
         .with_state(state)
 }
 
@@ -62,9 +103,254 @@ async fn sse_route(State(state): State<AppState>) -> Response<Body> {
     )
 }
 
+#[cfg(feature = "anthropic")]
+async fn anthropic_json_route(State(state): State<AppState>) -> Response<Body> {
+    to_transcoded_json_response(
+        ChatResponse::new(MessageContent::Text("gateway ok".to_string())),
+        TargetJsonFormat::AnthropicMessages,
+        TranscodeJsonOptions::default().with_policy(state.policy),
+    )
+}
+
+#[cfg(feature = "anthropic")]
+async fn anthropic_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
+    let stream: ChatStream = Box::pin(stream::iter(vec![
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "gateway ok".to_string(),
+            index: None,
+        }),
+        Ok(ChatStreamEvent::StreamEnd { response }),
+    ]));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::AnthropicMessages,
+        TranscodeSseOptions::default().with_policy(state.policy),
+    )
+}
+
+#[cfg(feature = "anthropic")]
+async fn anthropic_fixture_to_openai_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let upstream = decode_anthropic_fixture_stream(
+        repo_fixtures_dir()
+            .join("anthropic")
+            .join("messages-stream")
+            .join("anthropic-web-fetch-tool.1.chunks.txt"),
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiResponses,
+        TranscodeSseOptions::default().with_policy(state.policy),
+    )
+}
+
+#[cfg(feature = "anthropic")]
+async fn openai_fixture_to_anthropic_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let tools = vec![Tool::ProviderDefined(ProviderDefinedTool::new(
+        "openai.web_search",
+        "webSearch",
+    ))];
+    let upstream = decode_openai_fixture_stream(
+        repo_fixtures_dir()
+            .join("openai")
+            .join("responses-stream")
+            .join("web-search")
+            .join("openai-web-search-tool.1.chunks.txt"),
+        tools,
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::AnthropicMessages,
+        TranscodeSseOptions::default().with_policy(state.policy),
+    )
+}
+
+#[cfg(feature = "anthropic")]
+fn repo_fixtures_dir() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("workspace root")
+        .join("siumai")
+        .join("tests")
+        .join("fixtures")
+}
+
+#[cfg(feature = "anthropic")]
+fn read_fixture_lines(path: impl AsRef<Path>) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .expect("read fixture file")
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.to_string())
+        .collect()
+}
+
+#[cfg(feature = "anthropic")]
+fn extract_sse_data_payload_lines(bytes: &[u8]) -> Vec<String> {
+    let text = String::from_utf8_lossy(bytes);
+    text.split("\n\n")
+        .filter_map(|frame| {
+            let frame = frame.trim();
+            if frame.is_empty() {
+                return None;
+            }
+            let data = frame
+                .lines()
+                .find(|line| line.starts_with("data: "))
+                .map(|line| line.trim_start_matches("data: ").trim())?;
+            if data.is_empty() || data == "[DONE]" {
+                return None;
+            }
+            Some(data.to_string())
+        })
+        .collect()
+}
+
+#[cfg(feature = "anthropic")]
+fn decode_anthropic_fixture_stream(path: impl AsRef<Path>) -> Vec<ChatStreamEvent> {
+    let conv = siumai::protocol::anthropic::streaming::AnthropicEventConverter::new(
+        siumai::protocol::anthropic::params::AnthropicParams::default(),
+    );
+    let mut events = Vec::new();
+
+    for (index, line) in read_fixture_lines(path).into_iter().enumerate() {
+        let event = Event {
+            event: "".to_string(),
+            data: line,
+            id: index.to_string(),
+            retry: None,
+        };
+        let out = futures::executor::block_on(conv.convert_event(event));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to convert anthropic chunk: {err:?}"),
+            }
+        }
+    }
+
+    while let Some(item) = conv.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize anthropic stream: {err:?}"),
+        }
+    }
+
+    events
+}
+
+#[cfg(feature = "anthropic")]
+fn decode_openai_fixture_stream(path: impl AsRef<Path>, tools: Vec<Tool>) -> Vec<ChatStreamEvent> {
+    let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new()
+        .with_request_tools(&tools);
+    let mut events = Vec::new();
+
+    for (index, line) in read_fixture_lines(path).into_iter().enumerate() {
+        let event = Event {
+            event: "".to_string(),
+            data: line,
+            id: index.to_string(),
+            retry: None,
+        };
+        let out = futures::executor::block_on(conv.convert_event(event));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to convert openai chunk: {err:?}"),
+            }
+        }
+    }
+
+    while let Some(item) = conv.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize openai stream: {err:?}"),
+        }
+    }
+
+    events
+}
+
+#[cfg(feature = "anthropic")]
+fn parse_anthropic_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
+    let text = String::from_utf8_lossy(bytes);
+    text.split("\n\n")
+        .filter_map(|frame| {
+            let frame = frame.trim();
+            if frame.is_empty() {
+                return None;
+            }
+            let data = frame
+                .lines()
+                .find(|line| line.starts_with("data: "))
+                .map(|line| line.trim_start_matches("data: ").trim())?;
+            serde_json::from_str::<serde_json::Value>(data).ok()
+        })
+        .collect()
+}
+
+#[cfg(feature = "anthropic")]
+fn decode_openai_responses_sse_body(bytes: &[u8]) -> Vec<ChatStreamEvent> {
+    let conv = siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter::new();
+    let mut events = Vec::new();
+
+    for (index, line) in extract_sse_data_payload_lines(bytes)
+        .into_iter()
+        .enumerate()
+    {
+        let event = Event {
+            event: "".to_string(),
+            data: line,
+            id: index.to_string(),
+            retry: None,
+        };
+        let out = futures::executor::block_on(conv.convert_event(event));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to decode openai response body: {err:?}"),
+            }
+        }
+    }
+
+    while let Some(item) = conv.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize decoded openai response body: {err:?}"),
+        }
+    }
+
+    events
+}
+
+#[cfg(feature = "anthropic")]
+fn v3_tool_parts(
+    events: &[ChatStreamEvent],
+    kind: &str,
+    tool_name: &str,
+) -> Vec<serde_json::Value> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::json!(kind))
+                    && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn gateway_json_route_smoke_emits_provider_json() {
-    let response = app()
+    let response = openai_app()
         .oneshot(
             Request::builder()
                 .uri("/json")
@@ -93,7 +379,7 @@ async fn gateway_json_route_smoke_emits_provider_json() {
 
 #[tokio::test]
 async fn gateway_sse_route_smoke_emits_provider_sse() {
-    let response = app()
+    let response = openai_app()
         .oneshot(
             Request::builder()
                 .uri("/sse")
@@ -119,4 +405,138 @@ async fn gateway_sse_route_smoke_emits_provider_sse() {
     assert!(text.contains("gateway ok"));
     assert!(text.contains("event: response.completed"));
     assert!(text.contains("data: [DONE]"));
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn gateway_json_route_smoke_emits_anthropic_json() {
+    let response = anthropic_app()
+        .oneshot(
+            Request::builder()
+                .uri("/json")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "anthropic-messages"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    assert_eq!(json["type"], "message");
+    assert_eq!(json["role"], "assistant");
+    assert_eq!(json["content"][0]["type"], "text");
+    assert_eq!(json["content"][0]["text"], "gateway ok");
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn gateway_sse_route_smoke_emits_anthropic_sse() {
+    let response = anthropic_app()
+        .oneshot(
+            Request::builder()
+                .uri("/sse")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "anthropic-messages"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let text = String::from_utf8(body.to_vec()).expect("utf8");
+    assert!(text.contains("event: content_block_delta"));
+    assert!(text.contains("gateway ok"));
+    assert!(text.contains("event: message_stop"));
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn gateway_route_smoke_transcodes_anthropic_fixture_to_openai_sse() {
+    let response = cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/anthropic-to-openai")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "openai-responses"
+    );
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let downstream = decode_openai_responses_sse_body(&body);
+    let calls = v3_tool_parts(&downstream, "tool-call", "web_fetch");
+    let results = v3_tool_parts(&downstream, "tool-result", "web_fetch");
+
+    assert!(!calls.is_empty(), "expected downstream web_fetch tool-call");
+    assert!(
+        !results.is_empty(),
+        "expected downstream web_fetch tool-result"
+    );
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn gateway_route_smoke_transcodes_openai_fixture_to_anthropic_sse() {
+    let response = cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/openai-to-anthropic")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "anthropic-messages"
+    );
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let frames = parse_anthropic_sse_json_frames(&body);
+
+    assert!(
+        frames.iter().any(|frame| frame["type"] == "message_stop"),
+        "expected anthropic message_stop frame"
+    );
+    assert!(
+        frames.iter().any(|frame| {
+            frame["type"] == "content_block_start"
+                && frame["content_block"]["type"] == "tool_use"
+                && frame["content_block"]["name"] == "webSearch"
+        }),
+        "expected anthropic tool_use block for webSearch"
+    );
 }

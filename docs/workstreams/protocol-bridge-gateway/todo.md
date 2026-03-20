@@ -243,5 +243,9 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Add tests showing custom loss-policy behavior on request / response / stream bridges
 - [x] Add gateway smoke coverage for JSON and SSE output paths
   - `siumai-extras` Axum integration now has router-level smoke coverage for:
-    - JSON gateway output path
-    - SSE gateway output path
+    - OpenAI Responses JSON gateway output path
+    - OpenAI Responses SSE gateway output path
+    - Anthropic Messages JSON gateway output path
+    - Anthropic Messages SSE gateway output path
+    - fixture-backed Anthropic -> OpenAI Responses SSE route smoke
+    - fixture-backed OpenAI Responses -> Anthropic Messages SSE route smoke

@@ -103,6 +103,7 @@ all = ["schema", "telemetry", "opentelemetry", "server", "mcp"]
 tokio.workspace = true
 tokio-test.workspace = true
 tower = "0.5"
+eventsource-stream.workspace = true
 
 [[example]]
 name = "opentelemetry_tracing"
