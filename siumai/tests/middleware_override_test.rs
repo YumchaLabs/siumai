@@ -53,6 +53,10 @@ impl ProviderFactory for MockProviderFactory {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed(self.provider_id)
     }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_chat()
+    }
 }
 
 /// Counting provider factory for cache/TTL invariant tests
@@ -97,6 +101,10 @@ impl ProviderFactory for CountingProviderFactory {
 
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed(self.provider_id)
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_chat()
     }
 }
 
@@ -176,6 +184,30 @@ impl LanguageModelMiddleware for OverrideProviderMiddleware {
     }
 }
 
+fn registry_options(
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    auto_middleware: bool,
+    client_ttl: Option<std::time::Duration>,
+) -> RegistryOptions {
+    RegistryOptions {
+        separator: ':',
+        language_model_middleware: middlewares,
+        http_interceptors: Vec::new(),
+        http_client: None,
+        http_transport: None,
+        http_config: None,
+        api_key: None,
+        base_url: None,
+        reasoning_enabled: None,
+        reasoning_budget: None,
+        provider_build_overrides: HashMap::new(),
+        retry_options: None,
+        max_cache_entries: None,
+        client_ttl,
+        auto_middleware,
+    }
+}
+
 #[tokio::test]
 async fn test_model_id_override() {
     // Setup registry with mock provider
@@ -189,16 +221,11 @@ async fn test_model_id_override() {
 
     let registry = create_provider_registry(
         providers,
-        Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: vec![Arc::new(OverrideModelMiddleware)],
-            http_interceptors: Vec::new(),
-            http_config: None,
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: None,
-            auto_middleware: true,
-        }),
+        Some(registry_options(
+            vec![Arc::new(OverrideModelMiddleware)],
+            true,
+            None,
+        )),
     );
 
     // Request "openai:gpt-3.5-turbo" but middleware should override to "gpt-4"
@@ -265,19 +292,14 @@ async fn test_multiple_middlewares_first_override_wins() {
 
     let registry = create_provider_registry(
         providers,
-        Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: vec![
+        Some(registry_options(
+            vec![
                 Arc::new(FirstOverride),
                 Arc::new(SecondOverride), // This should be ignored
             ],
-            http_interceptors: Vec::new(),
-            http_config: None,
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: None,
-            auto_middleware: true,
-        }),
+            true,
+            None,
+        )),
     );
 
     let handle = registry.language_model("openai:original-model").unwrap();
@@ -306,16 +328,11 @@ async fn test_model_override_reuses_cache_key_for_overridden_model() {
 
     let registry = create_provider_registry(
         providers,
-        Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: vec![Arc::new(OverrideModelMiddleware)],
-            http_interceptors: Vec::new(),
-            http_config: None,
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: None,
-            auto_middleware: false,
-        }),
+        Some(registry_options(
+            vec![Arc::new(OverrideModelMiddleware)],
+            false,
+            None,
+        )),
     );
 
     let handle_a = registry.language_model("openai:gpt-3.5-turbo").unwrap();
@@ -365,16 +382,11 @@ async fn test_provider_override_routes_and_reuses_overridden_provider_cache_key(
 
     let registry = create_provider_registry(
         providers,
-        Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: vec![Arc::new(OverrideProviderMiddleware)],
-            http_interceptors: Vec::new(),
-            http_config: None,
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: None,
-            auto_middleware: false,
-        }),
+        Some(registry_options(
+            vec![Arc::new(OverrideProviderMiddleware)],
+            false,
+            None,
+        )),
     );
 
     let overridden = registry.language_model("openai:gpt-4").unwrap();
@@ -417,16 +429,11 @@ async fn test_model_override_ttl_rebuilds_after_expiration() {
 
     let registry = create_provider_registry(
         providers,
-        Some(RegistryOptions {
-            separator: ':',
-            language_model_middleware: vec![Arc::new(OverrideModelMiddleware)],
-            http_interceptors: Vec::new(),
-            http_config: None,
-            retry_options: None,
-            max_cache_entries: None,
-            client_ttl: Some(std::time::Duration::from_millis(50)),
-            auto_middleware: false,
-        }),
+        Some(registry_options(
+            vec![Arc::new(OverrideModelMiddleware)],
+            false,
+            Some(std::time::Duration::from_millis(50)),
+        )),
     );
 
     let handle = registry.language_model("openai:gpt-3.5-turbo").unwrap();

@@ -178,6 +178,14 @@ examples all have explicit owners**.
 
 ## Recent targeted validations
 
+- `registry-options-test-debt`
+  - Historical test-debt fix:
+    - `siumai/tests/registry_openai_compat_ignored.rs` now uses the current `RegistryOptions` shape instead of the pre-override field set.
+    - `siumai/tests/middleware_override_test.rs` now centralizes test-only `RegistryOptions` construction and explicitly declares mock factory chat capabilities, matching the current registry `language_model(...)` gate.
+  - Targeted regression:
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test middleware_override_test --quiet`
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test registry_openai_compat_ignored --quiet`
+
 - `openai-live-smoke-gpt-5.2`
   - Root-cause fix:
     - OpenAI native streaming `/responses` requests no longer inject Chat Completions-only `stream_options.include_usage`; live `gpt-5.2` validation surfaced that OpenAI rejects `stream_options.include_usage` on the Responses route.
