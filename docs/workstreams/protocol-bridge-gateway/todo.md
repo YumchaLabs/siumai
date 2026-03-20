@@ -14,7 +14,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - protocol crates own wire formats and serializer/parser state machines
   - `siumai-core` owns bridge contracts and reports
   - `siumai-extras` owns gateway adapters and runtime policy
-- [ ] Finish the internal bridge module layout:
+- [x] Finish the internal bridge module layout:
   - planner
   - request / response / stream
   - primitives
@@ -55,7 +55,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - normalized -> Gemini GenerateContent
 - [x] Ensure request bridges can emit `BridgeReport`
 - [x] Ensure request bridges can reject unsupported shapes in `Strict` mode
-- [ ] Refactor request bridge implementation into:
+- [x] Refactor request bridge implementation into:
   - planner
   - reusable primitives
   - pair bridge modules
@@ -63,31 +63,31 @@ This TODO list is intentionally organized as mergeable tracks.
   - Anthropic Messages -> normalized request
   - OpenAI Responses -> normalized request
   - OpenAI Chat Completions -> normalized request
-- [ ] Add direct compat helpers where they materially reduce loss:
+- [x] Add direct compat helpers where they materially reduce loss:
   - Anthropic Messages -> OpenAI Responses
   - OpenAI Responses -> Anthropic Messages
 
 ## 3a) Avoid N x M glue code
 
-- [ ] Add a request bridge planner that can choose:
+- [x] Add a request bridge planner that can choose:
   - direct pair bridge
   - via normalized bridge
   - rejected
-- [ ] Keep direct bridges limited to high-value / high-loss pairs
-- [ ] Move reasoning / tools / cache control / approval logic into reusable primitives
-- [ ] Ensure pair bridges compose primitives instead of embedding all mapping logic inline
+- [x] Keep direct bridges limited to high-value / high-loss pairs
+- [x] Move reasoning / tools / cache control / approval logic into reusable primitives
+- [x] Ensure pair bridges compose primitives instead of embedding all mapping logic inline
 
 ## 4) Make non-streaming response bridges explicit
 
-- [ ] Add explicit normalized response -> target protocol converters
+- [x] Add explicit normalized response -> target protocol converters
 - [ ] Ensure tool calls, reasoning, structured output, and usage survive when possible
-- [ ] Emit loss reports for dropped or downgraded semantics
-- [ ] Add no-network tests for exact and lossy cases
+- [x] Emit loss reports for dropped or downgraded semantics
+- [x] Add no-network tests for exact and lossy cases
 
 ## 5) Make streaming bridges explicit
 
-- [ ] Add explicit stream bridge adapters built on V3 stream parts
-- [ ] Ensure terminal events are preserved across protocol views
+- [x] Add explicit stream bridge adapters built on V3 stream parts
+- [x] Ensure terminal events are preserved across protocol views
 - [ ] Ensure finish reasons survive target serialization
 - [ ] Ensure content block ordering is validated for Anthropic output
 - [ ] Ensure OpenAI final finish chunk behavior is consistent

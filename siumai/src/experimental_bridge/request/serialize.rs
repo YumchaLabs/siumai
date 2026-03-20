@@ -141,7 +141,10 @@ fn transform_chat_request_to_json(
             #[cfg(feature = "google")]
             {
                 let tx =
-                    siumai_protocol_gemini::standards::gemini::transformers::GeminiRequestTransformer;
+                    siumai_protocol_gemini::standards::gemini::transformers::GeminiRequestTransformer {
+                        config:
+                            siumai_protocol_gemini::standards::gemini::types::GeminiConfig::default(),
+                    };
                 tx.transform_chat(request)
             }
             #[cfg(not(feature = "google"))]
