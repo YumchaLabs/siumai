@@ -114,7 +114,7 @@ This TODO list is intentionally organized as mergeable tracks.
 - [ ] Ensure finish reasons survive target serialization
 - [ ] Ensure content block ordering is validated for Anthropic output
 - [ ] Ensure OpenAI final finish chunk behavior is consistent
-- [ ] Add no-network finalization tests for incomplete upstream termination
+- [x] Add no-network finalization tests for incomplete upstream termination
 - [ ] Ensure `BridgeMode::Strict` is enforced consistently for lossy stream routes
 
 ## 6) Add customization hooks

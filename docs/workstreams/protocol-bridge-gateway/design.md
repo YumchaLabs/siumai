@@ -31,12 +31,19 @@ The current codebase now already has:
 - an experimental explicit bridge facade in `siumai::experimental::bridge`
 - a request bridge planner plus direct pair bridge modules
 - initial bridge reporting for lossy fields, dropped fields, and unsupported request semantics
-- gateway helper transforms in `siumai-extras` for JSON and SSE post-processing
+- bridge-owned customization through `BridgeOptions`, typed contexts, hook traits, primitive
+  remappers, and loss-policy traits
+- gateway helper transforms and policy composition in `siumai-extras` for JSON and SSE routes
 
 The recent Anthropic/OpenAI request and response roundtrip fixes confirmed the main architectural
 point: correctness now depends on explicit end-of-stream semantics, event typing, loss handling,
 provider-executed tool preservation, source preservation, and protocol-owned state machines, not
 only on "generic chat" request forwarding.
+
+The most recent streaming work also confirmed one more rule: clean EOF finalization must be an
+explicit bridge/runtime step. A bridge or gateway serializer cannot assume every upstream source
+will emit a protocol-level terminal event. We now handle that explicitly before target SSE
+encoding instead of scattering protocol-specific EOF glue across serializers.
 
 This workstream is inspired by two external reference lines:
 
@@ -66,24 +73,37 @@ We will follow the architectural idea, not copy either implementation literally.
 
 ### What is missing
 
-- There is no stable bridge customization contract yet.
-  - We can inspect and serialize bridges, but we cannot yet inject bridge-aware user policy
-    through one explicit API.
-- Lossy conversion policy is still mostly mode-driven.
-  - `Strict` vs `BestEffort` exists, but custom rejection/warn/carry policy is not yet a first-
-    class object.
-- Current customization points are adjacent to the bridge, not owned by the bridge.
-  - Existing hooks mostly operate at execution or gateway helper boundaries, which is too late or
-    too untyped for many bridge semantics.
-- Gateway runtime policy is not yet a stable layer.
-  - SSE keepalive / idle-timeout handling and bridge response headers now have one explicit home,
-    but request body limits and upstream read limits still need route/runtime-level ownership
-    instead of being treated as transcode-helper concerns.
+- Bridge customization is now available, but it still needs broader examples and stricter guidance.
+  - `BridgeOptions` and typed hook traits now exist, but the public story still needs more runnable
+    examples and clearer migration guidance away from ad hoc JSON patching.
+- Lossy conversion policy now has a stable contract, but coverage is still incomplete.
+  - The `BridgeLossPolicy` trait exists, but most production behavior is still exercised through
+    default mode-driven policies and needs more custom-policy validation.
+- Legacy customization points still sit adjacent to the bridge.
+  - Existing execution and gateway hooks remain useful escape hatches, but bridge-owned typed hooks
+    should become the clearly documented primary extension path.
+- Gateway runtime policy now exists for Axum, but framework-agnostic factoring is still incomplete.
+  - Request body limits, upstream read limits, keepalive, idle timeout, and header policy now have
+    one runtime home, but broader non-Axum ownership is still future work.
 
 ### Current customization surface today
 
-The repository already exposes several useful hooks, but they are not yet the right long-term
-bridge API.
+The repository now exposes both bridge-owned customization and older adjacent hooks.
+
+Recommended primary surface:
+
+- `siumai-core::bridge::{BridgeOptions, RequestBridgeHook, ResponseBridgeHook, StreamBridgeHook}`
+- `siumai-core::bridge::{BridgePrimitiveRemapper, BridgeLossPolicy}`
+- typed contexts:
+  - `RequestBridgeContext`
+  - `ResponseBridgeContext`
+  - `StreamBridgeContext`
+  - `BridgePrimitiveContext`
+- `siumai-extras::server::GatewayBridgePolicy`
+- closure-friendly adapters in `siumai-extras` for route-local response/stream transforms and
+  primitive remapping
+
+Legacy but still useful adjacent hooks:
 
 - Request construction and provider body hooks already exist:
   - `siumai-core::execution::transformers::request::{RequestTransformer, ProviderRequestHooks}`
@@ -374,6 +394,15 @@ Requirements:
 - end-of-stream finalization must be testable without a network
 
 The recent Anthropic SSE fixes fall directly under this rule.
+
+Current implementation note:
+
+- bridge and Axum SSE serialization paths now run an explicit `ensure_stream_end(...)` step before
+  target SSE encoding
+- synthetic finalization only happens for clean EOF without `StreamEnd`, protocol error events, or
+  transport errors
+- synthetic terminal responses currently use `finish_reason = Unknown` until target-specific finish
+  fidelity is completed
 
 ### D8 - Separate planner, pair bridge, and gateway policy
 

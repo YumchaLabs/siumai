@@ -425,7 +425,8 @@ fn encode_openai_responses_sse_stream(
     opts: &TranscodeSseOptions,
 ) -> ByteStream {
     use siumai::experimental::streaming::{
-        OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse, transform_chat_event_stream,
+        OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse, ensure_stream_end,
+        transform_chat_event_stream,
     };
     use siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter;
 
@@ -438,7 +439,7 @@ fn encode_openai_responses_sse_stream(
     };
 
     let converter = OpenAiResponsesEventConverter::new();
-    let bytes_stream = encode_chat_stream_as_sse(stream, converter);
+    let bytes_stream = encode_chat_stream_as_sse(ensure_stream_end(stream), converter);
 
     Box::pin(bytes_stream.map(|item| match item {
         Ok(bytes) => Ok(bytes),
@@ -454,7 +455,7 @@ fn encode_openai_chat_completions_sse_stream(
     stream: ChatStream,
     opts: &TranscodeSseOptions,
 ) -> ByteStream {
-    use siumai::experimental::streaming::encode_chat_stream_as_sse;
+    use siumai::experimental::streaming::{encode_chat_stream_as_sse, ensure_stream_end};
     use siumai::protocol::openai::compat::openai_config::OpenAiCompatibleConfig;
     use siumai::protocol::openai::compat::provider_registry::{
         ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
@@ -483,7 +484,7 @@ fn encode_openai_chat_completions_sse_stream(
 
     let converter = OpenAiCompatibleEventConverter::new(cfg, adapter)
         .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
-    let bytes = encode_chat_stream_as_sse(stream, converter);
+    let bytes = encode_chat_stream_as_sse(ensure_stream_end(stream), converter);
 
     Box::pin(bytes.map(|item| match item {
         Ok(bytes) => Ok(bytes),
@@ -499,13 +500,13 @@ fn encode_anthropic_messages_sse_stream(
     stream: ChatStream,
     opts: &TranscodeSseOptions,
 ) -> ByteStream {
-    use siumai::experimental::streaming::encode_chat_stream_as_sse;
+    use siumai::experimental::streaming::{encode_chat_stream_as_sse, ensure_stream_end};
     use siumai::protocol::anthropic::params::AnthropicParams;
     use siumai::protocol::anthropic::streaming::AnthropicEventConverter;
 
     let converter = AnthropicEventConverter::new(AnthropicParams::default())
         .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior);
-    let bytes = encode_chat_stream_as_sse(stream, converter);
+    let bytes = encode_chat_stream_as_sse(ensure_stream_end(stream), converter);
 
     Box::pin(bytes.map(|item| match item {
         Ok(bytes) => Ok(bytes),
@@ -524,14 +525,14 @@ fn encode_gemini_generate_content_sse_stream(
     stream: ChatStream,
     opts: &TranscodeSseOptions,
 ) -> ByteStream {
-    use siumai::experimental::streaming::encode_chat_stream_as_sse;
+    use siumai::experimental::streaming::{encode_chat_stream_as_sse, ensure_stream_end};
     use siumai::protocol::gemini::streaming::GeminiEventConverter;
     use siumai::protocol::gemini::types::GeminiConfig;
 
     let converter = GeminiEventConverter::new(GeminiConfig::default())
         .with_v3_unsupported_part_behavior(opts.v3_unsupported_part_behavior)
         .with_emit_function_response_tool_results(opts.gemini_emit_function_response_tool_results);
-    let bytes = encode_chat_stream_as_sse(stream, converter);
+    let bytes = encode_chat_stream_as_sse(ensure_stream_end(stream), converter);
 
     Box::pin(bytes.map(|item| match item {
         Ok(bytes) => Ok(bytes),
@@ -959,5 +960,40 @@ mod transcode_tests {
             .expect("body bytes");
         let text = String::from_utf8(body.to_vec()).expect("utf8");
         assert!(text.contains("HELLO"));
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn transcode_sse_finalizes_clean_eof_without_stream_end() {
+        use futures::stream;
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::StreamStart {
+                metadata: siumai::prelude::unified::ResponseMetadata {
+                    id: Some("resp_1".to_string()),
+                    model: Some("gpt-4o-mini".to_string()),
+                    created: None,
+                    provider: "openai".to_string(),
+                    request_id: None,
+                },
+            }),
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+        ]));
+
+        let resp = to_transcoded_sse_response(
+            chat_stream,
+            TargetSseFormat::OpenAiResponses,
+            TranscodeSseOptions::default(),
+        );
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        let text = String::from_utf8(body.to_vec()).expect("utf8");
+        assert!(text.contains("response.completed"));
+        assert!(text.contains("[DONE]"));
     }
 }

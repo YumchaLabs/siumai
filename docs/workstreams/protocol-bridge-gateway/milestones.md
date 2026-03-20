@@ -84,8 +84,10 @@ Current state:
 
 - explicit stream bridge adapters already exist
 - protocol-owned event converters are already on the serialization path
+- clean EOF finalization is now explicit in bridge and Axum SSE serialization paths, and no-network
+  tests cover incomplete upstream termination
 - remaining work is strict-mode enforcement, finish-reason fidelity, block ordering validation, and
-  incomplete upstream finalization tests
+  OpenAI final finish chunk consistency
 
 Status: in progress
 

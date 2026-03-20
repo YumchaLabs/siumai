@@ -219,3 +219,69 @@ async fn stream_bridge_options_can_transform_events() {
 
     assert!(body.contains("HELLO"));
 }
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn anthropic_stream_bridge_finalizes_clean_eof_without_stream_end() {
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("msg_1".to_string()),
+                model: Some("claude-sonnet-4-5".to_string()),
+                created: None,
+                provider: "anthropic".to_string(),
+                request_id: None,
+            },
+        }),
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "Hello".to_string(),
+            index: None,
+        }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_anthropic_messages_sse(
+        stream,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+
+    assert!(body.contains("event: content_block_delta"));
+    assert!(body.contains("event: message_stop"));
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn openai_responses_stream_bridge_finalizes_clean_eof_without_stream_end() {
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("resp_1".to_string()),
+                model: Some("gpt-4.1-mini".to_string()),
+                created: None,
+                provider: "openai".to_string(),
+                request_id: None,
+            },
+        }),
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "Hello".to_string(),
+            index: None,
+        }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_openai_responses_sse(
+        stream,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+
+    assert!(body.contains("event: response.completed"));
+    assert!(body.contains("data: [DONE]"));
+}

@@ -8,7 +8,7 @@ use siumai_core::bridge::{
 };
 use siumai_core::streaming::{
     ChatByteStream, ChatStreamEvent, OpenAiResponsesStreamPartsBridge, encode_chat_stream_as_sse,
-    transform_chat_event_stream,
+    ensure_stream_end, transform_chat_event_stream,
 };
 
 use crate::experimental_bridge::customize::remap_stream_event;
@@ -172,7 +172,9 @@ where
         return Ok(BridgeResult::rejected(report));
     }
 
-    let stream = transform_stream_for_target(stream, source, target, &ctx, &options);
+    let stream = ensure_stream_end(transform_stream_for_target(
+        stream, source, target, &ctx, &options,
+    ));
     let bytes = encode_stream_for_target(stream, target)?;
 
     Ok(BridgeResult::new(bytes, report))
