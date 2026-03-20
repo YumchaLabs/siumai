@@ -186,6 +186,8 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Integrate gateway policy with bridge customization contracts instead of creating parallel
   hook types
 - [ ] Keep framework-agnostic pieces separate from Axum wrappers
+- [ ] Align Axum SSE transcode helpers with core stream loss-policy inspection when callers need
+  strict inspected rejection on cross-protocol stream routes
 - [x] Let Axum JSON/SSE transcode helpers consume bridge customization options
 - [x] Let Axum JSON/SSE transcode helpers consume `GatewayBridgePolicy`
 
@@ -203,11 +205,11 @@ This TODO list is intentionally organized as mergeable tracks.
 - [ ] Add runnable examples for:
   - [x] Anthropic -> OpenAI Responses gateway
   - [x] OpenAI Responses -> Anthropic gateway
-  - custom lossy-policy handling
+  - [x] custom lossy-policy handling
   - [x] custom tool remapper
   - [x] custom stream transform
 - [x] Update `docs/README.md` to include this workstream
-- [ ] Add a migration note if any public gateway helpers change shape
+- [x] Add a migration note if any public gateway helpers change shape
 
 ## 9) Validation
 

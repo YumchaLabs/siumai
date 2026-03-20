@@ -149,3 +149,8 @@ required-features = ["server", "openai", "anthropic"]
 name = "openai-responses-to-anthropic-gateway"
 path = "examples/openai-responses-to-anthropic-gateway.rs"
 required-features = ["server", "openai", "anthropic"]
+
+[[example]]
+name = "gateway-loss-policy"
+path = "examples/gateway-loss-policy.rs"
+required-features = ["server", "openai", "anthropic"]

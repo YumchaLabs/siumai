@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Runnable loss-policy bridge example:
+  - `siumai-extras/examples/gateway-loss-policy.rs`
+  - demonstrates default strict rejection vs custom allowlisted / continue policies for lossy
+    JSON and SSE bridge routes
+
 ### Changed
 
 - Gateway bridge customization now recommends `GatewayBridgePolicy + BridgeOptions + typed bridge

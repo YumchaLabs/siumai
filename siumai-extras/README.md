@@ -185,6 +185,8 @@ For custom conversion hooks, see: `siumai-extras/examples/gateway-custom-transfo
 For request-normalization bridge demos, see:
 - `siumai-extras/examples/anthropic-to-openai-responses-gateway.rs`
 - `siumai-extras/examples/openai-responses-to-anthropic-gateway.rs`
+For custom lossy-policy handling, see:
+- `siumai-extras/examples/gateway-loss-policy.rs`
 
 If you need to expose multiple downstream protocol surfaces from the same upstream stream,
 use the transcoder helper:
@@ -225,6 +227,9 @@ The two request-normalization bridge demos intentionally show a different path:
 
 That is useful when you want the bridge surface to stay explicit and testable instead of hiding
 protocol translation inside route-local JSON glue.
+
+Migration guidance for gateway routes now lives at:
+- `docs/workstreams/protocol-bridge-gateway/migration.md`
 
 The raw event-transform helper is still available as an escape hatch:
 

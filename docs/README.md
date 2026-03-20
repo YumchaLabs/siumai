@@ -31,3 +31,4 @@ This folder is intentionally organized by **concern** to keep the Alpha.5 refact
 - Fearless refactor (design + TODOs + milestones): `docs/workstreams/fearless-refactor/`
 - Protocol bridge + gateway runtime: `docs/workstreams/protocol-bridge-gateway/`
   - covers the hybrid bridge strategy: normalized backbone + selected direct bridges + gateway policy
+  - migration note: `docs/workstreams/protocol-bridge-gateway/migration.md`

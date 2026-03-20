@@ -159,7 +159,11 @@ Current state:
 - Axum SSE transcode helpers now enforce keepalive interval and idle-timeout behavior directly from
   `GatewayBridgePolicy`
 - Axum runtime helpers now enforce request-body and upstream-read limits for body / JSON reads
-- remaining work is mainly broader framework-agnostic integration beyond the current helper layer
+- current remaining gap:
+  - Axum SSE transcode helpers still do not run the same inspected stream loss-policy rejection
+    path as the lower-level core stream bridge entry points
+- remaining work is mainly broader framework-agnostic integration plus SSE loss-policy parity
+  beyond the current helper layer
 
 Status: in progress
 
@@ -182,6 +186,12 @@ Current state:
 - runnable bridge demos now exist for:
   - Anthropic Messages request normalization -> OpenAI Responses JSON/SSE output
   - OpenAI Responses request normalization -> Anthropic Messages JSON/SSE output
+- `gateway-loss-policy` now demonstrates:
+  - default strict rejection on lossy bridge routes
+  - allowlisted `BridgeLossPolicy` continuation
+  - full continue-policy override for comparison
+- gateway migration guidance now exists at:
+  - `docs/workstreams/protocol-bridge-gateway/migration.md`
 - request normalization now has fixture-based coverage across the three currently supported source
   protocols:
   - OpenAI Responses exact and best-effort lossy restoration
