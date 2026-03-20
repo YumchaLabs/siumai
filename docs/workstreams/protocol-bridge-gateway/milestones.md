@@ -159,11 +159,11 @@ Current state:
 - Axum SSE transcode helpers now enforce keepalive interval and idle-timeout behavior directly from
   `GatewayBridgePolicy`
 - Axum runtime helpers now enforce request-body and upstream-read limits for body / JSON reads
-- current remaining gap:
-  - Axum SSE transcode helpers still do not run the same inspected stream loss-policy rejection
-    path as the lower-level core stream bridge entry points
-- remaining work is mainly broader framework-agnostic integration plus SSE loss-policy parity
-  beyond the current helper layer
+- Axum SSE transcode helpers now also run inspected stream loss-policy rejection and emit
+  decision/warning headers when callers provide an explicit upstream protocol via
+  `TranscodeSseOptions::with_bridge_source(...)`
+- remaining work is mainly broader framework-agnostic integration and stabilization around the
+  current helper layer
 
 Status: in progress
 
@@ -190,6 +190,8 @@ Current state:
   - default strict rejection on lossy bridge routes
   - allowlisted `BridgeLossPolicy` continuation
   - full continue-policy override for comparison
+  - the same `siumai-extras` JSON/SSE helper surface instead of mixing Axum helpers with direct
+    core stream bridge wiring
 - gateway migration guidance now exists at:
   - `docs/workstreams/protocol-bridge-gateway/migration.md`
 - request normalization now has fixture-based coverage across the three currently supported source

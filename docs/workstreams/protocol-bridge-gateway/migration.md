@@ -93,27 +93,31 @@ Reference example:
 Axum SSE transcode helpers already consume:
 
 - `GatewayBridgePolicy`
+- `BridgeMode`
+- `BridgeOptions`
+- `BridgeOptionsOverride`
+- `BridgeLossPolicy`
 - typed stream hooks
 - primitive remappers
 - keepalive / idle timeout runtime policy
-- bridge target / mode headers
+- bridge target / mode / decision headers
+- warning counter headers
 
-However, they currently do **not** run the same inspected stream-loss decision loop as the core
-`bridge_chat_stream_to_*_sse_with_options(...)` entry points.
+They now also run the same inspected stream-loss decision loop as the core
+`bridge_chat_stream_to_*_sse_with_options(...)` entry points when the caller declares the upstream
+protocol with `TranscodeSseOptions::with_bridge_source(...)`.
 
 Today this means:
 
-- if you only need stream rewriting and target serialization, `to_transcoded_sse_response(...)` is
-  the convenient path
+- if the route is same-protocol or the upstream source is intentionally unknown,
+  `to_transcoded_sse_response(...)` can still be used without declaring a source
 - if you need inspected strict rejection / custom `BridgeLossPolicy` decisions on cross-protocol
-  streaming routes, use the core stream bridge entry points directly for now
+  streaming routes, set `with_bridge_source(...)` on the SSE transcode options and stay on the
+  convenience helper path
 
 Reference example:
 
 - `siumai-extras/examples/gateway-loss-policy.rs`
-
-This is a known parity gap between the convenience SSE helper layer and the lower-level core
-stream bridge.
 
 ## What should remain as escape hatches
 

@@ -46,7 +46,11 @@ pub use transcode_sse::{
 };
 
 #[cfg(feature = "anthropic")]
-pub use transcode_sse::to_anthropic_messages_sse_response;
+pub use transcode_sse::{
+    to_anthropic_messages_sse_response, to_anthropic_messages_sse_response_with_options,
+};
 
 #[cfg(feature = "google")]
-pub use transcode_sse::to_gemini_generate_content_sse_response;
+pub use transcode_sse::{
+    to_gemini_generate_content_sse_response, to_gemini_generate_content_sse_response_with_options,
+};

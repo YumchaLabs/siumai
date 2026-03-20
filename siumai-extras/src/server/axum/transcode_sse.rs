@@ -16,8 +16,8 @@ use futures::{Stream, StreamExt};
 use tokio::time::Sleep;
 
 use siumai::experimental::bridge::{
-    BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeTarget,
-    transform_chat_stream_with_bridge_options,
+    BridgeLossAction, BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeReport, BridgeTarget,
+    StreamBridgeContext, inspect_chat_stream_bridge, transform_chat_stream_with_bridge_options,
 };
 use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
 
@@ -41,6 +41,8 @@ pub enum TargetSseFormat {
 /// Options for transcoding a `ChatStream` into a provider SSE wire format.
 #[derive(Clone)]
 pub struct TranscodeSseOptions {
+    /// Optional known protocol view of the upstream stream before target transcoding.
+    pub bridge_source: Option<BridgeTarget>,
     /// Controls lossy fallback for v3 parts that do not have a native representation
     /// in the target protocol stream.
     pub v3_unsupported_part_behavior: siumai::experimental::streaming::V3UnsupportedPartBehavior,
@@ -60,6 +62,7 @@ pub struct TranscodeSseOptions {
 impl fmt::Debug for TranscodeSseOptions {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TranscodeSseOptions")
+            .field("bridge_source", &self.bridge_source)
             .field(
                 "v3_unsupported_part_behavior",
                 &self.v3_unsupported_part_behavior,
@@ -85,6 +88,7 @@ impl fmt::Debug for TranscodeSseOptions {
 impl Default for TranscodeSseOptions {
     fn default() -> Self {
         Self {
+            bridge_source: None,
             v3_unsupported_part_behavior:
                 siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
             bridge_openai_responses_stream_parts: true,
@@ -97,6 +101,12 @@ impl Default for TranscodeSseOptions {
 }
 
 impl TranscodeSseOptions {
+    /// Declare the known protocol view of the upstream stream.
+    pub fn with_bridge_source(mut self, source: BridgeTarget) -> Self {
+        self.bridge_source = Some(source);
+        self
+    }
+
     /// Strict/default transcoding options (drops unsupported v3 parts).
     pub fn strict() -> Self {
         Self::default()
@@ -238,11 +248,7 @@ pub fn to_openai_responses_sse_response_with_options(
     stream: ChatStream,
     opts: TranscodeSseOptions,
 ) -> Response<Body> {
-    build_sse_response(
-        to_openai_responses_sse_stream_with_options(stream, opts.clone()),
-        TargetSseFormat::OpenAiResponses,
-        &opts,
-    )
+    transcode_sse_response(stream, TargetSseFormat::OpenAiResponses, opts)
 }
 
 /// Convert a `ChatStream` into an OpenAI-compatible Chat Completions SSE response.
@@ -258,33 +264,37 @@ pub fn to_openai_chat_completions_sse_response_with_options(
     stream: ChatStream,
     opts: TranscodeSseOptions,
 ) -> Response<Body> {
-    build_sse_response(
-        build_target_sse_stream(stream, TargetSseFormat::OpenAiChatCompletions, &opts),
-        TargetSseFormat::OpenAiChatCompletions,
-        &opts,
-    )
+    transcode_sse_response(stream, TargetSseFormat::OpenAiChatCompletions, opts)
 }
 
 /// Convert a `ChatStream` into an Anthropic Messages SSE response (best-effort).
 #[cfg(feature = "anthropic")]
 pub fn to_anthropic_messages_sse_response(stream: ChatStream) -> Response<Body> {
-    let opts = TranscodeSseOptions::default();
-    build_sse_response(
-        build_target_sse_stream(stream, TargetSseFormat::AnthropicMessages, &opts),
-        TargetSseFormat::AnthropicMessages,
-        &opts,
-    )
+    to_anthropic_messages_sse_response_with_options(stream, TranscodeSseOptions::default())
+}
+
+/// Convert a `ChatStream` into an Anthropic Messages SSE response with bridge options.
+#[cfg(feature = "anthropic")]
+pub fn to_anthropic_messages_sse_response_with_options(
+    stream: ChatStream,
+    opts: TranscodeSseOptions,
+) -> Response<Body> {
+    transcode_sse_response(stream, TargetSseFormat::AnthropicMessages, opts)
 }
 
 /// Convert a `ChatStream` into a Google Gemini GenerateContent SSE response (best-effort).
 #[cfg(feature = "google")]
 pub fn to_gemini_generate_content_sse_response(stream: ChatStream) -> Response<Body> {
-    let opts = TranscodeSseOptions::default();
-    build_sse_response(
-        build_target_sse_stream(stream, TargetSseFormat::GeminiGenerateContent, &opts),
-        TargetSseFormat::GeminiGenerateContent,
-        &opts,
-    )
+    to_gemini_generate_content_sse_response_with_options(stream, TranscodeSseOptions::default())
+}
+
+/// Convert a `ChatStream` into a Google Gemini GenerateContent SSE response with bridge options.
+#[cfg(feature = "google")]
+pub fn to_gemini_generate_content_sse_response_with_options(
+    stream: ChatStream,
+    opts: TranscodeSseOptions,
+) -> Response<Body> {
+    transcode_sse_response(stream, TargetSseFormat::GeminiGenerateContent, opts)
 }
 
 /// Convert a `ChatStream` into a provider-native SSE response with a unified target selector.
@@ -297,7 +307,7 @@ pub fn to_transcoded_sse_response(
         TargetSseFormat::OpenAiResponses => {
             #[cfg(feature = "openai")]
             {
-                to_openai_responses_sse_response_with_options(stream, opts)
+                transcode_sse_response(stream, TargetSseFormat::OpenAiResponses, opts)
             }
             #[cfg(not(feature = "openai"))]
             {
@@ -309,7 +319,7 @@ pub fn to_transcoded_sse_response(
         TargetSseFormat::OpenAiChatCompletions => {
             #[cfg(feature = "openai")]
             {
-                to_openai_chat_completions_sse_response_with_options(stream, opts)
+                transcode_sse_response(stream, TargetSseFormat::OpenAiChatCompletions, opts)
             }
             #[cfg(not(feature = "openai"))]
             {
@@ -321,11 +331,7 @@ pub fn to_transcoded_sse_response(
         TargetSseFormat::AnthropicMessages => {
             #[cfg(feature = "anthropic")]
             {
-                build_sse_response(
-                    build_target_sse_stream(stream, TargetSseFormat::AnthropicMessages, &opts),
-                    TargetSseFormat::AnthropicMessages,
-                    &opts,
-                )
+                transcode_sse_response(stream, TargetSseFormat::AnthropicMessages, opts)
             }
             #[cfg(not(feature = "anthropic"))]
             {
@@ -337,11 +343,7 @@ pub fn to_transcoded_sse_response(
         TargetSseFormat::GeminiGenerateContent => {
             #[cfg(feature = "google")]
             {
-                build_sse_response(
-                    build_target_sse_stream(stream, TargetSseFormat::GeminiGenerateContent, &opts),
-                    TargetSseFormat::GeminiGenerateContent,
-                    &opts,
-                )
+                transcode_sse_response(stream, TargetSseFormat::GeminiGenerateContent, opts)
             }
             #[cfg(not(feature = "google"))]
             {
@@ -351,6 +353,20 @@ pub fn to_transcoded_sse_response(
             }
         }
     }
+}
+
+fn transcode_sse_response(
+    stream: ChatStream,
+    target: TargetSseFormat,
+    opts: TranscodeSseOptions,
+) -> Response<Body> {
+    let report = match inspect_stream_bridge_for_response(target, &opts) {
+        Ok(report) => report,
+        Err(report) => return rejected_sse_response(report, opts.policy.as_ref()),
+    };
+
+    let stream = build_target_sse_stream(stream, target, &opts);
+    build_sse_response(stream, target, &opts, report.as_ref())
 }
 
 /// Convert a `ChatStream` into a provider-native SSE response with a unified target selector,
@@ -382,7 +398,7 @@ fn apply_bridge_stream_options(
 
     transform_chat_stream_with_bridge_options(
         stream,
-        None,
+        opts.bridge_source,
         bridge_target_for_sse(target),
         bridge_options,
         Some(match target {
@@ -396,6 +412,49 @@ fn apply_bridge_stream_options(
             }
         }),
     )
+}
+
+fn inspect_stream_bridge_for_response(
+    target: TargetSseFormat,
+    opts: &TranscodeSseOptions,
+) -> Result<Option<BridgeReport>, BridgeReport> {
+    let Some(bridge_options) = resolve_bridge_options(opts) else {
+        return Ok(None);
+    };
+
+    let target = bridge_target_for_sse(target);
+    let path_label = match target {
+        BridgeTarget::OpenAiResponses => "axum-openai-responses-sse",
+        BridgeTarget::OpenAiChatCompletions => "axum-openai-chat-completions-sse",
+        BridgeTarget::AnthropicMessages => "axum-anthropic-messages-sse",
+        BridgeTarget::GeminiGenerateContent => "axum-gemini-generate-content-sse",
+    };
+    let ctx = StreamBridgeContext::new(
+        opts.bridge_source,
+        target,
+        bridge_options.mode,
+        bridge_options.route_label.clone(),
+        Some(path_label.to_string()),
+    );
+    let mut report = BridgeReport::with_source(opts.bridge_source, target, bridge_options.mode);
+    inspect_chat_stream_bridge(opts.bridge_source, target, &mut report);
+
+    if report.is_rejected() {
+        return Err(report);
+    }
+
+    if matches!(
+        bridge_options.loss_policy.stream_action(&ctx, &report),
+        BridgeLossAction::Reject
+    ) {
+        report.reject(format!(
+            "bridge policy rejected stream conversion to {}",
+            ctx.target.as_str()
+        ));
+        return Err(report);
+    }
+
+    Ok(Some(report))
 }
 
 #[cfg(any(feature = "openai", feature = "anthropic", feature = "google"))]
@@ -571,6 +630,7 @@ fn build_sse_response(
     stream: ByteStream,
     target: TargetSseFormat,
     opts: &TranscodeSseOptions,
+    report: Option<&BridgeReport>,
 ) -> Response<Body> {
     let mut response = Response::new(Body::from_stream(stream));
     response.headers_mut().insert(
@@ -582,8 +642,38 @@ fn build_sse_response(
         apply_gateway_policy_headers(
             response.headers_mut(),
             policy,
-            target,
+            bridge_target_for_sse(target),
+            report,
             effective_bridge_mode(opts).unwrap_or(policy.bridge_options.mode),
+        );
+    }
+
+    response
+}
+
+fn rejected_sse_response(
+    report: BridgeReport,
+    policy: Option<&GatewayBridgePolicy>,
+) -> Response<Body> {
+    let mut response = Response::builder()
+        .status(422)
+        .header("content-type", "application/json")
+        .body(Body::from(
+            serde_json::to_vec(&serde_json::json!({
+                "error": "bridge rejected",
+                "report": &report,
+            }))
+            .unwrap_or_else(|_| b"{\"error\":\"bridge rejected\"}".to_vec()),
+        ))
+        .unwrap_or_else(|_| Response::new(Body::from("internal error")));
+
+    if let Some(policy) = policy {
+        apply_gateway_policy_headers(
+            response.headers_mut(),
+            policy,
+            report.target,
+            Some(&report),
+            report.mode,
         );
     }
 
@@ -608,12 +698,11 @@ fn resolve_bridge_options(opts: &TranscodeSseOptions) -> Option<BridgeOptions> {
         (Some(policy), None) => policy.bridge_options.clone(),
         (None, Some(route_options)) => route_options,
         (None, None) => {
-            return opts
-                .bridge_options_override
-                .clone()
-                .map(|override_options| {
-                    BridgeOptions::default().merged_with_override(override_options)
-                });
+            if opts.bridge_source.is_some() || opts.bridge_options_override.is_some() {
+                BridgeOptions::default()
+            } else {
+                return None;
+            }
         }
     };
 
@@ -733,33 +822,61 @@ fn timeout_error_frame(target: TargetSseFormat, message: String) -> Bytes {
 fn apply_gateway_policy_headers(
     headers: &mut axum::http::HeaderMap,
     policy: &GatewayBridgePolicy,
-    target: TargetSseFormat,
+    target: BridgeTarget,
+    report: Option<&BridgeReport>,
     mode: siumai::experimental::bridge::BridgeMode,
 ) {
-    if !policy.emit_bridge_headers {
+    if policy.emit_bridge_headers {
+        insert_policy_header(headers, policy, "x-siumai-bridge-target", target.as_str());
+        insert_policy_header(
+            headers,
+            policy,
+            "x-siumai-bridge-mode",
+            match mode {
+                siumai::experimental::bridge::BridgeMode::Strict => "strict",
+                siumai::experimental::bridge::BridgeMode::BestEffort => "best-effort",
+                siumai::experimental::bridge::BridgeMode::ProviderTolerant => "provider-tolerant",
+            },
+        );
+        if let Some(report) = report {
+            insert_policy_header(
+                headers,
+                policy,
+                "x-siumai-bridge-decision",
+                match report.decision {
+                    siumai::experimental::bridge::BridgeDecision::Exact => "exact",
+                    siumai::experimental::bridge::BridgeDecision::Lossy => "lossy",
+                    siumai::experimental::bridge::BridgeDecision::Rejected => "rejected",
+                },
+            );
+        }
+    }
+
+    if !policy.emit_bridge_warning_headers {
         return;
     }
+
+    let Some(report) = report else {
+        return;
+    };
 
     insert_policy_header(
         headers,
         policy,
-        "x-siumai-bridge-target",
-        match target {
-            TargetSseFormat::OpenAiResponses => "openai-responses",
-            TargetSseFormat::OpenAiChatCompletions => "openai-chat-completions",
-            TargetSseFormat::AnthropicMessages => "anthropic-messages",
-            TargetSseFormat::GeminiGenerateContent => "gemini-generate-content",
-        },
+        "x-siumai-bridge-warnings",
+        &report.warnings.len().to_string(),
     );
     insert_policy_header(
         headers,
         policy,
-        "x-siumai-bridge-mode",
-        match mode {
-            siumai::experimental::bridge::BridgeMode::Strict => "strict",
-            siumai::experimental::bridge::BridgeMode::BestEffort => "best-effort",
-            siumai::experimental::bridge::BridgeMode::ProviderTolerant => "provider-tolerant",
-        },
+        "x-siumai-bridge-lossy-fields",
+        &report.lossy_fields.len().to_string(),
+    );
+    insert_policy_header(
+        headers,
+        policy,
+        "x-siumai-bridge-dropped-fields",
+        &report.dropped_fields.len().to_string(),
     );
 }
 
@@ -790,11 +907,43 @@ fn bridge_target_for_sse(target: TargetSseFormat) -> BridgeTarget {
 mod transcode_tests {
     use super::*;
 
+    use std::sync::Arc;
     use std::time::Duration;
 
-    use siumai::experimental::bridge::{BridgeMode, BridgeOptions};
+    use siumai::experimental::bridge::{
+        BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgeTarget,
+        RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,
+    };
 
     use super::super::bridge_hooks::stream_bridge_hook;
+
+    struct ContinueLossyPolicy;
+
+    impl BridgeLossPolicy for ContinueLossyPolicy {
+        fn request_action(
+            &self,
+            _ctx: &RequestBridgeContext,
+            _report: &BridgeReport,
+        ) -> BridgeLossAction {
+            BridgeLossAction::Continue
+        }
+
+        fn response_action(
+            &self,
+            _ctx: &ResponseBridgeContext,
+            _report: &BridgeReport,
+        ) -> BridgeLossAction {
+            BridgeLossAction::Continue
+        }
+
+        fn stream_action(
+            &self,
+            _ctx: &StreamBridgeContext,
+            _report: &BridgeReport,
+        ) -> BridgeLossAction {
+            BridgeLossAction::Continue
+        }
+    }
 
     #[test]
     fn transcode_options_defaults_are_stable() {
@@ -922,6 +1071,174 @@ mod transcode_tests {
         );
 
         assert_eq!(resp.headers()["x-siumai-bridge-mode"], "strict");
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "anthropic")]
+    async fn transcode_sse_strict_cross_protocol_route_rejects_when_source_is_set() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatResponse, MessageContent};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text("done".to_string())),
+            }),
+        ]));
+
+        let resp = to_transcoded_sse_response(
+            chat_stream,
+            TargetSseFormat::AnthropicMessages,
+            TranscodeSseOptions::default()
+                .with_bridge_source(BridgeTarget::OpenAiResponses)
+                .with_policy(
+                    GatewayBridgePolicy::new(BridgeMode::BestEffort)
+                        .with_bridge_headers(true)
+                        .with_bridge_warning_headers(true),
+                )
+                .with_bridge_mode_override(BridgeMode::Strict),
+        );
+
+        assert_eq!(resp.status(), axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(resp.headers()["content-type"], "application/json");
+        assert_eq!(
+            resp.headers()["x-siumai-bridge-target"],
+            "anthropic-messages"
+        );
+        assert_eq!(resp.headers()["x-siumai-bridge-mode"], "strict");
+        assert_eq!(resp.headers()["x-siumai-bridge-decision"], "rejected");
+        assert_eq!(resp.headers()["x-siumai-bridge-lossy-fields"], "1");
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        let value: serde_json::Value = serde_json::from_slice(&body).expect("json");
+        assert_eq!(value["error"], "bridge rejected");
+        assert_eq!(value["report"]["lossy_fields"][0], "stream.protocol");
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "anthropic")]
+    async fn anthropic_direct_helper_with_options_uses_same_rejection_path() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatResponse, MessageContent};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text("done".to_string())),
+            }),
+        ]));
+
+        let resp = to_anthropic_messages_sse_response_with_options(
+            chat_stream,
+            TranscodeSseOptions::default()
+                .with_bridge_source(BridgeTarget::OpenAiResponses)
+                .with_policy(
+                    GatewayBridgePolicy::new(BridgeMode::BestEffort)
+                        .with_bridge_headers(true)
+                        .with_bridge_warning_headers(true),
+                )
+                .with_bridge_mode_override(BridgeMode::Strict),
+        );
+
+        assert_eq!(resp.status(), axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            resp.headers()["x-siumai-bridge-target"],
+            "anthropic-messages"
+        );
+        assert_eq!(resp.headers()["x-siumai-bridge-decision"], "rejected");
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "anthropic")]
+    async fn transcode_sse_custom_loss_policy_can_allow_cross_protocol_strict_mode() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatResponse, MessageContent};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text("done".to_string())),
+            }),
+        ]));
+
+        let resp = to_transcoded_sse_response(
+            chat_stream,
+            TargetSseFormat::AnthropicMessages,
+            TranscodeSseOptions::default()
+                .with_bridge_source(BridgeTarget::OpenAiResponses)
+                .with_policy(
+                    GatewayBridgePolicy::new(BridgeMode::BestEffort)
+                        .with_bridge_headers(true)
+                        .with_bridge_warning_headers(true),
+                )
+                .with_bridge_options_override(
+                    siumai::experimental::bridge::BridgeOptionsOverride::new()
+                        .with_mode(BridgeMode::Strict)
+                        .with_loss_policy(Arc::new(ContinueLossyPolicy)),
+                ),
+        );
+
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        assert_eq!(
+            resp.headers()["x-siumai-bridge-target"],
+            "anthropic-messages"
+        );
+        assert_eq!(resp.headers()["x-siumai-bridge-mode"], "strict");
+        assert_eq!(resp.headers()["x-siumai-bridge-decision"], "lossy");
+        assert_eq!(resp.headers()["x-siumai-bridge-lossy-fields"], "1");
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        let text = String::from_utf8(body.to_vec()).expect("utf8");
+        assert!(text.contains("event: content_block_delta"));
+        assert!(text.contains("hello"));
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "anthropic")]
+    async fn transcode_sse_best_effort_cross_protocol_headers_show_lossy_decision() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatResponse, MessageContent};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text("done".to_string())),
+            }),
+        ]));
+
+        let resp = to_transcoded_sse_response(
+            chat_stream,
+            TargetSseFormat::AnthropicMessages,
+            TranscodeSseOptions::default()
+                .with_bridge_source(BridgeTarget::OpenAiResponses)
+                .with_policy(
+                    GatewayBridgePolicy::new(BridgeMode::BestEffort)
+                        .with_bridge_headers(true)
+                        .with_bridge_warning_headers(true),
+                ),
+        );
+
+        assert_eq!(resp.status(), axum::http::StatusCode::OK);
+        assert_eq!(resp.headers()["x-siumai-bridge-decision"], "lossy");
+        assert_eq!(resp.headers()["x-siumai-bridge-warnings"], "1");
+        assert_eq!(resp.headers()["x-siumai-bridge-lossy-fields"], "1");
+        assert_eq!(resp.headers()["x-siumai-bridge-dropped-fields"], "0");
     }
 
     #[tokio::test]

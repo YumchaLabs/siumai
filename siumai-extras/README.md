@@ -193,15 +193,26 @@ use the transcoder helper:
 
 ```rust
 use axum::{body::Body, response::Response};
+use siumai::experimental::bridge::BridgeTarget;
 use siumai::prelude::unified::ChatStream;
 use siumai_extras::server::axum::{
     TargetSseFormat, TranscodeSseOptions, to_transcoded_sse_response,
 };
 
 fn handler(stream: ChatStream) -> Response<Body> {
-    to_transcoded_sse_response(stream, TargetSseFormat::OpenAiResponses, TranscodeSseOptions::strict())
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiResponses,
+        TranscodeSseOptions::strict().with_bridge_source(BridgeTarget::AnthropicMessages),
+    )
 }
 ```
+
+When a streaming gateway route is cross-protocol and you want strict inspected rejection or a
+custom `BridgeLossPolicy`, declare the upstream protocol with
+`TranscodeSseOptions::with_bridge_source(...)`. That enables the same source-aware loss-policy
+decision path used by the lower-level core stream bridge helpers while keeping the Axum helper
+surface.
 
 If your gateway route also needs to read downstream request bodies or buffered upstream bodies
 under `GatewayBridgePolicy`, use the Axum runtime helpers instead of open-coding `to_bytes(...)`:

@@ -5,6 +5,7 @@
 //! - show the default mode-aware policy rejecting lossy conversion
 //! - install a custom `BridgeLossPolicy` to allow only selected lossy fields
 //! - keep the policy close to the bridge instead of scattering route-local `if` logic
+//! - drive both JSON and SSE routes through the same `siumai-extras` gateway helper surface
 //!
 //! This example is fully local and does not require any provider API key.
 //!
@@ -25,21 +26,21 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use axum::{
-    Router, body::Body, extract::Query, http::StatusCode, response::Response, routing::get,
-};
+use axum::{Router, extract::Query, response::Response, routing::get};
 use futures::stream;
 use serde::Deserialize;
 use serde_json::json;
 use siumai::experimental::bridge::{
-    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgeOptionsOverride,
-    BridgeReport, BridgeTarget, RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,
-    bridge_chat_stream_to_anthropic_messages_sse_with_options,
+    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptionsOverride, BridgeReport,
+    BridgeTarget, RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,
 };
 use siumai::prelude::unified::*;
 use siumai_extras::server::{
     GatewayBridgePolicy,
-    axum::{TargetJsonFormat, TranscodeJsonOptions, to_transcoded_json_response},
+    axum::{
+        TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions, TranscodeSseOptions,
+        to_transcoded_json_response, to_transcoded_sse_response,
+    },
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -251,67 +252,6 @@ fn gateway_policy(policy: PolicyKind) -> GatewayBridgePolicy {
     gateway_policy
 }
 
-fn core_stream_bridge_options(policy: PolicyKind) -> BridgeOptions {
-    let mut options = BridgeOptions::new(BridgeMode::Strict).with_route_label(format!(
-        "examples.gateway-loss-policy.stream.{}",
-        policy.as_str()
-    ));
-
-    options = match policy {
-        PolicyKind::Default => options,
-        PolicyKind::Allowlisted => options.with_loss_policy(Arc::new(AllowlistedLossyPolicy)),
-        PolicyKind::Continue => options.with_loss_policy(Arc::new(ContinueLossyPolicy)),
-    };
-
-    options
-}
-
-fn rejected_bridge_response(report: BridgeReport, policy: PolicyKind) -> Response {
-    let body = serde_json::to_vec(&json!({
-        "error": "bridge rejected",
-        "policy": policy.as_str(),
-        "report": report,
-    }))
-    .unwrap_or_else(|_| b"{\"error\":\"bridge rejected\"}".to_vec());
-
-    Response::builder()
-        .status(StatusCode::UNPROCESSABLE_ENTITY)
-        .header("content-type", "application/json")
-        .header("x-siumai-loss-policy", policy.as_str())
-        .body(Body::from(body))
-        .unwrap_or_else(|_| Response::new(Body::from("internal error")))
-}
-
-fn sse_bridge_response(
-    stream: siumai::experimental::streaming::ChatByteStream,
-    report: &BridgeReport,
-    policy: PolicyKind,
-) -> Response {
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "text/event-stream")
-        .header("x-siumai-loss-policy", policy.as_str())
-        .header("x-siumai-bridge-target", report.target.as_str())
-        .header(
-            "x-siumai-bridge-mode",
-            match report.mode {
-                BridgeMode::Strict => "strict",
-                BridgeMode::BestEffort => "best-effort",
-                BridgeMode::ProviderTolerant => "provider-tolerant",
-            },
-        )
-        .header(
-            "x-siumai-bridge-decision",
-            match report.decision {
-                siumai::experimental::bridge::BridgeDecision::Exact => "exact",
-                siumai::experimental::bridge::BridgeDecision::Lossy => "lossy",
-                siumai::experimental::bridge::BridgeDecision::Rejected => "rejected",
-            },
-        )
-        .body(Body::from_stream(stream))
-        .unwrap_or_else(|_| Response::new(Body::from("internal error")))
-}
-
 async fn anthropic_json(Query(query): Query<GatewayQuery>) -> Response {
     let policy = PolicyKind::parse(query.policy.as_deref());
     let response = synthetic_lossy_response();
@@ -330,26 +270,18 @@ async fn anthropic_json(Query(query): Query<GatewayQuery>) -> Response {
 
 async fn anthropic_sse(Query(query): Query<GatewayQuery>) -> Response {
     let policy = PolicyKind::parse(query.policy.as_deref());
-    let bridged = match bridge_chat_stream_to_anthropic_messages_sse_with_options(
+    let mut http_response = to_transcoded_sse_response(
         synthetic_cross_protocol_stream(),
-        Some(BridgeTarget::OpenAiResponses),
-        core_stream_bridge_options(policy),
-    ) {
-        Ok(bridged) => bridged,
-        Err(error) => {
-            return Response::builder()
-                .status(StatusCode::INTERNAL_SERVER_ERROR)
-                .header("content-type", "text/plain; charset=utf-8")
-                .body(Body::from(error.user_message().to_string()))
-                .unwrap_or_else(|_| Response::new(Body::from("internal error")));
-        }
-    };
-
-    let (stream, report) = bridged.into_parts();
-    match stream {
-        Some(stream) if !report.is_rejected() => sse_bridge_response(stream, &report, policy),
-        _ => rejected_bridge_response(report, policy),
-    }
+        TargetSseFormat::AnthropicMessages,
+        TranscodeSseOptions::default()
+            .with_bridge_source(BridgeTarget::OpenAiResponses)
+            .with_policy(gateway_policy(policy)),
+    );
+    http_response.headers_mut().insert(
+        "x-siumai-loss-policy",
+        policy.as_str().parse().expect("header value"),
+    );
+    http_response
 }
 
 #[tokio::main]

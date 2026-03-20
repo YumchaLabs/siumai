@@ -186,8 +186,9 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Integrate gateway policy with bridge customization contracts instead of creating parallel
   hook types
 - [ ] Keep framework-agnostic pieces separate from Axum wrappers
-- [ ] Align Axum SSE transcode helpers with core stream loss-policy inspection when callers need
+- [x] Align Axum SSE transcode helpers with core stream loss-policy inspection when callers need
   strict inspected rejection on cross-protocol stream routes
+  - enabled by explicit `TranscodeSseOptions::with_bridge_source(...)`
 - [x] Let Axum JSON/SSE transcode helpers consume bridge customization options
 - [x] Let Axum JSON/SSE transcode helpers consume `GatewayBridgePolicy`
 

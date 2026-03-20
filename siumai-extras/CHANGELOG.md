@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   hooks` as the primary extension path for Axum SSE/JSON transcoders.
 - Axum gateway transcode helpers now support partial bridge overrides and route-level bridge-mode
   override without rebuilding a full `BridgeOptions` value.
+- Axum SSE transcode helpers now support source-aware inspected loss-policy rejection and warning /
+  decision headers via `TranscodeSseOptions::with_bridge_source(...)`.
 - Axum SSE transcode helpers now enforce policy-driven keepalive and idle-timeout behavior when
   configured.
 - Axum server adapters now expose policy-aware request/upstream body read helpers for enforcing
