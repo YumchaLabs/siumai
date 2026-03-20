@@ -206,3 +206,60 @@ fn strict_anthropic_response_bridge_preserves_thinking_replay_fields() {
     assert_eq!(value["content"][3]["type"], json!("redacted_thinking"));
     assert_eq!(value["content"][3]["data"], json!("redacted_123"));
 }
+
+#[cfg(feature = "openai")]
+#[test]
+fn strict_openai_responses_bridge_preserves_provider_executed_custom_tool_items() {
+    let response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::ToolCall {
+            tool_call_id: "browser_1".to_string(),
+            tool_name: "browser_agent".to_string(),
+            arguments: json!({
+                "url": "https://example.com"
+            }),
+            provider_executed: Some(true),
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                json!({
+                    "itemId": "ct_1"
+                }),
+            )])),
+        },
+        ContentPart::ToolResult {
+            tool_call_id: "browser_1".to_string(),
+            tool_name: "browser_agent".to_string(),
+            output: siumai_core::types::ToolResultOutput::json(json!({
+                "status": "completed",
+                "message": "ok"
+            })),
+            provider_executed: Some(true),
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                json!({
+                    "itemId": "ct_1"
+                }),
+            )])),
+        },
+    ]));
+
+    let bridged = bridge_chat_response_to_openai_responses_json_value(
+        &response,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeMode::Strict,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_exact());
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["output"][0]["type"], json!("custom_tool_call"));
+    assert_eq!(value["output"][0]["id"], json!("ct_1"));
+    assert_eq!(value["output"][0]["name"], json!("browser_agent"));
+    assert_eq!(
+        value["output"][0]["input"],
+        json!(r#"{"url":"https://example.com"}"#)
+    );
+    assert_eq!(value["output"][0]["output"]["message"], json!("ok"));
+}

@@ -1,7 +1,9 @@
 //! Response bridge inspection.
 
 use siumai_core::bridge::{BridgeReport, BridgeTarget};
-use siumai_core::types::{ChatResponse, ContentPart, FinishReason};
+use siumai_core::types::{
+    ChatResponse, ContentPart, FinishReason, ToolResultContentPart, ToolResultOutput,
+};
 
 /// Inspect a normalized `ChatResponse` before bridging it into a target protocol.
 pub fn inspect_chat_response_bridge(
@@ -121,15 +123,24 @@ fn inspect_response_content(
                     ),
                 );
             }
-            ContentPart::ToolResult { .. } => {
-                report.record_dropped_field(
-                    path,
-                    format!(
-                        "{} response bridge does not serialize tool result parts",
-                        target.as_str()
-                    ),
-                );
-            }
+            ContentPart::ToolResult {
+                output,
+                provider_executed,
+                ..
+            } => match target {
+                BridgeTarget::OpenAiResponses if *provider_executed == Some(true) => {
+                    inspect_openai_response_tool_result(&path, output, report);
+                }
+                _ => {
+                    report.record_dropped_field(
+                        path,
+                        format!(
+                            "{} response bridge does not serialize tool result parts",
+                            target.as_str()
+                        ),
+                    );
+                }
+            },
             ContentPart::ToolApprovalRequest { .. } => {
                 report.record_dropped_field(
                     path,
@@ -169,6 +180,9 @@ fn inspect_response_content_part_provider_metadata(
             }
             (BridgeTarget::OpenAiResponses, "openai", ContentPart::ToolCall { .. }) => {
                 inspect_openai_tool_call_part_provider_metadata(path, value, report);
+            }
+            (BridgeTarget::OpenAiResponses, "openai", ContentPart::ToolResult { .. }) => {
+                inspect_openai_tool_result_part_provider_metadata(path, value, report);
             }
             (BridgeTarget::AnthropicMessages, "anthropic", ContentPart::ToolCall { .. }) => {
                 inspect_anthropic_tool_call_part_provider_metadata(path, value, report);
@@ -460,7 +474,7 @@ fn inspect_openai_tool_call_part_provider_metadata(
         match key.as_str() {
             "itemId" => report.record_carried_provider_metadata(
                 format!("{path}.provider_metadata.openai.itemId"),
-                "OpenAI Responses response encoding preserves function_call item ids",
+                "OpenAI Responses response encoding preserves function and provider tool item ids",
             ),
             _ => report.record_dropped_field(
                 format!("{path}.provider_metadata.openai.{key}"),
@@ -468,6 +482,59 @@ fn inspect_openai_tool_call_part_provider_metadata(
             ),
         }
     }
+}
+
+fn inspect_openai_tool_result_part_provider_metadata(
+    path: &str,
+    value: &serde_json::Value,
+    report: &mut BridgeReport,
+) {
+    let Some(metadata) = value.as_object() else {
+        report.record_dropped_field(
+            format!("{path}.provider_metadata.openai"),
+            "OpenAI Responses response encoding requires object-shaped tool-result provider metadata",
+        );
+        return;
+    };
+
+    for key in metadata.keys() {
+        match key.as_str() {
+            "itemId" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.openai.itemId"),
+                "OpenAI Responses response encoding preserves provider tool item ids on tool results",
+            ),
+            _ => report.record_dropped_field(
+                format!("{path}.provider_metadata.openai.{key}"),
+                "OpenAI Responses response encoding does not preserve this tool-result provider metadata field",
+            ),
+        }
+    }
+}
+
+fn inspect_openai_response_tool_result(
+    path: &str,
+    output: &ToolResultOutput,
+    report: &mut BridgeReport,
+) {
+    match output {
+        ToolResultOutput::ExecutionDenied { .. } => report.record_lossy_field(
+            path,
+            "OpenAI Responses response encoding replays execution-denied tool results as generic custom tool output",
+        ),
+        ToolResultOutput::Content { value } if tool_result_content_has_binary_like_parts(value) => {
+            report.record_lossy_field(
+                path,
+                "OpenAI Responses response encoding flattens non-text tool result content into coarse placeholders",
+            );
+        }
+        _ => {}
+    }
+}
+
+fn tool_result_content_has_binary_like_parts(parts: &[ToolResultContentPart]) -> bool {
+    parts
+        .iter()
+        .any(|part| !matches!(part, ToolResultContentPart::Text { .. }))
 }
 
 fn inspect_anthropic_tool_call_part_provider_metadata(

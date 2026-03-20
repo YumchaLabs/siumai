@@ -57,6 +57,17 @@ impl OpenAiResponsesResponseTransformer {
         out.insert(self.provider_metadata_key.clone(), value);
         serde_json::Value::Object(out)
     }
+
+    fn custom_tool_name_for_call_name(&self, call_name: &str) -> String {
+        if call_name.is_empty() {
+            return String::new();
+        }
+
+        match (self.style, call_name) {
+            (ResponsesTransformStyle::Xai, "x_keyword_search") => "x_search".to_string(),
+            _ => call_name.to_string(),
+        }
+    }
 }
 
 #[cfg(feature = "openai-responses")]
@@ -376,6 +387,52 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     if emitted == 0 {
                         content_parts.push(ContentPart::Reasoning {
                             text: String::new(),
+                            provider_metadata,
+                        });
+                    }
+
+                    continue;
+                }
+
+                if item_type == "custom_tool_call" {
+                    if tool_call_id.is_empty() {
+                        continue;
+                    }
+
+                    let call_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                    let tool_name = self.custom_tool_name_for_call_name(call_name);
+                    if tool_name.is_empty() {
+                        continue;
+                    }
+
+                    let arguments = item
+                        .get("input")
+                        .cloned()
+                        .unwrap_or_else(|| serde_json::Value::String("{}".to_string()));
+                    let provider_metadata =
+                        Some(self.single_provider_metadata_map(serde_json::json!({
+                            "itemId": tool_call_id,
+                        })));
+
+                    content_parts.push(ContentPart::ToolCall {
+                        tool_call_id: tool_call_id.clone(),
+                        tool_name: tool_name.clone(),
+                        arguments,
+                        provider_executed: Some(true),
+                        provider_metadata: provider_metadata.clone(),
+                    });
+
+                    if let Some(output) = item.get("output") {
+                        let is_error = item
+                            .get("is_error")
+                            .and_then(|v| v.as_bool())
+                            .unwrap_or(false);
+
+                        content_parts.push(ContentPart::ToolResult {
+                            tool_call_id,
+                            tool_name,
+                            output: custom_tool_output_to_result_output(output, is_error),
+                            provider_executed: Some(true),
                             provider_metadata,
                         });
                     }
@@ -1310,7 +1367,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
 #[cfg(all(test, feature = "openai-responses"))]
 mod tests {
     use super::*;
+    use crate::encoding::{JsonEncodeOptions, JsonResponseConverter};
     use crate::execution::transformers::response::ResponseTransformer;
+    use crate::standards::openai::json_response::OpenAiResponsesJsonResponseConverter;
 
     #[test]
     fn responses_provider_tools_are_exposed_as_tool_parts() {
@@ -1519,5 +1578,117 @@ mod tests {
             file_path_source.media_type.as_deref(),
             Some("application/octet-stream")
         );
+    }
+
+    #[test]
+    fn responses_transformer_roundtrips_custom_tool_call_items() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_custom_1",
+                "model": "grok-4",
+                "output": [
+                    {
+                        "type": "custom_tool_call",
+                        "id": "ct_1",
+                        "name": "browser_agent",
+                        "input": "{\"url\":\"https://example.com\"}",
+                        "output": {
+                            "message": "blocked"
+                        },
+                        "is_error": true,
+                        "status": "completed"
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+
+        let tool_call = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::ToolCall { .. }))
+            .expect("tool call part");
+        let tool_result = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::ToolResult { .. }))
+            .expect("tool result part");
+
+        match tool_call {
+            crate::types::ContentPart::ToolCall {
+                tool_call_id,
+                tool_name,
+                arguments,
+                provider_executed,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "ct_1");
+                assert_eq!(tool_name, "browser_agent");
+                assert_eq!(
+                    arguments,
+                    &serde_json::Value::String("{\"url\":\"https://example.com\"}".to_string())
+                );
+                assert_eq!(*provider_executed, Some(true));
+            }
+            _ => unreachable!(),
+        }
+
+        let result_meta =
+            crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(tool_result)
+                .expect("tool result metadata");
+        assert_eq!(result_meta.item_id.as_deref(), Some("ct_1"));
+
+        match tool_result {
+            crate::types::ContentPart::ToolResult {
+                tool_call_id,
+                tool_name,
+                output,
+                provider_executed,
+                ..
+            } => {
+                assert_eq!(tool_call_id, "ct_1");
+                assert_eq!(tool_name, "browser_agent");
+                assert_eq!(*provider_executed, Some(true));
+                assert_eq!(
+                    output,
+                    &crate::types::ToolResultOutput::error_json(serde_json::json!({
+                        "message": "blocked"
+                    }))
+                );
+            }
+            _ => unreachable!(),
+        }
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&resp, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["output"][0]["type"],
+            serde_json::json!("custom_tool_call")
+        );
+        assert_eq!(value["output"][0]["id"], serde_json::json!("ct_1"));
+        assert_eq!(value["output"][0]["is_error"], serde_json::json!(true));
+    }
+}
+
+#[cfg(feature = "openai-responses")]
+fn custom_tool_output_to_result_output(
+    output: &serde_json::Value,
+    is_error: bool,
+) -> crate::types::ToolResultOutput {
+    if is_error {
+        if let Some(text) = output.as_str() {
+            crate::types::ToolResultOutput::error_text(text.to_string())
+        } else {
+            crate::types::ToolResultOutput::error_json(output.clone())
+        }
+    } else if let Some(text) = output.as_str() {
+        crate::types::ToolResultOutput::text(text.to_string())
+    } else {
+        crate::types::ToolResultOutput::json(output.clone())
     }
 }

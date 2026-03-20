@@ -5,10 +5,11 @@
 use crate::encoding::{JsonEncodeOptions, JsonResponseConverter};
 use crate::error::LlmError;
 use crate::provider_metadata::openai::{
-    OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiSourceExt,
+    OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiSource, OpenAiSourceExt,
 };
 use crate::types::{ChatResponse, ContentPart, FinishReason, Usage};
 use serde::Serialize;
+use std::collections::{HashMap, HashSet};
 
 fn openai_finish_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
     match reason? {
@@ -35,6 +36,27 @@ fn openai_arguments_string(arguments: &serde_json::Value) -> String {
     } else {
         serde_json::to_string(arguments).unwrap_or_else(|_| arguments.to_string())
     }
+}
+
+fn openai_content_part_item_id(part: &ContentPart) -> Option<String> {
+    part.openai_metadata().and_then(|meta| meta.item_id)
+}
+
+fn openai_jsonish_value(value: &serde_json::Value) -> Option<serde_json::Value> {
+    match value {
+        serde_json::Value::Null => None,
+        serde_json::Value::String(raw) if raw.trim().is_empty() => None,
+        serde_json::Value::String(raw) => serde_json::from_str(raw)
+            .ok()
+            .or_else(|| Some(serde_json::Value::String(raw.clone()))),
+        other => Some(other.clone()),
+    }
+}
+
+fn openai_json_object(
+    value: &serde_json::Value,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    openai_jsonish_value(value)?.as_object().cloned()
 }
 
 fn usage_json(u: &Usage) -> OpenAiUsage {
@@ -208,7 +230,7 @@ pub struct OpenAiResponsesJsonResponse {
     pub created: u64,
     pub model: String,
     pub status: &'static str,
-    pub output: Vec<OpenAiResponseOutputItem>,
+    pub output: Vec<serde_json::Value>,
     pub output_text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<&'static str>,
@@ -301,6 +323,504 @@ pub enum OpenAiResponseAnnotation {
     },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenAiProviderToolItemKind {
+    WebSearch,
+    FileSearch,
+    CodeInterpreter,
+    ImageGeneration,
+    Computer,
+    Mcp,
+}
+
+fn openai_provider_tool_item_kind(tool_name: &str) -> Option<OpenAiProviderToolItemKind> {
+    match tool_name {
+        "webSearch" | "web_search" | "web_search_preview" => {
+            Some(OpenAiProviderToolItemKind::WebSearch)
+        }
+        "fileSearch" | "file_search" => Some(OpenAiProviderToolItemKind::FileSearch),
+        "codeExecution" | "code_execution" | "code_interpreter" => {
+            Some(OpenAiProviderToolItemKind::CodeInterpreter)
+        }
+        "generateImage" | "image_generation" => Some(OpenAiProviderToolItemKind::ImageGeneration),
+        "computer_use" | "computer_use_preview" => Some(OpenAiProviderToolItemKind::Computer),
+        _ if tool_name.starts_with("mcp.") => Some(OpenAiProviderToolItemKind::Mcp),
+        _ => None,
+    }
+}
+
+fn split_openai_sources(
+    response: &ChatResponse,
+) -> (Vec<OpenAiSource>, HashMap<String, Vec<OpenAiSource>>) {
+    let mut message_sources = Vec::new();
+    let mut tool_sources: HashMap<String, Vec<OpenAiSource>> = HashMap::new();
+
+    if let Some(sources) = response.openai_metadata().and_then(|meta| meta.sources) {
+        for source in sources {
+            if let Some(tool_call_id) = source.tool_call_id.clone() {
+                tool_sources.entry(tool_call_id).or_default().push(source);
+            } else {
+                message_sources.push(source);
+            }
+        }
+    }
+
+    (message_sources, tool_sources)
+}
+
+fn openai_sources_to_annotations(sources: Vec<OpenAiSource>) -> Vec<OpenAiResponseAnnotation> {
+    sources
+        .into_iter()
+        .filter_map(|source| {
+            let source_meta = source.openai_metadata();
+            match source.source_type.as_str() {
+                "url" => Some(OpenAiResponseAnnotation::UrlCitation {
+                    url: source.url,
+                    title: source.title,
+                }),
+                "document" => {
+                    let file_id = source_meta
+                        .as_ref()
+                        .and_then(|meta| meta.file_id.clone())
+                        .unwrap_or_else(|| source.url.clone());
+                    let quote = source.title.or(source.snippet);
+
+                    if let Some(container_id) = source_meta
+                        .as_ref()
+                        .and_then(|meta| meta.container_id.clone())
+                    {
+                        return Some(OpenAiResponseAnnotation::ContainerFileCitation {
+                            file_id,
+                            container_id,
+                            index: source_meta.as_ref().and_then(|meta| meta.index),
+                            filename: source.filename,
+                            quote,
+                        });
+                    }
+
+                    if source.media_type.as_deref() == Some("application/octet-stream") {
+                        return Some(OpenAiResponseAnnotation::FilePath {
+                            file_id,
+                            index: source_meta.as_ref().and_then(|meta| meta.index),
+                            filename: source.filename,
+                        });
+                    }
+
+                    Some(OpenAiResponseAnnotation::FileCitation {
+                        file_id,
+                        filename: source.filename,
+                        quote,
+                    })
+                }
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+fn openai_sources_to_web_search_results(sources: &[OpenAiSource]) -> Vec<serde_json::Value> {
+    sources
+        .iter()
+        .filter(|source| source.source_type == "url")
+        .map(|source| {
+            let mut obj = serde_json::Map::new();
+            obj.insert("url".to_string(), serde_json::json!(source.url));
+            if let Some(title) = &source.title {
+                obj.insert("title".to_string(), serde_json::json!(title));
+            }
+            if let Some(snippet) = &source.snippet {
+                obj.insert("snippet".to_string(), serde_json::json!(snippet));
+            }
+            serde_json::Value::Object(obj)
+        })
+        .collect()
+}
+
+fn openai_sources_to_file_search_results(sources: &[OpenAiSource]) -> Vec<serde_json::Value> {
+    sources
+        .iter()
+        .filter(|source| source.source_type == "document")
+        .map(|source| {
+            let mut obj = serde_json::Map::new();
+            obj.insert(
+                "file_id".to_string(),
+                serde_json::json!(
+                    source
+                        .openai_metadata()
+                        .and_then(|meta| meta.file_id)
+                        .unwrap_or_else(|| source.url.clone())
+                ),
+            );
+            if let Some(filename) = &source.filename {
+                obj.insert("filename".to_string(), serde_json::json!(filename));
+            }
+            if let Some(title) = &source.title {
+                obj.insert("title".to_string(), serde_json::json!(title));
+            }
+            if let Some(snippet) = &source.snippet {
+                obj.insert("snippet".to_string(), serde_json::json!(snippet));
+            }
+            if let Some(media_type) = &source.media_type {
+                obj.insert("media_type".to_string(), serde_json::json!(media_type));
+            }
+            serde_json::Value::Object(obj)
+        })
+        .collect()
+}
+
+fn openai_response_output_item_value<T: Serialize>(
+    item: &T,
+) -> Result<serde_json::Value, LlmError> {
+    serde_json::to_value(item).map_err(|e| {
+        LlmError::JsonError(format!(
+            "Failed to serialize OpenAI Responses output item value: {e}"
+        ))
+    })
+}
+
+fn openai_tool_result_payload(
+    tool_result: Option<&ContentPart>,
+) -> (serde_json::Value, Option<bool>) {
+    match tool_result {
+        Some(ContentPart::ToolResult { output, .. }) => match output {
+            crate::types::ToolResultOutput::Text { value } => {
+                (serde_json::Value::String(value.clone()), Some(false))
+            }
+            crate::types::ToolResultOutput::Json { value } => (value.clone(), Some(false)),
+            crate::types::ToolResultOutput::ExecutionDenied { reason } => (
+                serde_json::json!({
+                    "reason": reason,
+                }),
+                Some(true),
+            ),
+            crate::types::ToolResultOutput::ErrorText { value } => {
+                (serde_json::Value::String(value.clone()), Some(true))
+            }
+            crate::types::ToolResultOutput::ErrorJson { value } => (value.clone(), Some(true)),
+            crate::types::ToolResultOutput::Content { value } => (
+                serde_json::Value::Array(
+                    value
+                        .iter()
+                        .map(|part| match part {
+                            crate::types::ToolResultContentPart::Text { text } => {
+                                serde_json::json!({ "type": "text", "text": text })
+                            }
+                            crate::types::ToolResultContentPart::Image { .. } => {
+                                serde_json::json!({ "type": "image" })
+                            }
+                            crate::types::ToolResultContentPart::File { .. } => {
+                                serde_json::json!({ "type": "file" })
+                            }
+                        })
+                        .collect(),
+                ),
+                Some(false),
+            ),
+        },
+        _ => (serde_json::Value::Null, None),
+    }
+}
+
+fn openai_custom_tool_output_item(
+    tool_call: Option<&ContentPart>,
+    tool_result: Option<&ContentPart>,
+) -> Option<serde_json::Value> {
+    let (tool_call_id, tool_name, arguments, provider_executed) = match tool_call.or(tool_result) {
+        Some(ContentPart::ToolCall {
+            tool_call_id,
+            tool_name,
+            arguments,
+            provider_executed,
+            ..
+        }) => (
+            tool_call_id.clone(),
+            tool_name.clone(),
+            Some(arguments),
+            *provider_executed,
+        ),
+        Some(ContentPart::ToolResult {
+            tool_call_id,
+            tool_name,
+            provider_executed,
+            ..
+        }) => (
+            tool_call_id.clone(),
+            tool_name.clone(),
+            None,
+            *provider_executed,
+        ),
+        _ => return None,
+    };
+
+    if provider_executed != Some(true) {
+        return None;
+    }
+
+    let item_id = tool_call
+        .and_then(openai_content_part_item_id)
+        .or_else(|| tool_result.and_then(openai_content_part_item_id))
+        .unwrap_or_else(|| tool_call_id.clone());
+    let input = arguments
+        .map(openai_arguments_string)
+        .unwrap_or_else(|| "{}".to_string());
+    let (output, is_error) = openai_tool_result_payload(tool_result);
+
+    let mut item = serde_json::Map::new();
+    item.insert("id".to_string(), serde_json::json!(item_id));
+    item.insert("type".to_string(), serde_json::json!("custom_tool_call"));
+    item.insert("status".to_string(), serde_json::json!("completed"));
+    item.insert("name".to_string(), serde_json::json!(tool_name));
+    item.insert("input".to_string(), serde_json::json!(input));
+    if !output.is_null() {
+        item.insert("output".to_string(), output);
+    }
+    if let Some(is_error) = is_error
+        && is_error
+    {
+        item.insert("is_error".to_string(), serde_json::json!(true));
+    }
+
+    Some(serde_json::Value::Object(item))
+}
+
+fn openai_provider_tool_output_item(
+    tool_call: Option<&ContentPart>,
+    tool_result: Option<&ContentPart>,
+    tool_sources: &[OpenAiSource],
+) -> Option<serde_json::Value> {
+    let (tool_call_id, tool_name, arguments, provider_executed) = match tool_call.or(tool_result) {
+        Some(ContentPart::ToolCall {
+            tool_call_id,
+            tool_name,
+            arguments,
+            provider_executed,
+            ..
+        }) => (
+            tool_call_id.clone(),
+            tool_name.clone(),
+            Some(arguments),
+            *provider_executed,
+        ),
+        Some(ContentPart::ToolResult {
+            tool_call_id,
+            tool_name,
+            provider_executed,
+            ..
+        }) => (
+            tool_call_id.clone(),
+            tool_name.clone(),
+            None,
+            *provider_executed,
+        ),
+        _ => return None,
+    };
+
+    if provider_executed != Some(true) {
+        return None;
+    }
+
+    let kind = openai_provider_tool_item_kind(&tool_name)?;
+    let item_id = tool_call
+        .and_then(openai_content_part_item_id)
+        .or_else(|| tool_result.and_then(openai_content_part_item_id))
+        .unwrap_or_else(|| tool_call_id.clone());
+
+    let (result_value, _) = openai_tool_result_payload(tool_result);
+    let result_obj = result_value.as_object();
+    let input_obj = arguments.and_then(openai_json_object);
+
+    let mut item = serde_json::Map::new();
+    item.insert("id".to_string(), serde_json::json!(item_id));
+    item.insert("status".to_string(), serde_json::json!("completed"));
+
+    match kind {
+        OpenAiProviderToolItemKind::WebSearch => {
+            item.insert("type".to_string(), serde_json::json!("web_search_call"));
+
+            if let Some(status) = result_obj.and_then(|obj| obj.get("status"))
+                && !status.is_null()
+            {
+                item.insert("status".to_string(), status.clone());
+            }
+
+            if let Some(action) = result_obj.and_then(|obj| obj.get("action"))
+                && action.is_object()
+            {
+                item.insert("action".to_string(), action.clone());
+            }
+
+            let results = result_obj
+                .and_then(|obj| obj.get("results"))
+                .and_then(|value| value.as_array().cloned())
+                .or_else(|| {
+                    let results = openai_sources_to_web_search_results(tool_sources);
+                    (!results.is_empty()).then_some(results)
+                });
+
+            if let Some(results) = results {
+                item.insert("results".to_string(), serde_json::Value::Array(results));
+            }
+
+            if !item.contains_key("action")
+                && let Some(input) = input_obj.as_ref()
+                && let Some(query) = input.get("query").or_else(|| input.get("q"))
+            {
+                item.insert(
+                    "action".to_string(),
+                    serde_json::json!({
+                        "type": "search",
+                        "query": query,
+                    }),
+                );
+            }
+        }
+        OpenAiProviderToolItemKind::FileSearch => {
+            item.insert("type".to_string(), serde_json::json!("file_search_call"));
+
+            if let Some(status) = result_obj.and_then(|obj| obj.get("status"))
+                && !status.is_null()
+            {
+                item.insert("status".to_string(), status.clone());
+            }
+
+            if let Some(queries) = result_obj.and_then(|obj| obj.get("queries"))
+                && !queries.is_null()
+            {
+                item.insert("queries".to_string(), queries.clone());
+            }
+
+            let results = result_obj
+                .and_then(|obj| obj.get("results"))
+                .and_then(|value| value.as_array().cloned())
+                .or_else(|| {
+                    let results = openai_sources_to_file_search_results(tool_sources);
+                    (!results.is_empty()).then_some(results)
+                });
+
+            if let Some(results) = results {
+                item.insert("results".to_string(), serde_json::Value::Array(results));
+            }
+        }
+        OpenAiProviderToolItemKind::CodeInterpreter => {
+            item.insert(
+                "type".to_string(),
+                serde_json::json!("code_interpreter_call"),
+            );
+
+            if let Some(input) = input_obj.as_ref() {
+                if let Some(code) = input.get("code")
+                    && !code.is_null()
+                {
+                    item.insert("code".to_string(), code.clone());
+                }
+                if let Some(container_id) = input
+                    .get("containerId")
+                    .or_else(|| input.get("container_id"))
+                    && !container_id.is_null()
+                {
+                    item.insert("container_id".to_string(), container_id.clone());
+                }
+            }
+
+            if let Some(outputs) = result_obj.and_then(|obj| obj.get("outputs"))
+                && !outputs.is_null()
+            {
+                item.insert("outputs".to_string(), outputs.clone());
+            }
+        }
+        OpenAiProviderToolItemKind::ImageGeneration => {
+            item.insert(
+                "type".to_string(),
+                serde_json::json!("image_generation_call"),
+            );
+
+            if let Some(result) = result_obj.and_then(|obj| obj.get("result"))
+                && !result.is_null()
+            {
+                item.insert("result".to_string(), result.clone());
+            } else if !result_value.is_null() {
+                item.insert("result".to_string(), result_value);
+            }
+        }
+        OpenAiProviderToolItemKind::Computer => {
+            item.insert("type".to_string(), serde_json::json!("computer_call"));
+
+            if let Some(status) = result_obj.and_then(|obj| obj.get("status"))
+                && !status.is_null()
+            {
+                item.insert("status".to_string(), status.clone());
+            }
+
+            if let Some(action) = result_obj.and_then(|obj| obj.get("action"))
+                && action.is_object()
+            {
+                item.insert("action".to_string(), action.clone());
+            } else if let Some(input) = input_obj.as_ref()
+                && let Some(action) = input.get("action")
+                && action.is_object()
+            {
+                item.insert("action".to_string(), action.clone());
+            }
+        }
+        OpenAiProviderToolItemKind::Mcp => {
+            item.insert("type".to_string(), serde_json::json!("mcp_call"));
+            item.insert(
+                "name".to_string(),
+                serde_json::json!(tool_name.strip_prefix("mcp.").unwrap_or(tool_name.as_str())),
+            );
+
+            if let Some(result) = result_obj {
+                if let Some(server_label) = result
+                    .get("serverLabel")
+                    .or_else(|| result.get("server_label"))
+                    && !server_label.is_null()
+                {
+                    item.insert("server_label".to_string(), server_label.clone());
+                }
+                if let Some(arguments) = result.get("arguments")
+                    && !arguments.is_null()
+                {
+                    item.insert("arguments".to_string(), arguments.clone());
+                } else if let Some(arguments) = arguments {
+                    item.insert(
+                        "arguments".to_string(),
+                        serde_json::json!(openai_arguments_string(arguments)),
+                    );
+                }
+                if let Some(output) = result.get("output")
+                    && !output.is_null()
+                {
+                    item.insert("output".to_string(), output.clone());
+                }
+                if let Some(error) = result.get("error")
+                    && !error.is_null()
+                {
+                    item.insert("error".to_string(), error.clone());
+                }
+            } else if let Some(arguments) = arguments {
+                item.insert(
+                    "arguments".to_string(),
+                    serde_json::json!(openai_arguments_string(arguments)),
+                );
+            }
+        }
+    }
+
+    Some(serde_json::Value::Object(item))
+}
+
+fn openai_provider_executed_output_item(
+    tool_call: Option<&ContentPart>,
+    tool_result: Option<&ContentPart>,
+    tool_sources: &[OpenAiSource],
+) -> Option<(serde_json::Value, bool)> {
+    if let Some(item) = openai_provider_tool_output_item(tool_call, tool_result, tool_sources) {
+        return Some((item, true));
+    }
+
+    openai_custom_tool_output_item(tool_call, tool_result).map(|item| (item, false))
+}
+
 #[derive(Debug, Clone)]
 pub struct OpenAiResponsesJsonResponseConverter;
 
@@ -326,6 +846,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
         let id = response.id.clone().unwrap_or_else(|| "siumai".to_string());
         let model = response.model.clone().unwrap_or_default();
         let mut output = Vec::new();
+        let mut emitted_provider_tool_items: HashSet<String> = HashSet::new();
         let raw_openai_meta = response
             .provider_metadata
             .as_ref()
@@ -335,6 +856,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             .and_then(|value| value.as_str())
             .map(ToOwned::to_owned)
             .unwrap_or_else(|| format!("msg_{id}"));
+        let (mut message_sources, mut tool_sources_by_call_id) = split_openai_sources(response);
 
         let mut message_content: Vec<OpenAiResponseMessageContent> = match &response.content {
             crate::types::MessageContent::Text(text) => {
@@ -364,60 +886,135 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             }
         };
 
-        let annotations = response
-            .openai_metadata()
-            .and_then(|meta| meta.sources)
-            .map(|sources| {
-                sources
-                    .into_iter()
-                    .filter_map(|source| {
-                        let source_meta = source.openai_metadata();
-                        match source.source_type.as_str() {
-                            "url" => Some(OpenAiResponseAnnotation::UrlCitation {
-                                url: source.url,
-                                title: source.title,
-                            }),
-                            "document" => {
-                                let file_id = source_meta
-                                    .as_ref()
-                                    .and_then(|meta| meta.file_id.clone())
-                                    .unwrap_or_else(|| source.url.clone());
-                                let quote = source.title.or(source.snippet);
+        if let Some(parts) = response.content.as_multimodal() {
+            let provider_tool_results_by_call_id: HashMap<&str, &ContentPart> = parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::ToolResult {
+                        tool_call_id,
+                        provider_executed,
+                        ..
+                    } if *provider_executed == Some(true) => Some((tool_call_id.as_str(), part)),
+                    _ => None,
+                })
+                .collect();
 
-                                if let Some(container_id) = source_meta
-                                    .as_ref()
-                                    .and_then(|meta| meta.container_id.clone())
+            for (index, part) in parts.iter().enumerate() {
+                match part {
+                    ContentPart::Reasoning { text, .. } => {
+                        let meta = part.openai_metadata();
+                        let item_id = meta
+                            .as_ref()
+                            .and_then(|meta| meta.item_id.clone())
+                            .unwrap_or_else(|| format!("rs_{id}_{index}"));
+                        let summary = vec![OpenAiResponseReasoningSummary::SummaryText {
+                            text: text.clone(),
+                        }];
+
+                        output.push(openai_response_output_item_value(
+                            &OpenAiResponseOutputItem::Reasoning {
+                                id: item_id,
+                                summary,
+                                encrypted_content: meta
+                                    .and_then(|meta| meta.reasoning_encrypted_content.clone()),
+                            },
+                        )?);
+                    }
+                    ContentPart::ToolCall {
+                        tool_call_id,
+                        provider_executed,
+                        ..
+                    } => {
+                        if *provider_executed == Some(true) {
+                            if emitted_provider_tool_items.insert(tool_call_id.clone()) {
+                                let tool_sources = tool_sources_by_call_id
+                                    .remove(tool_call_id)
+                                    .unwrap_or_default();
+
+                                if let Some((item, carried_sources)) =
+                                    openai_provider_executed_output_item(
+                                        Some(part),
+                                        provider_tool_results_by_call_id
+                                            .get(tool_call_id.as_str())
+                                            .copied(),
+                                        tool_sources.as_slice(),
+                                    )
                                 {
-                                    return Some(OpenAiResponseAnnotation::ContainerFileCitation {
-                                        file_id,
-                                        container_id,
-                                        index: source_meta.as_ref().and_then(|meta| meta.index),
-                                        filename: source.filename,
-                                        quote,
-                                    });
+                                    output.push(item);
+                                    if !carried_sources {
+                                        message_sources.extend(tool_sources);
+                                    }
+                                } else {
+                                    message_sources.extend(tool_sources);
                                 }
-
-                                if source.media_type.as_deref() == Some("application/octet-stream")
-                                {
-                                    return Some(OpenAiResponseAnnotation::FilePath {
-                                        file_id,
-                                        index: source_meta.as_ref().and_then(|meta| meta.index),
-                                        filename: source.filename,
-                                    });
-                                }
-
-                                Some(OpenAiResponseAnnotation::FileCitation {
-                                    file_id,
-                                    filename: source.filename,
-                                    quote,
-                                })
                             }
-                            _ => None,
+                            continue;
                         }
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .filter(|annotations| !annotations.is_empty());
+
+                        let ContentPart::ToolCall {
+                            tool_name,
+                            arguments,
+                            ..
+                        } = part
+                        else {
+                            continue;
+                        };
+                        let meta = part.openai_metadata();
+                        let item_id = meta
+                            .as_ref()
+                            .and_then(|meta| meta.item_id.clone())
+                            .unwrap_or_else(|| format!("fc_{tool_call_id}"));
+
+                        output.push(openai_response_output_item_value(
+                            &OpenAiResponseOutputItem::FunctionCall {
+                                id: item_id,
+                                call_id: tool_call_id.clone(),
+                                name: tool_name.clone(),
+                                arguments: openai_arguments_string(arguments),
+                            },
+                        )?);
+                    }
+                    ContentPart::ToolResult {
+                        tool_call_id,
+                        provider_executed,
+                        ..
+                    } => {
+                        if *provider_executed == Some(true)
+                            && emitted_provider_tool_items.insert(tool_call_id.clone())
+                        {
+                            let tool_sources = tool_sources_by_call_id
+                                .remove(tool_call_id)
+                                .unwrap_or_default();
+
+                            if let Some((item, carried_sources)) =
+                                openai_provider_executed_output_item(
+                                    None,
+                                    Some(part),
+                                    tool_sources.as_slice(),
+                                )
+                            {
+                                output.push(item);
+                                if !carried_sources {
+                                    message_sources.extend(tool_sources);
+                                }
+                            } else {
+                                message_sources.extend(tool_sources);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        for leftover_sources in tool_sources_by_call_id.into_values() {
+            message_sources.extend(leftover_sources);
+        }
+
+        let annotations = {
+            let annotations = openai_sources_to_annotations(message_sources);
+            (!annotations.is_empty()).then_some(annotations)
+        };
 
         if let Some(annotations) = annotations {
             if message_content.is_empty() {
@@ -439,55 +1036,14 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                 .and_then(|value| value.as_str())
                 .is_some()
         {
-            output.push(OpenAiResponseOutputItem::Message {
-                id: message_item_id,
-                role: "assistant",
-                content: message_content,
-            });
-        }
-
-        if let Some(parts) = response.content.as_multimodal() {
-            for (index, part) in parts.iter().enumerate() {
-                match part {
-                    ContentPart::Reasoning { text, .. } => {
-                        let meta = part.openai_metadata();
-                        let item_id = meta
-                            .as_ref()
-                            .and_then(|meta| meta.item_id.clone())
-                            .unwrap_or_else(|| format!("rs_{id}_{index}"));
-                        let summary = vec![OpenAiResponseReasoningSummary::SummaryText {
-                            text: text.clone(),
-                        }];
-
-                        output.push(OpenAiResponseOutputItem::Reasoning {
-                            id: item_id,
-                            summary,
-                            encrypted_content: meta
-                                .and_then(|meta| meta.reasoning_encrypted_content.clone()),
-                        });
-                    }
-                    ContentPart::ToolCall {
-                        tool_call_id,
-                        tool_name,
-                        arguments,
-                        ..
-                    } => {
-                        let meta = part.openai_metadata();
-                        let item_id = meta
-                            .as_ref()
-                            .and_then(|meta| meta.item_id.clone())
-                            .unwrap_or_else(|| format!("fc_{tool_call_id}"));
-
-                        output.push(OpenAiResponseOutputItem::FunctionCall {
-                            id: item_id,
-                            call_id: tool_call_id.clone(),
-                            name: tool_name.clone(),
-                            arguments: openai_arguments_string(arguments),
-                        });
-                    }
-                    _ => {}
-                }
-            }
+            output.insert(
+                0,
+                openai_response_output_item_value(&OpenAiResponseOutputItem::Message {
+                    id: message_item_id,
+                    role: "assistant",
+                    content: message_content,
+                })?,
+            );
         }
 
         let body = OpenAiResponsesJsonResponse {
@@ -618,6 +1174,153 @@ mod tests {
         assert_eq!(
             value["output"][2]["arguments"],
             serde_json::json!(r#"{"city":"Tokyo"}"#)
+        );
+    }
+
+    #[test]
+    fn responses_encoder_serializes_provider_executed_web_search_with_tool_sources() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "ws_1".to_string(),
+                tool_name: "webSearch".to_string(),
+                arguments: serde_json::json!({
+                    "query": "rust release notes"
+                }),
+                provider_executed: Some(true),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "ws_item_1"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "ws_1".to_string(),
+                tool_name: "webSearch".to_string(),
+                output: crate::types::ToolResultOutput::json(serde_json::json!({
+                    "status": "completed",
+                    "action": {
+                        "type": "search",
+                        "query": "rust release notes"
+                    }
+                })),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+        ]));
+        response.id = Some("resp_provider_tool".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+        response.provider_metadata = Some(HashMap::from([(
+            "openai".to_string(),
+            HashMap::from([(
+                "sources".to_string(),
+                serde_json::json!([
+                    {
+                        "id": "src_1",
+                        "source_type": "url",
+                        "url": "https://blog.rust-lang.org/",
+                        "title": "Rust Blog",
+                        "snippet": "Release notes",
+                        "tool_call_id": "ws_1"
+                    }
+                ]),
+            )]),
+        )]));
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["output"][0]["type"],
+            serde_json::json!("web_search_call")
+        );
+        assert_eq!(value["output"][0]["id"], serde_json::json!("ws_item_1"));
+        assert_eq!(
+            value["output"][0]["action"]["query"],
+            serde_json::json!("rust release notes")
+        );
+        assert_eq!(
+            value["output"][0]["results"][0]["url"],
+            serde_json::json!("https://blog.rust-lang.org/")
+        );
+        assert_eq!(
+            value["output"][0]["results"][0]["snippet"],
+            serde_json::json!("Release notes")
+        );
+    }
+
+    #[test]
+    fn responses_encoder_falls_back_unknown_provider_tool_to_custom_item() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "browser_1".to_string(),
+                tool_name: "browser_agent".to_string(),
+                arguments: serde_json::Value::String(
+                    r#"{"url":"https://example.com"}"#.to_string(),
+                ),
+                provider_executed: Some(true),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "ct_1"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "browser_1".to_string(),
+                tool_name: "browser_agent".to_string(),
+                output: crate::types::ToolResultOutput::error_json(serde_json::json!({
+                    "message": "blocked"
+                })),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+        ]));
+        response.id = Some("resp_custom_tool".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+        response.provider_metadata = Some(HashMap::from([(
+            "openai".to_string(),
+            HashMap::from([(
+                "sources".to_string(),
+                serde_json::json!([
+                    {
+                        "id": "src_custom_1",
+                        "source_type": "url",
+                        "url": "https://example.com",
+                        "title": "Example",
+                        "tool_call_id": "browser_1"
+                    }
+                ]),
+            )]),
+        )]));
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["output"][0]["type"], serde_json::json!("message"));
+        assert_eq!(
+            value["output"][0]["content"][0]["annotations"][0]["type"],
+            serde_json::json!("url_citation")
+        );
+        assert_eq!(
+            value["output"][1]["type"],
+            serde_json::json!("custom_tool_call")
+        );
+        assert_eq!(value["output"][1]["id"], serde_json::json!("ct_1"));
+        assert_eq!(
+            value["output"][1]["input"],
+            serde_json::json!(r#"{"url":"https://example.com"}"#)
+        );
+        assert_eq!(value["output"][1]["is_error"], serde_json::json!(true));
+        assert_eq!(
+            value["output"][1]["output"]["message"],
+            serde_json::json!("blocked")
         );
     }
 }
