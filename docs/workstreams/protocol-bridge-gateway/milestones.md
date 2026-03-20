@@ -179,6 +179,9 @@ Current state:
 
 - `gateway-custom-transform` now demonstrates `GatewayBridgePolicy`, typed response/stream hooks,
   and primitive remappers as the primary customization path
+- runnable bridge demos now exist for:
+  - Anthropic Messages request normalization -> OpenAI Responses JSON/SSE output
+  - OpenAI Responses request normalization -> Anthropic Messages JSON/SSE output
 - request normalization now has fixture-based coverage across the three currently supported source
   protocols:
   - OpenAI Responses exact and best-effort lossy restoration

@@ -201,8 +201,8 @@ This TODO list is intentionally organized as mergeable tracks.
   - closure-friendly wrappers in `siumai-extras`
   - no raw JSON patch as the primary API
 - [ ] Add runnable examples for:
-  - Anthropic -> OpenAI Responses gateway
-  - OpenAI Responses -> Anthropic gateway
+  - [x] Anthropic -> OpenAI Responses gateway
+  - [x] OpenAI Responses -> Anthropic gateway
   - custom lossy-policy handling
   - [x] custom tool remapper
   - [x] custom stream transform

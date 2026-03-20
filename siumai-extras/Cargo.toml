@@ -139,3 +139,13 @@ required-features = ["server", "google", "openai"]
 name = "tool-loop-gateway"
 path = "examples/tool-loop-gateway.rs"
 required-features = ["server", "google", "openai"]
+
+[[example]]
+name = "anthropic-to-openai-responses-gateway"
+path = "examples/anthropic-to-openai-responses-gateway.rs"
+required-features = ["server", "openai", "anthropic"]
+
+[[example]]
+name = "openai-responses-to-anthropic-gateway"
+path = "examples/openai-responses-to-anthropic-gateway.rs"
+required-features = ["server", "openai", "anthropic"]

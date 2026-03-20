@@ -182,6 +182,9 @@ fn handler(stream: ChatStream) -> Response<Body> {
 
 See the runnable example: `siumai-extras/examples/openai-responses-gateway.rs` (streaming + non-streaming).
 For custom conversion hooks, see: `siumai-extras/examples/gateway-custom-transform.rs`.
+For request-normalization bridge demos, see:
+- `siumai-extras/examples/anthropic-to-openai-responses-gateway.rs`
+- `siumai-extras/examples/openai-responses-to-anthropic-gateway.rs`
 
 If you need to expose multiple downstream protocol surfaces from the same upstream stream,
 use the transcoder helper:
@@ -214,6 +217,14 @@ let request_json: serde_json::Value =
 If you need to customize the conversion logic, the recommended path is
 `GatewayBridgePolicy + BridgeOptions + typed bridge hooks` as demonstrated in
 `siumai-extras/examples/gateway-custom-transform.rs`.
+
+The two request-normalization bridge demos intentionally show a different path:
+- source protocol request JSON -> explicit request normalizer -> `ChatRequest`
+- execute on a fixed upstream model handle
+- transcode the resulting unified response/stream back into the chosen target protocol
+
+That is useful when you want the bridge surface to stay explicit and testable instead of hiding
+protocol translation inside route-local JSON glue.
 
 The raw event-transform helper is still available as an escape hatch:
 
