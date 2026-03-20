@@ -186,6 +186,12 @@ examples all have explicit owners**.
     - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test middleware_override_test --quiet`
     - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --test registry_openai_compat_ignored --quiet`
 
+- `extensibility-example-build-debt`
+  - Historical example-debt fix:
+    - the `06-extensibility` examples now match the current `HttpChatExecutor` contract by passing `Some(...)` request/response transformers and setting `defer_transformer_selection` explicitly, instead of relying on the older non-optional transformer fields.
+  - Validation:
+    - `cargo test --target-dir F:\SourceCodes\Rust\siumai\.codex-target -p siumai --no-run --quiet`
+
 - `openai-live-smoke-gpt-5.2`
   - Root-cause fix:
     - OpenAI native streaming `/responses` requests no longer inject Chat Completions-only `stream_options.include_usage`; live `gpt-5.2` validation surfaced that OpenAI rejects `stream_options.include_usage` on the Responses route.

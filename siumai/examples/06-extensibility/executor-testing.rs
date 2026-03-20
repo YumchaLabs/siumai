@@ -174,10 +174,11 @@ async fn test_executor_with_spec(
     let executor = HttpChatExecutor {
         provider_id: "mock-provider".to_string(),
         http_client: reqwest::Client::new(),
-        request_transformer: transformers.request,
-        response_transformer: transformers.response,
+        request_transformer: Some(transformers.request),
+        response_transformer: Some(transformers.response),
         stream_transformer: transformers.stream,
         json_stream_converter: transformers.json,
+        defer_transformer_selection: false,
         policy: siumai::experimental::execution::ExecutionPolicy::new()
             .with_stream_disable_compression(false),
         middlewares: vec![],

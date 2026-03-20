@@ -167,10 +167,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let executor = HttpChatExecutor {
         provider_id: "custom-provider".to_string(),
         http_client: reqwest::Client::new(),
-        request_transformer: transformers.request,
-        response_transformer: transformers.response,
+        request_transformer: Some(transformers.request),
+        response_transformer: Some(transformers.response),
         stream_transformer: transformers.stream,
         json_stream_converter: transformers.json,
+        defer_transformer_selection: false,
         policy: siumai::experimental::execution::ExecutionPolicy::new(),
         middlewares: vec![],
         provider_spec: spec,
