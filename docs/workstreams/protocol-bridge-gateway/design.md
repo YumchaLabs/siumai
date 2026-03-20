@@ -401,6 +401,9 @@ Current implementation note:
   target SSE encoding
 - target serializers now preserve terminal finish semantics in protocol-native terminal frames
   (`finish_reason`, `stop_reason`, or equivalent) instead of only closing the transport
+- Anthropic target serialization now treats block switching as explicit `content_block_stop` /
+  `content_block_start` boundaries so interleaved text, thinking, and tool segments remain
+  monotonic and protocol-valid
 - synthetic finalization only happens for clean EOF without `StreamEnd`, protocol error events, or
   transport errors
 - synthetic terminal responses still use `finish_reason = Unknown` when upstream EOF arrives without

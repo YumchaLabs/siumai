@@ -29,11 +29,21 @@ struct AnthropicSerializeState {
     model: Option<String>,
     message_start_emitted: bool,
     next_block_index: usize,
-    text_block_index: Option<usize>,
-    thinking_block_index: Option<usize>,
-    tool_block_index_by_id: std::collections::HashMap<String, usize>,
-    started_block_indices: Vec<usize>,
+    active_block: Option<AnthropicSerializeBlock>,
     latest_usage: Option<Usage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AnthropicSerializeBlock {
+    index: usize,
+    kind: AnthropicSerializeBlockKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AnthropicSerializeBlockKind {
+    Text,
+    Thinking,
+    Tool { id: String },
 }
 
 /// Citation document metadata extracted from the prompt (Vercel-aligned).

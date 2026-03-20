@@ -112,7 +112,7 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Add explicit stream bridge adapters built on V3 stream parts
 - [x] Ensure terminal events are preserved across protocol views
 - [x] Ensure finish reasons survive target serialization
-- [ ] Ensure content block ordering is validated for Anthropic output
+- [x] Ensure content block ordering is validated for Anthropic output
 - [ ] Ensure OpenAI final finish chunk behavior is consistent
 - [x] Add no-network finalization tests for incomplete upstream termination
 - [ ] Ensure `BridgeMode::Strict` is enforced consistently for lossy stream routes

@@ -1223,6 +1223,133 @@ fn serializes_blocks_in_order_and_closes_before_message_stop() {
 }
 
 #[test]
+fn serializes_interleaved_blocks_as_separate_monotonic_content_blocks() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&ChatStreamEvent::StreamStart {
+                metadata: ResponseMetadata {
+                    id: Some("msg_test".to_string()),
+                    model: Some("claude-test".to_string()),
+                    created: None,
+                    provider: "anthropic".to_string(),
+                    request_id: None,
+                },
+            })
+            .expect("serialize start"),
+    );
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&ChatStreamEvent::ContentDelta {
+                delta: "Hello".to_string(),
+                index: None,
+            })
+            .expect("serialize text delta 1"),
+    );
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&ChatStreamEvent::ThinkingDelta {
+                delta: "Thinking".to_string(),
+            })
+            .expect("serialize thinking delta"),
+    );
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&ChatStreamEvent::ContentDelta {
+                delta: " world".to_string(),
+                index: None,
+            })
+            .expect("serialize text delta 2"),
+    );
+    bytes.extend_from_slice(
+        &converter
+            .serialize_event(&ChatStreamEvent::StreamEnd {
+                response: ChatResponse {
+                    id: Some("msg_test".to_string()),
+                    model: Some("claude-test".to_string()),
+                    content: MessageContent::Text(String::new()),
+                    usage: Some(
+                        Usage::builder()
+                            .prompt_tokens(3)
+                            .completion_tokens(5)
+                            .total_tokens(8)
+                            .build(),
+                    ),
+                    finish_reason: Some(FinishReason::Stop),
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
+                    provider_metadata: None,
+                },
+            })
+            .expect("serialize end"),
+    );
+
+    let frames = parse_sse_frames(&bytes);
+    let typed: Vec<serde_json::Value> = frames.iter().map(|frame| frame.data.clone()).collect();
+    let types: Vec<&str> = typed
+        .iter()
+        .filter_map(|value| value.get("type").and_then(|v| v.as_str()))
+        .collect();
+
+    assert_eq!(
+        types,
+        vec![
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+        ],
+        "expected monotonic block ordering, got: {typed:?}"
+    );
+
+    let block_starts: Vec<(u64, &str)> = typed
+        .iter()
+        .filter_map(|value| {
+            (value.get("type").and_then(|v| v.as_str()) == Some("content_block_start")).then(|| {
+                (
+                    value["index"].as_u64().expect("start index"),
+                    value["content_block"]["type"].as_str().expect("block type"),
+                )
+            })
+        })
+        .collect();
+    assert_eq!(
+        block_starts,
+        vec![(0, "text"), (1, "thinking"), (2, "text")]
+    );
+
+    let block_deltas: Vec<u64> = typed
+        .iter()
+        .filter_map(|value| {
+            (value.get("type").and_then(|v| v.as_str()) == Some("content_block_delta"))
+                .then(|| value["index"].as_u64().expect("delta index"))
+        })
+        .collect();
+    assert_eq!(block_deltas, vec![0, 1, 2]);
+
+    let block_stops: Vec<u64> = typed
+        .iter()
+        .filter_map(|value| {
+            (value.get("type").and_then(|v| v.as_str()) == Some("content_block_stop"))
+                .then(|| value["index"].as_u64().expect("stop index"))
+        })
+        .collect();
+    assert_eq!(block_stops, vec![0, 1, 2]);
+}
+
+#[test]
 fn serializes_repeated_thinking_deltas_with_single_start_and_single_stop() {
     let converter = AnthropicEventConverter::new(create_test_config());
 

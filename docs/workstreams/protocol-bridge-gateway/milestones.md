@@ -86,10 +86,12 @@ Current state:
 - protocol-owned event converters are already on the serialization path
 - target serializers now preserve finish reasons in terminal protocol frames across Anthropic,
   OpenAI-compatible, OpenAI Responses, and Gemini stream views
+- Anthropic target serialization now closes and reopens content blocks on block-kind switches so
+  interleaved text / thinking / tool segments remain protocol-valid, and bridge tests cover the
+  same behavior end to end
 - clean EOF finalization is now explicit in bridge and Axum SSE serialization paths, and no-network
   tests cover incomplete upstream termination
-- remaining work is strict-mode enforcement, block ordering validation, and OpenAI final finish
-  chunk consistency
+- remaining work is strict-mode enforcement and OpenAI final finish chunk consistency
 
 Status: in progress
 

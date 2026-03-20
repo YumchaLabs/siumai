@@ -28,6 +28,41 @@ pub(super) fn serialize_event(
         *state = AnthropicSerializeState::default();
     }
 
+    fn close_active_block(state: &mut AnthropicSerializeState) -> Result<Vec<u8>, LlmError> {
+        let Some(active) = state.active_block.take() else {
+            return Ok(Vec::new());
+        };
+
+        let stop = serde_json::json!({
+            "type": "content_block_stop",
+            "index": active.index,
+        });
+        sse_typed_frame(&stop)
+    }
+
+    fn ensure_active_block<F>(
+        state: &mut AnthropicSerializeState,
+        kind: AnthropicSerializeBlockKind,
+        build_start: F,
+    ) -> Result<(Vec<u8>, usize), LlmError>
+    where
+        F: FnOnce(usize) -> serde_json::Value,
+    {
+        if let Some(active) = &state.active_block
+            && active.kind == kind
+        {
+            return Ok((Vec::new(), active.index));
+        }
+
+        let mut out = close_active_block(state)?;
+        let index = state.next_block_index;
+        state.next_block_index += 1;
+        let start = build_start(index);
+        out.extend_from_slice(&sse_typed_frame(&start)?);
+        state.active_block = Some(AnthropicSerializeBlock { index, kind });
+        Ok((out, index))
+    }
+
     fn map_stop_reason(reason: &FinishReason) -> Option<&'static str> {
         match reason {
             FinishReason::Stop => Some("end_turn"),
@@ -91,27 +126,14 @@ pub(super) fn serialize_event(
                 sse_typed_frame(&payload)
             }
             ChatStreamEvent::ContentDelta { delta, .. } => {
-                let mut out = Vec::new();
-
-                let idx = match state.text_block_index {
-                    Some(i) => i,
-                    None => {
-                        let i = state.next_block_index;
-                        state.next_block_index += 1;
-                        state.text_block_index = Some(i);
-                        i
-                    }
-                };
-
-                if !state.started_block_indices.contains(&idx) {
-                    state.started_block_indices.push(idx);
-                    let start = serde_json::json!({
-                        "type": "content_block_start",
-                        "index": idx,
-                        "content_block": { "type": "text", "text": "" }
-                    });
-                    out.extend_from_slice(&sse_typed_frame(&start)?);
-                }
+                let (mut out, idx) =
+                    ensure_active_block(state, AnthropicSerializeBlockKind::Text, |idx| {
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": { "type": "text", "text": "" }
+                        })
+                    })?;
 
                 let delta_payload = serde_json::json!({
                     "type": "content_block_delta",
@@ -122,26 +144,14 @@ pub(super) fn serialize_event(
                 Ok(out)
             }
             ChatStreamEvent::ThinkingDelta { delta } => {
-                let mut out = Vec::new();
-                let idx = match state.thinking_block_index {
-                    Some(i) => i,
-                    None => {
-                        let i = state.next_block_index;
-                        state.next_block_index += 1;
-                        state.thinking_block_index = Some(i);
-                        i
-                    }
-                };
-
-                if !state.started_block_indices.contains(&idx) {
-                    state.started_block_indices.push(idx);
-                    let start = serde_json::json!({
-                        "type": "content_block_start",
-                        "index": idx,
-                        "content_block": { "type": "thinking", "thinking": "" }
-                    });
-                    out.extend_from_slice(&sse_typed_frame(&start)?);
-                }
+                let (mut out, idx) =
+                    ensure_active_block(state, AnthropicSerializeBlockKind::Thinking, |idx| {
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": { "type": "thinking", "thinking": "" }
+                        })
+                    })?;
 
                 let delta_payload = serde_json::json!({
                     "type": "content_block_delta",
@@ -157,32 +167,22 @@ pub(super) fn serialize_event(
                 arguments_delta,
                 ..
             } => {
-                let mut out = Vec::new();
-
-                let idx = match state.tool_block_index_by_id.get(id).copied() {
-                    Some(i) => i,
-                    None => {
-                        let i = state.next_block_index;
-                        state.next_block_index += 1;
-                        state.tool_block_index_by_id.insert(id.clone(), i);
-                        i
-                    }
-                };
-
-                if !state.started_block_indices.contains(&idx) {
-                    state.started_block_indices.push(idx);
-                    let start = serde_json::json!({
-                        "type": "content_block_start",
-                        "index": idx,
-                        "content_block": {
-                            "type": "tool_use",
-                            "id": id,
-                            "name": function_name.clone().unwrap_or_else(|| "tool".to_string()),
-                            "input": {}
-                        }
-                    });
-                    out.extend_from_slice(&sse_typed_frame(&start)?);
-                }
+                let (mut out, idx) = ensure_active_block(
+                    state,
+                    AnthropicSerializeBlockKind::Tool { id: id.clone() },
+                    |idx| {
+                        serde_json::json!({
+                            "type": "content_block_start",
+                            "index": idx,
+                            "content_block": {
+                                "type": "tool_use",
+                                "id": id,
+                                "name": function_name.clone().unwrap_or_else(|| "tool".to_string()),
+                                "input": {}
+                            }
+                        })
+                    },
+                )?;
 
                 if let Some(delta) = arguments_delta.clone() {
                     let delta_payload = serde_json::json!({
@@ -213,13 +213,7 @@ pub(super) fn serialize_event(
 
                 let mut out = Vec::new();
 
-                // Close all opened content blocks (best-effort).
-                let mut indices = state.started_block_indices.clone();
-                indices.sort_unstable();
-                for idx in indices {
-                    let stop = serde_json::json!({ "type": "content_block_stop", "index": idx });
-                    out.extend_from_slice(&sse_typed_frame(&stop)?);
-                }
+                out.extend_from_slice(&close_active_block(state)?);
 
                 let stop_reason = response
                     .finish_reason
@@ -314,12 +308,7 @@ pub(super) fn serialize_event(
                     state.message_start_emitted = true;
                 }
 
-                let mut indices = state.started_block_indices.clone();
-                indices.sort_unstable();
-                for idx in indices {
-                    let stop = serde_json::json!({ "type": "content_block_stop", "index": idx });
-                    out.extend_from_slice(&sse_typed_frame(&stop)?);
-                }
+                out.extend_from_slice(&close_active_block(&mut state)?);
                 reset_stream_state(&mut state);
 
                 let stop_reason = map_v3_finish_reason_unified(&finish_reason.unified)

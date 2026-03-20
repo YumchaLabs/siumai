@@ -257,6 +257,64 @@ async fn anthropic_stream_bridge_finalizes_clean_eof_without_stream_end() {
     assert!(body.contains("event: message_stop"));
 }
 
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[tokio::test]
+async fn anthropic_stream_bridge_splits_interleaved_blocks_into_ordered_output() {
+    let response = ChatResponse {
+        id: Some("msg_1".to_string()),
+        model: Some("claude-sonnet-4-5".to_string()),
+        content: MessageContent::Text("Hello world".to_string()),
+        usage: None,
+        finish_reason: Some(FinishReason::Stop),
+        audio: None,
+        system_fingerprint: None,
+        service_tier: None,
+        warnings: None,
+        provider_metadata: None,
+    };
+
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("msg_1".to_string()),
+                model: Some("claude-sonnet-4-5".to_string()),
+                created: None,
+                provider: "anthropic".to_string(),
+                request_id: None,
+            },
+        }),
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "Hello".to_string(),
+            index: None,
+        }),
+        Ok(ChatStreamEvent::ThinkingDelta {
+            delta: "Thinking".to_string(),
+        }),
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: " world".to_string(),
+            index: None,
+        }),
+        Ok(ChatStreamEvent::StreamEnd { response }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_anthropic_messages_sse(
+        stream,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+
+    assert_eq!(body.matches("event: content_block_start").count(), 3);
+    assert_eq!(body.matches("event: content_block_stop").count(), 3);
+    assert!(body.contains("\"index\":0"));
+    assert!(body.contains("\"index\":1"));
+    assert!(body.contains("\"index\":2"));
+    assert!(body.contains("event: message_stop"));
+}
+
 #[cfg(feature = "openai")]
 #[tokio::test]
 async fn openai_responses_stream_bridge_finalizes_clean_eof_without_stream_end() {
