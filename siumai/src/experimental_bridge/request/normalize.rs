@@ -4,18 +4,23 @@ use crate::experimental_bridge::customize::apply_request_remapper;
 use crate::experimental_bridge::lifecycle::{
     new_bridge_report, new_request_normalize_context, reject_if_needed,
 };
+#[cfg(feature = "anthropic")]
+use std::collections::BTreeMap;
 #[cfg(feature = "google")]
 use std::collections::VecDeque;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap};
+#[cfg(feature = "anthropic")]
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 use siumai_core::LlmError;
 use siumai_core::bridge::{BridgeOptions, BridgeResult, BridgeTarget};
+#[cfg(feature = "anthropic")]
+use siumai_core::types::CacheControl;
 use siumai_core::types::chat::{ImageDetail, MediaSource, ResponseFormat};
 use siumai_core::types::{
-    CacheControl, ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata,
-    MessageRole, Tool, ToolChoice, ToolResultContentPart, ToolResultOutput,
+    ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole, Tool,
+    ToolChoice, ToolResultContentPart, ToolResultOutput,
 };
 #[cfg(feature = "google")]
 use siumai_protocol_gemini::standards::gemini::types::{
@@ -27,6 +32,7 @@ use siumai_protocol_gemini::standards::gemini::types::{
 #[cfg(feature = "google")]
 use uuid::Uuid;
 
+#[cfg(feature = "anthropic")]
 #[derive(Debug, Default)]
 struct AnthropicMessageParseState {
     part_cache_controls: Map<String, Value>,
@@ -2035,6 +2041,7 @@ fn parse_openai_responses_tool_output_parts(
     Ok(parts)
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_system_messages(value: &Value) -> Result<Vec<ChatMessage>, LlmError> {
     match value {
         Value::String(text) => Ok(vec![text_message(MessageRole::System, text.clone())]),
@@ -2063,6 +2070,7 @@ fn parse_anthropic_system_messages(value: &Value) -> Result<Vec<ChatMessage>, Ll
     }
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_message(value: &Value) -> Result<ChatMessage, LlmError> {
     let obj = expect_object(value, "Anthropic message")?;
     let role = required_string(obj, "role", "Anthropic message")?;
@@ -2134,6 +2142,7 @@ fn parse_anthropic_message(value: &Value) -> Result<ChatMessage, LlmError> {
     Ok(message)
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_message_parts(
     value: &Value,
 ) -> Result<(Vec<ContentPart>, AnthropicMessageParseState), LlmError> {
@@ -2212,6 +2221,7 @@ fn parse_anthropic_message_parts(
     Ok((parts, state))
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_image_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     let source = obj
         .get("source")
@@ -2240,6 +2250,7 @@ fn parse_anthropic_image_part(obj: &Map<String, Value>) -> Result<ContentPart, L
     })
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_document_part(
     obj: &Map<String, Value>,
     index: usize,
@@ -2320,6 +2331,7 @@ fn parse_anthropic_document_part(
     })
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_tool_result_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     let tool_call_id = required_string(obj, "tool_use_id", "Anthropic tool_result block")?;
     let default_output = Value::String(String::new());
@@ -2339,6 +2351,7 @@ fn parse_anthropic_tool_result_part(obj: &Map<String, Value>) -> Result<ContentP
     })
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_tool_result_output(
     value: &Value,
     is_error: bool,
@@ -2356,6 +2369,7 @@ fn parse_anthropic_tool_result_output(
     }
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_tool_result_content(
     parts: &[Value],
 ) -> Result<Vec<ToolResultContentPart>, LlmError> {
@@ -2412,6 +2426,7 @@ fn parse_anthropic_tool_result_content(
     Ok(out)
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_tools(value: &Value) -> Result<Vec<Tool>, LlmError> {
     let mut tools = Vec::new();
     for value in expect_array(value, "Anthropic request.tools")? {
@@ -2420,6 +2435,7 @@ fn parse_anthropic_tools(value: &Value) -> Result<Vec<Tool>, LlmError> {
     Ok(tools)
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_tool(value: &Value) -> Result<Tool, LlmError> {
     let obj = expect_object(value, "Anthropic request.tools[]")?;
     if let Some(kind) = obj.get("type").and_then(Value::as_str)
@@ -2478,6 +2494,7 @@ fn parse_anthropic_tool(value: &Value) -> Result<Tool, LlmError> {
     Ok(tool)
 }
 
+#[cfg(feature = "anthropic")]
 fn extract_anthropic_reserved_json_tool(tools: &mut Vec<Tool>) -> Option<ResponseFormat> {
     let index = tools.iter().position(|tool| {
         matches!(
@@ -2499,6 +2516,7 @@ fn extract_anthropic_reserved_json_tool(tools: &mut Vec<Tool>) -> Option<Respons
     }
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_anthropic_tool_choice(value: &Value) -> Result<(Option<ToolChoice>, bool), LlmError> {
     let obj = expect_object(value, "Anthropic tool_choice")?;
     let disable_parallel_tool_use = obj
@@ -2520,6 +2538,7 @@ fn parse_anthropic_tool_choice(value: &Value) -> Result<(Option<ToolChoice>, boo
     Ok((tool_choice, disable_parallel_tool_use))
 }
 
+#[cfg(feature = "anthropic")]
 fn strip_developer_prefix(text: &str) -> (MessageRole, String) {
     let prefix = "Developer instructions: ";
     if let Some(stripped) = text.strip_prefix(prefix) {
@@ -2793,6 +2812,7 @@ fn infer_document_media_type(title: Option<&str>, url: Option<&str>) -> String {
     }
 }
 
+#[cfg(feature = "anthropic")]
 fn parse_cache_control(value: &Value) -> Option<CacheControl> {
     let obj = value.as_object()?;
     let ttl = obj
@@ -2839,6 +2859,7 @@ fn default_openai_tool_name(wire_type: &str) -> String {
     }
 }
 
+#[cfg(feature = "anthropic")]
 fn anthropic_provider_tool_id_from_wire_type(wire_type: &str) -> Option<String> {
     siumai_core::tools::anthropic::SERVER_TOOL_SPECS
         .iter()
@@ -2846,6 +2867,7 @@ fn anthropic_provider_tool_id_from_wire_type(wire_type: &str) -> Option<String> 
         .map(|spec| spec.id.to_string())
 }
 
+#[cfg(feature = "anthropic")]
 fn default_anthropic_tool_name(wire_type: &str) -> String {
     siumai_core::tools::anthropic::SERVER_TOOL_SPECS
         .iter()

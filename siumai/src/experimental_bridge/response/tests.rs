@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::json;
+#[cfg(feature = "anthropic")]
 use siumai_core::bridge::{
-    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
-    BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext, ResponseBridgeContext,
-    ResponseBridgeHook, StreamBridgeContext,
+    BridgeLossAction, BridgeLossPolicy, RequestBridgeContext, StreamBridgeContext,
+};
+use siumai_core::bridge::{
+    BridgeMode, BridgeOptions, BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget,
+    ResponseBridgeContext, ResponseBridgeHook,
 };
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent};
@@ -32,8 +35,10 @@ impl BridgePrimitiveRemapper for PrefixRemapper {
     }
 }
 
+#[cfg(feature = "anthropic")]
 struct ContinueLossyPolicy;
 
+#[cfg(feature = "anthropic")]
 impl BridgeLossPolicy for ContinueLossyPolicy {
     fn request_action(
         &self,

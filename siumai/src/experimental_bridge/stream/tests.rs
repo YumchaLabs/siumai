@@ -1,10 +1,12 @@
 use std::sync::Arc;
 
 use futures_util::{StreamExt, stream};
+#[cfg(feature = "anthropic")]
+use siumai_core::bridge::StreamBridgeHook;
 use siumai_core::bridge::{
     BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
     BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext, ResponseBridgeContext,
-    StreamBridgeContext, StreamBridgeHook,
+    StreamBridgeContext,
 };
 use siumai_core::streaming::ChatByteStream;
 use siumai_core::types::{
@@ -21,8 +23,10 @@ use super::{
     bridge_chat_stream_to_openai_responses_sse, transform_chat_stream_with_bridge_options,
 };
 
+#[cfg(feature = "anthropic")]
 struct UppercaseStreamHook;
 
+#[cfg(feature = "anthropic")]
 impl StreamBridgeHook for UppercaseStreamHook {
     fn map_event(
         &self,
@@ -39,8 +43,10 @@ impl StreamBridgeHook for UppercaseStreamHook {
     }
 }
 
+#[cfg(feature = "openai")]
 struct ContinueLossyPolicy;
 
+#[cfg(feature = "openai")]
 impl BridgeLossPolicy for ContinueLossyPolicy {
     fn request_action(
         &self,
