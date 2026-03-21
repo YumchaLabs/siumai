@@ -148,11 +148,12 @@ Current fidelity:
 - exact for core text, reasoning blocks, provider-executed tool results, tool approval requests,
   usage detail breakdown, response metadata, and supported source metadata
 - same-protocol roundtrip is now fixture-covered for exact cases, including web-search
-  tool-result embedded source replay
-- one documented non-exact edge remains around tool-scoped provider metadata source
-  reconstruction: file-search style sources can be replayed semantically, but
-  `provider_metadata.openai.sources` still reflects projected source ids / linkage rather than
-  byte-for-byte restoration
+  tool-result embedded source replay and file-search typed source projection from raw provider
+  results
+- one documented non-exact edge remains around normalized tool-scoped provider metadata source
+  reconstruction: if user-supplied source linkage is keyed by unified `tool_call_id` but OpenAI
+  provider-executed items rebind through `itemId`, `provider_metadata.openai.sources` still
+  reflects projected source ids / linkage rather than byte-for-byte restoration
 
 ### Outbound streaming response
 

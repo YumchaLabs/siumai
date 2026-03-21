@@ -99,44 +99,6 @@ fn expected_response_json(case: &str) -> Value {
     value
 }
 
-fn multimodal_parts<'a>(value: &'a Value, case: &str) -> &'a [Value] {
-    value["content"]["MultiModal"]
-        .as_array()
-        .unwrap_or_else(|| panic!("fixture case {} missing content.MultiModal", case))
-}
-
-fn collect_text_parts(value: &Value, case: &str) -> Vec<String> {
-    multimodal_parts(value, case)
-        .iter()
-        .filter(|part| part.get("type").and_then(Value::as_str) == Some("text"))
-        .filter_map(|part| {
-            part.get("text")
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-        })
-        .collect()
-}
-
-fn count_part_type(value: &Value, case: &str, part_type: &str) -> usize {
-    multimodal_parts(value, case)
-        .iter()
-        .filter(|part| part.get("type").and_then(Value::as_str) == Some(part_type))
-        .count()
-}
-
-fn message_level_sources(value: &Value) -> Vec<Value> {
-    value["provider_metadata"]["openai"]["sources"]
-        .as_array()
-        .map(|sources| {
-            sources
-                .iter()
-                .filter(|source| source.get("tool_call_id").is_none())
-                .cloned()
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 #[test]
 fn openai_responses_response_bridge_roundtrip_fixture_exact_cases_match() {
     let exact_cases = [
@@ -156,6 +118,7 @@ fn openai_responses_response_bridge_roundtrip_fixture_exact_cases_match() {
         "mcp-tool.1",
         "shell-tool.1",
         "web-search-tool.1",
+        "file-search-tool.2",
     ];
 
     for case in exact_cases {
@@ -166,51 +129,4 @@ fn openai_responses_response_bridge_roundtrip_fixture_exact_cases_match() {
             fixtures_dir().join(case).display()
         );
     }
-}
-
-#[test]
-fn openai_responses_response_bridge_roundtrip_file_search_projection_preserves_results() {
-    let case = "file-search-tool.2";
-    let roundtripped = roundtrip_response_json(case);
-    let expected = expected_response_json(case);
-
-    assert_eq!(
-        collect_text_parts(&roundtripped, case),
-        collect_text_parts(&expected, case),
-        "fixture case {} should preserve assistant text output",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        count_part_type(&roundtripped, case, "tool-call"),
-        count_part_type(&expected, case, "tool-call"),
-        "fixture case {} should preserve tool-call count",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        count_part_type(&roundtripped, case, "tool-result"),
-        count_part_type(&expected, case, "tool-result"),
-        "fixture case {} should preserve tool-result count",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        roundtripped.pointer("/content/MultiModal/2/output/value/results"),
-        expected.pointer("/content/MultiModal/2/output/value/results"),
-        "fixture case {} should preserve file-search result payloads",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        message_level_sources(&roundtripped),
-        message_level_sources(&expected),
-        "fixture case {} should preserve message-level citations",
-        fixtures_dir().join(case).display()
-    );
-    assert!(
-        roundtripped["provider_metadata"]["openai"]["sources"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .any(|source| source.get("tool_call_id").is_some()),
-        "fixture case {} documents that tool-scoped file-search sources are still projected into provider metadata",
-        fixtures_dir().join(case).display()
-    );
 }
