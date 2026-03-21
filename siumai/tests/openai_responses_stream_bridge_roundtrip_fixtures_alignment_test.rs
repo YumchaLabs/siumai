@@ -108,6 +108,7 @@ struct OpenAiStreamSummary {
     reasoning_ends: Vec<ReasoningBoundary>,
     provider_tool_calls: BTreeMap<String, usize>,
     provider_tool_results: BTreeMap<String, usize>,
+    tool_approval_requests: BTreeMap<String, usize>,
     source_urls: BTreeMap<String, usize>,
 }
 
@@ -157,6 +158,7 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
         reasoning_ends: Vec::new(),
         provider_tool_calls: BTreeMap::new(),
         provider_tool_results: BTreeMap::new(),
+        tool_approval_requests: BTreeMap::new(),
         source_urls: BTreeMap::new(),
     };
     let mut text_deltas = Vec::new();
@@ -257,6 +259,12 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                             );
                         }
                     }
+                    Some("tool-approval-request") => {
+                        increment_count(
+                            &mut summary.tool_approval_requests,
+                            data.get("toolCallId").and_then(Value::as_str),
+                        );
+                    }
                     Some("source") => {
                         increment_count(
                             &mut summary.source_urls,
@@ -307,6 +315,7 @@ async fn openai_responses_stream_bridge_roundtrip_fixture_summary_cases_match() 
         "text/openai-text-deltas.1.chunks.txt",
         "reasoning/openai-reasoning-encrypted-content.1.chunks.txt",
         "reasoning/openai-reasoning-encrypted-empty-summary.1.chunks.txt",
+        "mcp/openai-mcp-tool-approval.1.chunks.txt",
         "web-search/openai-web-search-tool.1.chunks.txt",
     ];
 
