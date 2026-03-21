@@ -741,6 +741,10 @@ fn inspect_anthropic_tool_call_part_provider_metadata(
                 format!("{path}.provider_metadata.anthropic.caller"),
                 "Anthropic Messages response encoding preserves tool caller metadata",
             ),
+            "serverToolName" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.anthropic.serverToolName"),
+                "Anthropic Messages response encoding preserves provider-hosted raw server tool names when carried on tool-call metadata",
+            ),
             _ => report.record_dropped_field(
                 format!("{path}.provider_metadata.anthropic.{key}"),
                 "Anthropic Messages response encoding does not preserve this tool-call provider metadata field",

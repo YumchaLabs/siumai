@@ -124,8 +124,8 @@ This TODO list is intentionally organized as mergeable tracks.
   - Anthropic Messages same-protocol response roundtrip now has initial projected fixture
     coverage with:
     - exact/projected JSON output cases
-    - documented lossy tool-search cases where visible assistant text and tool-call sequence are
-      preserved but provider-executed synthetic tool-result replay is not yet exact
+    - exact projected replay for provider-hosted tool-search tool-call / tool-result pairs,
+      including raw server tool names and caller metadata when carried on tool-call metadata
   - Gemini GenerateContent response bridge now has explicit contract coverage for:
     - preserved aggregate usage totals plus `thoughtsTokenCount` / `cachedContentTokenCount`
     - preserved native `responseId` / `modelVersion`
@@ -274,7 +274,7 @@ This TODO list is intentionally organized as mergeable tracks.
     - documented lossy message-citation source replay via annotations
   - Anthropic Messages response roundtrip now has initial fixture coverage for:
     - projected JSON output/tool cases
-    - documented lossy tool-search replay
+    - exact projected tool-search replay
   - OpenAI Responses stream roundtrip now has initial semantic-summary fixture coverage for:
     - text delta replay
     - reasoning start/end replay

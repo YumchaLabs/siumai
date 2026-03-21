@@ -174,6 +174,14 @@ pub struct AnthropicToolCallMetadata {
     /// Tool caller information reported by Anthropic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caller: Option<AnthropicToolCaller>,
+
+    /// Raw Anthropic provider-hosted tool name when it differs from the normalized tool name.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "serverToolName",
+        alias = "server_tool_name"
+    )]
+    pub server_tool_name: Option<String>,
 }
 
 /// Anthropic-specific metadata attached to `ContentPart::Text`.
@@ -301,6 +309,30 @@ mod tests {
         let caller = meta.caller.expect("caller");
         assert_eq!(caller.kind.as_deref(), Some("code_execution_20250825"));
         assert_eq!(caller.tool_id.as_deref(), Some("srvtoolu_1"));
+    }
+
+    #[test]
+    fn anthropic_tool_call_metadata_parses_server_tool_name() {
+        let part = crate::types::ContentPart::ToolCall {
+            tool_call_id: "srvtoolu_1".to_string(),
+            tool_name: "tool_search".to_string(),
+            arguments: serde_json::json!({"pattern":"weather"}),
+            provider_executed: Some(true),
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({
+                    "serverToolName": "tool_search_tool_regex"
+                }),
+            )])),
+        };
+
+        let meta = part
+            .anthropic_tool_call_metadata()
+            .expect("anthropic tool call metadata");
+        assert_eq!(
+            meta.server_tool_name.as_deref(),
+            Some("tool_search_tool_regex")
+        );
     }
 
     #[test]

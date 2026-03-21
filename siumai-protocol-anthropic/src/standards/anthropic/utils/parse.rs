@@ -78,17 +78,40 @@ pub fn parse_response_content_and_tools(
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
+                    let raw_tool_name = name.clone();
                     let tool_name =
-                        server_tools::normalize_server_tool_name(name.as_str()).to_string();
-                    let input =
-                        server_tools::normalize_server_tool_input(name.as_str(), input.clone());
+                        server_tools::normalize_server_tool_name(raw_tool_name.as_str())
+                            .to_string();
+                    let input = server_tools::normalize_server_tool_input(
+                        raw_tool_name.as_str(),
+                        input.clone(),
+                    );
                     tool_names_by_id.insert(id.clone(), tool_name.clone());
-                    parts.push(ContentPart::tool_call(
-                        id.clone(),
+
+                    let mut anthropic_meta = serde_json::Map::new();
+                    if let Some(caller) = &content_block.caller {
+                        anthropic_meta.insert("caller".to_string(), caller.clone());
+                    }
+                    if raw_tool_name != tool_name {
+                        anthropic_meta.insert(
+                            "serverToolName".to_string(),
+                            serde_json::Value::String(raw_tool_name),
+                        );
+                    }
+                    let provider_metadata = (!anthropic_meta.is_empty()).then(|| {
+                        HashMap::from([(
+                            "anthropic".to_string(),
+                            serde_json::Value::Object(anthropic_meta),
+                        )])
+                    });
+
+                    parts.push(ContentPart::ToolCall {
+                        tool_call_id: id.clone(),
                         tool_name,
-                        input,
-                        Some(true),
-                    ));
+                        arguments: input,
+                        provider_executed: Some(true),
+                        provider_metadata,
+                    });
                 }
             }
             "mcp_tool_use" => {
@@ -600,7 +623,7 @@ mod tests {
                 id: Some("srvtoolu_2".to_string()),
                 name: Some("tool_search_tool_regex".to_string()),
                 input: Some(serde_json::json!({"pattern": "weather", "limit": 2})),
-                caller: None,
+                caller: Some(serde_json::json!({ "type": "direct" })),
                 server_name: None,
                 tool_use_id: None,
                 content: None,
@@ -633,8 +656,25 @@ mod tests {
             MessageContent::MultiModal(parts) => {
                 assert_eq!(parts.len(), 2);
 
-                if let ContentPart::ToolCall { tool_name, .. } = &parts[0] {
+                if let ContentPart::ToolCall {
+                    tool_name,
+                    provider_metadata,
+                    ..
+                } = &parts[0]
+                {
                     assert_eq!(tool_name, "tool_search");
+                    let anthropic = provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("anthropic"))
+                        .expect("anthropic provider metadata");
+                    assert_eq!(
+                        anthropic.get("serverToolName"),
+                        Some(&serde_json::json!("tool_search_tool_regex"))
+                    );
+                    assert_eq!(
+                        anthropic.get("caller").and_then(|value| value.get("type")),
+                        Some(&serde_json::json!("direct"))
+                    );
                 } else {
                     panic!("Expected tool call part");
                 }

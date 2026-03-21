@@ -73,6 +73,9 @@ Current state:
   embedded source payloads, file-search typed source extraction from raw provider results, and
   tool-scoped source id / linkage reconstruction when OpenAI item ids differ from unified
   tool-call ids
+- Anthropic Messages same-protocol response roundtrip now also preserves provider-hosted
+  tool-search tool-result reconstruction and raw server tool names / caller metadata when those
+  fields are carried on tool-call metadata
 - Gemini GenerateContent fidelity now also preserves native response metadata that was previously
   being dropped by the non-streaming encoder:
   - `responseId` / `modelVersion`

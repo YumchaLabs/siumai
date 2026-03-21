@@ -156,14 +156,27 @@ fn provider_tool_use_block(
     tool_call_id: &str,
     tool_name: &str,
     input: &serde_json::Value,
+    caller: Option<serde_json::Value>,
+    raw_server_tool_name: Option<&str>,
 ) -> serde_json::Value {
     match tool_name {
-        "web_search" | "web_fetch" | "tool_search" | "code_execution" => serde_json::json!({
-            "type": "server_tool_use",
-            "id": tool_call_id,
-            "name": tool_name,
-            "input": input,
-        }),
+        "web_search" | "web_fetch" | "tool_search" | "code_execution" => {
+            let server_tool_name = if tool_name == "tool_search" {
+                raw_server_tool_name.unwrap_or(tool_name)
+            } else {
+                tool_name
+            };
+            let mut block = serde_json::json!({
+                "type": "server_tool_use",
+                "id": tool_call_id,
+                "name": server_tool_name,
+                "input": input,
+            });
+            if let Some(caller) = caller {
+                block["caller"] = caller;
+            }
+            block
+        }
         _ => serde_json::json!({
             "type": "mcp_tool_use",
             "id": tool_call_id,
@@ -229,6 +242,70 @@ fn tool_result_content_value(output: &ToolResultOutput) -> (serde_json::Value, b
     }
 }
 
+fn anthropic_tool_search_result_content(output: &ToolResultOutput) -> serde_json::Value {
+    match output {
+        ToolResultOutput::Json { value } => {
+            if let Some(arr) = value.as_array() {
+                let tool_references = arr
+                    .iter()
+                    .map(|item| {
+                        let Some(obj) = item.as_object() else {
+                            return item.clone();
+                        };
+
+                        let mut reference = serde_json::Map::new();
+                        reference.insert(
+                            "type".to_string(),
+                            obj.get("type")
+                                .cloned()
+                                .unwrap_or_else(|| serde_json::json!("tool_reference")),
+                        );
+                        if let Some(tool_name) =
+                            obj.get("toolName").or_else(|| obj.get("tool_name"))
+                        {
+                            reference.insert("tool_name".to_string(), tool_name.clone());
+                        }
+                        for (key, value) in obj {
+                            if key != "type" && key != "toolName" && key != "tool_name" {
+                                reference.insert(key.clone(), value.clone());
+                            }
+                        }
+
+                        serde_json::Value::Object(reference)
+                    })
+                    .collect::<Vec<_>>();
+
+                serde_json::json!({
+                    "type": "tool_search_tool_search_result",
+                    "tool_references": tool_references,
+                })
+            } else {
+                value.clone()
+            }
+        }
+        ToolResultOutput::ErrorJson { value } => serde_json::json!({
+            "type": "tool_search_tool_result_error",
+            "error_code": value
+                .get("errorCode")
+                .or_else(|| value.get("error_code"))
+                .cloned()
+                .unwrap_or_else(|| value.clone()),
+        }),
+        ToolResultOutput::ErrorText { value } => serde_json::json!({
+            "type": "tool_search_tool_result_error",
+            "error_code": value,
+        }),
+        ToolResultOutput::ExecutionDenied { reason } => serde_json::json!({
+            "type": "tool_search_tool_result_error",
+            "error_code": reason.clone().unwrap_or_else(|| "execution_denied".to_string()),
+        }),
+        other => {
+            let (content, _) = tool_result_content_value(other);
+            content
+        }
+    }
+}
+
 fn provider_tool_result_block(
     tool_call_id: &str,
     tool_name: &str,
@@ -250,7 +327,7 @@ fn provider_tool_result_block(
         "tool_search" => serde_json::json!({
             "type": "tool_search_tool_result",
             "tool_use_id": tool_call_id,
-            "content": content,
+            "content": anthropic_tool_search_result_content(output),
         }),
         "code_execution" => serde_json::json!({
             "type": "code_execution_tool_result",
@@ -463,16 +540,22 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                             provider_executed,
                             ..
                         } => {
-                            let caller = part
-                                .anthropic_tool_call_metadata()
-                                .and_then(|meta| meta.caller)
+                            let tool_call_meta = part.anthropic_tool_call_metadata();
+                            let caller = tool_call_meta
+                                .as_ref()
+                                .and_then(|meta| meta.caller.clone())
                                 .and_then(|caller| serde_json::to_value(caller).ok());
+                            let raw_server_tool_name = tool_call_meta
+                                .as_ref()
+                                .and_then(|meta| meta.server_tool_name.as_deref());
 
                             if *provider_executed == Some(true) {
                                 content.push(provider_tool_use_block(
                                     tool_call_id,
                                     tool_name,
                                     arguments,
+                                    caller,
+                                    raw_server_tool_name,
                                 ));
                             } else {
                                 content.push(tool_use_block(
@@ -687,6 +770,57 @@ mod tests {
         assert_eq!(
             value["content"][4]["server_name"],
             serde_json::json!("echo")
+        );
+    }
+
+    #[test]
+    fn anthropic_encoder_replays_tool_search_server_tool_name_and_result_shape() {
+        let response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "srvtoolu_2".to_string(),
+                tool_name: "tool_search".to_string(),
+                arguments: serde_json::json!({ "pattern": "weather", "limit": 2 }),
+                provider_executed: Some(true),
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "caller": { "type": "direct" },
+                        "serverToolName": "tool_search_tool_regex"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "srvtoolu_2".to_string(),
+                tool_name: "tool_search".to_string(),
+                output: ToolResultOutput::json(serde_json::json!([
+                    { "type": "tool_reference", "toolName": "get_weather" }
+                ])),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+        ]));
+
+        let mut out = Vec::new();
+        AnthropicMessagesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["content"][0]["name"],
+            serde_json::json!("tool_search_tool_regex")
+        );
+        assert_eq!(
+            value["content"][0]["caller"]["type"],
+            serde_json::json!("direct")
+        );
+        assert_eq!(
+            value["content"][1]["content"]["type"],
+            serde_json::json!("tool_search_tool_search_result")
+        );
+        assert_eq!(
+            value["content"][1]["content"]["tool_references"][0]["tool_name"],
+            serde_json::json!("get_weather")
         );
     }
 

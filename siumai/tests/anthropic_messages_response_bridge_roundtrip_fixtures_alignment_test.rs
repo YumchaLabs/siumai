@@ -285,45 +285,36 @@ fn anthropic_messages_response_bridge_roundtrip_fixture_projected_cases_match() 
 }
 
 #[test]
-fn anthropic_messages_response_bridge_roundtrip_tool_search_cases_preserve_text_and_calls() {
-    let lossy_cases = [
+fn anthropic_messages_response_bridge_roundtrip_tool_search_cases_match_projection() {
+    let exact_cases = [
         "anthropic-tool-search-bm25.1",
         "anthropic-tool-search-regex.1",
     ];
 
-    for case in lossy_cases {
-        let roundtripped = roundtrip_response_json(case);
-        let expected = expected_response_json(case);
+    for case in exact_cases {
+        assert_eq!(
+            roundtrip_response_json(case),
+            expected_response_json(case),
+            "fixture case: {}",
+            fixtures_dir().join(case).display()
+        );
+    }
+}
 
+#[test]
+fn anthropic_messages_response_bridge_roundtrip_tool_search_provider_cases_match_projection() {
+    let exact_cases = [
+        "anthropic-tool-search-bm25.1",
+        "anthropic-tool-search-regex.1",
+    ];
+
+    for case in exact_cases {
+        let response_path = fixtures_dir().join(case).join("response.json");
         assert_eq!(
-            roundtripped.get("model"),
-            expected.get("model"),
-            "fixture case {} should preserve model",
-            fixtures_dir().join(case).display()
-        );
-        assert_eq!(
-            roundtripped.get("usage"),
-            expected.get("usage"),
-            "fixture case {} should preserve usage totals",
-            fixtures_dir().join(case).display()
-        );
-        assert_eq!(
-            roundtripped.get("finish_reason"),
-            expected.get("finish_reason"),
-            "fixture case {} should preserve finish_reason",
-            fixtures_dir().join(case).display()
-        );
-        assert_eq!(
-            collect_text_parts(&roundtripped, case),
-            collect_text_parts(&expected, case),
-            "fixture case {} should preserve assistant text",
-            fixtures_dir().join(case).display()
-        );
-        assert_eq!(
-            collect_tool_call_names(&roundtripped, case),
-            collect_tool_call_names(&expected, case),
-            "fixture case {} should preserve visible tool-call sequence",
-            fixtures_dir().join(case).display()
+            roundtrip_provider_response_json_from_path(case, &response_path),
+            transform_provider_response_json(case, &response_path),
+            "fixture case: {}",
+            response_path.display()
         );
     }
 }
