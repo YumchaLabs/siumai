@@ -136,11 +136,25 @@ fn count_part_type(value: &Value, case: &str, part_type: &str) -> usize {
         .count()
 }
 
+fn message_level_sources(value: &Value) -> Vec<Value> {
+    value["provider_metadata"]["openai"]["sources"]
+        .as_array()
+        .map(|sources| {
+            sources
+                .iter()
+                .filter(|source| source.get("tool_call_id").is_none())
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[test]
 fn openai_responses_response_bridge_roundtrip_fixture_exact_cases_match() {
     let exact_cases = [
         "basic-text",
         "file-search-tool.1",
+        "logprobs.1",
         "mcp-tool-approval.1",
         "tool-calls",
         "reasoning-empty-summary",
@@ -206,6 +220,53 @@ fn openai_responses_response_bridge_roundtrip_source_citation_case_preserves_mes
             .pointer("/content/MultiModal/2/output/value/sources")
             .is_none(),
         "fixture case {} documents that tool-result embedded sources remain lossy",
+        fixtures_dir().join(case).display()
+    );
+}
+
+#[test]
+fn openai_responses_response_bridge_roundtrip_file_search_projection_preserves_results() {
+    let case = "file-search-tool.2";
+    let roundtripped = roundtrip_response_json(case);
+    let expected = expected_response_json(case);
+
+    assert_eq!(
+        collect_text_parts(&roundtripped, case),
+        collect_text_parts(&expected, case),
+        "fixture case {} should preserve assistant text output",
+        fixtures_dir().join(case).display()
+    );
+    assert_eq!(
+        count_part_type(&roundtripped, case, "tool-call"),
+        count_part_type(&expected, case, "tool-call"),
+        "fixture case {} should preserve tool-call count",
+        fixtures_dir().join(case).display()
+    );
+    assert_eq!(
+        count_part_type(&roundtripped, case, "tool-result"),
+        count_part_type(&expected, case, "tool-result"),
+        "fixture case {} should preserve tool-result count",
+        fixtures_dir().join(case).display()
+    );
+    assert_eq!(
+        roundtripped.pointer("/content/MultiModal/2/output/value/results"),
+        expected.pointer("/content/MultiModal/2/output/value/results"),
+        "fixture case {} should preserve file-search result payloads",
+        fixtures_dir().join(case).display()
+    );
+    assert_eq!(
+        message_level_sources(&roundtripped),
+        message_level_sources(&expected),
+        "fixture case {} should preserve message-level citations",
+        fixtures_dir().join(case).display()
+    );
+    assert!(
+        roundtripped["provider_metadata"]["openai"]["sources"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .any(|source| source.get("tool_call_id").is_some()),
+        "fixture case {} documents that tool-scoped file-search sources are still projected into provider metadata",
         fixtures_dir().join(case).display()
     );
 }

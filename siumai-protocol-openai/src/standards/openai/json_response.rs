@@ -59,6 +59,13 @@ fn openai_json_object(
     openai_jsonish_value(value)?.as_object().cloned()
 }
 
+fn openai_output_text_logprobs_groups(value: &serde_json::Value) -> Vec<serde_json::Value> {
+    match value {
+        serde_json::Value::Array(groups) => groups.clone(),
+        _ => Vec::new(),
+    }
+}
+
 fn usage_json(u: &Usage) -> OpenAiUsage {
     OpenAiUsage {
         prompt_tokens: u.prompt_tokens,
@@ -1107,11 +1114,12 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             }
         }
 
-        if let Some(logprobs) = response.openai_metadata().and_then(|meta| meta.logprobs)
-            && let Some(OpenAiResponseMessageContent::OutputText { logprobs: slot, .. }) =
-                message_content.first_mut()
-        {
-            *slot = Some(logprobs);
+        if let Some(logprobs) = response.openai_metadata().and_then(|meta| meta.logprobs) {
+            let mut groups = openai_output_text_logprobs_groups(&logprobs).into_iter();
+            for part in &mut message_content {
+                let OpenAiResponseMessageContent::OutputText { logprobs: slot, .. } = part;
+                *slot = groups.next();
+            }
         }
 
         if !message_content.is_empty()
