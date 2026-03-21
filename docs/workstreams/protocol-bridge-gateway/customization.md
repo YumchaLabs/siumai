@@ -18,6 +18,8 @@ Pick the smallest layer that matches the change you need.
 
 | Need | Recommended surface | Why |
 | --- | --- | --- |
+| Coordinate request / response / stream customization in one object | `BridgeCustomization` + `BridgeOptions::with_customization(...)` | Lowest-glue path for reusable bridge policy bundles |
+| Customize one route locally without declaring a dedicated struct | `siumai-extras::server::axum::ClosureBridgeCustomization` | Closure-friendly gateway ergonomics built on the same typed bridge contract |
 | Rename tool names or tool-call IDs across request / response / stream paths | `BridgePrimitiveRemapper` | Reusable, bridge-aware, and cheap to test |
 | Reject, warn, or continue on lossy routes | `BridgeLossPolicy` | Keeps strictness logic tied to `BridgeReport` |
 | Rewrite normalized requests before target serialization | `RequestBridgeHook::transform_request` | Mutates semantics before target JSON exists |
@@ -34,6 +36,7 @@ That is the intended public customization model.
 
 The bridge surface now exposes:
 
+- `BridgeCustomization`
 - `RequestBridgeHook`
 - `ResponseBridgeHook`
 - `StreamBridgeHook`
@@ -55,6 +58,25 @@ That is important because the same customization can behave differently on:
 - same-protocol replay
 - cross-protocol normalized bridges
 - selected direct pair bridges
+
+`BridgeCustomization` is an ergonomic bundle over those lower-level interfaces.
+
+It does not replace them. It exists so applications can attach one reusable object when the same
+route policy needs to:
+
+- remap tool primitives
+- mutate normalized requests
+- rewrite responses
+- inspect or reject lossy bridges
+- transform stream events
+
+For gateway-local ergonomics, `siumai-extras` also exposes closure-friendly wrappers that implement
+the same bridge contract for you:
+
+- `ClosureBridgeCustomization`
+- `ClosureResponseBridgeHook`
+- `ClosureStreamBridgeHook`
+- `ClosurePrimitiveRemapper`
 
 ### 2) Protocol-source request normalization stays explicit
 
@@ -174,19 +196,41 @@ bridge into raw JSON patch code.
 
 ## Minimal shape for applications
 
-Illustrative direction:
+Reusable application-level policy bundle:
 
 ```rust
 let options = BridgeOptions::new(BridgeMode::BestEffort)
     .with_route_label("gateway.responses")
-    .with_request_hook(Arc::new(MyRequestHook))
-    .with_response_hook(Arc::new(MyResponseHook))
-    .with_stream_hook(Arc::new(MyStreamHook))
-    .with_primitive_remapper(Arc::new(MyRemapper))
-    .with_loss_policy(Arc::new(MyLossPolicy));
+    .with_customization(Arc::new(MyBridgeCustomization));
 ```
 
+Route-local Axum helper wiring without declaring a dedicated customization struct:
+
+```rust
+let opts = TranscodeSseOptions::default().with_bridge_customization(Arc::new(
+    ClosureBridgeCustomization::default()
+        .with_stream(|ctx, event| {
+            assert_eq!(ctx.target, BridgeTarget::OpenAiResponses);
+            vec![event]
+        })
+        .with_stream_loss_action(|_ctx, report| {
+            if report.is_rejected() {
+                BridgeLossAction::Reject
+            } else {
+                BridgeLossAction::Continue
+            }
+        }),
+));
+```
+
+Use the struct-based `BridgeCustomization` path when the policy is reusable across routes or crates.
+Use the closure-friendly wrappers when the customization is local to one gateway adapter, test, or
+application entry point.
+
 Gateway routes that only need partial overrides should prefer `BridgeOptionsOverride`.
+
+If only one phase needs customization, keep using the smaller dedicated trait instead of forcing a
+bundle object.
 
 ## Current conclusion
 
@@ -194,6 +238,7 @@ The repository already supports user-defined conversion, but it supports it in a
 typed, bridge-aware way:
 
 - yes to hook traits and policy objects
+- yes to a single bundled `BridgeCustomization` object when one policy spans multiple phases
 - yes to normalized post-parse transforms
 - yes to reusable primitive remappers
 - no to a catch-all parser override trait

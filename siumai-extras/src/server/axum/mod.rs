@@ -19,8 +19,8 @@ mod transcode_sse;
 
 pub use crate::server::GatewayBridgePolicy;
 pub use bridge_hooks::{
-    ClosurePrimitiveRemapper, ClosureResponseBridgeHook, ClosureStreamBridgeHook,
-    response_bridge_hook, stream_bridge_hook,
+    ClosureBridgeCustomization, ClosurePrimitiveRemapper, ClosureResponseBridgeHook,
+    ClosureStreamBridgeHook, response_bridge_hook, stream_bridge_hook,
 };
 pub use runtime::{
     GatewayBodyReadError, GatewayBodyRole, read_request_body_with_policy,

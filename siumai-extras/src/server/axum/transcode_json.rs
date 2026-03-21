@@ -3,6 +3,7 @@
 //! English-only comments in code as requested.
 
 use std::fmt;
+use std::sync::Arc;
 
 use axum::{body::Body, http::header, response::Response};
 
@@ -11,7 +12,8 @@ use siumai::experimental::bridge::bridge_chat_response_to_anthropic_messages_jso
 #[cfg(feature = "google")]
 use siumai::experimental::bridge::bridge_chat_response_to_gemini_generate_content_json_bytes_with_options;
 use siumai::experimental::bridge::{
-    BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeReport, BridgeTarget,
+    BridgeCustomization, BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeReport,
+    BridgeTarget,
 };
 #[cfg(feature = "openai")]
 use siumai::experimental::bridge::{
@@ -67,6 +69,20 @@ impl TranscodeJsonOptions {
     /// Attach bridge customization options to the JSON transcode helper.
     pub fn with_bridge_options(mut self, bridge_options: BridgeOptions) -> Self {
         self.bridge_options = Some(bridge_options);
+        self
+    }
+
+    /// Attach a unified bridge customization object to the JSON transcode helper.
+    pub fn with_bridge_customization(
+        mut self,
+        customization: Arc<dyn BridgeCustomization>,
+    ) -> Self {
+        self.bridge_options = Some(
+            self.bridge_options
+                .take()
+                .unwrap_or_else(|| BridgeOptions::new(BridgeMode::BestEffort))
+                .with_customization(customization),
+        );
         self
     }
 
@@ -372,12 +388,13 @@ fn apply_gateway_policy_headers(
 #[cfg(test)]
 mod json_transcode_tests {
     use super::*;
-    use std::sync::Arc;
 
     use serde_json::json;
     use siumai::prelude::unified::{ContentPart, MessageContent};
 
-    use super::super::bridge_hooks::{ClosurePrimitiveRemapper, response_bridge_hook};
+    use super::super::bridge_hooks::{
+        ClosureBridgeCustomization, ClosurePrimitiveRemapper, response_bridge_hook,
+    };
 
     #[test]
     #[cfg(feature = "openai")]
@@ -499,6 +516,31 @@ mod json_transcode_tests {
 
         let v: serde_json::Value = serde_json::from_slice(&payload.bytes).expect("json value");
         assert_eq!(v["output"][0]["content"][0]["text"], "hooked");
+    }
+
+    #[test]
+    #[cfg(feature = "openai")]
+    fn openai_responses_json_applies_unified_bridge_customization() {
+        let resp = ChatResponse::new(MessageContent::Text("original".to_string()));
+
+        let payload = transcode_chat_response_to_json_bytes(
+            &resp,
+            TargetJsonFormat::OpenAiResponses,
+            &TranscodeJsonOptions::default().with_bridge_customization(Arc::new(
+                ClosureBridgeCustomization::default().with_response(|ctx, response, _report| {
+                    assert_eq!(
+                        ctx.target,
+                        siumai::experimental::bridge::BridgeTarget::OpenAiResponses
+                    );
+                    response.content = MessageContent::Text("customized".to_string());
+                    Ok(())
+                }),
+            )),
+        )
+        .expect("json bytes");
+
+        let v: serde_json::Value = serde_json::from_slice(&payload.bytes).expect("json value");
+        assert_eq!(v["output"][0]["content"][0]["text"], "customized");
     }
 
     #[test]

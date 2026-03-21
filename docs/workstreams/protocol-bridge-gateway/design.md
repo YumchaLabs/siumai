@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Design
 
-Last updated: 2026-03-20
+Last updated: 2026-03-21
 
 ## Context
 
@@ -102,6 +102,7 @@ The repository now exposes both bridge-owned customization and older adjacent ho
 
 Recommended primary surface:
 
+- `siumai-core::bridge::{BridgeOptions, BridgeCustomization}`
 - `siumai-core::bridge::{BridgeOptions, RequestBridgeHook, ResponseBridgeHook, StreamBridgeHook}`
 - `siumai-core::bridge::{BridgeOptionsOverride, BridgePrimitiveRemapper, BridgeLossPolicy}`
 - typed contexts:
@@ -110,8 +111,12 @@ Recommended primary surface:
   - `StreamBridgeContext`
   - `BridgePrimitiveContext`
 - `siumai-extras::server::GatewayBridgePolicy`
-- closure-friendly adapters in `siumai-extras` for route-local response/stream transforms and
-  primitive remapping
+- closure-friendly adapters in `siumai-extras` for route-local bundled customization, response /
+  stream transforms, and primitive remapping
+  - `ClosureBridgeCustomization`
+  - `ClosureResponseBridgeHook`
+  - `ClosureStreamBridgeHook`
+  - `ClosurePrimitiveRemapper`
 
 Legacy but still useful adjacent hooks:
 
@@ -146,6 +151,10 @@ See also:
 Users should customize at the smallest typed layer that matches their need.
 
 - If the goal is stable cross-bridge naming or ID policy, implement `BridgePrimitiveRemapper`.
+- If the goal is to coordinate request/response/stream policy in one reusable object, implement
+  `BridgeCustomization` and attach it with `BridgeOptions::with_customization(...)`.
+- If the goal is route-local gateway customization without a dedicated policy struct, use
+  `ClosureBridgeCustomization` through helper-level `with_bridge_customization(...)` entry points.
 - If the goal is "warn vs reject vs tolerate" on lossy routes, implement `BridgeLossPolicy`.
 - If the goal is to rewrite a normalized request before target serialization, implement
   `RequestBridgeHook::transform_request`.

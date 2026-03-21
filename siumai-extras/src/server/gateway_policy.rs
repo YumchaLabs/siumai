@@ -2,7 +2,11 @@
 
 use std::{fmt, time::Duration};
 
-use siumai::experimental::bridge::{BridgeMode, BridgeOptions, BridgeOptionsOverride};
+use std::sync::Arc;
+
+use siumai::experimental::bridge::{
+    BridgeCustomization, BridgeMode, BridgeOptions, BridgeOptionsOverride,
+};
 
 /// Stable gateway policy for bridge-backed server adapters.
 #[derive(Clone)]
@@ -85,6 +89,12 @@ impl GatewayBridgePolicy {
     /// Partially override the default bridge options used by this policy.
     pub fn with_bridge_options_override(mut self, override_options: BridgeOptionsOverride) -> Self {
         self.bridge_options = self.bridge_options.merged_with_override(override_options);
+        self
+    }
+
+    /// Attach a unified bridge customization object to the default bridge options.
+    pub fn with_customization(mut self, customization: Arc<dyn BridgeCustomization>) -> Self {
+        self.bridge_options = self.bridge_options.with_customization(customization);
         self
     }
 
@@ -213,6 +223,11 @@ impl GatewayBridgePolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use siumai::experimental::bridge::BridgeCustomization;
+
+    struct NoopCustomization;
+
+    impl BridgeCustomization for NoopCustomization {}
 
     #[test]
     fn resolve_bridge_options_overlays_route_override() {
@@ -243,5 +258,16 @@ mod tests {
 
         assert!(policy.allows_response_header("X-SIUMAI-BRIDGE-MODE"));
         assert!(!policy.allows_response_header("x-siumai-bridge-target"));
+    }
+
+    #[test]
+    fn gateway_policy_can_attach_unified_bridge_customization() {
+        let policy = GatewayBridgePolicy::new(BridgeMode::BestEffort)
+            .with_customization(Arc::new(NoopCustomization));
+
+        assert!(policy.bridge_options.request_hook.is_some());
+        assert!(policy.bridge_options.response_hook.is_some());
+        assert!(policy.bridge_options.stream_hook.is_some());
+        assert!(policy.bridge_options.primitive_remapper.is_some());
     }
 }

@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - TODO
 
-Last updated: 2026-03-20
+Last updated: 2026-03-21
 
 This TODO list is intentionally organized as mergeable tracks.
 
@@ -63,6 +63,7 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Decide how provider metadata is carried across bridges
 - [x] Add stable bridge customization contract types:
   - `BridgeOptions`
+  - `BridgeCustomization`
   - request / response / stream context types
   - primitive remapper context
   - lossy handling policy trait
@@ -153,6 +154,10 @@ This TODO list is intentionally organized as mergeable tracks.
   - request post-bridge validation
   - response transform before target serialization
   - stream-part transform
+- [x] Add an ergonomic bundled customization trait for multi-phase policies
+  - `BridgeCustomization`
+  - `BridgeOptions::with_customization(...)`
+  - `BridgeOptionsOverride::with_customization(...)`
 - [x] Add primitive remapper policy:
   - tool name remap
   - tool call id remap
@@ -208,6 +213,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - bridge-specific trait/policy objects in core
   - closure-friendly wrappers in `siumai-extras`
   - no raw JSON patch as the primary API
+- [x] Document route-local closure-based customization for gateway helpers
 - [ ] Add runnable examples for:
   - [x] Anthropic -> OpenAI Responses gateway
   - [x] OpenAI Responses -> Anthropic gateway

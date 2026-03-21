@@ -496,6 +496,100 @@ pub enum BridgeLossAction {
     Reject,
 }
 
+/// Unified bridge customization trait.
+///
+/// This is an ergonomic bundle over the lower-level hook/remapper/policy traits. Applications that
+/// need coordinated request/response/stream customization can implement one object and attach it
+/// with `BridgeOptions::with_customization(...)` instead of wiring several trait objects manually.
+///
+/// The lower-level traits remain available and are still the best fit when the customization only
+/// targets one narrow bridge phase.
+pub trait BridgeCustomization: Send + Sync {
+    fn transform_request(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _request: &mut ChatRequest,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    fn transform_request_json(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _body: &mut serde_json::Value,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    fn validate_request_json(
+        &self,
+        _ctx: &RequestBridgeContext,
+        _body: &serde_json::Value,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    fn transform_response(
+        &self,
+        _ctx: &ResponseBridgeContext,
+        _response: &mut ChatResponse,
+        _report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        Ok(())
+    }
+
+    fn map_stream_event(
+        &self,
+        _ctx: &StreamBridgeContext,
+        event: ChatStreamEvent,
+    ) -> Vec<ChatStreamEvent> {
+        vec![event]
+    }
+
+    fn remap_tool_name(&self, _ctx: &BridgePrimitiveContext, _name: &str) -> Option<String> {
+        None
+    }
+
+    fn remap_tool_call_id(&self, _ctx: &BridgePrimitiveContext, _id: &str) -> Option<String> {
+        None
+    }
+
+    fn request_action(
+        &self,
+        ctx: &RequestBridgeContext,
+        report: &BridgeReport,
+    ) -> BridgeLossAction {
+        if report.is_rejected() || (matches!(ctx.mode, BridgeMode::Strict) && report.is_lossy()) {
+            BridgeLossAction::Reject
+        } else {
+            BridgeLossAction::Continue
+        }
+    }
+
+    fn response_action(
+        &self,
+        ctx: &ResponseBridgeContext,
+        report: &BridgeReport,
+    ) -> BridgeLossAction {
+        if report.is_rejected() || (matches!(ctx.mode, BridgeMode::Strict) && report.is_lossy()) {
+            BridgeLossAction::Reject
+        } else {
+            BridgeLossAction::Continue
+        }
+    }
+
+    fn stream_action(&self, ctx: &StreamBridgeContext, report: &BridgeReport) -> BridgeLossAction {
+        if report.is_rejected() || (matches!(ctx.mode, BridgeMode::Strict) && report.is_lossy()) {
+            BridgeLossAction::Reject
+        } else {
+            BridgeLossAction::Continue
+        }
+    }
+}
+
 /// Policy for deciding whether a bridge report should continue or reject.
 pub trait BridgeLossPolicy: Send + Sync {
     fn request_action(&self, ctx: &RequestBridgeContext, report: &BridgeReport)
@@ -541,6 +635,95 @@ impl BridgeLossPolicy for DefaultBridgeLossPolicy {
 
     fn stream_action(&self, ctx: &StreamBridgeContext, report: &BridgeReport) -> BridgeLossAction {
         default_loss_action(ctx.mode, report)
+    }
+}
+
+#[derive(Clone)]
+struct BridgeCustomizationAdapter {
+    customization: Arc<dyn BridgeCustomization>,
+}
+
+impl BridgeCustomizationAdapter {
+    fn new(customization: Arc<dyn BridgeCustomization>) -> Self {
+        Self { customization }
+    }
+}
+
+impl RequestBridgeHook for BridgeCustomizationAdapter {
+    fn transform_request(
+        &self,
+        ctx: &RequestBridgeContext,
+        request: &mut ChatRequest,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        self.customization.transform_request(ctx, request, report)
+    }
+
+    fn transform_json(
+        &self,
+        ctx: &RequestBridgeContext,
+        body: &mut serde_json::Value,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        self.customization.transform_request_json(ctx, body, report)
+    }
+
+    fn validate_json(
+        &self,
+        ctx: &RequestBridgeContext,
+        body: &serde_json::Value,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        self.customization.validate_request_json(ctx, body, report)
+    }
+}
+
+impl ResponseBridgeHook for BridgeCustomizationAdapter {
+    fn transform_response(
+        &self,
+        ctx: &ResponseBridgeContext,
+        response: &mut ChatResponse,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        self.customization.transform_response(ctx, response, report)
+    }
+}
+
+impl StreamBridgeHook for BridgeCustomizationAdapter {
+    fn map_event(&self, ctx: &StreamBridgeContext, event: ChatStreamEvent) -> Vec<ChatStreamEvent> {
+        self.customization.map_stream_event(ctx, event)
+    }
+}
+
+impl BridgePrimitiveRemapper for BridgeCustomizationAdapter {
+    fn remap_tool_name(&self, ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
+        self.customization.remap_tool_name(ctx, name)
+    }
+
+    fn remap_tool_call_id(&self, ctx: &BridgePrimitiveContext, id: &str) -> Option<String> {
+        self.customization.remap_tool_call_id(ctx, id)
+    }
+}
+
+impl BridgeLossPolicy for BridgeCustomizationAdapter {
+    fn request_action(
+        &self,
+        ctx: &RequestBridgeContext,
+        report: &BridgeReport,
+    ) -> BridgeLossAction {
+        self.customization.request_action(ctx, report)
+    }
+
+    fn response_action(
+        &self,
+        ctx: &ResponseBridgeContext,
+        report: &BridgeReport,
+    ) -> BridgeLossAction {
+        self.customization.response_action(ctx, report)
+    }
+
+    fn stream_action(&self, ctx: &StreamBridgeContext, report: &BridgeReport) -> BridgeLossAction {
+        self.customization.stream_action(ctx, report)
     }
 }
 
@@ -617,6 +800,16 @@ impl BridgeOptions {
 
     pub fn with_loss_policy(mut self, policy: Arc<dyn BridgeLossPolicy>) -> Self {
         self.loss_policy = policy;
+        self
+    }
+
+    pub fn with_customization(mut self, customization: Arc<dyn BridgeCustomization>) -> Self {
+        let adapter = Arc::new(BridgeCustomizationAdapter::new(customization));
+        self.request_hook = Some(adapter.clone());
+        self.response_hook = Some(adapter.clone());
+        self.stream_hook = Some(adapter.clone());
+        self.primitive_remapper = Some(adapter.clone());
+        self.loss_policy = adapter;
         self
     }
 
@@ -706,6 +899,16 @@ impl BridgeOptionsOverride {
         self.loss_policy = Some(policy);
         self
     }
+
+    pub fn with_customization(mut self, customization: Arc<dyn BridgeCustomization>) -> Self {
+        let adapter = Arc::new(BridgeCustomizationAdapter::new(customization));
+        self.request_hook = Some(adapter.clone());
+        self.response_hook = Some(adapter.clone());
+        self.stream_hook = Some(adapter.clone());
+        self.primitive_remapper = Some(adapter.clone());
+        self.loss_policy = Some(adapter);
+        self
+    }
 }
 
 impl From<BridgeOptions> for BridgeOptionsOverride {
@@ -725,6 +928,96 @@ impl From<BridgeOptions> for BridgeOptionsOverride {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::{ChatRequest, MessageContent};
+    use serde_json::json;
+
+    struct CompositeCustomization;
+
+    impl BridgeCustomization for CompositeCustomization {
+        fn transform_request(
+            &self,
+            _ctx: &RequestBridgeContext,
+            request: &mut ChatRequest,
+            report: &mut BridgeReport,
+        ) -> Result<(), LlmError> {
+            request.common_params.max_tokens = Some(42);
+            report.add_warning(BridgeWarning::new(
+                BridgeWarningKind::Custom,
+                "customization transformed request",
+            ));
+            Ok(())
+        }
+
+        fn transform_request_json(
+            &self,
+            _ctx: &RequestBridgeContext,
+            body: &mut serde_json::Value,
+            _report: &mut BridgeReport,
+        ) -> Result<(), LlmError> {
+            body["metadata"] = json!({ "customized": true });
+            Ok(())
+        }
+
+        fn validate_request_json(
+            &self,
+            _ctx: &RequestBridgeContext,
+            body: &serde_json::Value,
+            report: &mut BridgeReport,
+        ) -> Result<(), LlmError> {
+            assert_eq!(body["metadata"]["customized"], json!(true));
+            report.add_warning(BridgeWarning::new(
+                BridgeWarningKind::Custom,
+                "customization validated request json",
+            ));
+            Ok(())
+        }
+
+        fn transform_response(
+            &self,
+            _ctx: &ResponseBridgeContext,
+            response: &mut ChatResponse,
+            _report: &mut BridgeReport,
+        ) -> Result<(), LlmError> {
+            response.content = MessageContent::Text("[customized]".to_string());
+            Ok(())
+        }
+
+        fn map_stream_event(
+            &self,
+            _ctx: &StreamBridgeContext,
+            event: ChatStreamEvent,
+        ) -> Vec<ChatStreamEvent> {
+            match event {
+                ChatStreamEvent::ContentDelta { delta, index } => {
+                    vec![ChatStreamEvent::ContentDelta {
+                        delta: delta.to_uppercase(),
+                        index,
+                    }]
+                }
+                other => vec![other],
+            }
+        }
+
+        fn remap_tool_name(&self, _ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
+            Some(format!("gw_{name}"))
+        }
+
+        fn remap_tool_call_id(&self, _ctx: &BridgePrimitiveContext, id: &str) -> Option<String> {
+            Some(format!("gw_{id}"))
+        }
+
+        fn request_action(
+            &self,
+            _ctx: &RequestBridgeContext,
+            report: &BridgeReport,
+        ) -> BridgeLossAction {
+            if report.is_lossy() {
+                BridgeLossAction::Reject
+            } else {
+                BridgeLossAction::Continue
+            }
+        }
+    }
 
     #[test]
     fn report_starts_exact_and_metadata_warning_keeps_exact_decision() {
@@ -884,5 +1177,132 @@ mod tests {
 
         assert_eq!(merged.mode, BridgeMode::Strict);
         assert_eq!(merged.route_label.as_deref(), Some("base"));
+    }
+
+    #[test]
+    fn bridge_options_customization_bundles_all_extension_points() {
+        let options = BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.customization")
+            .with_customization(Arc::new(CompositeCustomization));
+
+        assert!(options.request_hook.is_some());
+        assert!(options.response_hook.is_some());
+        assert!(options.stream_hook.is_some());
+        assert!(options.primitive_remapper.is_some());
+
+        let request_ctx = RequestBridgeContext::new(
+            Some(BridgeTarget::AnthropicMessages),
+            BridgeTarget::OpenAiResponses,
+            BridgeMode::BestEffort,
+            Some("tests.customization".to_string()),
+            Some("via-normalized".to_string()),
+        );
+        let mut request = ChatRequest::new(Vec::new());
+        let mut request_report =
+            BridgeReport::with_source(request_ctx.source, request_ctx.target, request_ctx.mode);
+        options
+            .request_hook
+            .as_ref()
+            .expect("request hook")
+            .transform_request(&request_ctx, &mut request, &mut request_report)
+            .expect("transform request");
+        assert_eq!(request.common_params.max_tokens, Some(42));
+
+        let mut body = json!({});
+        options
+            .request_hook
+            .as_ref()
+            .expect("request hook")
+            .transform_json(&request_ctx, &mut body, &mut request_report)
+            .expect("transform request json");
+        options
+            .request_hook
+            .as_ref()
+            .expect("request hook")
+            .validate_json(&request_ctx, &body, &mut request_report)
+            .expect("validate request json");
+
+        let primitive_ctx = BridgePrimitiveContext::new(
+            request_ctx.source,
+            request_ctx.target,
+            request_ctx.mode,
+            request_ctx.route_label.clone(),
+            request_ctx.path_label.clone(),
+            BridgePrimitiveKind::ToolCall,
+        );
+        assert_eq!(
+            options
+                .primitive_remapper
+                .as_ref()
+                .expect("remapper")
+                .remap_tool_name(&primitive_ctx, "weather")
+                .as_deref(),
+            Some("gw_weather")
+        );
+        assert_eq!(
+            options
+                .primitive_remapper
+                .as_ref()
+                .expect("remapper")
+                .remap_tool_call_id(&primitive_ctx, "call_1")
+                .as_deref(),
+            Some("gw_call_1")
+        );
+
+        let response_ctx = ResponseBridgeContext::new(
+            request_ctx.source,
+            request_ctx.target,
+            request_ctx.mode,
+            request_ctx.route_label.clone(),
+            Some("normalized-response".to_string()),
+        );
+        let mut response = ChatResponse::new(MessageContent::Text("visible".to_string()));
+        let mut response_report =
+            BridgeReport::with_source(response_ctx.source, response_ctx.target, response_ctx.mode);
+        options
+            .response_hook
+            .as_ref()
+            .expect("response hook")
+            .transform_response(&response_ctx, &mut response, &mut response_report)
+            .expect("transform response");
+        assert_eq!(
+            response.content,
+            MessageContent::Text("[customized]".to_string())
+        );
+
+        let stream_ctx = StreamBridgeContext::new(
+            request_ctx.source,
+            request_ctx.target,
+            request_ctx.mode,
+            request_ctx.route_label.clone(),
+            Some("stream".to_string()),
+        );
+        let stream_events = options
+            .stream_hook
+            .as_ref()
+            .expect("stream hook")
+            .map_event(
+                &stream_ctx,
+                ChatStreamEvent::ContentDelta {
+                    delta: "hello".to_string(),
+                    index: None,
+                },
+            );
+        assert_eq!(stream_events.len(), 1);
+        let ChatStreamEvent::ContentDelta { delta, index } = &stream_events[0] else {
+            panic!("expected content delta");
+        };
+        assert_eq!(delta, "HELLO");
+        assert_eq!(*index, None);
+
+        let mut lossy_report =
+            BridgeReport::with_source(request_ctx.source, request_ctx.target, request_ctx.mode);
+        lossy_report.record_lossy_field("messages[0].thinking", "lossy");
+        assert_eq!(
+            options
+                .loss_policy
+                .request_action(&request_ctx, &lossy_report),
+            BridgeLossAction::Reject
+        );
     }
 }

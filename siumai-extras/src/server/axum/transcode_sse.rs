@@ -5,6 +5,7 @@
 use std::convert::Infallible;
 use std::fmt;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{
@@ -16,8 +17,9 @@ use futures::{Stream, StreamExt};
 use tokio::time::Sleep;
 
 use siumai::experimental::bridge::{
-    BridgeLossAction, BridgeMode, BridgeOptions, BridgeOptionsOverride, BridgeReport, BridgeTarget,
-    StreamBridgeContext, inspect_chat_stream_bridge, transform_chat_stream_with_bridge_options,
+    BridgeCustomization, BridgeLossAction, BridgeMode, BridgeOptions, BridgeOptionsOverride,
+    BridgeReport, BridgeTarget, StreamBridgeContext, inspect_chat_stream_bridge,
+    transform_chat_stream_with_bridge_options,
 };
 use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
 
@@ -127,6 +129,20 @@ impl TranscodeSseOptions {
     /// Attach bridge customization options to the SSE transcode helper.
     pub fn with_bridge_options(mut self, bridge_options: BridgeOptions) -> Self {
         self.bridge_options = Some(bridge_options);
+        self
+    }
+
+    /// Attach a unified bridge customization object to the SSE transcode helper.
+    pub fn with_bridge_customization(
+        mut self,
+        customization: Arc<dyn BridgeCustomization>,
+    ) -> Self {
+        self.bridge_options = Some(
+            self.bridge_options
+                .take()
+                .unwrap_or_else(|| BridgeOptions::new(BridgeMode::BestEffort))
+                .with_customization(customization),
+        );
         self
     }
 
@@ -841,7 +857,6 @@ fn bridge_target_for_sse(target: TargetSseFormat) -> BridgeTarget {
 mod transcode_tests {
     use super::*;
 
-    use std::sync::Arc;
     use std::time::Duration;
 
     use siumai::experimental::bridge::{
@@ -849,7 +864,7 @@ mod transcode_tests {
         RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,
     };
 
-    use super::super::bridge_hooks::stream_bridge_hook;
+    use super::super::bridge_hooks::{ClosureBridgeCustomization, stream_bridge_hook};
 
     struct ContinueLossyPolicy;
 
@@ -943,6 +958,47 @@ mod transcode_tests {
                         other => vec![other],
                     })),
             ),
+        );
+
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        let text = String::from_utf8(body.to_vec()).expect("utf8");
+        assert!(text.contains("HELLO"));
+    }
+
+    #[tokio::test]
+    async fn transcode_sse_bridge_customization_can_transform_events() {
+        use futures::stream;
+        use siumai::prelude::unified::{ChatResponse, MessageContent};
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text("done".to_string())),
+            }),
+        ]));
+
+        let resp = to_transcoded_sse_response(
+            chat_stream,
+            TargetSseFormat::OpenAiResponses,
+            TranscodeSseOptions::default().with_bridge_customization(Arc::new(
+                ClosureBridgeCustomization::default().with_stream(|ctx, event| {
+                    assert_eq!(ctx.target, BridgeTarget::OpenAiResponses);
+                    match event {
+                        ChatStreamEvent::ContentDelta { delta, index } => {
+                            vec![ChatStreamEvent::ContentDelta {
+                                delta: delta.to_uppercase(),
+                                index,
+                            }]
+                        }
+                        other => vec![other],
+                    }
+                }),
+            )),
         );
 
         let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
