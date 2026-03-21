@@ -102,14 +102,6 @@ fn gemini_generate_content_response_bridge_roundtrip_preserves_projected_visible
             .any(|field| field == "content[0]"),
         "expected reasoning block drop during Gemini roundtrip"
     );
-    assert!(
-        bridged
-            .report
-            .dropped_fields
-            .iter()
-            .any(|field| field == "provider_metadata.google"),
-        "expected Gemini provider metadata drop during bridge"
-    );
 
     let bridged_json = bridged.value.expect("bridged json");
     assert_eq!(
@@ -117,8 +109,20 @@ fn gemini_generate_content_response_bridge_roundtrip_preserves_projected_visible
         serde_json::json!("STOP")
     );
     assert_eq!(
+        bridged_json["modelVersion"],
+        serde_json::json!("gemini-2.5-pro")
+    );
+    assert_eq!(
         bridged_json["usageMetadata"]["thoughtsTokenCount"],
         serde_json::json!(4)
+    );
+    assert!(
+        bridged_json["candidates"][0]["groundingMetadata"].is_object(),
+        "expected grounding metadata to survive bridge"
+    );
+    assert!(
+        bridged_json["candidates"][0]["urlContextMetadata"].is_object(),
+        "expected url context metadata to survive bridge"
     );
 
     let roundtripped = tx
@@ -153,7 +157,7 @@ fn gemini_generate_content_response_bridge_roundtrip_preserves_projected_visible
         .and_then(|meta| meta.get("google"))
         .expect("google provider metadata");
     assert!(google_meta.get("usageMetadata").is_some());
-    assert!(google_meta.get("groundingMetadata").is_none());
-    assert!(google_meta.get("urlContextMetadata").is_none());
-    assert!(google_meta.get("sources").is_none());
+    assert!(google_meta.get("groundingMetadata").is_some());
+    assert!(google_meta.get("urlContextMetadata").is_some());
+    assert!(google_meta.get("sources").is_some());
 }

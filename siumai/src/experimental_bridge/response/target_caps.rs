@@ -27,6 +27,7 @@ pub(super) enum ResponseContentPartProviderMetadataMode {
 pub(super) enum ResponseProviderMetadataMode {
     OpenAiResponses,
     AnthropicMessages,
+    GeminiGenerateContent,
     None,
 }
 
@@ -38,6 +39,7 @@ pub(super) struct ResponseTargetCapabilities {
     pub supports_service_tier: bool,
     pub supports_provider_executed_tool_results: bool,
     pub supports_tool_approval_requests: bool,
+    pub supports_source_parts_as_grounding: bool,
     pub usage_mode: ResponseUsageMode,
     pub finish_reason_mode: ResponseFinishReasonMode,
     pub content_part_provider_metadata_mode: ResponseContentPartProviderMetadataMode,
@@ -55,6 +57,7 @@ pub(super) const fn response_target_capabilities(
             supports_service_tier: true,
             supports_provider_executed_tool_results: true,
             supports_tool_approval_requests: true,
+            supports_source_parts_as_grounding: false,
             usage_mode: ResponseUsageMode::PreserveAll,
             finish_reason_mode: ResponseFinishReasonMode::OpenAiFamily,
             content_part_provider_metadata_mode:
@@ -68,6 +71,7 @@ pub(super) const fn response_target_capabilities(
             supports_service_tier: true,
             supports_provider_executed_tool_results: false,
             supports_tool_approval_requests: false,
+            supports_source_parts_as_grounding: false,
             usage_mode: ResponseUsageMode::PreserveAll,
             finish_reason_mode: ResponseFinishReasonMode::OpenAiFamily,
             content_part_provider_metadata_mode: ResponseContentPartProviderMetadataMode::None,
@@ -80,6 +84,7 @@ pub(super) const fn response_target_capabilities(
             supports_service_tier: true,
             supports_provider_executed_tool_results: true,
             supports_tool_approval_requests: false,
+            supports_source_parts_as_grounding: false,
             usage_mode: ResponseUsageMode::AnthropicAggregateOnly,
             finish_reason_mode: ResponseFinishReasonMode::AnthropicMessages,
             content_part_provider_metadata_mode:
@@ -93,10 +98,11 @@ pub(super) const fn response_target_capabilities(
             supports_service_tier: false,
             supports_provider_executed_tool_results: false,
             supports_tool_approval_requests: false,
+            supports_source_parts_as_grounding: true,
             usage_mode: ResponseUsageMode::GeminiPartialBreakdown,
             finish_reason_mode: ResponseFinishReasonMode::GeminiGenerateContent,
             content_part_provider_metadata_mode: ResponseContentPartProviderMetadataMode::None,
-            provider_metadata_mode: ResponseProviderMetadataMode::None,
+            provider_metadata_mode: ResponseProviderMetadataMode::GeminiGenerateContent,
         },
     }
 }

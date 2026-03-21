@@ -245,10 +245,17 @@ Path:
 
 Current fidelity:
 
-- projected exactness for visible text, tool calls, aggregate usage totals, and
-  `thoughtsTokenCount`
+- projected exactness for:
+  - visible text
+  - tool calls
+  - aggregate usage totals
+  - `thoughtsTokenCount`
+  - `cachedContentTokenCount`
+  - `responseId`
+  - `modelVersion`
+  - preserved `groundingMetadata` / `urlContextMetadata`
+  - re-derived source lists when grounding metadata or normalized source parts are present
 - lossy for reasoning blocks
-- lossy for grounding metadata, URL context metadata, and derived source lists
 - lossy for `system_fingerprint` and `service_tier`
 - lossy for prompt/completion audio breakdown and prediction-token breakdown
 

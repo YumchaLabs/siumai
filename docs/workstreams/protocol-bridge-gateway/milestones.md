@@ -69,6 +69,12 @@ Current state:
 - loss reporting and no-network response bridge tests exist
 - OpenAI Responses fidelity now preserves provider-executed tool items and response sources where
   representable
+- Gemini GenerateContent fidelity now also preserves native response metadata that was previously
+  being dropped by the non-streaming encoder:
+  - `responseId` / `modelVersion`
+  - `cachedContentTokenCount`
+  - `groundingMetadata` / `urlContextMetadata`
+  - source-grounding replay via preserved grounding metadata or normalized source parts
 - initial same-protocol response roundtrip fixture coverage now exists for OpenAI Responses and
   Anthropic Messages
 - that coverage is intentionally split into exact, projected, and documented-lossy cases rather

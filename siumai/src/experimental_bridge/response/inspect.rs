@@ -123,6 +123,7 @@ fn inspect_response_content(
                     ),
                 );
             }
+            ContentPart::Source { .. } if caps.supports_source_parts_as_grounding => {}
             ContentPart::Source { .. } => {
                 report.record_dropped_field(
                     path,
@@ -275,17 +276,6 @@ fn inspect_response_usage(
                 );
             }
             if usage
-                .prompt_tokens_details
-                .as_ref()
-                .and_then(|details| details.cached_tokens)
-                .is_some()
-            {
-                report.record_lossy_field(
-                    "usage.prompt_tokens_details.cached_tokens",
-                    "Gemini GenerateContent response encoding does not preserve cached token breakdown",
-                );
-            }
-            if usage
                 .completion_tokens_details
                 .as_ref()
                 .and_then(|details| details.audio_tokens)
@@ -395,6 +385,9 @@ fn inspect_response_provider_metadata(
             (ResponseProviderMetadataMode::AnthropicMessages, "anthropic") => {
                 inspect_anthropic_response_provider_metadata(response, metadata, report);
             }
+            (ResponseProviderMetadataMode::GeminiGenerateContent, "google") => {
+                inspect_gemini_response_provider_metadata(metadata, report);
+            }
             _ => {
                 report.record_dropped_field(
                     format!("provider_metadata.{namespace}"),
@@ -425,6 +418,58 @@ fn inspect_openai_response_provider_metadata(
             _ => report.record_dropped_field(
                 format!("provider_metadata.openai.{key}"),
                 "OpenAI Responses response encoding does not preserve this OpenAI provider metadata field",
+            ),
+        }
+    }
+}
+
+fn inspect_gemini_response_provider_metadata(
+    metadata: &std::collections::HashMap<String, serde_json::Value>,
+    report: &mut BridgeReport,
+) {
+    let has_grounding_metadata = metadata.contains_key("groundingMetadata");
+
+    for key in metadata.keys() {
+        match key.as_str() {
+            "groundingMetadata" => report.record_carried_provider_metadata(
+                "provider_metadata.google.groundingMetadata",
+                "Gemini GenerateContent response encoding preserves grounding metadata",
+            ),
+            "urlContextMetadata" => report.record_carried_provider_metadata(
+                "provider_metadata.google.urlContextMetadata",
+                "Gemini GenerateContent response encoding preserves URL context metadata",
+            ),
+            "promptFeedback" => report.record_carried_provider_metadata(
+                "provider_metadata.google.promptFeedback",
+                "Gemini GenerateContent response encoding preserves prompt feedback",
+            ),
+            "usageMetadata" => report.record_carried_provider_metadata(
+                "provider_metadata.google.usageMetadata",
+                "Gemini GenerateContent response encoding preserves native usage metadata",
+            ),
+            "safetyRatings" => report.record_carried_provider_metadata(
+                "provider_metadata.google.safetyRatings",
+                "Gemini GenerateContent response encoding preserves candidate safety ratings",
+            ),
+            "avgLogprobs" => report.record_carried_provider_metadata(
+                "provider_metadata.google.avgLogprobs",
+                "Gemini GenerateContent response encoding preserves average log probabilities",
+            ),
+            "logprobsResult" => report.record_carried_provider_metadata(
+                "provider_metadata.google.logprobsResult",
+                "Gemini GenerateContent response encoding preserves logprobs results",
+            ),
+            "sources" if has_grounding_metadata => report.record_carried_provider_metadata(
+                "provider_metadata.google.sources",
+                "Gemini GenerateContent response encoding can recover normalized sources from preserved grounding metadata",
+            ),
+            "sources" => report.record_lossy_field(
+                "provider_metadata.google.sources",
+                "Gemini GenerateContent response encoding cannot replay derived source lists exactly without grounding metadata",
+            ),
+            _ => report.record_dropped_field(
+                format!("provider_metadata.google.{key}"),
+                "Gemini GenerateContent response encoding does not preserve this Google provider metadata field",
             ),
         }
     }

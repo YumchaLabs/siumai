@@ -125,13 +125,15 @@ This TODO list is intentionally organized as mergeable tracks.
     - documented lossy tool-search cases where visible assistant text and tool-call sequence are
       preserved but provider-executed synthetic tool-result replay is not yet exact
   - Gemini GenerateContent response bridge now has explicit contract coverage for:
-    - preserved aggregate usage totals plus `thoughtsTokenCount`
+    - preserved aggregate usage totals plus `thoughtsTokenCount` / `cachedContentTokenCount`
+    - preserved native `responseId` / `modelVersion`
+    - preserved `groundingMetadata` / `urlContextMetadata` with source-grounding replay
     - documented lossy cases for reasoning blocks, generic STOP finish-reason collapse, prompt /
       completion audio breakdown, prediction-token breakdown, and dropped `system_fingerprint` /
       `service_tier`
     - initial projected same-protocol roundtrip coverage for visible text, tool calls, usage
-      totals, and reasoning-token counts while documenting dropped reasoning blocks and grounding
-      metadata
+      totals, reasoning-token counts, and preserved grounding/url-context metadata while
+      documenting dropped reasoning blocks
 
 ## 5) Make streaming bridges explicit
 

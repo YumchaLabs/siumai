@@ -718,7 +718,6 @@ fn gemini_response_bridge_reports_reasoning_finish_reason_and_usage_breakdown_lo
     for field in [
         "finish_reason",
         "usage.prompt_tokens_details.audio_tokens",
-        "usage.prompt_tokens_details.cached_tokens",
         "usage.completion_tokens_details.audio_tokens",
         "usage.completion_tokens_details.accepted_prediction_tokens",
         "usage.completion_tokens_details.rejected_prediction_tokens",
@@ -743,8 +742,136 @@ fn gemini_response_bridge_reports_reasoning_finish_reason_and_usage_breakdown_lo
         json!("search")
     );
     assert_eq!(value["candidates"][0]["finishReason"], json!("STOP"));
+    assert_eq!(value["responseId"], json!("resp_1"));
+    assert_eq!(value["modelVersion"], json!("gemini-2.5-pro"));
     assert_eq!(value["usageMetadata"]["promptTokenCount"], json!(11));
     assert_eq!(value["usageMetadata"]["candidatesTokenCount"], json!(7));
     assert_eq!(value["usageMetadata"]["totalTokenCount"], json!(18));
+    assert_eq!(value["usageMetadata"]["cachedContentTokenCount"], json!(3));
     assert_eq!(value["usageMetadata"]["thoughtsTokenCount"], json!(4));
+}
+
+#[cfg(feature = "google")]
+#[test]
+fn gemini_response_bridge_preserves_native_metadata_and_source_grounding() {
+    let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::text("visible answer"),
+        ContentPart::tool_call("call_1", "search", json!({ "q": "rust" }), None),
+        ContentPart::source("src_1", "url", "https://example.com/fact", "Fact"),
+    ]));
+    response.id = Some("resp_1".to_string());
+    response.model = Some("gemini-2.5-pro".to_string());
+    response.finish_reason = Some(FinishReason::Stop);
+    response.usage = Some(
+        Usage::builder()
+            .prompt_tokens(11)
+            .completion_tokens(7)
+            .total_tokens(18)
+            .with_cached_tokens(3)
+            .with_reasoning_tokens(4)
+            .build(),
+    );
+    response.provider_metadata = Some(HashMap::from([(
+        "google".to_string(),
+        HashMap::from([
+            (
+                "groundingMetadata".to_string(),
+                json!({
+                    "searchEntryPoint": { "renderedContent": "<div/>" },
+                    "groundingChunks": [
+                        { "web": { "uri": "https://example.com/original", "title": "Original" } }
+                    ]
+                }),
+            ),
+            (
+                "urlContextMetadata".to_string(),
+                json!({
+                    "urlMetadata": [
+                        {
+                            "retrievedUrl": "https://example.com/fact",
+                            "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS"
+                        }
+                    ]
+                }),
+            ),
+            (
+                "promptFeedback".to_string(),
+                json!({
+                    "blockReason": "BLOCK_REASON_UNSPECIFIED"
+                }),
+            ),
+            (
+                "safetyRatings".to_string(),
+                json!([
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "probability": "NEGLIGIBLE"
+                    }
+                ]),
+            ),
+            ("avgLogprobs".to_string(), json!(-0.25)),
+            (
+                "logprobsResult".to_string(),
+                json!({
+                    "topCandidates": [],
+                    "chosenCandidates": [],
+                    "logProbabilitySum": -1.0
+                }),
+            ),
+            (
+                "sources".to_string(),
+                json!([
+                    {
+                        "id": "src_0",
+                        "source_type": "url",
+                        "url": "https://example.com/original",
+                        "title": "Original"
+                    }
+                ]),
+            ),
+        ]),
+    )]));
+
+    let bridged = bridge_chat_response_to_gemini_generate_content_json_value(
+        &response,
+        Some(BridgeTarget::GeminiGenerateContent),
+        BridgeMode::Strict,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_exact());
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["responseId"], json!("resp_1"));
+    assert_eq!(value["modelVersion"], json!("gemini-2.5-pro"));
+    assert_eq!(
+        value["promptFeedback"]["blockReason"],
+        json!("BLOCK_REASON_UNSPECIFIED")
+    );
+    assert_eq!(value["usageMetadata"]["cachedContentTokenCount"], json!(3));
+    assert_eq!(
+        value["candidates"][0]["groundingMetadata"]["searchEntryPoint"]["renderedContent"],
+        json!("<div/>")
+    );
+    assert_eq!(
+        value["candidates"][0]["groundingMetadata"]["groundingChunks"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+    assert_eq!(
+        value["candidates"][0]["urlContextMetadata"]["urlMetadata"][0]["retrievedUrl"],
+        json!("https://example.com/fact")
+    );
+    assert_eq!(
+        value["candidates"][0]["safetyRatings"][0]["category"],
+        json!("HARM_CATEGORY_HATE_SPEECH")
+    );
+    assert_eq!(value["candidates"][0]["avgLogprobs"], json!(-0.25));
+    assert_eq!(
+        value["candidates"][0]["logprobsResult"]["logProbabilitySum"],
+        json!(-1.0)
+    );
 }
