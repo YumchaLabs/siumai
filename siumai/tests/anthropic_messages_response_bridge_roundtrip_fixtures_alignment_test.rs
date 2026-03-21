@@ -460,6 +460,19 @@ fn anthropic_messages_response_bridge_roundtrip_provider_hosted_cases_match_proj
 }
 
 #[test]
+fn anthropic_messages_response_bridge_roundtrip_web_fetch_case_matches_full_projection() {
+    let case = "anthropic-web-fetch-tool.1";
+    let response_path = stream_fixtures_dir().join("anthropic-web-fetch-tool.1.json");
+
+    assert_eq!(
+        roundtrip_provider_response_full_json_from_path(case, &response_path),
+        transform_provider_response_full_json(case, &response_path),
+        "fixture case: {}",
+        response_path.display()
+    );
+}
+
+#[test]
 fn anthropic_messages_response_bridge_roundtrip_web_search_case_preserves_usage_sources_and_citations()
  {
     let case = "anthropic-web-search-tool.1";

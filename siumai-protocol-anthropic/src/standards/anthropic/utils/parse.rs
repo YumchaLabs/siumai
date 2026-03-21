@@ -186,6 +186,89 @@ pub fn parse_response_content_and_tools(
                     } else {
                         ToolResultOutput::content(out_parts)
                     }
+                } else if block_type == "web_fetch_tool_result" {
+                    if let Some(obj) = content.as_object() {
+                        let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                        if tpe == "web_fetch_result" {
+                            let url = obj.get("url").cloned().unwrap_or(serde_json::json!(null));
+                            let retrieved_at = obj
+                                .get("retrieved_at")
+                                .cloned()
+                                .unwrap_or(serde_json::json!(null));
+                            let content = obj.get("content").and_then(|v| v.as_object());
+
+                            let mut out_content = serde_json::Map::new();
+                            if let Some(content) = content {
+                                if let Some(v) = content.get("type") {
+                                    out_content.insert("type".to_string(), v.clone());
+                                }
+                                if let Some(v) = content.get("title") {
+                                    out_content.insert("title".to_string(), v.clone());
+                                }
+                                if let Some(v) = content.get("citations") {
+                                    out_content.insert("citations".to_string(), v.clone());
+                                }
+                                if let Some(source) =
+                                    content.get("source").and_then(|v| v.as_object())
+                                {
+                                    let mut out_source = serde_json::Map::new();
+                                    if let Some(v) = source.get("type") {
+                                        out_source.insert("type".to_string(), v.clone());
+                                    }
+                                    if let Some(v) =
+                                        source.get("media_type").or_else(|| source.get("mediaType"))
+                                    {
+                                        out_source.insert("mediaType".to_string(), v.clone());
+                                    }
+                                    if let Some(v) = source.get("data") {
+                                        out_source.insert("data".to_string(), v.clone());
+                                    }
+                                    for (key, value) in source {
+                                        if key != "type"
+                                            && key != "media_type"
+                                            && key != "mediaType"
+                                            && key != "data"
+                                        {
+                                            out_source.insert(key.clone(), value.clone());
+                                        }
+                                    }
+                                    out_content.insert(
+                                        "source".to_string(),
+                                        serde_json::Value::Object(out_source),
+                                    );
+                                }
+                                for (key, value) in content {
+                                    if key != "type"
+                                        && key != "title"
+                                        && key != "citations"
+                                        && key != "source"
+                                    {
+                                        out_content.insert(key.clone(), value.clone());
+                                    }
+                                }
+                            }
+
+                            ToolResultOutput::json(serde_json::json!({
+                                "type": "web_fetch_result",
+                                "url": url,
+                                "retrievedAt": retrieved_at,
+                                "content": serde_json::Value::Object(out_content),
+                            }))
+                        } else if tpe == "web_fetch_tool_result_error" {
+                            let error_code = obj
+                                .get("error_code")
+                                .cloned()
+                                .unwrap_or(serde_json::Value::Null);
+                            ToolResultOutput::error_json(serde_json::json!({
+                                "type": "web_fetch_tool_result_error",
+                                "errorCode": error_code,
+                            }))
+                        } else {
+                            ToolResultOutput::json(content.clone())
+                        }
+                    } else {
+                        ToolResultOutput::json(content.clone())
+                    }
                 } else if block_type == "tool_search_tool_result" {
                     if let Some(obj) = content.as_object() {
                         let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -697,6 +780,88 @@ mod tests {
                         crate::types::ToolResultOutput::Json { value } => {
                             assert!(value.is_array());
                             assert_eq!(value[0]["toolName"], serde_json::json!("get_weather"));
+                        }
+                        other => panic!("Expected JSON output, got {:?}", other),
+                    }
+                } else {
+                    panic!("Expected tool result part");
+                }
+            }
+            _ => panic!("Expected multimodal content"),
+        }
+    }
+
+    #[test]
+    fn test_parse_response_content_and_tools_web_fetch_normalization() {
+        let content_blocks = vec![
+            AnthropicContentBlock {
+                r#type: "server_tool_use".to_string(),
+                text: None,
+                thinking: None,
+                signature: None,
+                data: None,
+                id: Some("srvtoolu_4".to_string()),
+                name: Some("web_fetch".to_string()),
+                input: Some(serde_json::json!({"url": "https://example.com"})),
+                caller: None,
+                server_name: None,
+                tool_use_id: None,
+                content: None,
+                is_error: None,
+                citations: None,
+            },
+            AnthropicContentBlock {
+                r#type: "web_fetch_tool_result".to_string(),
+                text: None,
+                thinking: None,
+                signature: None,
+                data: None,
+                id: None,
+                name: None,
+                input: None,
+                caller: None,
+                server_name: None,
+                tool_use_id: Some("srvtoolu_4".to_string()),
+                content: Some(serde_json::json!({
+                    "type": "web_fetch_result",
+                    "url": "https://example.com",
+                    "retrieved_at": "2025-01-01T00:00:00Z",
+                    "content": {
+                        "type": "document",
+                        "title": "Example",
+                        "source": {
+                            "type": "text",
+                            "media_type": "text/plain",
+                            "data": "hello"
+                        }
+                    }
+                })),
+                is_error: None,
+                citations: None,
+            },
+        ];
+
+        let content = parse_response_content_and_tools(&content_blocks);
+        match &content {
+            MessageContent::MultiModal(parts) => {
+                assert_eq!(parts.len(), 2);
+
+                if let ContentPart::ToolResult {
+                    tool_name, output, ..
+                } = &parts[1]
+                {
+                    assert_eq!(tool_name, "web_fetch");
+                    match output {
+                        crate::types::ToolResultOutput::Json { value } => {
+                            assert_eq!(value["type"], serde_json::json!("web_fetch_result"));
+                            assert_eq!(
+                                value["retrievedAt"],
+                                serde_json::json!("2025-01-01T00:00:00Z")
+                            );
+                            assert_eq!(
+                                value["content"]["source"]["mediaType"],
+                                serde_json::json!("text/plain")
+                            );
                         }
                         other => panic!("Expected JSON output, got {:?}", other),
                     }

@@ -756,3 +756,61 @@ fn anthropic_programmatic_tool_calling_includes_caller_metadata() {
         "expected rollDie tool calls to include providerMetadata.anthropic.caller"
     );
 }
+
+#[test]
+fn anthropic_web_fetch_fixture_normalizes_result_shape() {
+    use siumai::prelude::unified::ContentPart;
+
+    let request_root = fixtures_dir().join("anthropic-web-fetch-tool.1");
+    let response_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("anthropic")
+        .join("messages-stream")
+        .join("anthropic-web-fetch-tool.1.json");
+    let req: siumai::prelude::unified::ChatRequest = read_json(request_root.join("request.json"));
+    let raw: Value = read_json(response_path);
+
+    let transformers = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new()
+        .choose_chat_transformers(
+            &req,
+            &ProviderContext::new(
+                "anthropic",
+                "https://api.anthropic.com/v1",
+                Some("test-api-key".to_string()),
+                HashMap::new(),
+            ),
+        );
+    let resp = transformers
+        .response
+        .transform_chat_response(&raw)
+        .expect("transform response");
+
+    let MessageContent::MultiModal(parts) = resp.content else {
+        panic!("expected multimodal content");
+    };
+
+    let web_fetch_result = parts.iter().find_map(|part| {
+        let ContentPart::ToolResult {
+            tool_name,
+            output: siumai_core::types::ToolResultOutput::Json { value },
+            provider_executed: Some(true),
+            ..
+        } = part
+        else {
+            return None;
+        };
+        (tool_name == "web_fetch").then_some(value)
+    });
+
+    let value = web_fetch_result.expect("web_fetch tool result");
+    assert_eq!(value["type"], serde_json::json!("web_fetch_result"));
+    assert_eq!(
+        value["retrievedAt"],
+        serde_json::json!("2025-07-17T21:38:38.606000+00:00")
+    );
+    assert_eq!(
+        value["content"]["source"]["mediaType"],
+        serde_json::json!("text/plain")
+    );
+}
