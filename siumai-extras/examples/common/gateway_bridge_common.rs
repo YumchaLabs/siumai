@@ -1,8 +1,15 @@
 use axum::{body::Body, extract::Request, response::Response};
 use serde::Deserialize;
 use serde_json::Value;
+use siumai::experimental::bridge::BridgeReport;
 use siumai::prelude::unified::{ChatRequest, LlmError};
-use siumai_extras::server::{GatewayBridgePolicy, axum::read_request_body_with_policy};
+use siumai_extras::server::{
+    GatewayBridgePolicy,
+    axum::{
+        NormalizeRequestOptions, SourceRequestFormat, normalize_request_json_with_options,
+        read_request_body_with_policy,
+    },
+};
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct GatewayQuery {
@@ -25,6 +32,17 @@ pub fn bad_request_response(message: impl Into<String>) -> Response {
         .header("content-type", "text/plain; charset=utf-8")
         .body(Body::from(message.into()))
         .unwrap_or_else(|_| Response::new(Body::from("bad request")))
+}
+
+pub fn rejected_normalize_response(source_name: &str, report: &BridgeReport) -> Response {
+    let detail = report
+        .warnings
+        .first()
+        .map(|warning| warning.message.as_str())
+        .unwrap_or("bridge policy rejected source request normalization");
+    bad_request_response(format!(
+        "{source_name} request normalization was rejected: {detail}"
+    ))
 }
 
 pub async fn read_source_request_json_or_prompt<F>(
@@ -52,6 +70,37 @@ where
         };
         bad_request_response(message)
     })
+}
+
+pub fn normalize_source_request_for_backend(
+    body: &Value,
+    source: SourceRequestFormat,
+    source_name: &str,
+    backend_model_id: &str,
+    stream: bool,
+    policy: &GatewayBridgePolicy,
+) -> Result<ChatRequest, Response> {
+    let bridged = normalize_request_json_with_options(
+        body,
+        source,
+        &NormalizeRequestOptions::default().with_policy(policy.clone()),
+    )
+    .map_err(|error| {
+        bad_request_response(format!(
+            "failed to normalize {source_name} request: {}",
+            error.user_message()
+        ))
+    })?;
+    let (request, report) = bridged
+        .into_result()
+        .map_err(|report| rejected_normalize_response(source_name, &report))?;
+
+    let _ = report;
+    Ok(pin_request_to_backend_model(
+        request,
+        backend_model_id,
+        stream,
+    ))
 }
 
 pub fn pin_request_to_backend_model(

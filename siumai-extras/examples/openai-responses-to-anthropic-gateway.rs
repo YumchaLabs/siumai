@@ -41,20 +41,17 @@ use axum::{
     routing::post,
 };
 use serde_json::{Value, json};
-use siumai::experimental::bridge::{
-    BridgeReport, bridge_openai_responses_json_to_chat_request_with_options,
-};
 use siumai::prelude::unified::*;
 use siumai_extras::server::{
     GatewayBridgePolicy,
     axum::{
-        TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions, TranscodeSseOptions,
-        to_transcoded_json_response, to_transcoded_sse_response,
+        SourceRequestFormat, TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions,
+        TranscodeSseOptions, to_transcoded_json_response, to_transcoded_sse_response,
     },
 };
 
 use crate::gateway_bridge_common::{
-    GatewayQuery, bad_request_response, internal_error_response, pin_request_to_backend_model,
+    GatewayQuery, internal_error_response, normalize_source_request_for_backend,
     read_source_request_json_or_prompt,
 };
 
@@ -92,43 +89,20 @@ fn default_openai_responses_request(prompt: String) -> Value {
     })
 }
 
-fn rejected_normalize_response(source_name: &str, report: &BridgeReport) -> Response {
-    let detail = report
-        .warnings
-        .first()
-        .map(|warning| warning.message.as_str())
-        .unwrap_or("bridge policy rejected source request normalization");
-    bad_request_response(format!(
-        "{source_name} request normalization was rejected: {detail}"
-    ))
-}
-
 fn normalize_request(
     body: &Value,
     backend_model_id: &str,
     stream: bool,
     policy: &GatewayBridgePolicy,
 ) -> Result<ChatRequest, Response> {
-    let bridged = bridge_openai_responses_json_to_chat_request_with_options(
+    normalize_source_request_for_backend(
         body,
-        policy.resolve_bridge_options(None),
-    )
-    .map_err(|error| {
-        bad_request_response(format!(
-            "failed to normalize OpenAI Responses request: {}",
-            error.user_message()
-        ))
-    })?;
-    let (request, report) = bridged
-        .into_result()
-        .map_err(|report| rejected_normalize_response("OpenAI Responses", &report))?;
-
-    let _ = report;
-    Ok(pin_request_to_backend_model(
-        request,
+        SourceRequestFormat::OpenAiResponses,
+        "OpenAI Responses",
         backend_model_id,
         stream,
-    ))
+        policy,
+    )
 }
 
 async fn json_route(

@@ -222,6 +222,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - enabled by explicit `TranscodeSseOptions::with_bridge_source(...)`
 - [x] Let Axum JSON/SSE transcode helpers consume bridge customization options
 - [x] Let Axum JSON/SSE transcode helpers consume `GatewayBridgePolicy`
+- [x] Add symmetric gateway request-normalization helpers for provider-native request ingress
 
 ## 8) Documentation and examples
 
