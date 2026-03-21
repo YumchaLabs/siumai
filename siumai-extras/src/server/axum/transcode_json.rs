@@ -21,7 +21,7 @@ use siumai::experimental::bridge::{
 use siumai::experimental::encoding::JsonEncodeOptions;
 use siumai::prelude::unified::{ChatResponse, LlmError};
 
-use crate::server::GatewayBridgePolicy;
+use crate::server::{GatewayBridgePolicy, gateway_bridge_headers, resolve_gateway_bridge_options};
 
 /// Target JSON wire format for non-streaming response transcoding helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,7 +256,11 @@ fn transcode_chat_response_to_json_bytes(
     target: TargetJsonFormat,
     opts: &TranscodeJsonOptions,
 ) -> Result<TranscodedJsonPayload, TranscodeJsonError> {
-    let bridge_options = resolve_bridge_options(opts);
+    let bridge_options = resolve_gateway_bridge_options(
+        opts.policy.as_ref(),
+        opts.bridge_options.clone(),
+        opts.bridge_options_override.clone(),
+    );
     let json_opts = JsonEncodeOptions {
         pretty: opts.pretty,
     };
@@ -343,21 +347,6 @@ fn transcode_chat_response_to_json_bytes(
     }
 }
 
-fn resolve_bridge_options(opts: &TranscodeJsonOptions) -> BridgeOptions {
-    let mut effective = match (opts.policy.as_ref(), opts.bridge_options.clone()) {
-        (Some(policy), Some(route_options)) => policy.resolve_bridge_options(Some(&route_options)),
-        (Some(policy), None) => policy.bridge_options.clone(),
-        (None, Some(route_options)) => route_options,
-        (None, None) => BridgeOptions::default(),
-    };
-
-    if let Some(override_options) = opts.bridge_options_override.clone() {
-        effective = effective.merged_with_override(override_options);
-    }
-
-    effective
-}
-
 fn bridge_target_for_json(target: TargetJsonFormat) -> BridgeTarget {
     match target {
         TargetJsonFormat::OpenAiResponses => BridgeTarget::OpenAiResponses,
@@ -373,63 +362,10 @@ fn apply_gateway_policy_headers(
     target: BridgeTarget,
     report: &BridgeReport,
 ) {
-    if policy.emit_bridge_headers {
-        insert_policy_header(headers, policy, "x-siumai-bridge-target", target.as_str());
-        insert_policy_header(
-            headers,
-            policy,
-            "x-siumai-bridge-mode",
-            match report.mode {
-                siumai::experimental::bridge::BridgeMode::Strict => "strict",
-                siumai::experimental::bridge::BridgeMode::BestEffort => "best-effort",
-                siumai::experimental::bridge::BridgeMode::ProviderTolerant => "provider-tolerant",
-            },
-        );
-        insert_policy_header(
-            headers,
-            policy,
-            "x-siumai-bridge-decision",
-            match report.decision {
-                siumai::experimental::bridge::BridgeDecision::Exact => "exact",
-                siumai::experimental::bridge::BridgeDecision::Lossy => "lossy",
-                siumai::experimental::bridge::BridgeDecision::Rejected => "rejected",
-            },
-        );
-    }
-
-    if policy.emit_bridge_warning_headers {
-        insert_policy_header(
-            headers,
-            policy,
-            "x-siumai-bridge-warnings",
-            &report.warnings.len().to_string(),
-        );
-        insert_policy_header(
-            headers,
-            policy,
-            "x-siumai-bridge-lossy-fields",
-            &report.lossy_fields.len().to_string(),
-        );
-        insert_policy_header(
-            headers,
-            policy,
-            "x-siumai-bridge-dropped-fields",
-            &report.dropped_fields.len().to_string(),
-        );
-    }
-}
-
-fn insert_policy_header(
-    headers: &mut axum::http::HeaderMap,
-    policy: &GatewayBridgePolicy,
-    name: &'static str,
-    value: &str,
-) {
-    if !policy.allows_response_header(name) {
-        return;
-    }
-    if let Ok(value) = axum::http::HeaderValue::from_str(value) {
-        headers.insert(name, value);
+    for entry in gateway_bridge_headers(policy, target, Some(report), report.mode) {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&entry.value) {
+            headers.insert(entry.name, value);
+        }
     }
 }
 

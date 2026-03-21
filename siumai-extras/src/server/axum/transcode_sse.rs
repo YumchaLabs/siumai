@@ -21,7 +21,10 @@ use siumai::experimental::bridge::{
 };
 use siumai::prelude::unified::{ChatStream, ChatStreamEvent};
 
-use crate::server::GatewayBridgePolicy;
+use crate::server::{
+    GatewayBridgePolicy, gateway_bridge_headers, gateway_sse_runtime_policy,
+    resolve_gateway_bridge_options,
+};
 
 type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, Infallible>> + Send>>;
 
@@ -693,24 +696,19 @@ fn effective_bridge_mode(opts: &TranscodeSseOptions) -> Option<BridgeMode> {
 }
 
 fn resolve_bridge_options(opts: &TranscodeSseOptions) -> Option<BridgeOptions> {
-    let mut effective = match (opts.policy.as_ref(), opts.bridge_options.clone()) {
-        (Some(policy), Some(route_options)) => policy.resolve_bridge_options(Some(&route_options)),
-        (Some(policy), None) => policy.bridge_options.clone(),
-        (None, Some(route_options)) => route_options,
-        (None, None) => {
-            if opts.bridge_source.is_some() || opts.bridge_options_override.is_some() {
-                BridgeOptions::default()
-            } else {
-                return None;
-            }
-        }
-    };
-
-    if let Some(override_options) = opts.bridge_options_override.clone() {
-        effective = effective.merged_with_override(override_options);
+    if opts.policy.is_none()
+        && opts.bridge_options.is_none()
+        && opts.bridge_source.is_none()
+        && opts.bridge_options_override.is_none()
+    {
+        return None;
     }
 
-    Some(effective)
+    Some(resolve_gateway_bridge_options(
+        opts.policy.as_ref(),
+        opts.bridge_options.clone(),
+        opts.bridge_options_override.clone(),
+    ))
 }
 
 fn apply_runtime_stream_policy(
@@ -718,15 +716,12 @@ fn apply_runtime_stream_policy(
     target: TargetSseFormat,
     opts: &TranscodeSseOptions,
 ) -> ByteStream {
-    let Some(policy) = opts.policy.clone() else {
+    let Some(policy) = gateway_sse_runtime_policy(opts.policy.as_ref()) else {
         return stream;
     };
 
     let keepalive_interval = policy.keepalive_interval;
-    let idle_timeout = policy.stream_idle_timeout;
-    if keepalive_interval.is_none() && idle_timeout.is_none() {
-        return stream;
-    }
+    let idle_timeout = policy.idle_timeout;
 
     Box::pin(async_stream::stream! {
         let mut upstream = stream.fuse();
@@ -826,71 +821,10 @@ fn apply_gateway_policy_headers(
     report: Option<&BridgeReport>,
     mode: siumai::experimental::bridge::BridgeMode,
 ) {
-    if policy.emit_bridge_headers {
-        insert_policy_header(headers, policy, "x-siumai-bridge-target", target.as_str());
-        insert_policy_header(
-            headers,
-            policy,
-            "x-siumai-bridge-mode",
-            match mode {
-                siumai::experimental::bridge::BridgeMode::Strict => "strict",
-                siumai::experimental::bridge::BridgeMode::BestEffort => "best-effort",
-                siumai::experimental::bridge::BridgeMode::ProviderTolerant => "provider-tolerant",
-            },
-        );
-        if let Some(report) = report {
-            insert_policy_header(
-                headers,
-                policy,
-                "x-siumai-bridge-decision",
-                match report.decision {
-                    siumai::experimental::bridge::BridgeDecision::Exact => "exact",
-                    siumai::experimental::bridge::BridgeDecision::Lossy => "lossy",
-                    siumai::experimental::bridge::BridgeDecision::Rejected => "rejected",
-                },
-            );
+    for entry in gateway_bridge_headers(policy, target, report, mode) {
+        if let Ok(value) = axum::http::HeaderValue::from_str(&entry.value) {
+            headers.insert(entry.name, value);
         }
-    }
-
-    if !policy.emit_bridge_warning_headers {
-        return;
-    }
-
-    let Some(report) = report else {
-        return;
-    };
-
-    insert_policy_header(
-        headers,
-        policy,
-        "x-siumai-bridge-warnings",
-        &report.warnings.len().to_string(),
-    );
-    insert_policy_header(
-        headers,
-        policy,
-        "x-siumai-bridge-lossy-fields",
-        &report.lossy_fields.len().to_string(),
-    );
-    insert_policy_header(
-        headers,
-        policy,
-        "x-siumai-bridge-dropped-fields",
-        &report.dropped_fields.len().to_string(),
-    );
-}
-
-fn insert_policy_header(
-    headers: &mut axum::http::HeaderMap,
-    policy: &GatewayBridgePolicy,
-    name: &'static str,
-    value: &str,
-) {
-    if !policy.allows_response_header(name) {
-        return;
-    }
-    if let Ok(value) = axum::http::HeaderValue::from_str(value) {
-        headers.insert(name, value);
     }
 }
 
