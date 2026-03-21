@@ -136,20 +136,21 @@ impl RequestTransformer for GeminiRequestTransformer {
                 // Add tool_choice if specified (Gemini toolConfig).
                 //
                 // Vercel AI SDK alignment:
-                // - If provider-defined tools are present, toolChoice does not produce toolConfig.
                 // - toolConfig only applies to function calling.
+                // - Provider-defined tools may coexist with function tools; keep emitting
+                //   functionCallingConfig when function declarations are present.
                 if req.tools.is_some()
                     && req.tool_choice.is_some()
                     && let Some(choice) = &req.tool_choice
                 {
-                    let has_provider_tools = req
+                    let has_function_tools = req
                         .tools
                         .as_deref()
                         .unwrap_or_default()
                         .iter()
-                        .any(|t| matches!(t, crate::types::Tool::ProviderDefined(_)));
+                        .any(|t| matches!(t, crate::types::Tool::Function { .. }));
 
-                    if !has_provider_tools && body.get("tools").is_some() {
+                    if has_function_tools && body.get("tools").is_some() {
                         body["toolConfig"] = convert::convert_tool_choice(choice);
                     }
                 }
@@ -1224,6 +1225,34 @@ mod tests_gemini_rules {
         assert!(
             body.get("toolConfig").is_none(),
             "toolConfig should not be emitted for provider-defined tools"
+        );
+    }
+
+    #[test]
+    fn tool_choice_mixed_function_and_provider_tools_emits_function_tool_config() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let req = ChatRequest::builder()
+            .model("gemini-2.5-flash")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![
+                Tool::function(
+                    "weather",
+                    "Weather lookup",
+                    serde_json::json!({ "type": "object", "properties": {} }),
+                ),
+                crate::tools::google::google_search(),
+            ])
+            .tool_choice(crate::types::ToolChoice::tool("weather"))
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"],
+            serde_json::json!(["weather"])
         );
     }
 

@@ -13,6 +13,11 @@ use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 use super::{
     bridge_anthropic_messages_json_to_chat_request, bridge_chat_request_to_anthropic_messages_json,
 };
+#[cfg(feature = "google")]
+use super::{
+    bridge_chat_request_to_gemini_generate_content_json,
+    bridge_gemini_generate_content_json_to_chat_request,
+};
 #[cfg(feature = "openai")]
 use super::{
     bridge_chat_request_to_openai_chat_completions_json,
@@ -1263,4 +1268,261 @@ fn anthropic_messages_request_normalization_restores_system_thinking_and_provide
     );
 
     assert!(normalized.response_format.is_some());
+}
+
+#[cfg(feature = "google")]
+#[test]
+fn gemini_generate_content_request_normalization_roundtrip_preserves_core_projection() {
+    use siumai_core::types::MessageRole;
+    use siumai_core::types::ToolChoice;
+
+    let value = json!({
+        "model": "gemini-2.5-flash",
+        "systemInstruction": {
+            "parts": [
+                { "text": "sys" }
+            ]
+        },
+        "contents": [
+            {
+                "role": "user",
+                "parts": [
+                    { "text": "hello" },
+                    {
+                        "fileData": {
+                            "file_uri": "https://example.com/input.txt",
+                            "mime_type": "text/plain"
+                        }
+                    }
+                ]
+            },
+            {
+                "role": "model",
+                "parts": [
+                    {
+                        "text": "internal step",
+                        "thought": true,
+                        "thoughtSignature": "sig_1"
+                    },
+                    { "text": "Need tool" },
+                    {
+                        "functionCall": {
+                            "name": "weather",
+                            "args": { "city": "Tokyo" }
+                        }
+                    },
+                    {
+                        "executableCode": {
+                            "language": "PYTHON",
+                            "code": "print(1)"
+                        }
+                    }
+                ]
+            },
+            {
+                "role": "user",
+                "parts": [
+                    {
+                        "functionResponse": {
+                            "name": "weather",
+                            "response": {
+                                "name": "weather",
+                                "content": { "ok": true }
+                            }
+                        }
+                    },
+                    {
+                        "codeExecutionResult": {
+                            "outcome": "OUTCOME_OK",
+                            "output": "1"
+                        }
+                    }
+                ]
+            }
+        ],
+        "tools": [
+            {
+                "functionDeclarations": [
+                    {
+                        "name": "weather",
+                        "description": "Get weather",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "city": { "type": "string" }
+                            }
+                        }
+                    }
+                ]
+            },
+            { "googleSearch": {} },
+            {
+                "fileSearch": {
+                    "fileSearchStoreNames": ["fileSearchStores/store-1"],
+                    "topK": 3,
+                    "metadataFilter": "scope = public"
+                }
+            },
+            {
+                "retrieval": {
+                    "vertex_rag_store": {
+                        "rag_resources": {
+                            "rag_corpus": "projects/p/locations/l/ragCorpora/c"
+                        },
+                        "similarity_top_k": 4
+                    }
+                }
+            }
+        ],
+        "toolConfig": {
+            "functionCallingConfig": {
+                "mode": "ANY",
+                "allowedFunctionNames": ["weather"]
+            },
+            "retrievalConfig": {
+                "latLng": {
+                    "latitude": 35.0,
+                    "longitude": 139.0
+                }
+            }
+        },
+        "generationConfig": {
+            "temperature": 0.2,
+            "topP": 0.9,
+            "topK": 8,
+            "maxOutputTokens": 128,
+            "seed": 7,
+            "presencePenalty": 0.1,
+            "frequencyPenalty": 0.2,
+            "stopSequences": ["END"],
+            "responseMimeType": "application/json",
+            "responseJsonSchema": {
+                "type": "object",
+                "properties": {
+                    "value": { "type": "string" }
+                }
+            },
+            "thinkingConfig": {
+                "thinkingBudget": 16
+            },
+            "responseModalities": ["TEXT"],
+            "mediaResolution": "MEDIA_RESOLUTION_LOW",
+            "responseLogprobs": true,
+            "logprobs": 5
+        },
+        "cachedContent": "cachedContents/test-123",
+        "safetySettings": [
+            {
+                "category": "HARM_CATEGORY_HATE_SPEECH",
+                "threshold": "BLOCK_ONLY_HIGH"
+            }
+        ],
+        "labels": {
+            "route": "bridge.test"
+        }
+    });
+
+    let normalized = bridge_gemini_generate_content_json_to_chat_request(&value).expect("parse");
+
+    assert_eq!(normalized.common_params.model, "gemini-2.5-flash");
+    assert_eq!(normalized.common_params.temperature, Some(0.2));
+    assert_eq!(normalized.common_params.top_p, Some(0.9));
+    assert_eq!(normalized.common_params.top_k, Some(8.0));
+    assert_eq!(normalized.common_params.max_tokens, Some(128));
+    assert_eq!(normalized.common_params.seed, Some(7));
+    assert_eq!(normalized.common_params.presence_penalty, Some(0.1));
+    assert_eq!(normalized.common_params.frequency_penalty, Some(0.2));
+    assert_eq!(
+        normalized.common_params.stop_sequences,
+        Some(vec!["END".to_string()])
+    );
+    assert_eq!(normalized.tool_choice, Some(ToolChoice::tool("weather")));
+    assert!(normalized.response_format.is_some());
+
+    assert_eq!(normalized.messages.len(), 4);
+    assert_eq!(normalized.messages[0].role, MessageRole::System);
+    assert_eq!(normalized.messages[0].content_text(), Some("sys"));
+    assert_eq!(normalized.messages[1].role, MessageRole::User);
+    assert_eq!(normalized.messages[2].role, MessageRole::Assistant);
+    assert_eq!(normalized.messages[2].tool_calls().len(), 2);
+    assert_eq!(normalized.messages[3].role, MessageRole::Tool);
+    assert_eq!(normalized.messages[3].tool_results().len(), 2);
+
+    let google_options = normalized
+        .provider_option("google")
+        .and_then(|value| value.as_object())
+        .expect("google provider options");
+    assert_eq!(
+        google_options["cachedContent"],
+        json!("cachedContents/test-123")
+    );
+    assert_eq!(google_options["structuredOutputs"], json!(false));
+    assert_eq!(
+        google_options["responseJsonSchema"]["type"],
+        json!("object")
+    );
+    assert_eq!(
+        google_options["thinkingConfig"]["thinkingBudget"],
+        json!(16)
+    );
+    assert_eq!(
+        google_options["retrievalConfig"]["latLng"]["latitude"],
+        json!(35.0)
+    );
+    assert_eq!(google_options["labels"]["route"], json!("bridge.test"));
+
+    let tools = normalized.tools.as_ref().expect("tools");
+    assert_eq!(tools.len(), 4);
+
+    let bridged = bridge_chat_request_to_gemini_generate_content_json(
+        &normalized,
+        Some(BridgeTarget::GeminiGenerateContent),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let bridged_value = bridged.value.expect("bridged json body");
+    assert_eq!(bridged_value["model"], json!("gemini-2.5-flash"));
+    assert_eq!(
+        bridged_value["systemInstruction"]["parts"][0]["text"],
+        json!("sys")
+    );
+    assert_eq!(
+        bridged_value["contents"][1]["parts"][0]["thoughtSignature"],
+        json!("sig_1")
+    );
+    assert_eq!(
+        bridged_value["contents"][1]["parts"][2]["functionCall"]["name"],
+        json!("weather")
+    );
+    assert_eq!(
+        bridged_value["contents"][1]["parts"][3]["executableCode"]["code"],
+        json!("print(1)")
+    );
+    assert_eq!(
+        bridged_value["contents"][2]["parts"][0]["functionResponse"]["name"],
+        json!("weather")
+    );
+    assert_eq!(
+        bridged_value["contents"][2]["parts"][1]["codeExecutionResult"]["outcome"],
+        json!("OUTCOME_OK")
+    );
+    assert_eq!(
+        bridged_value["toolConfig"]["functionCallingConfig"]["allowedFunctionNames"],
+        json!(["weather"])
+    );
+    assert_eq!(
+        bridged_value["toolConfig"]["retrievalConfig"]["latLng"]["longitude"],
+        json!(139.0)
+    );
+    assert_eq!(
+        bridged_value["generationConfig"]["responseJsonSchema"]["type"],
+        json!("object")
+    );
+    assert_eq!(
+        bridged_value["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+        json!(16)
+    );
+    assert_eq!(bridged_value["labels"]["route"], json!("bridge.test"));
 }

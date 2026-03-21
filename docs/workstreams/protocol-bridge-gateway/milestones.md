@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Milestones
 
-Last updated: 2026-03-20
+Last updated: 2026-03-21
 
 This workstream is tracked by milestones with explicit acceptance criteria.
 
@@ -39,7 +39,7 @@ Current state:
 
 - normalized request -> target protocol JSON APIs exist
 - protocol-source typed request -> normalized request APIs now exist for Anthropic Messages,
-  OpenAI Responses, and OpenAI Chat Completions
+  Gemini GenerateContent, OpenAI Responses, and OpenAI Chat Completions
 - request bridge reports and strict rejection exist
 - the direct Anthropic Messages <-> OpenAI Responses request bridge exists
 
@@ -130,7 +130,8 @@ Current state:
 - `BridgeOptionsOverride` and gateway helper mode-override entry points now exist for route-level
   strictness/customization without rebuilding full bridge options
 - `siumai-extras` Axum JSON/SSE transcode helpers now accept bridge customization, and closure-
-  friendly adapters exist for response hooks, stream hooks, and primitive remappers
+  friendly adapters exist for request/response/stream hooks, loss-policy hooks, and primitive
+  remappers
 - request / response / stream tests now also cover:
   - custom loss-policy behavior beyond the default mode-aware policy
   - explicit lossy conversion paths across request / response / stream bridges
@@ -141,9 +142,8 @@ Current state:
 - the customization boundary is now explicitly documented:
   - typed bridge hooks and policies are the supported user-defined conversion surface
   - wrapper-composed post-normalize transforms are preferred over a whole-parser override trait
-- remaining work is mainly gateway-policy composition and broader examples
 
-Status: in progress
+Status: completed
 
 ## PBG-M6 - Gateway runtime policy exists
 
@@ -161,6 +161,11 @@ Dependency note:
 Current state:
 
 - `GatewayBridgePolicy` now exists in `siumai-extras::server`
+- framework-agnostic bridge/policy helpers now live under `siumai-extras::server` instead of the
+  Axum adapters:
+  - bridge option resolution
+  - bridge diagnostic header emission
+  - SSE runtime timer policy projection
 - Axum JSON/SSE transcode helpers can already consume `GatewayBridgePolicy`
 - bridge decision / warning headers are now emitted for JSON routes and bridge target / mode
   headers are emitted for SSE routes when enabled
@@ -170,10 +175,8 @@ Current state:
 - Axum SSE transcode helpers now also run inspected stream loss-policy rejection and emit
   decision/warning headers when callers provide an explicit upstream protocol via
   `TranscodeSseOptions::with_bridge_source(...)`
-- remaining work is mainly broader framework-agnostic integration and stabilization around the
-  current helper layer
 
-Status: in progress
+Status: completed
 
 ## PBG-M7 - Examples and stabilization
 
@@ -202,10 +205,11 @@ Current state:
     core stream bridge wiring
 - gateway migration guidance now exists at:
   - `docs/workstreams/protocol-bridge-gateway/migration.md`
-- request normalization now has fixture-based coverage across the three currently supported source
+- request normalization now has fixture-based coverage across the four currently supported source
   protocols:
   - OpenAI Responses exact and best-effort lossy restoration
   - OpenAI Chat Completions exact and best-effort request restoration
+  - Gemini GenerateContent projected request restoration and same-protocol roundtrip coverage
   - Anthropic Messages settings / tools / structured output / MCP / thinking restoration
 - response/stream fixture expansion has now started with initial same-protocol roundtrip coverage
   for OpenAI Responses and Anthropic Messages

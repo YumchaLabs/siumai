@@ -529,11 +529,28 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         if let crate::types::ContentPart::ToolCall {
             tool_name,
             arguments,
+            provider_executed,
             provider_metadata,
             ..
         } = part
         {
             let thought_signature = extract_thought_signature(provider_metadata);
+            if *provider_executed == Some(true) && tool_name == "code_execution" {
+                let language = match arguments.get("language").and_then(|value| value.as_str()) {
+                    Some("PYTHON") => super::types::CodeLanguage::Python,
+                    _ => super::types::CodeLanguage::Unspecified,
+                };
+                let code = arguments
+                    .get("code")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                parts.push(Part::ExecutableCode {
+                    executable_code: super::types::ExecutableCode { language, code },
+                    thought_signature,
+                });
+                continue;
+            }
             parts.push(Part::FunctionCall {
                 function_call: FunctionCall {
                     name: tool_name.clone(),
@@ -550,11 +567,72 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         if let crate::types::ContentPart::ToolResult {
             tool_name,
             output,
+            provider_executed,
             provider_metadata,
             ..
         } = part
         {
             let thought_signature = extract_thought_signature(provider_metadata);
+
+            fn json_value_to_option_string(value: &serde_json::Value) -> Option<String> {
+                match value {
+                    serde_json::Value::Null => None,
+                    serde_json::Value::String(text) => Some(text.clone()),
+                    other => Some(other.to_string()),
+                }
+            }
+
+            fn parse_code_execution_outcome(
+                value: Option<&str>,
+            ) -> super::types::CodeExecutionOutcome {
+                match value {
+                    Some("OUTCOME_OK") => super::types::CodeExecutionOutcome::Ok,
+                    Some("OUTCOME_FAILED") => super::types::CodeExecutionOutcome::Failed,
+                    Some("OUTCOME_DEADLINE_EXCEEDED") => {
+                        super::types::CodeExecutionOutcome::DeadlineExceeded
+                    }
+                    _ => super::types::CodeExecutionOutcome::Unspecified,
+                }
+            }
+
+            if *provider_executed == Some(true) && tool_name == "code_execution" {
+                let code_execution_result = match output {
+                    ToolResultOutput::Json { value } | ToolResultOutput::ErrorJson { value } => {
+                        let obj = value.as_object();
+                        super::types::CodeExecutionResult {
+                            outcome: parse_code_execution_outcome(
+                                obj.and_then(|inner| inner.get("outcome"))
+                                    .and_then(|value| value.as_str()),
+                            ),
+                            output: obj
+                                .and_then(|inner| inner.get("output"))
+                                .and_then(json_value_to_option_string),
+                        }
+                    }
+                    ToolResultOutput::Text { value } | ToolResultOutput::ErrorText { value } => {
+                        super::types::CodeExecutionResult {
+                            outcome: super::types::CodeExecutionOutcome::Unspecified,
+                            output: Some(value.clone()),
+                        }
+                    }
+                    ToolResultOutput::Content { value } => super::types::CodeExecutionResult {
+                        outcome: super::types::CodeExecutionOutcome::Unspecified,
+                        output: Some(format!("Multimodal content with {} parts", value.len())),
+                    },
+                    ToolResultOutput::ExecutionDenied { reason } => {
+                        super::types::CodeExecutionResult {
+                            outcome: super::types::CodeExecutionOutcome::Failed,
+                            output: reason.clone(),
+                        }
+                    }
+                };
+
+                parts.push(Part::CodeExecutionResult {
+                    code_execution_result,
+                    thought_signature,
+                });
+                continue;
+            }
 
             fn push_function_response_part(
                 parts: &mut Vec<Part>,

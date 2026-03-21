@@ -22,12 +22,13 @@ This TODO list is intentionally organized as mergeable tracks.
 
 ## 1) Audit the current bridge path
 
-- [ ] Document the current inbound and outbound paths for:
+- [x] Document the current inbound and outbound paths for:
   - Anthropic Messages
   - OpenAI Responses
   - OpenAI Chat Completions
   - Gemini GenerateContent
-- [ ] Mark which conversions are already exact, lossy, or implicit
+- [x] Mark which conversions are already exact, lossy, or implicit
+  - see `docs/workstreams/protocol-bridge-gateway/audit.md`
 - [x] Inventory current customization points:
   - request-side:
     - `RequestTransformer`
@@ -83,6 +84,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - pair bridge modules
 - [x] Add explicit protocol-source typed request -> normalized request bridge entry points for:
   - Anthropic Messages -> normalized request
+  - Gemini GenerateContent -> normalized request
   - OpenAI Responses -> normalized request
   - OpenAI Chat Completions -> normalized request
 - [x] Add direct compat helpers where they materially reduce loss:
@@ -177,7 +179,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - tool call id remap
   - tool choice remap
 - [x] Add route-level override for `BridgeMode`
-- [ ] Add lossy field handling policy:
+- [x] Add lossy field handling policy:
   - reject
   - warn and continue
   - provider-tolerant continue
@@ -194,7 +196,7 @@ This TODO list is intentionally organized as mergeable tracks.
 ## 7) Add gateway runtime policy
 
 - [x] Define `GatewayBridgePolicy` in `siumai-extras`
-- [ ] Cover:
+- [x] Cover:
   - [x] body limits
   - [x] upstream read limits
   - [x] stream idle timeout
@@ -205,7 +207,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - [x] warning emission
 - [x] Integrate gateway policy with bridge customization contracts instead of creating parallel
   hook types
-- [ ] Keep framework-agnostic pieces separate from Axum wrappers
+- [x] Keep framework-agnostic pieces separate from Axum wrappers
 - [x] Align Axum SSE transcode helpers with core stream loss-policy inspection when callers need
   strict inspected rejection on cross-protocol stream routes
   - enabled by explicit `TranscodeSseOptions::with_bridge_source(...)`
@@ -248,6 +250,11 @@ This TODO list is intentionally organized as mergeable tracks.
     - exact system / assistant tool-call / tool-result / file input restoration cases
     - best-effort system-message-mode cases
     - response-format JSON schema restoration
+  - Gemini GenerateContent request normalization now has initial coverage for:
+    - system instruction / message / tool reconstruction
+    - toolConfig function-calling and retrieval config restoration
+    - same-protocol projected replay of `executableCode` / `codeExecutionResult`
+    - structured-output provider option restoration via `responseJsonSchema`
   - Anthropic Messages request normalization now has fixture coverage for:
     - base request settings
     - function tool choice and provider-defined tool restoration

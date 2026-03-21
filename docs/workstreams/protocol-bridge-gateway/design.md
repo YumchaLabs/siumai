@@ -31,9 +31,9 @@ The current codebase now already has:
 - an experimental explicit bridge facade in `siumai::experimental::bridge`
 - a request bridge planner plus direct pair bridge modules
 - explicit protocol-source typed request -> normalized request entry points for Anthropic
-  Messages, OpenAI Responses, and OpenAI Chat Completions
-- fixture-based request normalization coverage for Anthropic Messages, OpenAI Responses, and
-  OpenAI Chat Completions
+  Messages, Gemini GenerateContent, OpenAI Responses, and OpenAI Chat Completions
+- fixture-based request normalization coverage for Anthropic Messages, Gemini GenerateContent,
+  OpenAI Responses, and OpenAI Chat Completions
 - initial bridge reporting for lossy fields, dropped fields, and unsupported request semantics
 - bridge-owned customization through `BridgeOptions`, typed contexts, hook traits, primitive
   remappers, and loss-policy traits
@@ -80,9 +80,10 @@ We will follow the architectural idea, not copy either implementation literally.
 - Bridge customization is now available, but it still needs broader examples and stricter guidance.
   - `BridgeOptions` and typed hook traits now exist, but the public story still needs more runnable
     examples and clearer migration guidance away from ad hoc JSON patching.
-- Lossy conversion policy now has a stable contract, but coverage is still incomplete.
-  - The `BridgeLossPolicy` trait exists, but most production behavior is still exercised through
-    default mode-driven policies and needs more custom-policy validation.
+- Lossy conversion policy now has a stable contract and gateway wiring, but broader example and
+  audit coverage still needs work.
+  - `BridgeLossPolicy` exists in `siumai-core::bridge`, and route-local closure adapters now exist
+    in `siumai-extras`, but more fixture-backed examples still add value.
 - Protocol-source request normalization is now explicit, but not yet bridge-customizable through
   the same hook surface.
   - The new typed source request parsers return `ChatRequest` directly.
@@ -92,9 +93,15 @@ We will follow the architectural idea, not copy either implementation literally.
 - Legacy customization points still sit adjacent to the bridge.
   - Existing execution and gateway hooks remain useful escape hatches, but bridge-owned typed hooks
     should become the clearly documented primary extension path.
-- Gateway runtime policy now exists for Axum, but framework-agnostic factoring is still incomplete.
-  - Request body limits, upstream read limits, keepalive, idle timeout, and header policy now have
-    one runtime home, but broader non-Axum ownership is still future work.
+- Gateway runtime policy now has a framework-agnostic bridge/policy core, while transport I/O
+  remains framework-specific.
+  - `GatewayBridgePolicy` plus shared bridge-option/header/runtime helpers now live outside the
+    Axum adapters.
+  - Request/upstream body reads are still intentionally implemented in the Axum runtime layer.
+
+See also:
+
+- `docs/workstreams/protocol-bridge-gateway/audit.md`
 
 ### Current customization surface today
 

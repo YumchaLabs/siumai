@@ -15,6 +15,8 @@ pub use serialize::{bridge_chat_request_to_json, bridge_chat_request_to_json_wit
 
 #[cfg(feature = "anthropic")]
 pub use normalize::bridge_anthropic_messages_json_to_chat_request;
+#[cfg(feature = "google")]
+pub use normalize::bridge_gemini_generate_content_json_to_chat_request;
 #[cfg(feature = "openai")]
 pub use normalize::{
     bridge_openai_chat_completions_json_to_chat_request,
