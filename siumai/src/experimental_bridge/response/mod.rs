@@ -2,6 +2,7 @@
 
 mod inspect;
 mod serialize;
+mod target_caps;
 
 #[cfg(test)]
 mod tests;

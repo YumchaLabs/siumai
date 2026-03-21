@@ -5,6 +5,7 @@ mod normalize;
 pub mod pairs;
 mod primitives;
 mod serialize;
+mod target_caps;
 
 #[cfg(test)]
 mod tests;

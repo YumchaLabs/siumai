@@ -12,10 +12,13 @@
 //! - stream inspection / serialization
 
 mod customize;
+mod lifecycle;
 pub mod planner;
 pub mod request;
 pub mod response;
 pub mod stream;
+mod target_dispatch;
+mod wrapper_macros;
 
 pub use planner::{RequestBridgePath, RequestBridgePlan, plan_chat_request_bridge};
 pub use request::{

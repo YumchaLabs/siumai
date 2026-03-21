@@ -1,6 +1,7 @@
 //! Stream bridge implementation.
 
 mod inspect;
+mod profile;
 mod serialize;
 
 #[cfg(test)]

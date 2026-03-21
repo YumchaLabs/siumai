@@ -131,8 +131,16 @@ Current state:
   strictness/customization without rebuilding full bridge options
 - `siumai-extras` Axum JSON/SSE transcode helpers now accept bridge customization, and closure-
   friendly adapters exist for response hooks, stream hooks, and primitive remappers
-- request / response / stream tests now also cover custom loss-policy behavior beyond the default
-  mode-aware policy
+- request / response / stream tests now also cover:
+  - custom loss-policy behavior beyond the default mode-aware policy
+  - explicit lossy conversion paths across request / response / stream bridges
+  - strict-vs-best-effort behavior on representative lossy routes
+  - request hook mutation / JSON validation
+  - response hook mutation
+  - stream primitive remapping on delta and final response paths
+- the customization boundary is now explicitly documented:
+  - typed bridge hooks and policies are the supported user-defined conversion surface
+  - wrapper-composed post-normalize transforms are preferred over a whole-parser override trait
 - remaining work is mainly gateway-policy composition and broader examples
 
 Status: in progress

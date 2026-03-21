@@ -169,7 +169,8 @@ This TODO list is intentionally organized as mergeable tracks.
   post-normalize customization hook, or should remain wrapper-composed by callers
   - decision: remain wrapper-composed by callers for now
   - do not add a whole-parser override trait unless repeated concrete needs emerge
-- [ ] Do not expose raw provider JSON patching as the default bridge extension story
+- [x] Do not expose raw provider JSON patching as the default bridge extension story
+  - documented as an escape hatch in the migration note and customization-boundary note
 
 ## 7) Add gateway runtime policy
 
@@ -199,6 +200,10 @@ This TODO list is intentionally organized as mergeable tracks.
   - normalized backbone
   - selected direct bridges
   - no full N x M pairwise mesh
+- [x] Add a dedicated customization-boundary note covering:
+  - typed hook / policy-based user-defined conversion
+  - wrapper-composed post-normalize transforms
+  - no whole-parser override trait
 - [x] Document the recommended customization direction:
   - bridge-specific trait/policy objects in core
   - closure-friendly wrappers in `siumai-extras`
@@ -240,9 +245,34 @@ This TODO list is intentionally organized as mergeable tracks.
   - Anthropic Messages stream roundtrip now has initial semantic-summary fixture coverage for:
     - JSON output text replay
     - reserved json-tool replay
-- [ ] Add explicit tests for lossy conversions
-- [ ] Add tests for custom hooks and primitive remappers
-- [ ] Add tests for strict vs best-effort behavior
+- [x] Add explicit tests for lossy conversions
+  - request:
+    - default best-effort continues on lossy reasoning -> OpenAI Chat Completions conversion
+  - response:
+    - default strict rejects lossy usage-detail downgrade into Anthropic Messages
+  - stream:
+    - default best-effort continues on lossy cross-protocol stream routes while keeping
+      `report.lossy_fields`
+- [x] Add tests for custom hooks and primitive remappers
+  - request hook coverage now exercises:
+    - normalized request mutation
+    - target JSON post-transform
+    - target JSON validation/reporting
+  - response hook coverage now exercises:
+    - response-side semantic rewrite before target serialization
+  - stream customization coverage now exercises:
+    - primitive remapping on `ToolCallDelta`
+    - remapping propagation into `StreamEnd` response content
+- [x] Add tests for strict vs best-effort behavior
+  - request:
+    - strict rejects lossy reasoning downgrade
+    - best-effort continues on the same lossy route
+  - response:
+    - strict rejects lossy usage-detail downgrade by default
+    - custom loss policy can still allow that route
+  - stream:
+    - strict rejects inspected cross-protocol lossy routes
+    - best-effort continues on the same route
 - [x] Add tests showing custom loss-policy behavior on request / response / stream bridges
 - [x] Add gateway smoke coverage for JSON and SSE output paths
   - `siumai-extras` Axum integration now has router-level smoke coverage for:

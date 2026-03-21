@@ -139,6 +139,10 @@ story because:
 
 ### Current recommendation for user-defined conversion
 
+See also:
+
+- `docs/workstreams/protocol-bridge-gateway/customization.md`
+
 Users should customize at the smallest typed layer that matches their need.
 
 - If the goal is stable cross-bridge naming or ID policy, implement `BridgePrimitiveRemapper`.

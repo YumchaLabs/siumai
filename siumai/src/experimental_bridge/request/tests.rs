@@ -4,8 +4,8 @@ use std::sync::Arc;
 use serde_json::json;
 use siumai_core::bridge::{
     BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
-    BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext, ResponseBridgeContext,
-    StreamBridgeContext,
+    BridgePrimitiveRemapper, BridgeTarget, BridgeWarning, BridgeWarningKind, RequestBridgeContext,
+    RequestBridgeHook, ResponseBridgeContext, StreamBridgeContext,
 };
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 
@@ -70,6 +70,51 @@ impl BridgeLossPolicy for RejectLossyPolicy {
     }
 }
 
+struct RequestAuditHook;
+
+impl RequestBridgeHook for RequestAuditHook {
+    fn transform_request(
+        &self,
+        ctx: &RequestBridgeContext,
+        request: &mut ChatRequest,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(ctx.route_label.as_deref(), Some("tests.request.hook"));
+        request.common_params.max_tokens = Some(77);
+        report.add_warning(BridgeWarning::new(
+            BridgeWarningKind::Custom,
+            "request hook transformed normalized request",
+        ));
+        Ok(())
+    }
+
+    fn transform_json(
+        &self,
+        _ctx: &RequestBridgeContext,
+        body: &mut serde_json::Value,
+        _report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        body["metadata"] = json!({
+            "hooked": true,
+        });
+        Ok(())
+    }
+
+    fn validate_json(
+        &self,
+        _ctx: &RequestBridgeContext,
+        body: &serde_json::Value,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(body["metadata"]["hooked"], json!(true));
+        report.add_warning(BridgeWarning::new(
+            BridgeWarningKind::Custom,
+            "request hook validated target json",
+        ));
+        Ok(())
+    }
+}
+
 #[cfg(feature = "openai")]
 #[test]
 fn strict_openai_chat_bridge_rejects_reasoning_loss() {
@@ -92,6 +137,31 @@ fn strict_openai_chat_bridge_rejects_reasoning_loss() {
     assert!(bridged.is_rejected());
     assert!(bridged.report.is_rejected());
     assert_eq!(bridged.report.lossy_fields.len(), 1);
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn best_effort_openai_chat_bridge_allows_reasoning_loss() {
+    let mut request = ChatRequest::new(vec![
+        ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("step by step"),
+            ContentPart::text("final answer"),
+        ])
+        .build(),
+    ]);
+    request.common_params.model = "gpt-4o-mini".to_string();
+
+    let bridged = bridge_chat_request_to_openai_chat_completions_json(
+        &request,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_lossy());
+    assert_eq!(bridged.report.lossy_fields.len(), 1);
+    assert!(bridged.value.is_some());
 }
 
 #[cfg(feature = "openai")]
@@ -592,6 +662,37 @@ fn request_bridge_options_can_remap_tool_names_and_tool_choice() {
         value["tool_choice"]["function"]["name"],
         json!("gw_weather")
     );
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn request_bridge_hook_can_mutate_request_and_validate_target_json() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("hi").build())
+        .model("gpt-4.1-mini")
+        .build();
+
+    let bridged = bridge_chat_request_to_openai_chat_completions_json_with_options(
+        &request,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.request.hook")
+            .with_request_hook(Arc::new(RequestAuditHook)),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_exact());
+    assert!(
+        bridged.report.warnings.iter().any(|warning| warning
+            .message
+            .contains("request hook validated target json")),
+        "expected request hook validation warning"
+    );
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["max_tokens"], json!(77));
+    assert_eq!(value["metadata"]["hooked"], json!(true));
 }
 
 #[cfg(feature = "openai")]

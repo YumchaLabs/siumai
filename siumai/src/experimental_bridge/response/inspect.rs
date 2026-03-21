@@ -5,16 +5,24 @@ use siumai_core::types::{
     ChatResponse, ContentPart, FinishReason, ToolResultContentPart, ToolResultOutput,
 };
 
+use super::target_caps::{
+    ResponseContentPartProviderMetadataMode, ResponseFinishReasonMode,
+    ResponseProviderMetadataMode, ResponseTargetCapabilities, ResponseUsageMode,
+    response_target_capabilities,
+};
+
 /// Inspect a normalized `ChatResponse` before bridging it into a target protocol.
 pub fn inspect_chat_response_bridge(
     response: &ChatResponse,
     target: BridgeTarget,
     report: &mut BridgeReport,
 ) {
-    inspect_response_content(response, target, report);
-    inspect_response_usage(response, target, report);
-    inspect_response_finish_reason(response, target, report);
-    inspect_response_provider_metadata(response, target, report);
+    let caps = response_target_capabilities(target);
+
+    inspect_response_content(response, caps, report);
+    inspect_response_usage(response, caps, report);
+    inspect_response_finish_reason(response, caps, report);
+    inspect_response_provider_metadata(response, caps, report);
 
     if response.audio.is_some() {
         report.record_dropped_field(
@@ -40,22 +48,22 @@ pub fn inspect_chat_response_bridge(
         );
     }
 
-    if response.system_fingerprint.is_some() && !supports_system_fingerprint(target) {
+    if response.system_fingerprint.is_some() && !caps.supports_system_fingerprint {
         report.record_dropped_field(
             "system_fingerprint",
             format!(
                 "{} response bridge does not preserve system_fingerprint",
-                target.as_str()
+                caps.target.as_str()
             ),
         );
     }
 
-    if response.service_tier.is_some() && !supports_service_tier(target) {
+    if response.service_tier.is_some() && !caps.supports_service_tier {
         report.record_dropped_field(
             "service_tier",
             format!(
                 "{} response bridge does not preserve service_tier",
-                target.as_str()
+                caps.target.as_str()
             ),
         );
     }
@@ -63,7 +71,7 @@ pub fn inspect_chat_response_bridge(
 
 fn inspect_response_content(
     response: &ChatResponse,
-    target: BridgeTarget,
+    caps: ResponseTargetCapabilities,
     report: &mut BridgeReport,
 ) {
     let Some(parts) = response.content.as_multimodal() else {
@@ -72,17 +80,17 @@ fn inspect_response_content(
 
     for (index, part) in parts.iter().enumerate() {
         let path = format!("content[{index}]");
-        inspect_response_content_part_provider_metadata(part, &path, target, report);
+        inspect_response_content_part_provider_metadata(part, &path, caps, report);
 
         match part {
             ContentPart::Text { .. } | ContentPart::ToolCall { .. } => {}
             ContentPart::Reasoning { .. } => {
-                if !supports_reasoning_blocks(target) {
+                if !caps.supports_reasoning_blocks {
                     report.record_dropped_field(
                         path,
                         format!(
                             "{} response bridge does not serialize reasoning blocks",
-                            target.as_str()
+                            caps.target.as_str()
                         ),
                     );
                 }
@@ -92,7 +100,7 @@ fn inspect_response_content(
                     path,
                     format!(
                         "{} response bridge does not serialize image output parts",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -101,7 +109,7 @@ fn inspect_response_content(
                     path,
                     format!(
                         "{} response bridge does not serialize audio output parts",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -110,7 +118,7 @@ fn inspect_response_content(
                     path,
                     format!(
                         "{} response bridge does not serialize file output parts",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -119,7 +127,7 @@ fn inspect_response_content(
                     path,
                     format!(
                         "{} response bridge does not serialize source citation parts",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -127,26 +135,26 @@ fn inspect_response_content(
                 output,
                 provider_executed,
                 ..
-            } => match target {
-                BridgeTarget::OpenAiResponses if *provider_executed == Some(true) => {
-                    inspect_openai_response_tool_result(&path, output, report);
-                }
-                _ => {
-                    report.record_dropped_field(
-                        path,
-                        format!(
-                            "{} response bridge does not serialize tool result parts",
-                            target.as_str()
-                        ),
-                    );
-                }
-            },
+            } if caps.supports_provider_executed_tool_results
+                && *provider_executed == Some(true) =>
+            {
+                inspect_openai_response_tool_result(&path, output, report);
+            }
+            ContentPart::ToolResult { .. } => {
+                report.record_dropped_field(
+                    path,
+                    format!(
+                        "{} response bridge does not serialize tool result parts",
+                        caps.target.as_str()
+                    ),
+                );
+            }
             ContentPart::ToolApprovalRequest { .. } => {
                 report.record_dropped_field(
                     path,
                     format!(
                         "{} response bridge does not serialize tool approval request parts",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -155,7 +163,7 @@ fn inspect_response_content(
                     path,
                     format!(
                         "{} response bridge does not serialize tool approval response parts",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -166,7 +174,7 @@ fn inspect_response_content(
 fn inspect_response_content_part_provider_metadata(
     part: &ContentPart,
     path: &str,
-    target: BridgeTarget,
+    caps: ResponseTargetCapabilities,
     report: &mut BridgeReport,
 ) {
     let Some(provider_metadata) = content_part_provider_metadata(part) else {
@@ -174,17 +182,37 @@ fn inspect_response_content_part_provider_metadata(
     };
 
     for (namespace, value) in provider_metadata {
-        match (target, namespace.as_str(), part) {
-            (BridgeTarget::OpenAiResponses, "openai", ContentPart::Reasoning { .. }) => {
+        match (
+            caps.content_part_provider_metadata_mode,
+            namespace.as_str(),
+            part,
+        ) {
+            (
+                ResponseContentPartProviderMetadataMode::OpenAiResponses,
+                "openai",
+                ContentPart::Reasoning { .. },
+            ) => {
                 inspect_openai_reasoning_part_provider_metadata(path, value, report);
             }
-            (BridgeTarget::OpenAiResponses, "openai", ContentPart::ToolCall { .. }) => {
+            (
+                ResponseContentPartProviderMetadataMode::OpenAiResponses,
+                "openai",
+                ContentPart::ToolCall { .. },
+            ) => {
                 inspect_openai_tool_call_part_provider_metadata(path, value, report);
             }
-            (BridgeTarget::OpenAiResponses, "openai", ContentPart::ToolResult { .. }) => {
+            (
+                ResponseContentPartProviderMetadataMode::OpenAiResponses,
+                "openai",
+                ContentPart::ToolResult { .. },
+            ) => {
                 inspect_openai_tool_result_part_provider_metadata(path, value, report);
             }
-            (BridgeTarget::AnthropicMessages, "anthropic", ContentPart::ToolCall { .. }) => {
+            (
+                ResponseContentPartProviderMetadataMode::AnthropicMessages,
+                "anthropic",
+                ContentPart::ToolCall { .. },
+            ) => {
                 inspect_anthropic_tool_call_part_provider_metadata(path, value, report);
             }
             _ => {
@@ -192,7 +220,7 @@ fn inspect_response_content_part_provider_metadata(
                     format!("{path}.provider_metadata.{namespace}"),
                     format!(
                         "{} response bridge does not serialize this content-part provider metadata namespace",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -202,16 +230,16 @@ fn inspect_response_content_part_provider_metadata(
 
 fn inspect_response_usage(
     response: &ChatResponse,
-    target: BridgeTarget,
+    caps: ResponseTargetCapabilities,
     report: &mut BridgeReport,
 ) {
     let Some(usage) = &response.usage else {
         return;
     };
 
-    match target {
-        BridgeTarget::OpenAiResponses | BridgeTarget::OpenAiChatCompletions => {}
-        BridgeTarget::AnthropicMessages => {
+    match caps.usage_mode {
+        ResponseUsageMode::PreserveAll => {}
+        ResponseUsageMode::AnthropicAggregateOnly => {
             if usage.prompt_tokens_details.is_some() {
                 report.record_lossy_field(
                     "usage.prompt_tokens_details",
@@ -225,7 +253,7 @@ fn inspect_response_usage(
                 );
             }
         }
-        BridgeTarget::GeminiGenerateContent => {
+        ResponseUsageMode::GeminiPartialBreakdown => {
             if usage
                 .prompt_tokens_details
                 .as_ref()
@@ -287,15 +315,15 @@ fn inspect_response_usage(
 
 fn inspect_response_finish_reason(
     response: &ChatResponse,
-    target: BridgeTarget,
+    caps: ResponseTargetCapabilities,
     report: &mut BridgeReport,
 ) {
     let Some(reason) = response.finish_reason.as_ref() else {
         return;
     };
 
-    match target {
-        BridgeTarget::OpenAiResponses | BridgeTarget::OpenAiChatCompletions => match reason {
+    match caps.finish_reason_mode {
+        ResponseFinishReasonMode::OpenAiFamily => match reason {
             FinishReason::StopSequence => report.record_lossy_field(
                 "finish_reason",
                 "OpenAI response encoders collapse stop-sequence termination into `stop`",
@@ -306,7 +334,7 @@ fn inspect_response_finish_reason(
             ),
             _ => {}
         },
-        BridgeTarget::AnthropicMessages => match reason {
+        ResponseFinishReasonMode::AnthropicMessages => match reason {
             FinishReason::StopSequence if anthropic_stop_sequence(response).is_none() => {
                 report.record_lossy_field(
                     "finish_reason",
@@ -327,7 +355,7 @@ fn inspect_response_finish_reason(
             ),
             _ => {}
         },
-        BridgeTarget::GeminiGenerateContent => match reason {
+        ResponseFinishReasonMode::GeminiGenerateContent => match reason {
             FinishReason::StopSequence
             | FinishReason::ToolCalls
             | FinishReason::Error
@@ -343,7 +371,7 @@ fn inspect_response_finish_reason(
 
 fn inspect_response_provider_metadata(
     response: &ChatResponse,
-    target: BridgeTarget,
+    caps: ResponseTargetCapabilities,
     report: &mut BridgeReport,
 ) {
     let Some(provider_metadata) = &response.provider_metadata else {
@@ -351,11 +379,11 @@ fn inspect_response_provider_metadata(
     };
 
     for (namespace, metadata) in provider_metadata {
-        match (target, namespace.as_str()) {
-            (BridgeTarget::OpenAiResponses, "openai") => {
+        match (caps.provider_metadata_mode, namespace.as_str()) {
+            (ResponseProviderMetadataMode::OpenAiResponses, "openai") => {
                 inspect_openai_response_provider_metadata(metadata, report);
             }
-            (BridgeTarget::AnthropicMessages, "anthropic") => {
+            (ResponseProviderMetadataMode::AnthropicMessages, "anthropic") => {
                 inspect_anthropic_response_provider_metadata(response, metadata, report);
             }
             _ => {
@@ -363,7 +391,7 @@ fn inspect_response_provider_metadata(
                     format!("provider_metadata.{namespace}"),
                     format!(
                         "{} response bridge does not serialize top-level provider metadata namespaces",
-                        target.as_str()
+                        caps.target.as_str()
                     ),
                 );
             }
@@ -610,27 +638,4 @@ fn anthropic_stop_sequence(response: &ChatResponse) -> Option<&str> {
         .get("anthropic")?
         .get("stopSequence")?
         .as_str()
-}
-
-const fn supports_reasoning_blocks(target: BridgeTarget) -> bool {
-    matches!(
-        target,
-        BridgeTarget::OpenAiResponses | BridgeTarget::AnthropicMessages
-    )
-}
-
-const fn supports_system_fingerprint(target: BridgeTarget) -> bool {
-    matches!(
-        target,
-        BridgeTarget::OpenAiChatCompletions | BridgeTarget::OpenAiResponses
-    )
-}
-
-const fn supports_service_tier(target: BridgeTarget) -> bool {
-    matches!(
-        target,
-        BridgeTarget::OpenAiChatCompletions
-            | BridgeTarget::OpenAiResponses
-            | BridgeTarget::AnthropicMessages
-    )
 }

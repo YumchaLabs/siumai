@@ -5,7 +5,7 @@ use serde_json::json;
 use siumai_core::bridge::{
     BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
     BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext, ResponseBridgeContext,
-    StreamBridgeContext,
+    ResponseBridgeHook, StreamBridgeContext,
 };
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
@@ -52,6 +52,25 @@ impl BridgeLossPolicy for ContinueLossyPolicy {
         _report: &siumai_core::bridge::BridgeReport,
     ) -> BridgeLossAction {
         BridgeLossAction::Continue
+    }
+}
+
+struct RedactResponseHook;
+
+impl ResponseBridgeHook for RedactResponseHook {
+    fn transform_response(
+        &self,
+        ctx: &ResponseBridgeContext,
+        response: &mut ChatResponse,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(ctx.route_label.as_deref(), Some("tests.response.hook"));
+        response.content = MessageContent::Text("[hooked]".to_string());
+        report.record_lossy_field(
+            "response.content",
+            "response hook replaced content before target serialization",
+        );
+        Ok(())
     }
 }
 
@@ -188,6 +207,50 @@ fn anthropic_response_bridge_reports_usage_and_metadata_loss() {
     assert_eq!(value["usage"]["input_tokens"], json!(10));
     assert_eq!(value["content"][1]["type"], json!("tool_use"));
     assert_eq!(value["content"][1]["id"], json!("call_1"));
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn strict_anthropic_response_bridge_rejects_usage_detail_loss() {
+    let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::text("searching"),
+        ContentPart::tool_call("call_1", "web_search", json!({ "q": "rust" }), Some(true)),
+    ]));
+    response.id = Some("msg_1".to_string());
+    response.model = Some("claude-sonnet-4-5".to_string());
+    response.finish_reason = Some(FinishReason::ToolCalls);
+    response.usage = Some(
+        Usage::builder()
+            .prompt_tokens(10)
+            .completion_tokens(5)
+            .total_tokens(15)
+            .with_cached_tokens(3)
+            .with_reasoning_tokens(2)
+            .build(),
+    );
+    response.provider_metadata = Some(HashMap::from([(
+        "openai".to_string(),
+        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+    )]));
+
+    let bridged = bridge_chat_response_to_anthropic_messages_json_value(
+        &response,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::Strict,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(bridged.is_rejected());
+    assert!(bridged.report.is_rejected());
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "usage.prompt_tokens_details"),
+        "expected prompt token detail loss"
+    );
 }
 
 #[cfg(feature = "anthropic")]
@@ -368,4 +431,33 @@ fn response_bridge_options_can_remap_tool_call_names() {
         value["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
         json!("gw_weather")
     );
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn response_bridge_hook_can_rewrite_content_before_serialization() {
+    let response = ChatResponse::new(MessageContent::Text("visible answer".to_string()));
+
+    let bridged = bridge_chat_response_to_openai_chat_completions_json_value_with_options(
+        &response,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.response.hook")
+            .with_response_hook(Arc::new(RedactResponseHook)),
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_lossy());
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "response.content")
+    );
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["choices"][0]["message"]["content"], json!("[hooked]"));
 }

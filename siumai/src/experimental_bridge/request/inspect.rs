@@ -6,6 +6,7 @@ use siumai_core::types::ChatRequest;
 use super::primitives::{
     inspect_cache_control_semantics, inspect_reasoning_semantics, inspect_tool_approval_semantics,
 };
+use super::target_caps::request_target_capabilities;
 
 /// Inspect a normalized request bridge without serializing it.
 pub fn inspect_chat_request_bridge(
@@ -13,7 +14,8 @@ pub fn inspect_chat_request_bridge(
     target: BridgeTarget,
     report: &mut BridgeReport,
 ) {
-    inspect_reasoning_semantics(request, target, report);
-    inspect_cache_control_semantics(request, target, report);
-    inspect_tool_approval_semantics(request, target, report);
+    let caps = request_target_capabilities(target);
+    inspect_reasoning_semantics(request, caps, report);
+    inspect_cache_control_semantics(request, caps, report);
+    inspect_tool_approval_semantics(request, caps, report);
 }

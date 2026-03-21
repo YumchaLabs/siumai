@@ -2,12 +2,16 @@
 
 use std::collections::BTreeSet;
 
-use siumai_core::bridge::{BridgeReport, BridgeTarget, BridgeWarning, BridgeWarningKind};
+use siumai_core::bridge::{BridgeReport, BridgeWarning, BridgeWarningKind};
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, MessageContent, MessageRole};
+
+use super::target_caps::{
+    RequestCacheControlMode, RequestReasoningMode, RequestTargetCapabilities,
+};
 
 pub(crate) fn inspect_reasoning_semantics(
     request: &ChatRequest,
-    target: BridgeTarget,
+    caps: RequestTargetCapabilities,
     report: &mut BridgeReport,
 ) {
     for (message_index, message) in request.messages.iter().enumerate() {
@@ -16,8 +20,8 @@ pub(crate) fn inspect_reasoning_semantics(
             continue;
         }
 
-        match target {
-            BridgeTarget::OpenAiResponses => {
+        match caps.reasoning_mode {
+            RequestReasoningMode::OpenAiResponses => {
                 for part_index in reasoning_indices {
                     report.record_lossy_field(
                         format!("messages[{message_index}].content[{part_index}].reasoning"),
@@ -38,7 +42,7 @@ pub(crate) fn inspect_reasoning_semantics(
                     );
                 }
             }
-            BridgeTarget::OpenAiChatCompletions => {
+            RequestReasoningMode::OpenAiChatCompletions => {
                 for part_index in reasoning_indices {
                     report.record_lossy_field(
                         format!("messages[{message_index}].content[{part_index}].reasoning"),
@@ -46,7 +50,7 @@ pub(crate) fn inspect_reasoning_semantics(
                     );
                 }
             }
-            BridgeTarget::AnthropicMessages => {
+            RequestReasoningMode::AnthropicMessages => {
                 inspect_anthropic_reasoning_semantics(
                     message,
                     message_index,
@@ -54,25 +58,27 @@ pub(crate) fn inspect_reasoning_semantics(
                     report,
                 );
             }
-            BridgeTarget::GeminiGenerateContent => {}
+            RequestReasoningMode::Preserve => {}
         }
     }
 }
 
 pub(crate) fn inspect_cache_control_semantics(
     request: &ChatRequest,
-    target: BridgeTarget,
+    caps: RequestTargetCapabilities,
     report: &mut BridgeReport,
 ) {
-    match target {
-        BridgeTarget::AnthropicMessages => inspect_anthropic_cache_limit(request, report),
-        _ => inspect_non_anthropic_cache_controls(request, report),
+    match caps.cache_control_mode {
+        RequestCacheControlMode::AnthropicLimit4 => inspect_anthropic_cache_limit(request, report),
+        RequestCacheControlMode::DropAnthropicControls => {
+            inspect_non_anthropic_cache_controls(request, report)
+        }
     }
 }
 
 pub(crate) fn inspect_tool_approval_semantics(
     request: &ChatRequest,
-    target: BridgeTarget,
+    caps: RequestTargetCapabilities,
     report: &mut BridgeReport,
 ) {
     for (message_index, message) in request.messages.iter().enumerate() {
@@ -91,7 +97,7 @@ pub(crate) fn inspect_tool_approval_semantics(
                     );
                 }
                 ContentPart::ToolApprovalResponse { .. }
-                    if !matches!(target, BridgeTarget::OpenAiResponses) =>
+                    if !caps.preserves_tool_approval_responses =>
                 {
                     record_unsupported_path(
                         report,
