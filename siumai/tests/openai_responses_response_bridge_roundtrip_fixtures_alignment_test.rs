@@ -140,9 +140,12 @@ fn count_part_type(value: &Value, case: &str, part_type: &str) -> usize {
 fn openai_responses_response_bridge_roundtrip_fixture_exact_cases_match() {
     let exact_cases = [
         "basic-text",
+        "file-search-tool.1",
+        "mcp-tool-approval.1",
         "tool-calls",
         "reasoning-empty-summary",
         "reasoning-encrypted-content.1",
+        "reasoning-summary",
         "apply-patch-tool.1",
         "code-interpreter-tool.1",
         "computer-use-tool.1",

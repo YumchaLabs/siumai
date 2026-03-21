@@ -149,6 +149,7 @@ fn inspect_response_content(
                     ),
                 );
             }
+            ContentPart::ToolApprovalRequest { .. } if caps.supports_tool_approval_requests => {}
             ContentPart::ToolApprovalRequest { .. } => {
                 report.record_dropped_field(
                     path,

@@ -117,6 +117,49 @@ fn strict_openai_responses_bridge_preserves_reasoning_blocks() {
 
 #[cfg(feature = "openai")]
 #[test]
+fn strict_openai_responses_bridge_preserves_tool_approval_requests() {
+    let response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::tool_call(
+            "id-0",
+            "mcp.create_short_url",
+            json!({
+                "alias": "",
+                "description": "",
+                "max_clicks": 100,
+                "password": "",
+                "url": "https://ai-sdk.dev/"
+            }),
+            Some(true),
+        ),
+        ContentPart::tool_approval_request("mcpr_1", "id-0"),
+    ]));
+
+    let bridged = bridge_chat_response_to_openai_responses_json_value(
+        &response,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::Strict,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_exact());
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["output"].as_array().map(Vec::len), Some(1));
+    assert_eq!(value["output"][0]["type"], json!("mcp_approval_request"));
+    assert_eq!(value["output"][0]["id"], json!("mcpr_1"));
+    assert_eq!(value["output"][0]["name"], json!("create_short_url"));
+    assert_eq!(
+        value["output"][0]["arguments"],
+        json!(
+            r#"{"alias":"","description":"","max_clicks":100,"password":"","url":"https://ai-sdk.dev/"}"#
+        )
+    );
+}
+
+#[cfg(feature = "openai")]
+#[test]
 fn openai_chat_response_bridge_preserves_native_top_level_fields() {
     let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
         ContentPart::text("visible answer"),

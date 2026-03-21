@@ -265,6 +265,12 @@ pub enum OpenAiResponseOutputItem {
         name: String,
         arguments: String,
     },
+    #[serde(rename = "mcp_approval_request")]
+    McpApprovalRequest {
+        id: String,
+        name: String,
+        arguments: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -275,6 +281,8 @@ pub enum OpenAiResponseMessageContent {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         annotations: Option<Vec<OpenAiResponseAnnotation>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        logprobs: Option<serde_json::Value>,
     },
 }
 
@@ -873,6 +881,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                 vec![OpenAiResponseMessageContent::OutputText {
                     text: text.clone(),
                     annotations: None,
+                    logprobs: None,
                 }]
             }
             crate::types::MessageContent::MultiModal(parts) => parts
@@ -882,6 +891,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         Some(OpenAiResponseMessageContent::OutputText {
                             text: text.clone(),
                             annotations: None,
+                            logprobs: None,
                         })
                     }
                     _ => None,
@@ -892,11 +902,32 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                 vec![OpenAiResponseMessageContent::OutputText {
                     text: serde_json::to_string(value).unwrap_or_default(),
                     annotations: None,
+                    logprobs: None,
                 }]
             }
         };
 
         if let Some(parts) = response.content.as_multimodal() {
+            let provider_tool_calls_by_call_id: HashMap<&str, &ContentPart> = parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::ToolCall {
+                        tool_call_id,
+                        provider_executed,
+                        ..
+                    } if *provider_executed == Some(true) => Some((tool_call_id.as_str(), part)),
+                    _ => None,
+                })
+                .collect();
+            let approval_requests_by_call_id: HashMap<&str, &ContentPart> = parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::ToolApprovalRequest { tool_call_id, .. } => {
+                        Some((tool_call_id.as_str(), part))
+                    }
+                    _ => None,
+                })
+                .collect();
             let provider_tool_results_by_call_id: HashMap<&str, &ContentPart> = parts
                 .iter()
                 .filter_map(|part| match part {
@@ -936,6 +967,10 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         ..
                     } => {
                         if *provider_executed == Some(true) {
+                            if approval_requests_by_call_id.contains_key(tool_call_id.as_str()) {
+                                continue;
+                            }
+
                             if emitted_provider_tool_items.insert(tool_call_id.clone()) {
                                 let tool_sources = tool_sources_by_call_id
                                     .remove(tool_call_id)
@@ -980,6 +1015,37 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                                 id: item_id,
                                 call_id: tool_call_id.clone(),
                                 name: tool_name.clone(),
+                                arguments: openai_arguments_string(arguments),
+                            },
+                        )?);
+                    }
+                    ContentPart::ToolApprovalRequest {
+                        approval_id,
+                        tool_call_id,
+                    } => {
+                        let Some(ContentPart::ToolCall {
+                            tool_name,
+                            arguments,
+                            provider_executed,
+                            ..
+                        }) = provider_tool_calls_by_call_id
+                            .get(tool_call_id.as_str())
+                            .copied()
+                        else {
+                            continue;
+                        };
+
+                        if *provider_executed != Some(true) {
+                            continue;
+                        }
+
+                        output.push(openai_response_output_item_value(
+                            &OpenAiResponseOutputItem::McpApprovalRequest {
+                                id: approval_id.clone(),
+                                name: tool_name
+                                    .strip_prefix("mcp.")
+                                    .unwrap_or(tool_name.as_str())
+                                    .to_string(),
                                 arguments: openai_arguments_string(arguments),
                             },
                         )?);
@@ -1031,6 +1097,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                 message_content.push(OpenAiResponseMessageContent::OutputText {
                     text: String::new(),
                     annotations: Some(annotations),
+                    logprobs: None,
                 });
             } else if let Some(OpenAiResponseMessageContent::OutputText {
                 annotations: slot, ..
@@ -1038,6 +1105,13 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             {
                 *slot = Some(annotations);
             }
+        }
+
+        if let Some(logprobs) = response.openai_metadata().and_then(|meta| meta.logprobs)
+            && let Some(OpenAiResponseMessageContent::OutputText { logprobs: slot, .. }) =
+                message_content.first_mut()
+        {
+            *slot = Some(logprobs);
         }
 
         if !message_content.is_empty()
@@ -1331,6 +1405,50 @@ mod tests {
         assert_eq!(
             value["output"][1]["output"]["message"],
             serde_json::json!("blocked")
+        );
+    }
+
+    #[test]
+    fn responses_encoder_serializes_mcp_tool_approval_request_items() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::tool_call(
+                "id-0",
+                "mcp.create_short_url",
+                serde_json::json!({
+                    "alias": "",
+                    "description": "",
+                    "max_clicks": 100,
+                    "password": "",
+                    "url": "https://ai-sdk.dev/"
+                }),
+                Some(true),
+            ),
+            ContentPart::tool_approval_request("mcpr_1", "id-0"),
+        ]));
+        response.id = Some("resp_approval".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["output"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            value["output"][0]["type"],
+            serde_json::json!("mcp_approval_request")
+        );
+        assert_eq!(value["output"][0]["id"], serde_json::json!("mcpr_1"));
+        assert_eq!(
+            value["output"][0]["name"],
+            serde_json::json!("create_short_url")
+        );
+        assert_eq!(
+            value["output"][0]["arguments"],
+            serde_json::json!(
+                r#"{"alias":"","description":"","max_clicks":100,"password":"","url":"https://ai-sdk.dev/"}"#
+            )
         );
     }
 }
