@@ -447,6 +447,9 @@ fn openai_sources_to_web_search_results(sources: &[OpenAiSource]) -> Vec<serde_j
         .filter(|source| source.source_type == "url")
         .map(|source| {
             let mut obj = serde_json::Map::new();
+            if !source.id.is_empty() {
+                obj.insert("id".to_string(), serde_json::json!(source.id.clone()));
+            }
             obj.insert("url".to_string(), serde_json::json!(source.url));
             if let Some(title) = &source.title {
                 obj.insert("title".to_string(), serde_json::json!(title));
@@ -466,6 +469,9 @@ fn openai_sources_to_file_search_results(sources: &[OpenAiSource]) -> Vec<serde_
         .map(|source| {
             let source_meta = source.openai_metadata();
             let mut obj = serde_json::Map::new();
+            if !source.id.is_empty() {
+                obj.insert("id".to_string(), serde_json::json!(source.id.clone()));
+            }
             obj.insert(
                 "file_id".to_string(),
                 serde_json::json!(
@@ -664,6 +670,12 @@ fn openai_provider_tool_output_item(
 
     let mut item = serde_json::Map::new();
     item.insert("id".to_string(), serde_json::json!(item_id));
+    if item_id != tool_call_id {
+        item.insert(
+            "call_id".to_string(),
+            serde_json::json!(tool_call_id.clone()),
+        );
+    }
     item.insert("status".to_string(), serde_json::json!("completed"));
 
     match kind {
@@ -1357,9 +1369,14 @@ mod tests {
             serde_json::json!("web_search_call")
         );
         assert_eq!(value["output"][0]["id"], serde_json::json!("ws_item_1"));
+        assert_eq!(value["output"][0]["call_id"], serde_json::json!("ws_1"));
         assert_eq!(
             value["output"][0]["action"]["query"],
             serde_json::json!("rust release notes")
+        );
+        assert_eq!(
+            value["output"][0]["results"][0]["id"],
+            serde_json::json!("src_1")
         );
         assert_eq!(
             value["output"][0]["results"][0]["url"],

@@ -201,7 +201,11 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 let item_id = item
                     .get("id")
                     .and_then(|v| v.as_str())
-                    .or_else(|| item.get("call_id").and_then(|v| v.as_str()))
+                    .unwrap_or("")
+                    .to_string();
+                let output_call_id = item
+                    .get("call_id")
+                    .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
 
@@ -270,6 +274,8 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         && !approval_id.is_empty()
                     {
                         mcp_approval_tool_call_id(approval_id)
+                    } else if !output_call_id.is_empty() {
+                        output_call_id.clone()
                     } else {
                         item_id.clone()
                     };
@@ -334,8 +340,6 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     continue;
                 }
 
-                let tool_call_id = item_id;
-
                 // Reasoning items (o1/o3/gpt-5 reasoning models).
                 //
                 // Vercel alignment:
@@ -343,7 +347,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 // - Empty summary still yields a single reasoning part with empty text.
                 // - Surface item id and optional encrypted content via `providerMetadata.openai`.
                 if item_type == "reasoning" {
-                    if tool_call_id.is_empty() {
+                    if item_id.is_empty() {
                         continue;
                     }
 
@@ -355,7 +359,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     let mut openai_meta = serde_json::Map::new();
                     openai_meta.insert(
                         "itemId".to_string(),
-                        serde_json::Value::String(tool_call_id.clone()),
+                        serde_json::Value::String(item_id.clone()),
                     );
                     openai_meta.insert(
                         "reasoningEncryptedContent".to_string(),
@@ -394,6 +398,12 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     continue;
                 }
 
+                let tool_call_id = if output_call_id.is_empty() {
+                    item_id.clone()
+                } else {
+                    output_call_id.clone()
+                };
+
                 if item_type == "custom_tool_call" {
                     if tool_call_id.is_empty() {
                         continue;
@@ -409,9 +419,14 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         .get("input")
                         .cloned()
                         .unwrap_or_else(|| serde_json::Value::String("{}".to_string()));
+                    let provider_item_id = if item_id.is_empty() {
+                        tool_call_id.clone()
+                    } else {
+                        item_id.clone()
+                    };
                     let provider_metadata =
                         Some(self.single_provider_metadata_map(serde_json::json!({
-                            "itemId": tool_call_id,
+                            "itemId": provider_item_id,
                         })));
 
                     content_parts.push(ContentPart::ToolCall {
@@ -1106,9 +1121,9 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     }
 
                     let tool_call_id = item
-                        .get("id")
+                        .get("call_id")
                         .and_then(|v| v.as_str())
-                        .or_else(|| item.get("call_id").and_then(|v| v.as_str()))
+                        .or_else(|| item.get("id").and_then(|v| v.as_str()))
                         .unwrap_or("")
                         .to_string();
                     if tool_call_id.is_empty() {
@@ -1890,6 +1905,18 @@ mod tests {
             .serialize_response(&response, &mut out, JsonEncodeOptions::default())
             .expect("serialize");
         let raw: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(raw["output"][0]["id"], serde_json::json!("fs_item_1"));
+        assert_eq!(raw["output"][0]["call_id"], serde_json::json!("fs_1"));
+        assert_eq!(
+            raw["output"][0]["results"][0]["id"],
+            serde_json::json!("src_fs_1")
+        );
+        assert_eq!(raw["output"][1]["id"], serde_json::json!("fs_item_2"));
+        assert_eq!(raw["output"][1]["call_id"], serde_json::json!("fs_2"));
+        assert_eq!(
+            raw["output"][1]["results"][0]["id"],
+            serde_json::json!("src_fs_2")
+        );
 
         let tx = OpenAiResponsesResponseTransformer::new();
         let resp = tx.transform_chat_response(&raw).unwrap();
@@ -1901,10 +1928,11 @@ mod tests {
 
         let source_a = sources
             .iter()
-            .find(|source| source.tool_call_id.as_deref() == Some("fs_item_1"))
+            .find(|source| source.tool_call_id.as_deref() == Some("fs_1"))
             .expect("tool scoped source a");
         let meta_a = crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(source_a)
             .expect("typed source metadata a");
+        assert_eq!(source_a.id, "src_fs_1");
         assert_eq!(meta_a.file_id.as_deref(), Some("file_shared"));
         assert_eq!(meta_a.container_id.as_deref(), Some("container_a"));
         assert_eq!(meta_a.index, Some(1));
@@ -1914,10 +1942,11 @@ mod tests {
 
         let source_b = sources
             .iter()
-            .find(|source| source.tool_call_id.as_deref() == Some("fs_item_2"))
+            .find(|source| source.tool_call_id.as_deref() == Some("fs_2"))
             .expect("tool scoped source b");
         let meta_b = crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(source_b)
             .expect("typed source metadata b");
+        assert_eq!(source_b.id, "src_fs_2");
         assert_eq!(meta_b.file_id.as_deref(), Some("file_shared"));
         assert_eq!(meta_b.container_id.as_deref(), Some("container_b"));
         assert_eq!(meta_b.index, Some(2));

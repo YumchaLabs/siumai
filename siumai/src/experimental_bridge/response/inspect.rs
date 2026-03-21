@@ -413,7 +413,7 @@ fn inspect_openai_response_provider_metadata(
             ),
             "sources" => report.record_lossy_field(
                 "provider_metadata.openai.sources",
-                "OpenAI Responses response encoding preserves tool linkage and typed file metadata where possible, but source ids are still regenerated and message citations are replayed via annotations",
+                "OpenAI Responses response encoding preserves tool-scoped linkage, source ids, and typed file metadata when provider item call_id is carried, but message citations are still replayed via annotations",
             ),
             _ => report.record_dropped_field(
                 format!("provider_metadata.openai.{key}"),
