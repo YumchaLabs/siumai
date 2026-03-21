@@ -78,7 +78,7 @@ pub(super) const fn response_target_capabilities(
             supports_reasoning_blocks: true,
             supports_system_fingerprint: false,
             supports_service_tier: true,
-            supports_provider_executed_tool_results: false,
+            supports_provider_executed_tool_results: true,
             supports_tool_approval_requests: false,
             usage_mode: ResponseUsageMode::AnthropicAggregateOnly,
             finish_reason_mode: ResponseFinishReasonMode::AnthropicMessages,

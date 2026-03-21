@@ -8,7 +8,10 @@ use siumai_core::bridge::{
     ResponseBridgeHook, StreamBridgeContext,
 };
 use siumai_core::encoding::JsonEncodeOptions;
-use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent, Usage};
+use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent};
+
+#[cfg(feature = "anthropic")]
+use siumai_core::types::Usage;
 
 #[cfg(feature = "anthropic")]
 use super::bridge_chat_response_to_anthropic_messages_json_value;
@@ -248,8 +251,9 @@ fn anthropic_response_bridge_reports_usage_and_metadata_loss() {
     assert_eq!(value["type"], json!("message"));
     assert_eq!(value["stop_reason"], json!("tool_use"));
     assert_eq!(value["usage"]["input_tokens"], json!(10));
-    assert_eq!(value["content"][1]["type"], json!("tool_use"));
+    assert_eq!(value["content"][1]["type"], json!("server_tool_use"));
     assert_eq!(value["content"][1]["id"], json!("call_1"));
+    assert_eq!(value["content"][1]["name"], json!("web_search"));
 }
 
 #[cfg(feature = "anthropic")]
@@ -390,6 +394,69 @@ fn strict_anthropic_response_bridge_preserves_thinking_replay_fields() {
     );
     assert_eq!(value["content"][3]["type"], json!("redacted_thinking"));
     assert_eq!(value["content"][3]["data"], json!("redacted_123"));
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn strict_anthropic_response_bridge_preserves_text_part_citations_exactly() {
+    let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::text("Intro"),
+        ContentPart::Text {
+            text: "Grounded fact".to_string(),
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                json!({
+                    "citations": [
+                        {
+                            "type": "web_search_result_location",
+                            "url": "https://example.com/fact",
+                            "title": "Fact"
+                        }
+                    ]
+                }),
+            )])),
+        },
+        ContentPart::text("Outro"),
+    ]));
+    response.id = Some("msg_1".to_string());
+    response.model = Some("claude-sonnet-4-5".to_string());
+    response.provider_metadata = Some(HashMap::from([(
+        "anthropic".to_string(),
+        HashMap::from([(
+            "citations".to_string(),
+            json!([
+                {
+                    "content_block_index": 1,
+                    "citations": [
+                        {
+                            "type": "web_search_result_location",
+                            "url": "https://example.com/fact",
+                            "title": "Fact"
+                        }
+                    ]
+                }
+            ]),
+        )]),
+    )]));
+
+    let bridged = bridge_chat_response_to_anthropic_messages_json_value(
+        &response,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::Strict,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_exact());
+
+    let value = bridged.value.expect("json body");
+    assert!(value["content"][0].get("citations").is_none());
+    assert_eq!(
+        value["content"][1]["citations"][0]["url"],
+        json!("https://example.com/fact")
+    );
+    assert!(value["content"][2].get("citations").is_none());
 }
 
 #[cfg(feature = "openai")]

@@ -176,6 +176,14 @@ pub struct AnthropicToolCallMetadata {
     pub caller: Option<AnthropicToolCaller>,
 }
 
+/// Anthropic-specific metadata attached to `ContentPart::Text`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnthropicTextContentPartMetadata {
+    /// Raw citations reported on the text block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub citations: Option<Vec<AnthropicCitation>>,
+}
+
 impl crate::types::provider_metadata::FromMetadata for AnthropicMetadata {
     fn from_metadata(
         metadata: &std::collections::HashMap<String, serde_json::Value>,
@@ -208,6 +216,7 @@ impl AnthropicChatResponseExt for crate::types::ChatResponse {
 /// Typed helper for Anthropic metadata extraction from `ContentPart::ToolCall`.
 pub trait AnthropicContentPartExt {
     fn anthropic_tool_call_metadata(&self) -> Option<AnthropicToolCallMetadata>;
+    fn anthropic_text_metadata(&self) -> Option<AnthropicTextContentPartMetadata>;
 }
 
 impl AnthropicContentPartExt for crate::types::ContentPart {
@@ -215,6 +224,21 @@ impl AnthropicContentPartExt for crate::types::ContentPart {
         use crate::types::ContentPart;
 
         let ContentPart::ToolCall {
+            provider_metadata: Some(metadata),
+            ..
+        } = self
+        else {
+            return None;
+        };
+
+        let meta = metadata.get("anthropic")?;
+        serde_json::from_value(meta.clone()).ok()
+    }
+
+    fn anthropic_text_metadata(&self) -> Option<AnthropicTextContentPartMetadata> {
+        use crate::types::ContentPart;
+
+        let ContentPart::Text {
             provider_metadata: Some(metadata),
             ..
         } = self
@@ -277,5 +301,35 @@ mod tests {
         let caller = meta.caller.expect("caller");
         assert_eq!(caller.kind.as_deref(), Some("code_execution_20250825"));
         assert_eq!(caller.tool_id.as_deref(), Some("srvtoolu_1"));
+    }
+
+    #[test]
+    fn anthropic_text_metadata_parses_citations() {
+        let part = crate::types::ContentPart::Text {
+            text: "grounded answer".to_string(),
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({
+                    "citations": [
+                        {
+                            "type": "web_search_result_location",
+                            "url": "https://example.com",
+                            "title": "Example"
+                        }
+                    ]
+                }),
+            )])),
+        };
+
+        let meta = part
+            .anthropic_text_metadata()
+            .expect("anthropic text metadata");
+        let citations = meta.citations.expect("citations");
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].kind, "web_search_result_location");
+        assert_eq!(
+            citations[0].data.get("url"),
+            Some(&serde_json::json!("https://example.com"))
+        );
     }
 }

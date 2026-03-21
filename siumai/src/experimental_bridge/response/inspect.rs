@@ -2,7 +2,8 @@
 
 use siumai_core::bridge::{BridgeReport, BridgeTarget};
 use siumai_core::types::{
-    ChatResponse, ContentPart, FinishReason, ToolResultContentPart, ToolResultOutput,
+    ChatResponse, ContentPart, FinishReason, MessageContent, ToolResultContentPart,
+    ToolResultOutput,
 };
 
 use super::target_caps::{
@@ -208,6 +209,13 @@ fn inspect_response_content_part_provider_metadata(
                 ContentPart::ToolResult { .. },
             ) => {
                 inspect_openai_tool_result_part_provider_metadata(path, value, report);
+            }
+            (
+                ResponseContentPartProviderMetadataMode::AnthropicMessages,
+                "anthropic",
+                ContentPart::Text { .. },
+            ) => {
+                inspect_anthropic_text_part_provider_metadata(path, value, report);
             }
             (
                 ResponseContentPartProviderMetadataMode::AnthropicMessages,
@@ -429,6 +437,73 @@ fn inspect_anthropic_response_provider_metadata(
 ) {
     let has_reasoning = response_has_reasoning(response);
 
+    fn citation_payload_groups_from_top_level(
+        value: &serde_json::Value,
+    ) -> Vec<Vec<serde_json::Value>> {
+        value
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|block| block.get("citations").and_then(serde_json::Value::as_array))
+            .map(|citations| citations.to_vec())
+            .collect()
+    }
+
+    fn citation_payload_groups_from_parts(response: &ChatResponse) -> Vec<Vec<serde_json::Value>> {
+        let parts = match &response.content {
+            MessageContent::MultiModal(parts) => parts,
+            _ => return Vec::new(),
+        };
+
+        parts
+            .iter()
+            .filter_map(|part| {
+                let ContentPart::Text {
+                    provider_metadata: Some(provider_metadata),
+                    ..
+                } = part
+                else {
+                    return None;
+                };
+
+                provider_metadata
+                    .get("anthropic")
+                    .and_then(|value| value.get("citations"))
+                    .and_then(serde_json::Value::as_array)
+                    .map(|citations| citations.to_vec())
+            })
+            .collect()
+    }
+
+    fn serializable_text_part_count(response: &ChatResponse) -> usize {
+        match &response.content {
+            MessageContent::Text(text) => usize::from(!text.trim().is_empty()),
+            MessageContent::MultiModal(parts) => parts
+                .iter()
+                .filter(|part| matches!(part, ContentPart::Text { .. }))
+                .count(),
+            #[cfg(feature = "structured-messages")]
+            MessageContent::Json(_) => 1,
+        }
+    }
+
+    fn anthropic_citations_are_exactly_replayable(
+        response: &ChatResponse,
+        value: &serde_json::Value,
+    ) -> bool {
+        let top_level = citation_payload_groups_from_top_level(value);
+        if top_level.is_empty() {
+            return true;
+        }
+
+        let part_level = citation_payload_groups_from_parts(response);
+        if !part_level.is_empty() {
+            return part_level == top_level;
+        }
+
+        serializable_text_part_count(response) <= 1
+    }
+
     for key in metadata.keys() {
         match key.as_str() {
             "thinking_signature" if has_reasoning => report.record_carried_provider_metadata(
@@ -447,6 +522,42 @@ fn inspect_anthropic_response_provider_metadata(
                 "provider_metadata.anthropic.stopSequence",
                 "Anthropic Messages response encoding preserves stop_sequence",
             ),
+            "usage" => report.record_carried_provider_metadata(
+                "provider_metadata.anthropic.usage",
+                "Anthropic Messages response encoding preserves raw usage metadata when available",
+            ),
+            "cacheCreationInputTokens" => report.record_carried_provider_metadata(
+                "provider_metadata.anthropic.cacheCreationInputTokens",
+                "Anthropic Messages response encoding preserves cache-creation token metadata via the raw usage envelope",
+            ),
+            "container" => report.record_carried_provider_metadata(
+                "provider_metadata.anthropic.container",
+                "Anthropic Messages response encoding preserves container metadata",
+            ),
+            "contextManagement" => report.record_carried_provider_metadata(
+                "provider_metadata.anthropic.contextManagement",
+                "Anthropic Messages response encoding preserves context management metadata",
+            ),
+            "sources" => report.record_carried_provider_metadata(
+                "provider_metadata.anthropic.sources",
+                "Anthropic Messages response encoding can reconstruct provider-hosted web sources from serialized tool results",
+            ),
+            "citations" => {
+                let value = metadata
+                    .get("citations")
+                    .expect("key from metadata iteration should exist");
+                if anthropic_citations_are_exactly_replayable(response, value) {
+                    report.record_carried_provider_metadata(
+                        "provider_metadata.anthropic.citations",
+                        "Anthropic Messages response encoding preserves citation payloads and text-block grouping when text-part metadata is available",
+                    );
+                } else {
+                    report.record_lossy_field(
+                        "provider_metadata.anthropic.citations",
+                        "Anthropic Messages response encoding can only project top-level citations without matching text-part metadata",
+                    );
+                }
+            }
             _ => report.record_dropped_field(
                 format!("provider_metadata.anthropic.{key}"),
                 "Anthropic Messages response encoding does not preserve this Anthropic provider metadata field",
@@ -588,6 +699,33 @@ fn inspect_anthropic_tool_call_part_provider_metadata(
             _ => report.record_dropped_field(
                 format!("{path}.provider_metadata.anthropic.{key}"),
                 "Anthropic Messages response encoding does not preserve this tool-call provider metadata field",
+            ),
+        }
+    }
+}
+
+fn inspect_anthropic_text_part_provider_metadata(
+    path: &str,
+    value: &serde_json::Value,
+    report: &mut BridgeReport,
+) {
+    let Some(metadata) = value.as_object() else {
+        report.record_dropped_field(
+            format!("{path}.provider_metadata.anthropic"),
+            "Anthropic Messages response encoding requires object-shaped text provider metadata",
+        );
+        return;
+    };
+
+    for key in metadata.keys() {
+        match key.as_str() {
+            "citations" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.anthropic.citations"),
+                "Anthropic Messages response encoding preserves text-block citations",
+            ),
+            _ => report.record_dropped_field(
+                format!("{path}.provider_metadata.anthropic.{key}"),
+                "Anthropic Messages response encoding does not preserve this text-part provider metadata field",
             ),
         }
     }

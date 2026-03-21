@@ -18,26 +18,35 @@ pub fn parse_response_content_and_tools(
     use std::collections::HashMap;
 
     let mut parts = Vec::new();
-    let mut text_content = String::new();
     let mut tool_names_by_id: HashMap<String, String> = HashMap::new();
+
+    fn text_part_provider_metadata(
+        citations: Option<&Vec<serde_json::Value>>,
+    ) -> Option<HashMap<String, serde_json::Value>> {
+        let citations = citations.filter(|citations| !citations.is_empty())?;
+        Some(HashMap::from([(
+            "anthropic".to_string(),
+            serde_json::json!({
+                "citations": citations
+            }),
+        )]))
+    }
 
     for content_block in content_blocks {
         match content_block.r#type.as_str() {
             "text" => {
-                if let Some(text) = &content_block.text {
-                    if !text_content.is_empty() {
-                        text_content.push('\n');
-                    }
-                    text_content.push_str(text);
+                let text = content_block.text.clone().unwrap_or_default();
+                let provider_metadata =
+                    text_part_provider_metadata(content_block.citations.as_ref());
+
+                if !text.is_empty() || provider_metadata.is_some() {
+                    parts.push(ContentPart::Text {
+                        text,
+                        provider_metadata,
+                    });
                 }
             }
             "tool_use" => {
-                // First, add accumulated text if any
-                if !text_content.is_empty() {
-                    parts.push(ContentPart::text(&text_content));
-                    text_content.clear();
-                }
-
                 // Add tool call
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
@@ -65,12 +74,6 @@ pub fn parse_response_content_and_tools(
                 }
             }
             "server_tool_use" => {
-                // First, add accumulated text if any
-                if !text_content.is_empty() {
-                    parts.push(ContentPart::text(&text_content));
-                    text_content.clear();
-                }
-
                 // Provider-hosted tool call (e.g. web_search)
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
@@ -89,12 +92,6 @@ pub fn parse_response_content_and_tools(
                 }
             }
             "mcp_tool_use" => {
-                // First, add accumulated text if any
-                if !text_content.is_empty() {
-                    parts.push(ContentPart::text(&text_content));
-                    text_content.clear();
-                }
-
                 // Provider-hosted MCP tool call
                 if let (Some(id), Some(name), Some(input)) =
                     (&content_block.id, &content_block.name, &content_block.input)
@@ -109,12 +106,6 @@ pub fn parse_response_content_and_tools(
                 }
             }
             block_type if block_type.ends_with("_tool_result") => {
-                // First, add accumulated text if any
-                if !text_content.is_empty() {
-                    parts.push(ContentPart::text(&text_content));
-                    text_content.clear();
-                }
-
                 let Some(tool_use_id) = &content_block.tool_use_id else {
                     continue;
                 };
@@ -250,16 +241,17 @@ pub fn parse_response_content_and_tools(
         }
     }
 
-    // Add any remaining text
-    if !text_content.is_empty() {
-        parts.push(ContentPart::text(&text_content));
-    }
-
     // Return appropriate content type
     if parts.is_empty() {
         MessageContent::Text(String::new())
-    } else if parts.len() == 1 && parts[0].is_text() {
-        MessageContent::Text(text_content)
+    } else if let [
+        ContentPart::Text {
+            text,
+            provider_metadata: None,
+        },
+    ] = parts.as_slice()
+    {
+        MessageContent::Text(text.clone())
     } else {
         MessageContent::MultiModal(parts)
     }
@@ -393,6 +385,89 @@ mod tests {
         match content {
             MessageContent::Text(text) => assert_eq!(text, "Hello world"),
             _ => panic!("Expected text content"),
+        }
+    }
+
+    #[test]
+    fn test_parse_response_content_and_tools_preserves_text_block_citations() {
+        let content_blocks = vec![
+            AnthropicContentBlock {
+                r#type: "text".to_string(),
+                text: Some("Overview".to_string()),
+                thinking: None,
+                signature: None,
+                data: None,
+                id: None,
+                name: None,
+                input: None,
+                caller: None,
+                server_name: None,
+                tool_use_id: None,
+                content: None,
+                is_error: None,
+                citations: None,
+            },
+            AnthropicContentBlock {
+                r#type: "text".to_string(),
+                text: Some("Grounded fact".to_string()),
+                thinking: None,
+                signature: None,
+                data: None,
+                id: None,
+                name: None,
+                input: None,
+                caller: None,
+                server_name: None,
+                tool_use_id: None,
+                content: None,
+                is_error: None,
+                citations: Some(vec![serde_json::json!({
+                    "type": "web_search_result_location",
+                    "url": "https://example.com",
+                    "title": "Example"
+                })]),
+            },
+        ];
+
+        let content = parse_response_content_and_tools(&content_blocks);
+
+        match &content {
+            MessageContent::MultiModal(parts) => {
+                assert_eq!(parts.len(), 2);
+
+                if let ContentPart::Text {
+                    text,
+                    provider_metadata,
+                } = &parts[0]
+                {
+                    assert_eq!(text, "Overview");
+                    assert!(provider_metadata.is_none());
+                } else {
+                    panic!("Expected first text content part");
+                }
+
+                if let ContentPart::Text {
+                    text,
+                    provider_metadata,
+                } = &parts[1]
+                {
+                    assert_eq!(text, "Grounded fact");
+                    let citations = provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("anthropic"))
+                        .and_then(|metadata| metadata.get("citations"))
+                        .and_then(serde_json::Value::as_array)
+                        .expect("citations array");
+                    assert_eq!(citations.len(), 1);
+                    assert_eq!(
+                        citations[0]["url"],
+                        serde_json::json!("https://example.com")
+                    );
+                } else {
+                    panic!("Expected second text content part");
+                }
+            }
+            _ => panic!("Expected multimodal content"),
         }
     }
 

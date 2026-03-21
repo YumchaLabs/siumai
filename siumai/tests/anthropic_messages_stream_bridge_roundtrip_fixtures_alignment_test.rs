@@ -276,6 +276,8 @@ async fn anthropic_messages_stream_bridge_roundtrip_fixture_summary_cases_match(
         "anthropic-message-delta-input-tokens.chunks.txt",
         "anthropic-json-output-format.1.chunks.txt",
         "anthropic-json-tool.1.chunks.txt",
+        "anthropic-mcp.1.chunks.txt",
+        "anthropic-web-fetch-tool.1.chunks.txt",
         "anthropic-web-search-tool.1.chunks.txt",
     ];
 
