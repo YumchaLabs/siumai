@@ -117,18 +117,6 @@ fn collect_text_parts(value: &Value, case: &str) -> Vec<String> {
         .collect()
 }
 
-fn collect_tool_action_types(value: &Value, case: &str) -> Vec<String> {
-    multimodal_parts(value, case)
-        .iter()
-        .filter(|part| part.get("type").and_then(Value::as_str) == Some("tool-result"))
-        .filter_map(|part| {
-            part.pointer("/output/value/action/type")
-                .and_then(Value::as_str)
-                .map(ToString::to_string)
-        })
-        .collect()
-}
-
 fn count_part_type(value: &Value, case: &str, part_type: &str) -> usize {
     multimodal_parts(value, case)
         .iter()
@@ -167,6 +155,7 @@ fn openai_responses_response_bridge_roundtrip_fixture_exact_cases_match() {
         "local-shell-tool.1",
         "mcp-tool.1",
         "shell-tool.1",
+        "web-search-tool.1",
     ];
 
     for case in exact_cases {
@@ -177,51 +166,6 @@ fn openai_responses_response_bridge_roundtrip_fixture_exact_cases_match() {
             fixtures_dir().join(case).display()
         );
     }
-}
-
-#[test]
-fn openai_responses_response_bridge_roundtrip_source_citation_case_preserves_message_sources() {
-    let case = "web-search-tool.1";
-    let roundtripped = roundtrip_response_json(case);
-    let expected = expected_response_json(case);
-
-    assert_eq!(
-        roundtripped.pointer("/provider_metadata/openai/sources"),
-        expected.pointer("/provider_metadata/openai/sources"),
-        "fixture case {} should preserve message-level source citations",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        collect_text_parts(&roundtripped, case),
-        collect_text_parts(&expected, case),
-        "fixture case {} should preserve assistant text output",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        collect_tool_action_types(&roundtripped, case),
-        collect_tool_action_types(&expected, case),
-        "fixture case {} should preserve web-search action ordering",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        count_part_type(&roundtripped, case, "tool-call"),
-        count_part_type(&expected, case, "tool-call"),
-        "fixture case {} should preserve tool-call count",
-        fixtures_dir().join(case).display()
-    );
-    assert_eq!(
-        count_part_type(&roundtripped, case, "tool-result"),
-        count_part_type(&expected, case, "tool-result"),
-        "fixture case {} should preserve tool-result count",
-        fixtures_dir().join(case).display()
-    );
-    assert!(
-        roundtripped
-            .pointer("/content/MultiModal/2/output/value/sources")
-            .is_none(),
-        "fixture case {} documents that tool-result embedded sources remain lossy",
-        fixtures_dir().join(case).display()
-    );
 }
 
 #[test]

@@ -69,6 +69,9 @@ Current state:
 - loss reporting and no-network response bridge tests exist
 - OpenAI Responses fidelity now preserves provider-executed tool items and response sources where
   representable
+- OpenAI Responses same-protocol response roundtrip now also preserves normalized web-search
+  embedded source payloads; the remaining documented source gap is tool-scoped provider metadata
+  reconstruction rather than embedded tool-result replay
 - Gemini GenerateContent fidelity now also preserves native response metadata that was previously
   being dropped by the non-streaming encoder:
   - `responseId` / `modelVersion`

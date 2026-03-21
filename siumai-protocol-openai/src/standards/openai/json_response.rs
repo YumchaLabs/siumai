@@ -42,6 +42,14 @@ fn openai_content_part_item_id(part: &ContentPart) -> Option<String> {
     part.openai_metadata().and_then(|meta| meta.item_id)
 }
 
+fn openai_web_search_action_type_for_wire(kind: &str) -> &str {
+    match kind {
+        "openPage" => "open_page",
+        "findInPage" => "find_in_page",
+        other => other,
+    }
+}
+
 fn openai_jsonish_value(value: &serde_json::Value) -> Option<serde_json::Value> {
     match value {
         serde_json::Value::Null => None,
@@ -668,10 +676,29 @@ fn openai_provider_tool_output_item(
                 item.insert("status".to_string(), status.clone());
             }
 
+            let normalized_sources = result_obj
+                .and_then(|obj| obj.get("sources"))
+                .and_then(|value| value.as_array())
+                .filter(|sources| !sources.is_empty())
+                .cloned();
+
             if let Some(action) = result_obj.and_then(|obj| obj.get("action"))
-                && action.is_object()
+                && let Some(mut action_obj) = action.as_object().cloned()
             {
-                item.insert("action".to_string(), action.clone());
+                if let Some(action_type) = action_obj.get("type").and_then(|value| value.as_str()) {
+                    action_obj.insert(
+                        "type".to_string(),
+                        serde_json::Value::String(
+                            openai_web_search_action_type_for_wire(action_type).to_string(),
+                        ),
+                    );
+                }
+                if !action_obj.contains_key("sources")
+                    && let Some(sources) = normalized_sources.clone()
+                {
+                    action_obj.insert("sources".to_string(), serde_json::Value::Array(sources));
+                }
+                item.insert("action".to_string(), serde_json::Value::Object(action_obj));
             }
 
             let results = result_obj
@@ -690,13 +717,13 @@ fn openai_provider_tool_output_item(
                 && let Some(input) = input_obj.as_ref()
                 && let Some(query) = input.get("query").or_else(|| input.get("q"))
             {
-                item.insert(
-                    "action".to_string(),
-                    serde_json::json!({
-                        "type": "search",
-                        "query": query,
-                    }),
-                );
+                let mut action = serde_json::Map::new();
+                action.insert("type".to_string(), serde_json::json!("search"));
+                action.insert("query".to_string(), query.clone());
+                if let Some(sources) = normalized_sources {
+                    action.insert("sources".to_string(), serde_json::Value::Array(sources));
+                }
+                item.insert("action".to_string(), serde_json::Value::Object(action));
             }
         }
         OpenAiProviderToolItemKind::FileSearch => {
@@ -1341,6 +1368,70 @@ mod tests {
         assert_eq!(
             value["output"][0]["results"][0]["snippet"],
             serde_json::json!("Release notes")
+        );
+    }
+
+    #[test]
+    fn responses_encoder_replays_normalized_web_search_tool_result_sources() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "ws_1".to_string(),
+                tool_name: "webSearch".to_string(),
+                arguments: serde_json::json!({
+                    "query": "rust release notes"
+                }),
+                provider_executed: Some(true),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "ws_item_1"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "ws_1".to_string(),
+                tool_name: "webSearch".to_string(),
+                output: crate::types::ToolResultOutput::json(serde_json::json!({
+                    "action": {
+                        "type": "search",
+                        "query": "rust release notes"
+                    },
+                    "sources": [
+                        {
+                            "type": "url",
+                            "url": "https://blog.rust-lang.org/"
+                        }
+                    ]
+                })),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+        ]));
+        response.id = Some("resp_provider_tool".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["output"][0]["type"],
+            serde_json::json!("web_search_call")
+        );
+        assert_eq!(value["output"][0]["id"], serde_json::json!("ws_item_1"));
+        assert_eq!(
+            value["output"][0]["action"]["query"],
+            serde_json::json!("rust release notes")
+        );
+        assert_eq!(
+            value["output"][0]["action"]["sources"][0]["url"],
+            serde_json::json!("https://blog.rust-lang.org/")
+        );
+        assert!(
+            value["output"][0].get("results").is_none(),
+            "normalized web-search tool-result sources should replay through action.sources"
         );
     }
 

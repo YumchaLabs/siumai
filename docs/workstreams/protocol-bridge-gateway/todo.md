@@ -110,9 +110,10 @@ This TODO list is intentionally organized as mergeable tracks.
   representable
 - [ ] Audit remaining reasoning / structured output / usage fidelity gaps per target
   - OpenAI Responses same-protocol response roundtrip now has initial fixture coverage with:
-    - exact cases for core text / reasoning / tool items
-    - a documented lossy web-search case where message-level citations survive but embedded
-      tool-result source payloads are not yet treated as exact roundtrip state
+    - exact cases for core text / reasoning / tool items, including web-search embedded
+      tool-result source replay
+    - a remaining projected source-reconstruction edge where tool-scoped file-search metadata is
+      rebuilt into `provider_metadata.openai.sources`
   - OpenAI Chat Completions response bridge now has explicit contract coverage for:
     - preserved native top-level fields (`system_fingerprint`, `service_tier`, OpenAI usage totals/details)
     - documented lossy / rejected cases for reasoning blocks, tool results, tool approval requests,
@@ -265,8 +266,8 @@ This TODO list is intentionally organized as mergeable tracks.
     - structured output and MCP server options
     - thinking body/provider option restoration
   - OpenAI Responses response roundtrip now has initial fixture coverage for:
-    - exact same-protocol cases
-    - documented lossy web-search source-citation replay
+    - exact same-protocol cases, including web-search source-citation replay
+    - projected tool-scoped file-search source reconstruction in `provider_metadata.openai.sources`
   - Anthropic Messages response roundtrip now has initial fixture coverage for:
     - projected JSON output/tool cases
     - documented lossy tool-search replay
