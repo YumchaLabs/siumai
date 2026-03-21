@@ -41,7 +41,9 @@ use axum::{
     routing::post,
 };
 use serde_json::{Value, json};
-use siumai::experimental::bridge::bridge_openai_responses_json_to_chat_request;
+use siumai::experimental::bridge::{
+    BridgeReport, bridge_openai_responses_json_to_chat_request_with_options,
+};
 use siumai::prelude::unified::*;
 use siumai_extras::server::{
     GatewayBridgePolicy,
@@ -90,17 +92,38 @@ fn default_openai_responses_request(prompt: String) -> Value {
     })
 }
 
+fn rejected_normalize_response(source_name: &str, report: &BridgeReport) -> Response {
+    let detail = report
+        .warnings
+        .first()
+        .map(|warning| warning.message.as_str())
+        .unwrap_or("bridge policy rejected source request normalization");
+    bad_request_response(format!(
+        "{source_name} request normalization was rejected: {detail}"
+    ))
+}
+
 fn normalize_request(
     body: &Value,
     backend_model_id: &str,
     stream: bool,
+    policy: &GatewayBridgePolicy,
 ) -> Result<ChatRequest, Response> {
-    let request = bridge_openai_responses_json_to_chat_request(body).map_err(|error| {
+    let bridged = bridge_openai_responses_json_to_chat_request_with_options(
+        body,
+        policy.resolve_bridge_options(None),
+    )
+    .map_err(|error| {
         bad_request_response(format!(
             "failed to normalize OpenAI Responses request: {}",
             error.user_message()
         ))
     })?;
+    let (request, report) = bridged
+        .into_result()
+        .map_err(|report| rejected_normalize_response("OpenAI Responses", &report))?;
+
+    let _ = report;
     Ok(pin_request_to_backend_model(
         request,
         backend_model_id,
@@ -128,7 +151,7 @@ async fn json_route(
         Err(response) => return response,
     };
 
-    let request = match normalize_request(&body, &state.backend_model_id, false) {
+    let request = match normalize_request(&body, &state.backend_model_id, false, &state.policy) {
         Ok(request) => request,
         Err(response) => return response,
     };
@@ -166,7 +189,7 @@ async fn sse_route(
         Err(response) => return response,
     };
 
-    let request = match normalize_request(&body, &state.backend_model_id, true) {
+    let request = match normalize_request(&body, &state.backend_model_id, true, &state.policy) {
         Ok(request) => request,
         Err(response) => return response,
     };
