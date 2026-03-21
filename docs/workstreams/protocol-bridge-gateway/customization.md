@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Customization Boundary
 
-Last updated: 2026-03-21
+Last updated: 2026-03-22
 
 This note makes one architectural decision explicit:
 
@@ -19,7 +19,7 @@ Pick the smallest layer that matches the change you need.
 | Need | Recommended surface | Why |
 | --- | --- | --- |
 | Coordinate request / response / stream customization in one object | `BridgeCustomization` + `BridgeOptions::with_customization(...)` | Lowest-glue path for reusable bridge policy bundles |
-| Customize one route locally without declaring a dedicated struct | `siumai-extras::server::axum::ClosureBridgeCustomization` | Closure-friendly gateway ergonomics built on the same typed bridge contract |
+| Customize one route or caller locally without declaring a dedicated struct | `siumai-extras::bridge::ClosureBridgeCustomization` | Closure-friendly ergonomics built on the same typed bridge contract |
 | Rename tool names or tool-call IDs across request / response / stream paths | `BridgePrimitiveRemapper` | Reusable, bridge-aware, and cheap to test |
 | Reject, warn, or continue on lossy routes | `BridgeLossPolicy` | Keeps strictness logic tied to `BridgeReport` |
 | Rewrite normalized requests before target serialization | `RequestBridgeHook::transform_request` | Mutates semantics before target JSON exists |
@@ -71,12 +71,18 @@ route policy needs to:
 - inspect or reject lossy bridges
 - transform stream events
 
-For gateway-local ergonomics, `siumai-extras` also exposes closure-friendly wrappers that implement
-the same bridge contract for you:
+For application and gateway-local ergonomics, `siumai-extras` also exposes closure-friendly
+wrappers that implement the same bridge contract for you. The canonical import path is
+`siumai-extras::bridge`, and gateway helpers re-export the same adapters from
+`siumai-extras::server::axum`:
 
+- `ClosureRequestBridgeHook`
 - `ClosureBridgeCustomization`
+- `request_bridge_hook(...)`
 - `ClosureResponseBridgeHook`
 - `ClosureStreamBridgeHook`
+- `response_bridge_hook(...)`
+- `stream_bridge_hook(...)`
 - `ClosurePrimitiveRemapper`
 
 ### 2) Protocol-source request normalization stays explicit
@@ -220,6 +226,8 @@ let options = BridgeOptions::new(BridgeMode::BestEffort)
 Route-local Axum helper wiring without declaring a dedicated customization struct:
 
 ```rust
+use siumai_extras::bridge::ClosureBridgeCustomization;
+
 let opts = TranscodeSseOptions::default().with_bridge_customization(Arc::new(
     ClosureBridgeCustomization::default()
         .with_stream(|ctx, event| {

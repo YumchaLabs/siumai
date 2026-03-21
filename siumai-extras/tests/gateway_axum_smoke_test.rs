@@ -11,10 +11,9 @@ use axum::{
 #[cfg(feature = "anthropic")]
 use eventsource_stream::Event;
 use futures::stream;
-use siumai::prelude::unified::{
-    ChatResponse, ChatStream, ChatStreamEvent, MessageContent, ProviderDefinedTool,
-    SseEventConverter, Tool,
-};
+use siumai::prelude::unified::{ChatResponse, ChatStream, ChatStreamEvent, MessageContent};
+#[cfg(feature = "anthropic")]
+use siumai::prelude::unified::{ProviderDefinedTool, SseEventConverter, Tool};
 use siumai_extras::server::{
     GatewayBridgePolicy,
     axum::{

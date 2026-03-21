@@ -392,7 +392,7 @@ mod json_transcode_tests {
     use serde_json::json;
     use siumai::prelude::unified::{ContentPart, MessageContent};
 
-    use super::super::bridge_hooks::{
+    use crate::bridge::{
         ClosureBridgeCustomization, ClosurePrimitiveRemapper, response_bridge_hook,
     };
 

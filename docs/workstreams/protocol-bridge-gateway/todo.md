@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - TODO
 
-Last updated: 2026-03-21
+Last updated: 2026-03-22
 
 This TODO list is intentionally organized as mergeable tracks.
 
@@ -68,6 +68,8 @@ This TODO list is intentionally organized as mergeable tracks.
   - request / response / stream context types
   - primitive remapper context
   - lossy handling policy trait
+- [x] Move closure-friendly bridge adapters into a framework-neutral `siumai-extras::bridge`
+  module and cover request hook wrappers explicitly
 
 ## 3) Make request bridges explicit
 

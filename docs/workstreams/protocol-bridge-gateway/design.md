@@ -83,7 +83,7 @@ We will follow the architectural idea, not copy either implementation literally.
 - Lossy conversion policy now has a stable contract and gateway wiring, but broader example and
   audit coverage still needs work.
   - `BridgeLossPolicy` exists in `siumai-core::bridge`, and route-local closure adapters now exist
-    in `siumai-extras`, but more fixture-backed examples still add value.
+    in `siumai-extras::bridge`, but more fixture-backed examples still add value.
 - Protocol-source request normalization now shares the bridge customization surface, but it still
   needs broader audit coverage.
   - `*_json_to_chat_request_with_options(...)` entry points now let inbound normalization reuse
@@ -118,8 +118,9 @@ Recommended primary surface:
   - `StreamBridgeContext`
   - `BridgePrimitiveContext`
 - `siumai-extras::server::GatewayBridgePolicy`
-- closure-friendly adapters in `siumai-extras` for route-local bundled customization, response /
-  stream transforms, and primitive remapping
+- closure-friendly adapters in `siumai-extras::bridge` for route-local bundled customization,
+  request / response / stream transforms, and primitive remapping
+  - `ClosureRequestBridgeHook`
   - `ClosureBridgeCustomization`
   - `ClosureResponseBridgeHook`
   - `ClosureStreamBridgeHook`
@@ -161,7 +162,8 @@ Users should customize at the smallest typed layer that matches their need.
 - If the goal is to coordinate request/response/stream policy in one reusable object, implement
   `BridgeCustomization` and attach it with `BridgeOptions::with_customization(...)`.
 - If the goal is route-local gateway customization without a dedicated policy struct, use
-  `ClosureBridgeCustomization` through helper-level `with_bridge_customization(...)` entry points.
+  `ClosureBridgeCustomization` from `siumai-extras::bridge` through helper-level
+  `with_bridge_customization(...)` entry points.
 - If the goal is "warn vs reject vs tolerate" on lossy routes, implement `BridgeLossPolicy`.
 - If the goal is to rewrite a normalized request before target serialization, implement
   `RequestBridgeHook::transform_request`.
@@ -227,8 +229,8 @@ The work should be split across layers:
 - protocol crates own protocol wire models, parsers, serializers, and event state machines
 - `siumai-core` owns bridge contracts, loss reporting types, context types, and policy traits
 - `siumai` owns planner/facade code plus experimental bridge implementations
-- `siumai-extras` owns gateway-ready adapters, route helpers, closure-friendly wrappers, and
-  framework integrations
+- `siumai-extras` owns closure-friendly bridge adapters, gateway-ready route helpers, and framework
+  integrations
 
 This keeps the core reusable without forcing Axum or route concerns into the protocol/runtime
 layer.
@@ -381,7 +383,8 @@ This is preferable to a single "override the whole bridge" trait because:
 ### D5c - Closure-friendly wrappers belong in `siumai-extras`
 
 The low-level bridge contracts should be trait/policy based.
-Gateway helpers may provide closure-friendly adapters on top.
+Gateway helpers may provide re-exports of closure-friendly adapters on top, but the canonical
+module should stay framework-neutral.
 
 Examples:
 

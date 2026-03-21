@@ -55,6 +55,9 @@
 // Re-export core siumai types that are commonly used with extras
 pub use siumai;
 
+/// Closure-friendly bridge customization adapters.
+pub mod bridge;
+
 /// Schema validation utilities
 #[cfg(feature = "schema")]
 pub mod schema;

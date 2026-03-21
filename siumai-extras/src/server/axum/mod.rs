@@ -11,17 +11,17 @@
 //! - **Error Handling**: automatic error masking for production environments
 //! - **Type Safety**: strong typing with Axum SSE primitives
 
-mod bridge_hooks;
 mod runtime;
 mod sse;
 mod transcode_json;
 mod transcode_sse;
 
-pub use crate::server::GatewayBridgePolicy;
-pub use bridge_hooks::{
-    ClosureBridgeCustomization, ClosurePrimitiveRemapper, ClosureResponseBridgeHook,
-    ClosureStreamBridgeHook, response_bridge_hook, stream_bridge_hook,
+pub use crate::bridge::{
+    ClosureBridgeCustomization, ClosurePrimitiveRemapper, ClosureRequestBridgeHook,
+    ClosureResponseBridgeHook, ClosureStreamBridgeHook, request_bridge_hook, response_bridge_hook,
+    stream_bridge_hook,
 };
+pub use crate::server::GatewayBridgePolicy;
 pub use runtime::{
     GatewayBodyReadError, GatewayBodyRole, read_request_body_with_policy,
     read_request_json_with_policy, read_upstream_body_with_policy, read_upstream_json_with_policy,

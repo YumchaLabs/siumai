@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use siumai::experimental::bridge::{
     BridgeCustomization, BridgeLossAction, BridgeMode, BridgePrimitiveContext,
-    BridgePrimitiveRemapper, BridgeReport, RequestBridgeContext, ResponseBridgeContext,
-    ResponseBridgeHook, StreamBridgeContext, StreamBridgeHook,
+    BridgePrimitiveRemapper, BridgeReport, RequestBridgeContext, RequestBridgeHook,
+    ResponseBridgeContext, ResponseBridgeHook, StreamBridgeContext, StreamBridgeHook,
 };
 use siumai::prelude::unified::{ChatRequest, ChatResponse, ChatStreamEvent, LlmError};
 
@@ -47,6 +47,116 @@ fn default_loss_action(mode: BridgeMode, report: &BridgeReport) -> BridgeLossAct
     } else {
         BridgeLossAction::Continue
     }
+}
+
+/// Closure-backed request bridge hook.
+#[derive(Clone, Default)]
+pub struct ClosureRequestBridgeHook {
+    request: Option<Arc<RequestBridgeClosure>>,
+    request_json: Option<Arc<RequestJsonBridgeClosure>>,
+    request_json_validation: Option<Arc<RequestJsonValidationClosure>>,
+}
+
+impl ClosureRequestBridgeHook {
+    /// Create a request bridge hook from a normalized-request closure.
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(&RequestBridgeContext, &mut ChatRequest, &mut BridgeReport) -> Result<(), LlmError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self::default().with_request(f)
+    }
+
+    /// Attach a normalized request transform closure.
+    pub fn with_request<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&RequestBridgeContext, &mut ChatRequest, &mut BridgeReport) -> Result<(), LlmError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.request = Some(Arc::new(f));
+        self
+    }
+
+    /// Attach a target JSON transform closure.
+    pub fn with_request_json<F>(mut self, f: F) -> Self
+    where
+        F: Fn(
+                &RequestBridgeContext,
+                &mut serde_json::Value,
+                &mut BridgeReport,
+            ) -> Result<(), LlmError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.request_json = Some(Arc::new(f));
+        self
+    }
+
+    /// Attach a target JSON validation closure.
+    pub fn with_request_json_validation<F>(mut self, f: F) -> Self
+    where
+        F: Fn(&RequestBridgeContext, &serde_json::Value, &mut BridgeReport) -> Result<(), LlmError>
+            + Send
+            + Sync
+            + 'static,
+    {
+        self.request_json_validation = Some(Arc::new(f));
+        self
+    }
+}
+
+impl RequestBridgeHook for ClosureRequestBridgeHook {
+    fn transform_request(
+        &self,
+        ctx: &RequestBridgeContext,
+        request: &mut ChatRequest,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        if let Some(f) = &self.request {
+            f(ctx, request, report)?;
+        }
+        Ok(())
+    }
+
+    fn transform_json(
+        &self,
+        ctx: &RequestBridgeContext,
+        body: &mut serde_json::Value,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        if let Some(f) = &self.request_json {
+            f(ctx, body, report)?;
+        }
+        Ok(())
+    }
+
+    fn validate_json(
+        &self,
+        ctx: &RequestBridgeContext,
+        body: &serde_json::Value,
+        report: &mut BridgeReport,
+    ) -> Result<(), LlmError> {
+        if let Some(f) = &self.request_json_validation {
+            f(ctx, body, report)?;
+        }
+        Ok(())
+    }
+}
+
+/// Create an `Arc<dyn RequestBridgeHook>` from a closure.
+pub fn request_bridge_hook<F>(f: F) -> Arc<dyn RequestBridgeHook>
+where
+    F: Fn(&RequestBridgeContext, &mut ChatRequest, &mut BridgeReport) -> Result<(), LlmError>
+        + Send
+        + Sync
+        + 'static,
+{
+    Arc::new(ClosureRequestBridgeHook::new(f))
 }
 
 /// Closure-backed response bridge hook.
@@ -381,5 +491,141 @@ impl BridgeCustomization for ClosureBridgeCustomization {
             .as_ref()
             .map(|f| f(ctx, report))
             .unwrap_or_else(|| default_loss_action(ctx.mode, report))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use siumai::experimental::bridge::{
+        BridgeCustomization, BridgeMode, BridgeReport, BridgeTarget, RequestBridgeContext,
+        RequestBridgeHook, RequestBridgePhase,
+    };
+    use siumai::prelude::unified::{ChatMessage, ChatRequest, MessageRole};
+
+    use super::{ClosureBridgeCustomization, ClosureRequestBridgeHook, request_bridge_hook};
+
+    fn request_ctx() -> RequestBridgeContext {
+        RequestBridgeContext::new(
+            RequestBridgePhase::SerializeTarget,
+            Some(BridgeTarget::AnthropicMessages),
+            BridgeTarget::OpenAiResponses,
+            BridgeMode::BestEffort,
+            Some("tests.extras.bridge".to_string()),
+            Some("serialize".to_string()),
+        )
+    }
+
+    fn request_report(ctx: &RequestBridgeContext) -> BridgeReport {
+        BridgeReport::with_source(ctx.source, ctx.target, ctx.mode)
+    }
+
+    #[test]
+    fn request_bridge_hook_wraps_normalized_request_closure() {
+        let hook = request_bridge_hook(|ctx, request, report| {
+            assert_eq!(ctx.phase, RequestBridgePhase::SerializeTarget);
+            request
+                .messages
+                .push(ChatMessage::system("gateway policy").build());
+            report.lossy_fields.push("request.messages[1]".to_string());
+            Ok(())
+        });
+
+        let ctx = request_ctx();
+        let mut report = request_report(&ctx);
+        let mut request = ChatRequest::new(vec![ChatMessage::user("hello").build()]);
+
+        hook.transform_request(&ctx, &mut request, &mut report)
+            .unwrap();
+
+        assert_eq!(request.messages.len(), 2);
+        assert_eq!(request.messages[1].role, MessageRole::System);
+        assert_eq!(report.lossy_fields, vec!["request.messages[1]".to_string()]);
+    }
+
+    #[test]
+    fn closure_request_customization_covers_request_json_lifecycle() {
+        let customization = ClosureBridgeCustomization::default()
+            .with_request(|_, request, _| {
+                request.messages[0]
+                    .metadata
+                    .custom
+                    .insert("route".to_string(), json!("gateway"));
+                Ok(())
+            })
+            .with_request_json(|ctx, body, _| {
+                assert_eq!(ctx.target, BridgeTarget::OpenAiResponses);
+                body["metadata"] = json!({ "route": "gateway" });
+                Ok(())
+            })
+            .with_request_json_validation(|_, body, report| {
+                assert_eq!(body["metadata"]["route"], json!("gateway"));
+                report
+                    .lossy_fields
+                    .push("request.metadata.route".to_string());
+                Ok(())
+            });
+
+        let ctx = request_ctx();
+        let mut report = request_report(&ctx);
+        let mut request = ChatRequest::new(vec![ChatMessage::user("hello").build()]);
+        let mut body = json!({});
+
+        customization
+            .transform_request(&ctx, &mut request, &mut report)
+            .unwrap();
+        customization
+            .transform_request_json(&ctx, &mut body, &mut report)
+            .unwrap();
+        customization
+            .validate_request_json(&ctx, &body, &mut report)
+            .unwrap();
+
+        assert_eq!(
+            request.messages[0].metadata.custom.get("route"),
+            Some(&json!("gateway"))
+        );
+        assert_eq!(body["metadata"]["route"], json!("gateway"));
+        assert_eq!(
+            report.lossy_fields,
+            vec!["request.metadata.route".to_string()]
+        );
+    }
+
+    #[test]
+    fn closure_request_bridge_hook_supports_json_steps() {
+        let hook = ClosureRequestBridgeHook::new(|_, request, _| {
+            request.messages[0]
+                .metadata
+                .custom
+                .insert("hook".to_string(), json!(true));
+            Ok(())
+        })
+        .with_request_json(|_, body, _| {
+            body["hooked"] = json!(true);
+            Ok(())
+        })
+        .with_request_json_validation(|_, body, report| {
+            assert_eq!(body["hooked"], json!(true));
+            report.lossy_fields.push("request.hooked".to_string());
+            Ok(())
+        });
+
+        let ctx = request_ctx();
+        let mut report = request_report(&ctx);
+        let mut request = ChatRequest::new(vec![ChatMessage::user("hello").build()]);
+        let mut body = json!({});
+
+        hook.transform_request(&ctx, &mut request, &mut report)
+            .unwrap();
+        hook.transform_json(&ctx, &mut body, &mut report).unwrap();
+        hook.validate_json(&ctx, &body, &mut report).unwrap();
+
+        assert_eq!(
+            request.messages[0].metadata.custom.get("hook"),
+            Some(&json!(true))
+        );
+        assert_eq!(body["hooked"], json!(true));
+        assert_eq!(report.lossy_fields, vec!["request.hooked".to_string()]);
     }
 }

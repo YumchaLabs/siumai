@@ -39,12 +39,14 @@ use axum::{
 use serde::Deserialize;
 use siumai::experimental::bridge::{BridgeMode, BridgeOptionsOverride};
 use siumai::prelude::unified::*;
-use siumai_extras::server::{
-    GatewayBridgePolicy,
-    axum::{
-        ClosurePrimitiveRemapper, TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions,
-        TranscodeSseOptions, response_bridge_hook, stream_bridge_hook, to_transcoded_json_response,
-        to_transcoded_sse_response,
+use siumai_extras::{
+    bridge::{ClosurePrimitiveRemapper, response_bridge_hook, stream_bridge_hook},
+    server::{
+        GatewayBridgePolicy,
+        axum::{
+            TargetJsonFormat, TargetSseFormat, TranscodeJsonOptions, TranscodeSseOptions,
+            to_transcoded_json_response, to_transcoded_sse_response,
+        },
     },
 };
 

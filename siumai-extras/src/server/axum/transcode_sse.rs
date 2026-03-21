@@ -859,15 +859,19 @@ mod transcode_tests {
 
     use std::time::Duration;
 
+    #[cfg(feature = "anthropic")]
     use siumai::experimental::bridge::{
-        BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgeTarget,
-        RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,
+        BridgeLossAction, BridgeLossPolicy, RequestBridgeContext, ResponseBridgeContext,
+        StreamBridgeContext,
     };
+    use siumai::experimental::bridge::{BridgeMode, BridgeOptions, BridgeTarget};
 
-    use super::super::bridge_hooks::{ClosureBridgeCustomization, stream_bridge_hook};
+    use crate::bridge::{ClosureBridgeCustomization, stream_bridge_hook};
 
+    #[cfg(feature = "anthropic")]
     struct ContinueLossyPolicy;
 
+    #[cfg(feature = "anthropic")]
     impl BridgeLossPolicy for ContinueLossyPolicy {
         fn request_action(
             &self,
