@@ -217,6 +217,8 @@ impl ResponseTransformer for CompatResponseTransformer {
             model: String,
             choices: Vec<CompatChoice>,
             usage: Option<CompatUsage>,
+            system_fingerprint: Option<String>,
+            service_tier: Option<String>,
         }
 
         let resp: Compat =
@@ -417,8 +419,8 @@ impl ResponseTransformer for CompatResponseTransformer {
             usage,
             finish_reason,
             audio,
-            system_fingerprint: None,
-            service_tier: None,
+            system_fingerprint: resp.system_fingerprint,
+            service_tier: resp.service_tier,
             warnings: None,
             provider_metadata,
         })
@@ -662,5 +664,103 @@ mod tests {
         let calls = resp.tool_calls();
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].as_tool_name(), Some("weather$weather#get_weather"));
+    }
+
+    #[test]
+    fn openai_compatible_transformer_preserves_top_level_chat_response_fields() {
+        let adapter = Arc::new(DummyAdapter);
+        let config = OpenAiCompatibleConfig::new(
+            "openai",
+            "test-key",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-4.1-mini");
+
+        let tx = CompatResponseTransformer { config, adapter };
+
+        let raw = serde_json::json!({
+            "id": "chatcmpl_123",
+            "model": "gpt-4.1-mini",
+            "system_fingerprint": "fp_123",
+            "service_tier": "priority",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "hello"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "prompt_tokens_details": {
+                    "cached_tokens": 3,
+                    "audio_tokens": 2
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 4,
+                    "audio_tokens": 1,
+                    "accepted_prediction_tokens": 5,
+                    "rejected_prediction_tokens": 6
+                }
+            }
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        assert_eq!(resp.id.as_deref(), Some("chatcmpl_123"));
+        assert_eq!(resp.model.as_deref(), Some("gpt-4.1-mini"));
+        assert_eq!(resp.system_fingerprint.as_deref(), Some("fp_123"));
+        assert_eq!(resp.service_tier.as_deref(), Some("priority"));
+        assert_eq!(resp.finish_reason, Some(FinishReason::Stop));
+
+        let usage = resp.usage.expect("usage");
+        assert_eq!(usage.prompt_tokens, 11);
+        assert_eq!(usage.completion_tokens, 7);
+        assert_eq!(usage.total_tokens, 18);
+        assert_eq!(
+            usage
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|details| details.cached_tokens),
+            Some(3)
+        );
+        assert_eq!(
+            usage
+                .prompt_tokens_details
+                .as_ref()
+                .and_then(|details| details.audio_tokens),
+            Some(2)
+        );
+        assert_eq!(
+            usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|details| details.reasoning_tokens),
+            Some(4)
+        );
+        assert_eq!(
+            usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|details| details.audio_tokens),
+            Some(1)
+        );
+        assert_eq!(
+            usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|details| details.accepted_prediction_tokens),
+            Some(5)
+        );
+        assert_eq!(
+            usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|details| details.rejected_prediction_tokens),
+            Some(6)
+        );
     }
 }

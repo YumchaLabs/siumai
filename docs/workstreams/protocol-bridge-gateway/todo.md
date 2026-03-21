@@ -111,11 +111,25 @@ This TODO list is intentionally organized as mergeable tracks.
     - exact cases for core text / reasoning / tool items
     - a documented lossy web-search case where message-level citations survive but embedded
       tool-result source payloads are not yet treated as exact roundtrip state
+  - OpenAI Chat Completions response bridge now has explicit contract coverage for:
+    - preserved native top-level fields (`system_fingerprint`, `service_tier`, OpenAI usage totals/details)
+    - documented lossy / rejected cases for reasoning blocks, tool results, tool approval requests,
+      stop-sequence finish reasons, and top-level provider metadata
+    - initial same-protocol response roundtrip coverage for text, tool calls, usage breakdown, and
+      preserved top-level chat-completions fields
   - Anthropic Messages same-protocol response roundtrip now has initial projected fixture
     coverage with:
     - exact/projected JSON output cases
     - documented lossy tool-search cases where visible assistant text and tool-call sequence are
       preserved but provider-executed synthetic tool-result replay is not yet exact
+  - Gemini GenerateContent response bridge now has explicit contract coverage for:
+    - preserved aggregate usage totals plus `thoughtsTokenCount`
+    - documented lossy cases for reasoning blocks, generic STOP finish-reason collapse, prompt /
+      completion audio breakdown, prediction-token breakdown, and dropped `system_fingerprint` /
+      `service_tier`
+    - initial projected same-protocol roundtrip coverage for visible text, tool calls, usage
+      totals, and reasoning-token counts while documenting dropped reasoning blocks and grounding
+      metadata
 
 ## 5) Make streaming bridges explicit
 

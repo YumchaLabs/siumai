@@ -10,11 +10,13 @@ use siumai_core::bridge::{
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent};
 
-#[cfg(feature = "anthropic")]
+#[cfg(any(feature = "anthropic", feature = "google"))]
 use siumai_core::types::Usage;
 
 #[cfg(feature = "anthropic")]
 use super::bridge_chat_response_to_anthropic_messages_json_value;
+#[cfg(feature = "google")]
+use super::bridge_chat_response_to_gemini_generate_content_json_value;
 #[cfg(feature = "openai")]
 use super::{
     bridge_chat_response_to_openai_chat_completions_json_value,
@@ -193,6 +195,86 @@ fn openai_chat_response_bridge_preserves_native_top_level_fields() {
     assert_eq!(
         value["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
         json!("web_search")
+    );
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn strict_openai_chat_completions_bridge_rejects_reasoning_tool_result_and_metadata_loss() {
+    let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::reasoning("internal thinking"),
+        ContentPart::text("visible answer"),
+        ContentPart::ToolResult {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "weather".to_string(),
+            output: siumai_core::types::ToolResultOutput::json(json!({
+                "temperature": 72
+            })),
+            provider_executed: Some(true),
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                json!({
+                    "itemId": "fc_1"
+                }),
+            )])),
+        },
+        ContentPart::tool_approval_request("mcpr_1", "call_1"),
+    ]));
+    response.finish_reason = Some(FinishReason::StopSequence);
+    response.provider_metadata = Some(HashMap::from([(
+        "openai".to_string(),
+        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+    )]));
+
+    let bridged = bridge_chat_response_to_openai_chat_completions_json_value(
+        &response,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeMode::Strict,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(bridged.is_rejected());
+    assert!(bridged.report.is_rejected());
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "content[0]"),
+        "expected reasoning block drop"
+    );
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "content[2]"),
+        "expected tool result drop"
+    );
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "content[3]"),
+        "expected tool approval request drop"
+    );
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "provider_metadata.openai"),
+        "expected top-level provider metadata drop"
+    );
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "finish_reason"),
+        "expected stop-sequence collapse to be reported as lossy"
     );
 }
 
@@ -570,4 +652,99 @@ fn response_bridge_hook_can_rewrite_content_before_serialization() {
 
     let value = bridged.value.expect("json body");
     assert_eq!(value["choices"][0]["message"]["content"], json!("[hooked]"));
+}
+
+#[cfg(feature = "google")]
+#[test]
+fn gemini_response_bridge_reports_reasoning_finish_reason_and_usage_breakdown_loss() {
+    let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::reasoning("internal thinking"),
+        ContentPart::text("visible answer"),
+        ContentPart::tool_call("call_1", "search", json!({ "q": "rust" }), None),
+    ]));
+    response.id = Some("resp_1".to_string());
+    response.model = Some("gemini-2.5-pro".to_string());
+    response.finish_reason = Some(FinishReason::ToolCalls);
+    response.system_fingerprint = Some("fp_123".to_string());
+    response.service_tier = Some("priority".to_string());
+    response.usage = Some(
+        Usage::builder()
+            .prompt_tokens(11)
+            .completion_tokens(7)
+            .total_tokens(18)
+            .with_prompt_audio_tokens(2)
+            .with_cached_tokens(3)
+            .with_completion_audio_tokens(1)
+            .with_reasoning_tokens(4)
+            .with_accepted_prediction_tokens(5)
+            .with_rejected_prediction_tokens(6)
+            .build(),
+    );
+
+    let bridged = bridge_chat_response_to_gemini_generate_content_json_value(
+        &response,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_lossy());
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "content[0]"),
+        "expected reasoning block drop"
+    );
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "system_fingerprint"),
+        "expected system fingerprint drop"
+    );
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "service_tier"),
+        "expected service tier drop"
+    );
+    for field in [
+        "finish_reason",
+        "usage.prompt_tokens_details.audio_tokens",
+        "usage.prompt_tokens_details.cached_tokens",
+        "usage.completion_tokens_details.audio_tokens",
+        "usage.completion_tokens_details.accepted_prediction_tokens",
+        "usage.completion_tokens_details.rejected_prediction_tokens",
+    ] {
+        assert!(
+            bridged
+                .report
+                .lossy_fields
+                .iter()
+                .any(|candidate| candidate == field),
+            "expected lossy field {field}"
+        );
+    }
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(
+        value["candidates"][0]["content"]["parts"][0]["text"],
+        json!("visible answer")
+    );
+    assert_eq!(
+        value["candidates"][0]["content"]["parts"][1]["functionCall"]["name"],
+        json!("search")
+    );
+    assert_eq!(value["candidates"][0]["finishReason"], json!("STOP"));
+    assert_eq!(value["usageMetadata"]["promptTokenCount"], json!(11));
+    assert_eq!(value["usageMetadata"]["candidatesTokenCount"], json!(7));
+    assert_eq!(value["usageMetadata"]["totalTokenCount"], json!(18));
+    assert_eq!(value["usageMetadata"]["thoughtsTokenCount"], json!(4));
 }
