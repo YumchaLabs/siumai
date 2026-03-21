@@ -182,6 +182,14 @@ pub struct AnthropicToolCallMetadata {
         alias = "server_tool_name"
     )]
     pub server_tool_name: Option<String>,
+
+    /// MCP server name carried on Anthropic `mcp_tool_use` blocks.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "serverName",
+        alias = "server_name"
+    )]
+    pub server_name: Option<String>,
 }
 
 /// Anthropic-specific metadata attached to `ContentPart::Text`.
@@ -333,6 +341,27 @@ mod tests {
             meta.server_tool_name.as_deref(),
             Some("tool_search_tool_regex")
         );
+    }
+
+    #[test]
+    fn anthropic_tool_call_metadata_parses_server_name() {
+        let part = crate::types::ContentPart::ToolCall {
+            tool_call_id: "mcptoolu_1".to_string(),
+            tool_name: "echo".to_string(),
+            arguments: serde_json::json!({"message":"hello"}),
+            provider_executed: Some(true),
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({
+                    "serverName": "echo-prod"
+                }),
+            )])),
+        };
+
+        let meta = part
+            .anthropic_tool_call_metadata()
+            .expect("anthropic tool call metadata");
+        assert_eq!(meta.server_name.as_deref(), Some("echo-prod"));
     }
 
     #[test]

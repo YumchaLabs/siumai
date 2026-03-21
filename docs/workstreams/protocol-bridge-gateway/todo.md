@@ -126,6 +126,7 @@ This TODO list is intentionally organized as mergeable tracks.
     - exact/projected JSON output cases
     - exact projected replay for provider-hosted tool-search tool-call / tool-result pairs,
       including raw server tool names and caller metadata when carried on tool-call metadata
+    - carried MCP server-name metadata on provider-hosted tool calls
   - Gemini GenerateContent response bridge now has explicit contract coverage for:
     - preserved aggregate usage totals plus `thoughtsTokenCount` / `cachedContentTokenCount`
     - preserved native `responseId` / `modelVersion`

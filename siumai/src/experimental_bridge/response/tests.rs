@@ -541,6 +541,39 @@ fn strict_anthropic_response_bridge_preserves_text_part_citations_exactly() {
     assert!(value["content"][2].get("citations").is_none());
 }
 
+#[cfg(feature = "anthropic")]
+#[test]
+fn strict_anthropic_response_bridge_preserves_mcp_server_name_metadata() {
+    let response = ChatResponse::new(MessageContent::MultiModal(vec![ContentPart::ToolCall {
+        tool_call_id: "mcptoolu_1".to_string(),
+        tool_name: "echo".to_string(),
+        arguments: json!({ "message": "hello" }),
+        provider_executed: Some(true),
+        provider_metadata: Some(HashMap::from([(
+            "anthropic".to_string(),
+            json!({
+                "serverName": "echo-prod"
+            }),
+        )])),
+    }]));
+
+    let bridged = bridge_chat_response_to_anthropic_messages_json_value(
+        &response,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::Strict,
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_exact());
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["content"][0]["type"], json!("mcp_tool_use"));
+    assert_eq!(value["content"][0]["name"], json!("echo"));
+    assert_eq!(value["content"][0]["server_name"], json!("echo-prod"));
+}
+
 #[cfg(feature = "openai")]
 #[test]
 fn strict_openai_responses_bridge_preserves_provider_executed_custom_tool_items() {

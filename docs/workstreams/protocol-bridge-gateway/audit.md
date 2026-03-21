@@ -97,7 +97,7 @@ Path:
 Current fidelity:
 
 - projected exactness for text, provider-hosted tool-call / tool-result replay, tool caller
-  metadata, and supported thinking replay fields
+  metadata, MCP server-name metadata, and supported thinking replay fields
 - lossy for `prompt_tokens_details` / `completion_tokens_details`
 - lossy for `system_fingerprint`
 - lossy for provider metadata outside the Anthropic namespace or outside the currently mapped

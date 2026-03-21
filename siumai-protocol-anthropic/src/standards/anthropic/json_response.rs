@@ -158,6 +158,7 @@ fn provider_tool_use_block(
     input: &serde_json::Value,
     caller: Option<serde_json::Value>,
     raw_server_tool_name: Option<&str>,
+    mcp_server_name: Option<&str>,
 ) -> serde_json::Value {
     match tool_name {
         "web_search" | "web_fetch" | "tool_search" | "code_execution" => {
@@ -177,13 +178,18 @@ fn provider_tool_use_block(
             }
             block
         }
-        _ => serde_json::json!({
-            "type": "mcp_tool_use",
-            "id": tool_call_id,
-            "name": tool_name,
-            "input": input,
-            "server_name": tool_name,
-        }),
+        _ => {
+            let mut block = serde_json::json!({
+                "type": "mcp_tool_use",
+                "id": tool_call_id,
+                "name": tool_name,
+                "input": input,
+            });
+            if let Some(server_name) = mcp_server_name {
+                block["server_name"] = serde_json::Value::String(server_name.to_string());
+            }
+            block
+        }
     }
 }
 
@@ -339,7 +345,6 @@ fn provider_tool_result_block(
             "tool_use_id": tool_call_id,
             "content": content,
             "is_error": is_error,
-            "server_name": tool_name,
         }),
     }
 }
@@ -548,6 +553,9 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                             let raw_server_tool_name = tool_call_meta
                                 .as_ref()
                                 .and_then(|meta| meta.server_tool_name.as_deref());
+                            let mcp_server_name = tool_call_meta
+                                .as_ref()
+                                .and_then(|meta| meta.server_name.as_deref());
 
                             if *provider_executed == Some(true) {
                                 content.push(provider_tool_use_block(
@@ -556,6 +564,7 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                                     arguments,
                                     caller,
                                     raw_server_tool_name,
+                                    mcp_server_name,
                                 ));
                             } else {
                                 content.push(tool_use_block(
@@ -727,7 +736,12 @@ mod tests {
                 tool_name: "echo".to_string(),
                 arguments: serde_json::json!({ "message": "hello" }),
                 provider_executed: Some(true),
-                provider_metadata: None,
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "serverName": "echo-prod"
+                    }),
+                )])),
             },
             ContentPart::ToolResult {
                 tool_call_id: "mcptoolu_1".to_string(),
@@ -761,16 +775,13 @@ mod tests {
         );
         assert_eq!(
             value["content"][3]["server_name"],
-            serde_json::json!("echo")
+            serde_json::json!("echo-prod")
         );
         assert_eq!(
             value["content"][4]["type"],
             serde_json::json!("mcp_tool_result")
         );
-        assert_eq!(
-            value["content"][4]["server_name"],
-            serde_json::json!("echo")
-        );
+        assert!(value["content"][4].get("server_name").is_none());
     }
 
     #[test]

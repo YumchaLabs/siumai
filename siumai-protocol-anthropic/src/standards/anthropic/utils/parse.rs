@@ -120,12 +120,21 @@ pub fn parse_response_content_and_tools(
                     (&content_block.id, &content_block.name, &content_block.input)
                 {
                     tool_names_by_id.insert(id.clone(), name.clone());
-                    parts.push(ContentPart::tool_call(
-                        id.clone(),
-                        name.clone(),
-                        input.clone(),
-                        Some(true),
-                    ));
+                    let provider_metadata = content_block.server_name.as_ref().map(|server_name| {
+                        HashMap::from([(
+                            "anthropic".to_string(),
+                            serde_json::json!({
+                                "serverName": server_name
+                            }),
+                        )])
+                    });
+                    parts.push(ContentPart::ToolCall {
+                        tool_call_id: id.clone(),
+                        tool_name: name.clone(),
+                        arguments: input.clone(),
+                        provider_executed: Some(true),
+                        provider_metadata,
+                    });
                 }
             }
             block_type if block_type.ends_with("_tool_result") => {
@@ -766,6 +775,52 @@ mod tests {
                     }
                 } else {
                     panic!("Expected tool result part");
+                }
+            }
+            _ => panic!("Expected multimodal content"),
+        }
+    }
+
+    #[test]
+    fn test_parse_response_content_and_tools_mcp_server_name_metadata() {
+        let content_blocks = vec![AnthropicContentBlock {
+            r#type: "mcp_tool_use".to_string(),
+            text: None,
+            thinking: None,
+            signature: None,
+            data: None,
+            id: Some("mcptoolu_1".to_string()),
+            name: Some("echo".to_string()),
+            input: Some(serde_json::json!({"message": "hello"})),
+            caller: None,
+            server_name: Some("echo-prod".to_string()),
+            tool_use_id: None,
+            content: None,
+            is_error: None,
+            citations: None,
+        }];
+
+        let content = parse_response_content_and_tools(&content_blocks);
+        match &content {
+            MessageContent::MultiModal(parts) => {
+                assert_eq!(parts.len(), 1);
+                if let ContentPart::ToolCall {
+                    tool_name,
+                    provider_metadata,
+                    ..
+                } = &parts[0]
+                {
+                    assert_eq!(tool_name, "echo");
+                    let anthropic = provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("anthropic"))
+                        .expect("anthropic provider metadata");
+                    assert_eq!(
+                        anthropic.get("serverName"),
+                        Some(&serde_json::json!("echo-prod"))
+                    );
+                } else {
+                    panic!("Expected tool call part");
                 }
             }
             _ => panic!("Expected multimodal content"),
