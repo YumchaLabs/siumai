@@ -1634,3 +1634,45 @@ fn serializes_v3_tool_result_as_text_when_configured() {
         "expected text_delta containing [tool-result]: {frames:?}"
     );
 }
+
+#[test]
+fn serializes_provider_tool_result_without_stream_start_with_message_start() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Custom {
+            event_type: "anthropic:tool-result".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "providerExecuted": true,
+                "toolCallId": "srvtoolu_1",
+                "toolName": "web_search",
+                "result": [{ "type": "web_search_result", "title": "Rust", "url": "https://www.rust-lang.org" }]
+            }),
+        })
+        .expect("serialize provider tool-result");
+
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(
+        frames
+            .first()
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str()),
+        Some("message_start"),
+        "expected message_start first for provider custom event: {frames:?}"
+    );
+    assert!(
+        frames.iter().any(|value| {
+            value["type"] == "content_block_start"
+                && value["content_block"]["type"] == "web_search_tool_result"
+                && value["content_block"]["tool_use_id"] == "srvtoolu_1"
+        }),
+        "expected web_search_tool_result content_block_start: {frames:?}"
+    );
+    assert!(
+        frames
+            .iter()
+            .any(|value| value["type"] == "content_block_stop"),
+        "expected content_block_stop for provider custom event: {frames:?}"
+    );
+}

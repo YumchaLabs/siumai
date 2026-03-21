@@ -8,6 +8,7 @@ use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_anthropic_messages_sse,
 };
 use siumai::prelude::unified::{ChatByteStream, ChatStreamEvent, SseEventConverter};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {
@@ -98,11 +99,20 @@ struct AnthropicStreamSummary {
     prompt_tokens: Option<u32>,
     completion_tokens: Option<u32>,
     text: String,
+    provider_tool_calls: BTreeMap<String, usize>,
+    provider_tool_results: BTreeMap<String, usize>,
+    source_urls: BTreeMap<String, usize>,
 }
 
 fn push_adjacent_unique<T: PartialEq>(items: &mut Vec<T>, value: T) {
     if items.last() != Some(&value) {
         items.push(value);
+    }
+}
+
+fn increment_count(counts: &mut BTreeMap<String, usize>, key: Option<&str>) {
+    if let Some(key) = key {
+        *counts.entry(key.to_string()).or_default() += 1;
     }
 }
 
@@ -122,6 +132,9 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
         prompt_tokens: None,
         completion_tokens: None,
         text: String::new(),
+        provider_tool_calls: BTreeMap::new(),
+        provider_tool_results: BTreeMap::new(),
+        source_urls: BTreeMap::new(),
     };
     let mut text_deltas = Vec::new();
 
@@ -189,6 +202,36 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                             .and_then(|value| u32::try_from(value).ok())
                             .or(summary.completion_tokens);
                     }
+                    Some("tool-call") => {
+                        if data
+                            .get("providerExecuted")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            increment_count(
+                                &mut summary.provider_tool_calls,
+                                data.get("toolName").and_then(Value::as_str),
+                            );
+                        }
+                    }
+                    Some("tool-result") => {
+                        if data
+                            .get("providerExecuted")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            increment_count(
+                                &mut summary.provider_tool_results,
+                                data.get("toolName").and_then(Value::as_str),
+                            );
+                        }
+                    }
+                    Some("source") => {
+                        increment_count(
+                            &mut summary.source_urls,
+                            data.get("url").and_then(Value::as_str),
+                        );
+                    }
                     _ => {}
                 }
             }
@@ -230,8 +273,10 @@ fn fixture_summary(path: &str) -> AnthropicStreamSummary {
 #[tokio::test]
 async fn anthropic_messages_stream_bridge_roundtrip_fixture_summary_cases_match() {
     let summary_cases = [
+        "anthropic-message-delta-input-tokens.chunks.txt",
         "anthropic-json-output-format.1.chunks.txt",
         "anthropic-json-tool.1.chunks.txt",
+        "anthropic-web-search-tool.1.chunks.txt",
     ];
 
     for case in summary_cases {

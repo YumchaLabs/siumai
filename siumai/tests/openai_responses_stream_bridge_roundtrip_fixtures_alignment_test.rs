@@ -8,6 +8,7 @@ use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_openai_responses_sse,
 };
 use siumai::prelude::unified::{ChatByteStream, ChatStreamEvent, SseEventConverter};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {
@@ -96,7 +97,7 @@ struct ReasoningBoundary {
 struct OpenAiStreamSummary {
     has_stream_start: bool,
     has_finish: bool,
-    metadata_id: Option<String>,
+    has_metadata_id: bool,
     metadata_model: Option<String>,
     finish_reason: Option<String>,
     prompt_tokens: Option<u32>,
@@ -105,11 +106,20 @@ struct OpenAiStreamSummary {
     reasoning_starts: Vec<ReasoningBoundary>,
     reasoning_deltas: Vec<String>,
     reasoning_ends: Vec<ReasoningBoundary>,
+    provider_tool_calls: BTreeMap<String, usize>,
+    provider_tool_results: BTreeMap<String, usize>,
+    source_urls: BTreeMap<String, usize>,
 }
 
 fn push_adjacent_unique<T: PartialEq>(items: &mut Vec<T>, value: T) {
     if items.last() != Some(&value) {
         items.push(value);
+    }
+}
+
+fn increment_count(counts: &mut BTreeMap<String, usize>, key: Option<&str>) {
+    if let Some(key) = key {
+        *counts.entry(key.to_string()).or_default() += 1;
     }
 }
 
@@ -136,7 +146,7 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
     let mut summary = OpenAiStreamSummary {
         has_stream_start: false,
         has_finish: false,
-        metadata_id: None,
+        has_metadata_id: false,
         metadata_model: None,
         finish_reason: None,
         prompt_tokens: None,
@@ -145,6 +155,9 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
         reasoning_starts: Vec::new(),
         reasoning_deltas: Vec::new(),
         reasoning_ends: Vec::new(),
+        provider_tool_calls: BTreeMap::new(),
+        provider_tool_results: BTreeMap::new(),
+        source_urls: BTreeMap::new(),
     };
     let mut text_deltas = Vec::new();
 
@@ -179,10 +192,7 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
             ChatStreamEvent::Custom { data, .. } => {
                 match data.get("type").and_then(Value::as_str) {
                     Some("response-metadata") => {
-                        summary.metadata_id = data
-                            .get("id")
-                            .and_then(Value::as_str)
-                            .map(ToString::to_string);
+                        summary.has_metadata_id = data.get("id").and_then(Value::as_str).is_some();
                         summary.metadata_model = data
                             .get("modelId")
                             .and_then(Value::as_str)
@@ -221,6 +231,36 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                         push_adjacent_unique(
                             &mut summary.reasoning_ends,
                             reasoning_boundary_from_custom(data),
+                        );
+                    }
+                    Some("tool-call") => {
+                        if data
+                            .get("providerExecuted")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            increment_count(
+                                &mut summary.provider_tool_calls,
+                                data.get("toolName").and_then(Value::as_str),
+                            );
+                        }
+                    }
+                    Some("tool-result") => {
+                        if data
+                            .get("providerExecuted")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false)
+                        {
+                            increment_count(
+                                &mut summary.provider_tool_results,
+                                data.get("toolName").and_then(Value::as_str),
+                            );
+                        }
+                    }
+                    Some("source") => {
+                        increment_count(
+                            &mut summary.source_urls,
+                            data.get("url").and_then(Value::as_str),
                         );
                     }
                     _ => {}
@@ -265,7 +305,9 @@ fn fixture_summary(path: &str) -> OpenAiStreamSummary {
 async fn openai_responses_stream_bridge_roundtrip_fixture_summary_cases_match() {
     let summary_cases = [
         "text/openai-text-deltas.1.chunks.txt",
+        "reasoning/openai-reasoning-encrypted-content.1.chunks.txt",
         "reasoning/openai-reasoning-encrypted-empty-summary.1.chunks.txt",
+        "web-search/openai-web-search-tool.1.chunks.txt",
     ];
 
     for case in summary_cases {

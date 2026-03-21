@@ -28,16 +28,69 @@ pub(super) fn serialize_event(
         *state = AnthropicSerializeState::default();
     }
 
+    fn ensure_message_metadata(state: &mut AnthropicSerializeState) {
+        if state.message_id.is_none() {
+            state.message_id = Some("msg_siumai_0".to_string());
+        }
+        if state.model.is_none() {
+            state.model = Some("unknown".to_string());
+        }
+    }
+
+    fn build_message_start_payload(state: &mut AnthropicSerializeState) -> serde_json::Value {
+        ensure_message_metadata(state);
+        serde_json::json!({
+            "type": "message_start",
+            "message": {
+                "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
+                "type": "message",
+                "role": "assistant",
+                "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
+                "content": [],
+                "stop_reason": serde_json::Value::Null,
+                "stop_sequence": serde_json::Value::Null,
+                "usage": { "input_tokens": 0, "output_tokens": 0 }
+            }
+        })
+    }
+
+    fn ensure_message_start_emitted(
+        state: &mut AnthropicSerializeState,
+    ) -> Result<Vec<u8>, LlmError> {
+        if state.message_start_emitted {
+            return Ok(Vec::new());
+        }
+
+        state.message_start_emitted = true;
+        let payload = build_message_start_payload(state);
+        sse_typed_frame(&payload)
+    }
+
+    fn emit_content_block_start(
+        index: usize,
+        content_block: serde_json::Value,
+    ) -> Result<Vec<u8>, LlmError> {
+        let start = serde_json::json!({
+            "type": "content_block_start",
+            "index": index,
+            "content_block": content_block,
+        });
+        sse_typed_frame(&start)
+    }
+
+    fn emit_content_block_stop(index: usize) -> Result<Vec<u8>, LlmError> {
+        let stop = serde_json::json!({
+            "type": "content_block_stop",
+            "index": index,
+        });
+        sse_typed_frame(&stop)
+    }
+
     fn close_active_block(state: &mut AnthropicSerializeState) -> Result<Vec<u8>, LlmError> {
         let Some(active) = state.active_block.take() else {
             return Ok(Vec::new());
         };
-
-        let stop = serde_json::json!({
-            "type": "content_block_stop",
-            "index": active.index,
-        });
-        sse_typed_frame(&stop)
+        emit_content_block_stop(active.index)
     }
 
     fn ensure_active_block<F>(
@@ -57,8 +110,7 @@ pub(super) fn serialize_event(
         let mut out = close_active_block(state)?;
         let index = state.next_block_index;
         state.next_block_index += 1;
-        let start = build_start(index);
-        out.extend_from_slice(&sse_typed_frame(&start)?);
+        out.extend_from_slice(&sse_typed_frame(&build_start(index))?);
         state.active_block = Some(AnthropicSerializeBlock { index, kind });
         Ok((out, index))
     }
@@ -109,20 +161,7 @@ pub(super) fn serialize_event(
                     .or_else(|| Some("msg_siumai_0".to_string()));
                 state.model = metadata.model.clone();
                 state.message_start_emitted = true;
-
-                let payload = serde_json::json!({
-                    "type": "message_start",
-                    "message": {
-                            "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
-                            "type": "message",
-                            "role": "assistant",
-                            "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
-                            "content": [],
-                            "stop_reason": serde_json::Value::Null,
-                            "stop_sequence": serde_json::Value::Null,
-                            "usage": { "input_tokens": 0, "output_tokens": 0 }
-                        }
-                });
+                let payload = build_message_start_payload(state);
                 sse_typed_frame(&payload)
             }
             ChatStreamEvent::ContentDelta { delta, .. } => {
@@ -256,6 +295,91 @@ pub(super) fn serialize_event(
         }
     }
 
+    fn build_provider_content_block(data: &serde_json::Value) -> Option<serde_json::Value> {
+        let raw = data.get("rawContentBlock").cloned();
+        if raw.as_ref().is_some_and(serde_json::Value::is_object) {
+            return raw;
+        }
+
+        match data.get("type").and_then(|v| v.as_str()) {
+            Some("tool-call") => {
+                let tool_call_id = data.get("toolCallId").and_then(|v| v.as_str())?;
+                let tool_name = data.get("toolName").and_then(|v| v.as_str())?;
+                let input = data
+                    .get("input")
+                    .cloned()
+                    .unwrap_or_else(|| serde_json::json!({}));
+                Some(serde_json::json!({
+                    "type": "server_tool_use",
+                    "id": tool_call_id,
+                    "name": tool_name,
+                    "input": input,
+                }))
+            }
+            Some("tool-result") => {
+                let tool_name = data.get("toolName").and_then(|v| v.as_str())?;
+                let tool_call_id = data.get("toolCallId").and_then(|v| v.as_str())?;
+                let block_type = match tool_name {
+                    "web_search" => "web_search_tool_result",
+                    "web_fetch" => "web_fetch_tool_result",
+                    "tool_search" => "tool_search_tool_result",
+                    "code_execution" => "code_execution_tool_result",
+                    "mcp" => "mcp_tool_result",
+                    other => {
+                        return Some(serde_json::json!({
+                            "type": format!("{other}_tool_result"),
+                            "tool_use_id": tool_call_id,
+                            "content": data.get("result").cloned().unwrap_or(serde_json::Value::Null),
+                        }));
+                    }
+                };
+
+                Some(serde_json::json!({
+                    "type": block_type,
+                    "tool_use_id": tool_call_id,
+                    "content": data.get("result").cloned().unwrap_or(serde_json::Value::Null),
+                }))
+            }
+            _ => None,
+        }
+    }
+
+    fn serialize_provider_custom_event(
+        data: &serde_json::Value,
+        state: &mut AnthropicSerializeState,
+    ) -> Result<Option<Vec<u8>>, LlmError> {
+        let event_type = data.get("type").and_then(|v| v.as_str());
+        if !matches!(event_type, Some("tool-call" | "tool-result")) {
+            return Ok(None);
+        }
+        if !data
+            .get("providerExecuted")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            return Ok(None);
+        }
+
+        let Some(content_block) = build_provider_content_block(data) else {
+            return Ok(None);
+        };
+
+        let mut out = ensure_message_start_emitted(state)?;
+        out.extend_from_slice(&close_active_block(state)?);
+
+        let index = data
+            .get("contentBlockIndex")
+            .and_then(|v| v.as_u64())
+            .and_then(|v| usize::try_from(v).ok())
+            .unwrap_or(state.next_block_index);
+        state.next_block_index = state.next_block_index.max(index.saturating_add(1));
+
+        out.extend_from_slice(&emit_content_block_start(index, content_block)?);
+        out.extend_from_slice(&emit_content_block_stop(index)?);
+
+        Ok(Some(out))
+    }
+
     let mut state = this
         .serialize_state
         .lock()
@@ -263,6 +387,10 @@ pub(super) fn serialize_event(
 
     match event {
         ChatStreamEvent::Custom { data, .. } => {
+            if let Some(out) = serialize_provider_custom_event(data, &mut state)? {
+                return Ok(out);
+            }
+
             let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {
                 return Ok(Vec::new());
             };
@@ -290,23 +418,7 @@ pub(super) fn serialize_event(
                     state.model = Some("unknown".to_string());
                 }
 
-                if !state.message_start_emitted {
-                    let payload = serde_json::json!({
-                        "type": "message_start",
-                        "message": {
-                            "id": state.message_id.clone().unwrap_or_else(|| "msg_siumai_0".to_string()),
-                            "type": "message",
-                            "role": "assistant",
-                            "model": state.model.clone().unwrap_or_else(|| "unknown".to_string()),
-                            "content": [],
-                            "stop_reason": serde_json::Value::Null,
-                            "stop_sequence": serde_json::Value::Null,
-                            "usage": { "input_tokens": 0, "output_tokens": 0 }
-                        }
-                    });
-                    out.extend_from_slice(&sse_typed_frame(&payload)?);
-                    state.message_start_emitted = true;
-                }
+                out.extend_from_slice(&ensure_message_start_emitted(&mut state)?);
 
                 out.extend_from_slice(&close_active_block(&mut state)?);
                 reset_stream_state(&mut state);

@@ -20,6 +20,22 @@ pub(super) struct OpenAiResponsesFunctionCallSerializeState {
 }
 
 #[derive(Debug, Default, Clone)]
+pub(super) struct OpenAiResponsesReasoningItemSerializeState {
+    pub(super) output_index: u64,
+}
+
+#[derive(Debug, Default, Clone)]
+pub(super) struct OpenAiResponsesMessageSerializeState {
+    pub(super) item_id: Option<String>,
+    pub(super) output_index: Option<u64>,
+    pub(super) content_index: u64,
+    pub(super) scaffold_emitted: bool,
+    pub(super) text: String,
+    pub(super) annotation_index: u64,
+    pub(super) annotations: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Default, Clone)]
 pub(super) struct OpenAiResponsesSerializeState {
     pub(super) response_id: Option<String>,
     pub(super) model_id: Option<String>,
@@ -34,17 +50,12 @@ pub(super) struct OpenAiResponsesSerializeState {
     pub(super) emitted_output_item_added_ids: std::collections::HashSet<String>,
     pub(super) emitted_output_item_done_ids: std::collections::HashSet<String>,
 
-    pub(super) message_item_id: Option<String>,
-    pub(super) message_output_index: Option<u64>,
-    pub(super) message_content_index: u64,
-    pub(super) message_scaffold_emitted: bool,
-    pub(super) message_text: String,
-    pub(super) message_annotation_index: u64,
-    pub(super) message_annotations: Vec<serde_json::Value>,
+    pub(super) message: OpenAiResponsesMessageSerializeState,
 
-    pub(super) reasoning_item_id: Option<String>,
-    pub(super) reasoning_output_index: Option<u64>,
-    pub(super) reasoning_summary_index: u64,
+    pub(super) reasoning_items_by_item_id:
+        std::collections::HashMap<String, OpenAiResponsesReasoningItemSerializeState>,
+    pub(super) fallback_reasoning_item_id: Option<String>,
+    pub(super) latest_reasoning_item_id: Option<String>,
 
     pub(super) function_calls_by_call_id:
         std::collections::HashMap<String, OpenAiResponsesFunctionCallSerializeState>,

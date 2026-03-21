@@ -1,5 +1,8 @@
 use super::OpenAiResponsesEventConverter;
-use super::state::{OpenAiResponsesFunctionCallSerializeState, OpenAiResponsesSerializeState};
+use super::state::{
+    OpenAiResponsesFunctionCallSerializeState, OpenAiResponsesReasoningItemSerializeState,
+    OpenAiResponsesSerializeState,
+};
 
 pub(super) fn serialize_event(
     this: &super::OpenAiResponsesEventConverter,
@@ -211,6 +214,334 @@ pub(super) fn serialize_event(
         alloc_output_index(state)
     }
 
+    fn ensure_reasoning_item(
+        state: &mut OpenAiResponsesSerializeState,
+        requested_item_id: Option<&str>,
+    ) -> (String, u64) {
+        if let Some(item_id) = requested_item_id.filter(|s| !s.is_empty()) {
+            if let Some(existing) = state.reasoning_items_by_item_id.get(item_id) {
+                state.latest_reasoning_item_id = Some(item_id.to_string());
+                return (item_id.to_string(), existing.output_index);
+            }
+
+            let output_index = alloc_output_index(state);
+            state.reasoning_items_by_item_id.insert(
+                item_id.to_string(),
+                OpenAiResponsesReasoningItemSerializeState { output_index },
+            );
+            state.latest_reasoning_item_id = Some(item_id.to_string());
+            return (item_id.to_string(), output_index);
+        }
+
+        if let Some(item_id) = state.latest_reasoning_item_id.clone() {
+            if let Some(existing) = state.reasoning_items_by_item_id.get(&item_id) {
+                return (item_id, existing.output_index);
+            }
+        }
+
+        if let Some(item_id) = state.fallback_reasoning_item_id.clone() {
+            if let Some(existing) = state.reasoning_items_by_item_id.get(&item_id) {
+                state.latest_reasoning_item_id = Some(item_id.clone());
+                return (item_id, existing.output_index);
+            }
+
+            let output_index = alloc_output_index(state);
+            state.reasoning_items_by_item_id.insert(
+                item_id.clone(),
+                OpenAiResponsesReasoningItemSerializeState { output_index },
+            );
+            state.latest_reasoning_item_id = Some(item_id.clone());
+            return (item_id, output_index);
+        }
+
+        let output_index = alloc_output_index(state);
+        let item_id = format!("rs_siumai_{output_index}");
+        state.reasoning_items_by_item_id.insert(
+            item_id.clone(),
+            OpenAiResponsesReasoningItemSerializeState { output_index },
+        );
+        state.fallback_reasoning_item_id = Some(item_id.clone());
+        state.latest_reasoning_item_id = Some(item_id.clone());
+        (item_id, output_index)
+    }
+
+    fn ensure_function_call_state<'a>(
+        state: &'a mut OpenAiResponsesSerializeState,
+        call_id: &str,
+        output_index_seed: Option<u64>,
+        default_name: Option<&str>,
+    ) -> &'a mut OpenAiResponsesFunctionCallSerializeState {
+        if state.function_calls_by_call_id.contains_key(call_id) {
+            return state
+                .function_calls_by_call_id
+                .get_mut(call_id)
+                .unwrap_or_else(|| unreachable!("function call state must exist"));
+        }
+
+        let output_index = output_index_seed.unwrap_or_else(|| alloc_output_index(state));
+        state.function_calls_by_call_id.insert(
+            call_id.to_string(),
+            OpenAiResponsesFunctionCallSerializeState {
+                item_id: format!("fc_siumai_{output_index}"),
+                output_index,
+                name: default_name.map(ToString::to_string),
+                arguments: String::new(),
+                arguments_done: false,
+            },
+        );
+        state
+            .function_calls_by_call_id
+            .get_mut(call_id)
+            .unwrap_or_else(|| unreachable!("function call state must exist"))
+    }
+
+    fn ensure_message_item(
+        state: &mut OpenAiResponsesSerializeState,
+        requested_item_id: Option<&str>,
+        response_id_fallback: Option<&str>,
+        prefer_requested_item_id: bool,
+    ) -> (String, u64) {
+        if state.message.output_index.is_none() {
+            state.message.output_index = Some(alloc_output_index(state));
+        }
+        let output_index = state.message.output_index.unwrap_or(0);
+
+        let requested_item_id = requested_item_id.filter(|item_id| !item_id.is_empty());
+        if prefer_requested_item_id {
+            if let Some(item_id) = requested_item_id {
+                state.message.item_id = Some(item_id.to_string());
+            }
+        } else if state.message.item_id.is_none()
+            && let Some(item_id) = requested_item_id
+        {
+            state.message.item_id = Some(item_id.to_string());
+        }
+
+        if state.message.item_id.is_none() {
+            let fallback_id = response_id_fallback
+                .filter(|response_id| !response_id.is_empty())
+                .map(|response_id| format!("msg_{response_id}_0"))
+                .unwrap_or_else(|| format!("msg_siumai_{output_index}"));
+            state.message.item_id = Some(fallback_id);
+        }
+
+        (
+            state
+                .message
+                .item_id
+                .clone()
+                .unwrap_or_else(|| format!("msg_siumai_{output_index}")),
+            output_index,
+        )
+    }
+
+    fn ensure_message_scaffold_emitted(
+        state: &mut OpenAiResponsesSerializeState,
+        item_id: &str,
+        output_index: u64,
+    ) -> Result<Vec<u8>, LlmError> {
+        if state.message.scaffold_emitted {
+            return Ok(Vec::new());
+        }
+
+        let added = serde_json::json!({
+            "type": "response.output_item.added",
+            "sequence_number": next_sequence_number(state),
+            "output_index": output_index,
+            "item": {
+                "id": item_id,
+                "type": "message",
+                "status": "in_progress",
+                "role": "assistant",
+                "content": [],
+            }
+        });
+        let part_added = serde_json::json!({
+            "type": "response.content_part.added",
+            "sequence_number": next_sequence_number(state),
+            "item_id": item_id,
+            "output_index": output_index,
+            "content_index": state.message.content_index,
+            "part": {
+                "type": "output_text",
+                "text": "",
+                "annotations": [],
+                "logprobs": [],
+            }
+        });
+
+        let mut out = Vec::new();
+        out.extend_from_slice(&sse_event_frame("response.output_item.added", &added)?);
+        out.extend_from_slice(&sse_event_frame(
+            "response.content_part.added",
+            &part_added,
+        )?);
+        state.message.scaffold_emitted = true;
+        Ok(out)
+    }
+
+    fn emit_message_done_frames(
+        state: &mut OpenAiResponsesSerializeState,
+        item_id: &str,
+        output_index: u64,
+        final_text: &str,
+        annotations: &[serde_json::Value],
+    ) -> Result<(Vec<u8>, serde_json::Value), LlmError> {
+        let output_text_done = serde_json::json!({
+            "type": "response.output_text.done",
+            "sequence_number": next_sequence_number(state),
+            "item_id": item_id,
+            "output_index": output_index,
+            "content_index": state.message.content_index,
+            "text": final_text,
+        });
+        let part_done = serde_json::json!({
+            "type": "response.content_part.done",
+            "sequence_number": next_sequence_number(state),
+            "item_id": item_id,
+            "output_index": output_index,
+            "content_index": state.message.content_index,
+            "part": {
+                "type": "output_text",
+                "text": final_text,
+                "annotations": annotations,
+            }
+        });
+        let item = serde_json::json!({
+            "id": item_id,
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+                { "type": "output_text", "text": final_text, "annotations": annotations }
+            ]
+        });
+        let item_done = serde_json::json!({
+            "type": "response.output_item.done",
+            "sequence_number": next_sequence_number(state),
+            "output_index": output_index,
+            "item": item.clone(),
+        });
+
+        let mut out = Vec::new();
+        out.extend_from_slice(&sse_event_frame(
+            "response.output_text.done",
+            &output_text_done,
+        )?);
+        out.extend_from_slice(&sse_event_frame("response.content_part.done", &part_done)?);
+        out.extend_from_slice(&sse_event_frame("response.output_item.done", &item_done)?);
+        Ok((out, item))
+    }
+
+    fn output_item_id(item: &serde_json::Value) -> Option<&str> {
+        item.get("id")
+            .and_then(|value| value.as_str())
+            .filter(|id| !id.is_empty())
+    }
+
+    fn emit_output_item_frame(
+        state: &mut OpenAiResponsesSerializeState,
+        event_name: &str,
+        output_index: u64,
+        item: serde_json::Value,
+    ) -> Result<Vec<u8>, LlmError> {
+        let payload = serde_json::json!({
+            "type": event_name,
+            "sequence_number": next_sequence_number(state),
+            "output_index": output_index,
+            "item": item,
+        });
+        sse_event_frame(event_name, &payload)
+    }
+
+    fn emit_deduped_output_item_frame(
+        state: &mut OpenAiResponsesSerializeState,
+        event_name: &str,
+        output_index: u64,
+        item: serde_json::Value,
+    ) -> Result<Option<Vec<u8>>, LlmError> {
+        let inserted = match event_name {
+            "response.output_item.added" => output_item_id(&item)
+                .map(|item_id| {
+                    state
+                        .emitted_output_item_added_ids
+                        .insert(item_id.to_string())
+                })
+                .unwrap_or(true),
+            "response.output_item.done" => output_item_id(&item)
+                .map(|item_id| {
+                    state
+                        .emitted_output_item_done_ids
+                        .insert(item_id.to_string())
+                })
+                .unwrap_or(true),
+            _ => true,
+        };
+
+        if !inserted {
+            return Ok(None);
+        }
+
+        emit_output_item_frame(state, event_name, output_index, item).map(Some)
+    }
+
+    fn build_reasoning_item(item_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "id": item_id,
+            "type": "reasoning",
+            "summary": [],
+        })
+    }
+
+    fn build_function_call_item(
+        item_id: &str,
+        call_id: &str,
+        name: &str,
+        status: &str,
+        arguments: &str,
+    ) -> serde_json::Value {
+        serde_json::json!({
+            "id": item_id,
+            "type": "function_call",
+            "status": status,
+            "arguments": arguments,
+            "call_id": call_id,
+            "name": name,
+        })
+    }
+
+    fn emit_function_call_arguments_delta_frame(
+        state: &mut OpenAiResponsesSerializeState,
+        item_id: &str,
+        output_index: u64,
+        delta: &str,
+    ) -> Result<Vec<u8>, LlmError> {
+        let payload = serde_json::json!({
+            "type": "response.function_call_arguments.delta",
+            "sequence_number": next_sequence_number(state),
+            "item_id": item_id,
+            "output_index": output_index,
+            "delta": delta,
+        });
+        sse_event_frame("response.function_call_arguments.delta", &payload)
+    }
+
+    fn emit_function_call_arguments_done_frame(
+        state: &mut OpenAiResponsesSerializeState,
+        item_id: &str,
+        output_index: u64,
+        arguments: &str,
+    ) -> Result<Vec<u8>, LlmError> {
+        let payload = serde_json::json!({
+            "type": "response.function_call_arguments.done",
+            "sequence_number": next_sequence_number(state),
+            "item_id": item_id,
+            "output_index": output_index,
+            "arguments": arguments,
+        });
+        sse_event_frame("response.function_call_arguments.done", &payload)
+    }
+
     let mut state = this
         .serialize_state
         .lock()
@@ -259,64 +590,17 @@ pub(super) fn serialize_event(
         crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } => {
             maybe_emit_response_created(this, &mut state)?;
             let (response_id, _, _) = ensure_response_metadata(this, &mut state);
+            let (item_id, output_index) =
+                ensure_message_item(&mut state, None, Some(response_id.as_str()), false);
+            let mut out = ensure_message_scaffold_emitted(&mut state, &item_id, output_index)?;
 
-            if state.message_output_index.is_none() {
-                state.message_output_index = Some(alloc_output_index(&mut state));
-            }
-            let output_index = state.message_output_index.unwrap_or(0);
-
-            if state.message_item_id.is_none() {
-                state.message_item_id = Some(format!("msg_{response_id}_0"));
-            }
-            let item_id = state
-                .message_item_id
-                .clone()
-                .unwrap_or_else(|| "msg_siumai_0".to_string());
-
-            // Emit message scaffolding (output_item.added + content_part.added) once.
-            let mut out = Vec::new();
-            if !state.message_scaffold_emitted {
-                let added = serde_json::json!({
-                    "type": "response.output_item.added",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "output_index": output_index,
-                    "item": {
-                        "id": item_id,
-                        "type": "message",
-                        "status": "in_progress",
-                        "role": "assistant",
-                        "content": [],
-                    }
-                });
-                out.extend_from_slice(&sse_event_frame("response.output_item.added", &added)?);
-
-                let part_added = serde_json::json!({
-                    "type": "response.content_part.added",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "item_id": item_id,
-                    "output_index": output_index,
-                    "content_index": state.message_content_index,
-                    "part": {
-                        "type": "output_text",
-                        "text": "",
-                        "annotations": [],
-                        "logprobs": [],
-                    }
-                });
-                out.extend_from_slice(&sse_event_frame(
-                    "response.content_part.added",
-                    &part_added,
-                )?);
-                state.message_scaffold_emitted = true;
-            }
-
-            state.message_text.push_str(delta);
+            state.message.text.push_str(delta);
             let payload = serde_json::json!({
                 "type": "response.output_text.delta",
                 "sequence_number": next_sequence_number(&mut state),
                 "item_id": item_id,
                 "output_index": output_index,
-                "content_index": state.message_content_index,
+                "content_index": state.message.content_index,
                 "delta": delta,
                 "logprobs": [],
             });
@@ -341,26 +625,7 @@ pub(super) fn serialize_event(
                 let output_index_fallback = index
                     .map(|i| i as u64)
                     .filter(|idx| !state.used_output_indices.contains(idx));
-
-                if !state.function_calls_by_call_id.contains_key(id) {
-                    let output_index =
-                        output_index_fallback.unwrap_or_else(|| alloc_output_index(&mut state));
-                    state.function_calls_by_call_id.insert(
-                        id.clone(),
-                        OpenAiResponsesFunctionCallSerializeState {
-                            item_id: format!("fc_siumai_{output_index}"),
-                            output_index,
-                            name: None,
-                            arguments: String::new(),
-                            arguments_done: false,
-                        },
-                    );
-                }
-
-                let call = state
-                    .function_calls_by_call_id
-                    .get_mut(id)
-                    .unwrap_or_else(|| unreachable!("function call state must exist"));
+                let call = ensure_function_call_state(&mut state, id, output_index_fallback, None);
 
                 if let Some(name) = function_name.clone()
                     && call.name.is_none()
@@ -382,34 +647,23 @@ pub(super) fn serialize_event(
 
             let mut out = Vec::new();
             if let Some((item_id, output_index, call_id, name)) = emit_added {
-                state.emitted_output_item_added_ids.insert(item_id.clone());
-                let added = serde_json::json!({
-                    "type": "response.output_item.added",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "output_index": output_index,
-                    "item": {
-                        "id": item_id,
-                        "type": "function_call",
-                        "status": "in_progress",
-                        "arguments": "",
-                        "call_id": call_id,
-                        "name": name,
-                    }
-                });
-                out.extend_from_slice(&sse_event_frame("response.output_item.added", &added)?);
+                let item = build_function_call_item(&item_id, &call_id, &name, "in_progress", "");
+                if let Some(added) = emit_deduped_output_item_frame(
+                    &mut state,
+                    "response.output_item.added",
+                    output_index,
+                    item,
+                )? {
+                    out.extend_from_slice(&added);
+                }
             }
 
             if let Some((item_id, output_index, delta)) = emit_args_delta {
-                let payload = serde_json::json!({
-                    "type": "response.function_call_arguments.delta",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "item_id": item_id,
-                    "output_index": output_index,
-                    "delta": delta,
-                });
-                out.extend_from_slice(&sse_event_frame(
-                    "response.function_call_arguments.delta",
-                    &payload,
+                out.extend_from_slice(&emit_function_call_arguments_delta_frame(
+                    &mut state,
+                    &item_id,
+                    output_index,
+                    &delta,
                 )?);
             }
 
@@ -420,33 +674,17 @@ pub(super) fn serialize_event(
             maybe_emit_response_created(this, &mut state)?;
             ensure_response_metadata(this, &mut state);
 
-            if state.reasoning_output_index.is_none() {
-                state.reasoning_output_index = Some(alloc_output_index(&mut state));
-            }
-            let output_index = state.reasoning_output_index.unwrap_or(0);
-
-            let emit_added = state.reasoning_item_id.is_none();
-            if emit_added {
-                state.reasoning_item_id = Some(format!("rs_siumai_{output_index}"));
-            }
-            let item_id = state
-                .reasoning_item_id
-                .clone()
-                .unwrap_or_else(|| "rs_siumai_0".to_string());
+            let (item_id, output_index) = ensure_reasoning_item(&mut state, None);
+            let emit_added = state.emitted_output_item_added_ids.insert(item_id.clone());
 
             let mut out = Vec::new();
             if emit_added {
-                let added = serde_json::json!({
-                    "type": "response.output_item.added",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "output_index": output_index,
-                    "item": {
-                        "id": item_id,
-                        "type": "reasoning",
-                        "summary": [],
-                    }
-                });
-                out.extend_from_slice(&sse_event_frame("response.output_item.added", &added)?);
+                out.extend_from_slice(&emit_output_item_frame(
+                    &mut state,
+                    "response.output_item.added",
+                    output_index,
+                    build_reasoning_item(&item_id),
+                )?);
             }
 
             let payload = serde_json::json!({
@@ -454,7 +692,7 @@ pub(super) fn serialize_event(
                 "sequence_number": next_sequence_number(&mut state),
                 "item_id": item_id,
                 "output_index": output_index,
-                "summary_index": state.reasoning_summary_index,
+                "summary_index": 0,
                 "delta": delta,
             });
             out.extend_from_slice(&sse_event_frame(
@@ -493,97 +731,57 @@ pub(super) fn serialize_event(
                 state.function_calls_by_call_id.drain().collect();
             for (call_id, call) in calls {
                 if !call.arguments.is_empty() && !call.arguments_done {
-                    let done = serde_json::json!({
-                        "type": "response.function_call_arguments.done",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "item_id": call.item_id,
-                        "output_index": call.output_index,
-                        "arguments": call.arguments,
-                    });
-                    out.extend_from_slice(&sse_event_frame(
-                        "response.function_call_arguments.done",
-                        &done,
+                    out.extend_from_slice(&emit_function_call_arguments_done_frame(
+                        &mut state,
+                        &call.item_id,
+                        call.output_index,
+                        &call.arguments,
                     )?);
                 }
 
-                let item_done = serde_json::json!({
-                    "type": "response.output_item.done",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "output_index": call.output_index,
-                    "item": {
-                        "id": call.item_id,
-                        "type": "function_call",
-                        "status": "completed",
-                        "arguments": call.arguments,
-                        "call_id": call_id,
-                        "name": call.name.clone().unwrap_or_else(|| "tool".to_string()),
-                    }
-                });
-                out.extend_from_slice(&sse_event_frame("response.output_item.done", &item_done)?);
+                let item = build_function_call_item(
+                    &call.item_id,
+                    &call_id,
+                    &call.name.clone().unwrap_or_else(|| "tool".to_string()),
+                    "completed",
+                    &call.arguments,
+                );
+                out.extend_from_slice(&emit_output_item_frame(
+                    &mut state,
+                    "response.output_item.done",
+                    call.output_index,
+                    item.clone(),
+                )?);
 
-                function_outputs.push(item_done["item"].clone());
+                function_outputs.push(item);
             }
 
             // Close message output (best-effort): emit output_text.done + content_part.done + output_item.done.
             let final_text = {
                 let txt = response.content.all_text();
                 if txt.is_empty() {
-                    state.message_text.clone()
+                    state.message.text.clone()
                 } else {
                     txt
                 }
             };
 
-            let annotations = state.message_annotations.clone();
+            let annotations = state.message.annotations.clone();
             let mut output: Vec<serde_json::Value> = Vec::new();
             output.extend(function_outputs);
 
             if let (Some(item_id), Some(output_index)) =
-                (state.message_item_id.clone(), state.message_output_index)
+                (state.message.item_id.clone(), state.message.output_index)
             {
-                let output_text_done = serde_json::json!({
-                    "type": "response.output_text.done",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "item_id": item_id,
-                    "output_index": output_index,
-                    "content_index": state.message_content_index,
-                    "text": final_text,
-                });
-                out.extend_from_slice(&sse_event_frame(
-                    "response.output_text.done",
-                    &output_text_done,
-                )?);
-
-                let part_done = serde_json::json!({
-                    "type": "response.content_part.done",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "item_id": item_id,
-                    "output_index": output_index,
-                    "content_index": state.message_content_index,
-                    "part": {
-                        "type": "output_text",
-                        "text": final_text,
-                        "annotations": annotations.clone(),
-                    }
-                });
-                out.extend_from_slice(&sse_event_frame("response.content_part.done", &part_done)?);
-
-                let item_done = serde_json::json!({
-                    "type": "response.output_item.done",
-                    "sequence_number": next_sequence_number(&mut state),
-                    "output_index": output_index,
-                    "item": {
-                        "id": item_id,
-                        "type": "message",
-                        "status": "completed",
-                        "role": "assistant",
-                        "content": [
-                            { "type": "output_text", "text": final_text, "annotations": annotations.clone() }
-                        ]
-                    }
-                });
-                out.extend_from_slice(&sse_event_frame("response.output_item.done", &item_done)?);
-                output.push(item_done["item"].clone());
+                let (message_out, item) = emit_message_done_frames(
+                    &mut state,
+                    &item_id,
+                    output_index,
+                    &final_text,
+                    &annotations,
+                )?;
+                out.extend_from_slice(&message_out);
+                output.push(item);
             } else if !final_text.is_empty() {
                 output.push(serde_json::json!({ "type": "output_text", "text": final_text }));
             }
@@ -634,6 +832,20 @@ pub(super) fn serialize_event(
             fn provider_metadata_value(metadata: &serde_json::Value) -> Option<&serde_json::Value> {
                 let obj = metadata.as_object()?;
                 obj.get("openai").or_else(|| obj.values().next())
+            }
+
+            fn reasoning_item_id_from_part(data: &serde_json::Value) -> Option<String> {
+                data.get("providerMetadata")
+                    .and_then(provider_metadata_value)
+                    .and_then(|metadata| metadata.get("itemId"))
+                    .and_then(|value| value.as_str())
+                    .or_else(|| {
+                        data.get("id")
+                            .and_then(|value| value.as_str())
+                            .and_then(|id| id.split(':').next())
+                    })
+                    .filter(|item_id| !item_id.is_empty())
+                    .map(ToString::to_string)
             }
 
             fn stream_part_type_to_openai_event_type(tpe: &str) -> Option<&'static str> {
@@ -719,71 +931,23 @@ pub(super) fn serialize_event(
 
                     maybe_emit_response_created(this, &mut state)?;
                     let (response_id, _, _) = ensure_response_metadata(this, &mut state);
-                    if state.message_output_index.is_none() {
-                        state.message_output_index = Some(alloc_output_index(&mut state));
-                    }
-                    let output_index = state.message_output_index.unwrap_or(0);
+                    let requested_item_id = data.get("id").and_then(|v| v.as_str());
+                    let (item_id, output_index) = ensure_message_item(
+                        &mut state,
+                        requested_item_id,
+                        Some(response_id.as_str()),
+                        false,
+                    );
+                    let mut out =
+                        ensure_message_scaffold_emitted(&mut state, &item_id, output_index)?;
 
-                    if state.message_item_id.is_none() {
-                        let fallback_id = data
-                            .get("id")
-                            .and_then(|v| v.as_str())
-                            .filter(|s| !s.is_empty())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("msg_{response_id}_0"));
-                        state.message_item_id = Some(fallback_id);
-                    }
-                    let item_id = state
-                        .message_item_id
-                        .clone()
-                        .unwrap_or_else(|| "msg_siumai_0".to_string());
-
-                    let mut out = Vec::new();
-                    if !state.message_scaffold_emitted {
-                        let added = serde_json::json!({
-                            "type": "response.output_item.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": {
-                                "id": item_id,
-                                "type": "message",
-                                "status": "in_progress",
-                                "role": "assistant",
-                                "content": [],
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.output_item.added",
-                            &added,
-                        )?);
-
-                        let part_added = serde_json::json!({
-                            "type": "response.content_part.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "item_id": item_id,
-                            "output_index": output_index,
-                            "content_index": state.message_content_index,
-                            "part": {
-                                "type": "output_text",
-                                "text": "",
-                                "annotations": [],
-                                "logprobs": [],
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.content_part.added",
-                            &part_added,
-                        )?);
-                        state.message_scaffold_emitted = true;
-                    }
-
-                    state.message_text.push_str(delta);
+                    state.message.text.push_str(delta);
                     let payload = serde_json::json!({
                         "type": "response.output_text.delta",
                         "sequence_number": next_sequence_number(&mut state),
                         "item_id": item_id,
                         "output_index": output_index,
-                        "content_index": state.message_content_index,
+                        "content_index": state.message.content_index,
                         "delta": delta,
                         "logprobs": [],
                     });
@@ -809,53 +973,9 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
-                    if state.message_output_index.is_none() {
-                        state.message_output_index = Some(alloc_output_index(&mut state));
-                    }
-                    let output_index = state.message_output_index.unwrap_or(0);
-
-                    state.message_item_id = Some(item_id.to_string());
-
-                    if state.message_scaffold_emitted {
-                        return Ok(Vec::new());
-                    }
-
-                    let added = serde_json::json!({
-                        "type": "response.output_item.added",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "output_index": output_index,
-                        "item": {
-                            "id": item_id,
-                            "type": "message",
-                            "status": "in_progress",
-                            "role": "assistant",
-                            "content": [],
-                        }
-                    });
-
-                    let part_added = serde_json::json!({
-                        "type": "response.content_part.added",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "item_id": item_id,
-                        "output_index": output_index,
-                        "content_index": state.message_content_index,
-                        "part": {
-                            "type": "output_text",
-                            "text": "",
-                            "annotations": [],
-                            "logprobs": [],
-                        }
-                    });
-
-                    state.message_scaffold_emitted = true;
-
-                    let mut out = Vec::new();
-                    out.extend_from_slice(&sse_event_frame("response.output_item.added", &added)?);
-                    out.extend_from_slice(&sse_event_frame(
-                        "response.content_part.added",
-                        &part_added,
-                    )?);
-                    Ok(out)
+                    let (item_id, output_index) =
+                        ensure_message_item(&mut state, Some(item_id), None, true);
+                    ensure_message_scaffold_emitted(&mut state, &item_id, output_index)
                 }
                 "openai:text-end" => {
                     maybe_emit_response_created(this, &mut state)?;
@@ -872,102 +992,19 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
-                    if state.message_item_id.is_none() {
-                        state.message_item_id = Some(item_id.to_string());
-                    }
-                    if state.message_output_index.is_none() {
-                        state.message_output_index = Some(alloc_output_index(&mut state));
-                    }
-                    let output_index = state.message_output_index.unwrap_or(0);
-
-                    let final_text = state.message_text.clone();
-
-                    let mut out = Vec::new();
-                    if !state.message_scaffold_emitted {
-                        let added = serde_json::json!({
-                            "type": "response.output_item.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": {
-                                "id": item_id,
-                                "type": "message",
-                                "status": "in_progress",
-                                "role": "assistant",
-                                "content": [],
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.output_item.added",
-                            &added,
-                        )?);
-
-                        let part_added = serde_json::json!({
-                            "type": "response.content_part.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "item_id": item_id,
-                            "output_index": output_index,
-                            "content_index": state.message_content_index,
-                            "part": {
-                                "type": "output_text",
-                                "text": "",
-                                "annotations": [],
-                                "logprobs": [],
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.content_part.added",
-                            &part_added,
-                        )?);
-                        state.message_scaffold_emitted = true;
-                    }
-
-                    let output_text_done = serde_json::json!({
-                        "type": "response.output_text.done",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "item_id": item_id,
-                        "output_index": output_index,
-                        "content_index": state.message_content_index,
-                        "text": final_text,
-                    });
-                    let part_done = serde_json::json!({
-                        "type": "response.content_part.done",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "item_id": item_id,
-                        "output_index": output_index,
-                        "content_index": state.message_content_index,
-                        "part": {
-                            "type": "output_text",
-                            "text": final_text,
-                            "annotations": [],
-                        }
-                    });
-                    let item_done = serde_json::json!({
-                        "type": "response.output_item.done",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "output_index": output_index,
-                        "item": {
-                            "id": item_id,
-                            "type": "message",
-                            "status": "completed",
-                            "role": "assistant",
-                            "content": [
-                                { "type": "output_text", "text": final_text, "annotations": [] }
-                            ]
-                        }
-                    });
-
-                    out.extend_from_slice(&sse_event_frame(
-                        "response.output_text.done",
-                        &output_text_done,
-                    )?);
-                    out.extend_from_slice(&sse_event_frame(
-                        "response.content_part.done",
-                        &part_done,
-                    )?);
-                    out.extend_from_slice(&sse_event_frame(
-                        "response.output_item.done",
-                        &item_done,
-                    )?);
+                    let (item_id, output_index) =
+                        ensure_message_item(&mut state, Some(item_id), None, false);
+                    let mut out =
+                        ensure_message_scaffold_emitted(&mut state, &item_id, output_index)?;
+                    let final_text = state.message.text.clone();
+                    let (done_frames, _) = emit_message_done_frames(
+                        &mut state,
+                        &item_id,
+                        output_index,
+                        &final_text,
+                        &[],
+                    )?;
+                    out.extend_from_slice(&done_frames);
                     Ok(out)
                 }
                 "openai:reasoning-delta" => {
@@ -981,55 +1018,25 @@ pub(super) fn serialize_event(
                     maybe_emit_response_created(this, &mut state)?;
                     ensure_response_metadata(this, &mut state);
 
-                    if state.reasoning_output_index.is_none() {
-                        state.reasoning_output_index = Some(alloc_output_index(&mut state));
-                    }
-                    let output_index = state.reasoning_output_index.unwrap_or(0);
-
-                    let emit_added = state.reasoning_item_id.is_none();
-                    if emit_added {
-                        let item_id = data
-                            .get("providerMetadata")
-                            .and_then(provider_metadata_value)
-                            .and_then(|m| m.get("itemId"))
-                            .and_then(|v| v.as_str())
-                            .or_else(|| {
-                                data.get("id")
-                                    .and_then(|v| v.as_str())
-                                    .and_then(|id| id.split(':').next())
-                            })
-                            .filter(|s| !s.is_empty())
-                            .map(|s| s.to_string())
-                            .unwrap_or_else(|| format!("rs_siumai_{output_index}"));
-                        state.reasoning_item_id = Some(item_id);
-                    }
-                    let item_id = state
-                        .reasoning_item_id
-                        .clone()
-                        .unwrap_or_else(|| "rs_siumai_0".to_string());
+                    let requested_item_id = reasoning_item_id_from_part(data);
+                    let (item_id, output_index) =
+                        ensure_reasoning_item(&mut state, requested_item_id.as_deref());
+                    let emit_added = state.emitted_output_item_added_ids.insert(item_id.clone());
 
                     let summary_index = data
                         .get("id")
                         .and_then(|v| v.as_str())
                         .and_then(|id| id.rsplit_once(':').map(|(_, n)| n))
                         .and_then(|n| n.parse::<u64>().ok())
-                        .unwrap_or(state.reasoning_summary_index);
+                        .unwrap_or(0);
 
                     let mut out = Vec::new();
                     if emit_added {
-                        let added = serde_json::json!({
-                            "type": "response.output_item.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": {
-                                "id": item_id,
-                                "type": "reasoning",
-                                "summary": [],
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
+                        out.extend_from_slice(&emit_output_item_frame(
+                            &mut state,
                             "response.output_item.added",
-                            &added,
+                            output_index,
+                            build_reasoning_item(&item_id),
                         )?);
                     }
 
@@ -1050,103 +1057,42 @@ pub(super) fn serialize_event(
                 "openai:reasoning-start" => {
                     maybe_emit_response_created(this, &mut state)?;
 
-                    let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    let item_id = data
-                        .get("providerMetadata")
-                        .and_then(provider_metadata_value)
-                        .and_then(|m| m.get("itemId"))
-                        .and_then(|v| v.as_str())
-                        .or_else(|| {
-                            if id.is_empty() {
-                                None
-                            } else {
-                                Some(id.split(':').next().unwrap_or(""))
-                            }
-                        })
-                        .unwrap_or("");
-                    if item_id.is_empty() {
+                    let Some(item_id) = reasoning_item_id_from_part(data) else {
                         return Ok(Vec::new());
-                    }
-
-                    if state.reasoning_output_index.is_none() {
-                        state.reasoning_output_index = Some(alloc_output_index(&mut state));
-                    }
-                    let output_index = state.reasoning_output_index.unwrap_or(0);
-
-                    if state.reasoning_item_id.is_none() {
-                        state.reasoning_item_id = Some(item_id.to_string());
-                    }
-
-                    let item_id = state
-                        .reasoning_item_id
-                        .clone()
-                        .unwrap_or_else(|| item_id.to_string());
+                    };
+                    let (item_id, output_index) =
+                        ensure_reasoning_item(&mut state, Some(item_id.as_str()));
 
                     if !state.emitted_output_item_added_ids.insert(item_id.clone()) {
                         return Ok(Vec::new());
                     }
 
-                    let added = serde_json::json!({
-                        "type": "response.output_item.added",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "output_index": output_index,
-                        "item": {
-                            "id": item_id,
-                            "type": "reasoning",
-                            "summary": [],
-                        }
-                    });
-                    sse_event_frame("response.output_item.added", &added)
+                    emit_output_item_frame(
+                        &mut state,
+                        "response.output_item.added",
+                        output_index,
+                        build_reasoning_item(&item_id),
+                    )
                 }
                 "openai:reasoning-end" => {
                     maybe_emit_response_created(this, &mut state)?;
 
-                    let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                    let item_id = data
-                        .get("providerMetadata")
-                        .and_then(provider_metadata_value)
-                        .and_then(|m| m.get("itemId"))
-                        .and_then(|v| v.as_str())
-                        .or_else(|| {
-                            if id.is_empty() {
-                                None
-                            } else {
-                                Some(id.split(':').next().unwrap_or(""))
-                            }
-                        })
-                        .unwrap_or("");
-                    if item_id.is_empty() {
+                    let Some(item_id) = reasoning_item_id_from_part(data) else {
                         return Ok(Vec::new());
-                    }
-
-                    if state.reasoning_output_index.is_none() {
-                        state.reasoning_output_index = Some(alloc_output_index(&mut state));
-                    }
-                    let output_index = state.reasoning_output_index.unwrap_or(0);
-
-                    if state.reasoning_item_id.is_none() {
-                        state.reasoning_item_id = Some(item_id.to_string());
-                    }
-                    let item_id = state
-                        .reasoning_item_id
-                        .clone()
-                        .unwrap_or_else(|| item_id.to_string());
+                    };
+                    let (item_id, output_index) =
+                        ensure_reasoning_item(&mut state, Some(item_id.as_str()));
 
                     if !state.emitted_output_item_done_ids.insert(item_id.clone()) {
                         return Ok(Vec::new());
                     }
 
-                    let done = serde_json::json!({
-                        "type": "response.output_item.done",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "output_index": output_index,
-                        "item": {
-                            "id": item_id,
-                            "type": "reasoning",
-                            "summary": [],
-                        }
-                    });
-                    sse_event_frame("response.output_item.done", &done)
+                    emit_output_item_frame(
+                        &mut state,
+                        "response.output_item.done",
+                        output_index,
+                        build_reasoning_item(&item_id),
+                    )
                 }
                 "openai:source" => {
                     // Tool result sources (e.g. web_search_call) should stay as Vercel parts and
@@ -1161,58 +1107,10 @@ pub(super) fn serialize_event(
 
                     maybe_emit_response_created(this, &mut state)?;
                     let (response_id, _, _) = ensure_response_metadata(this, &mut state);
-
-                    if state.message_output_index.is_none() {
-                        state.message_output_index = Some(alloc_output_index(&mut state));
-                    }
-                    let output_index = state.message_output_index.unwrap_or(0);
-
-                    if state.message_item_id.is_none() {
-                        state.message_item_id = Some(format!("msg_{response_id}_0"));
-                    }
-                    let item_id = state
-                        .message_item_id
-                        .clone()
-                        .unwrap_or_else(|| "msg_siumai_0".to_string());
-
-                    let mut out = Vec::new();
-                    if !state.message_scaffold_emitted {
-                        let added = serde_json::json!({
-                            "type": "response.output_item.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": {
-                                "id": item_id,
-                                "type": "message",
-                                "status": "in_progress",
-                                "role": "assistant",
-                                "content": [],
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.output_item.added",
-                            &added,
-                        )?);
-
-                        let part_added = serde_json::json!({
-                            "type": "response.content_part.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "item_id": item_id,
-                            "output_index": output_index,
-                            "content_index": state.message_content_index,
-                            "part": {
-                                "type": "output_text",
-                                "text": "",
-                                "annotations": [],
-                                "logprobs": [],
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.content_part.added",
-                            &part_added,
-                        )?);
-                        state.message_scaffold_emitted = true;
-                    }
+                    let (item_id, output_index) =
+                        ensure_message_item(&mut state, None, Some(response_id.as_str()), false);
+                    let mut out =
+                        ensure_message_scaffold_emitted(&mut state, &item_id, output_index)?;
 
                     let annotation = match source_type {
                         "url" => {
@@ -1280,17 +1178,17 @@ pub(super) fn serialize_event(
                         _ => return Ok(Vec::new()),
                     };
 
-                    let annotation_index = state.message_annotation_index;
-                    state.message_annotation_index =
-                        state.message_annotation_index.saturating_add(1);
-                    state.message_annotations.push(annotation.clone());
+                    let annotation_index = state.message.annotation_index;
+                    state.message.annotation_index =
+                        state.message.annotation_index.saturating_add(1);
+                    state.message.annotations.push(annotation.clone());
 
                     let payload = serde_json::json!({
                         "type": "response.output_text.annotation.added",
                         "sequence_number": next_sequence_number(&mut state),
                         "item_id": item_id,
                         "output_index": output_index,
-                        "content_index": state.message_content_index,
+                        "content_index": state.message.content_index,
                         "annotation_index": annotation_index,
                         "annotation": annotation,
                     });
@@ -1406,64 +1304,24 @@ pub(super) fn serialize_event(
                     }
 
                     // Close message output (best-effort): emit output_text.done + content_part.done + output_item.done.
-                    let final_text = state.message_text.clone();
+                    let final_text = state.message.text.clone();
 
-                    let annotations = state.message_annotations.clone();
+                    let annotations = state.message.annotations.clone();
                     let mut output: Vec<serde_json::Value> = Vec::new();
                     output.extend(function_outputs);
 
                     if let (Some(item_id), Some(output_index)) =
-                        (state.message_item_id.clone(), state.message_output_index)
+                        (state.message.item_id.clone(), state.message.output_index)
                     {
-                        let output_text_done = serde_json::json!({
-                            "type": "response.output_text.done",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "item_id": item_id,
-                            "output_index": output_index,
-                            "content_index": state.message_content_index,
-                            "text": final_text,
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.output_text.done",
-                            &output_text_done,
-                        )?);
-
-                        let part_done = serde_json::json!({
-                            "type": "response.content_part.done",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "item_id": item_id,
-                            "output_index": output_index,
-                            "content_index": state.message_content_index,
-                            "part": {
-                                "type": "output_text",
-                                "text": final_text,
-                                "annotations": annotations.clone(),
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.content_part.done",
-                            &part_done,
-                        )?);
-
-                        let item_done = serde_json::json!({
-                            "type": "response.output_item.done",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": {
-                                "id": item_id,
-                                "type": "message",
-                                "status": "completed",
-                                "role": "assistant",
-                                "content": [
-                                    { "type": "output_text", "text": final_text, "annotations": annotations.clone() }
-                                ]
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.output_item.done",
-                            &item_done,
-                        )?);
-                        output.push(item_done["item"].clone());
+                        let (message_out, item) = emit_message_done_frames(
+                            &mut state,
+                            &item_id,
+                            output_index,
+                            &final_text,
+                            &annotations,
+                        )?;
+                        out.extend_from_slice(&message_out);
+                        output.push(item);
                     } else if !final_text.is_empty() {
                         output
                             .push(serde_json::json!({ "type": "output_text", "text": final_text }));
@@ -1514,25 +1372,8 @@ pub(super) fn serialize_event(
                     maybe_emit_response_created(this, &mut state)?;
                     ensure_response_metadata(this, &mut state);
 
-                    if !state.function_calls_by_call_id.contains_key(call_id) {
-                        let output_index = alloc_output_index(&mut state);
-                        state.function_calls_by_call_id.insert(
-                            call_id.to_string(),
-                            OpenAiResponsesFunctionCallSerializeState {
-                                item_id: format!("fc_siumai_{output_index}"),
-                                output_index,
-                                name: None,
-                                arguments: String::new(),
-                                arguments_done: false,
-                            },
-                        );
-                    }
-
                     let (item_id, output_index) = {
-                        let call = state
-                            .function_calls_by_call_id
-                            .get_mut(call_id)
-                            .unwrap_or_else(|| unreachable!("function call state must exist"));
+                        let call = ensure_function_call_state(&mut state, call_id, None, None);
 
                         if call.name.is_some() {
                             return Ok(Vec::new());
@@ -1543,22 +1384,12 @@ pub(super) fn serialize_event(
                     };
 
                     state.emitted_output_item_added_ids.insert(item_id.clone());
-
-                    let added = serde_json::json!({
-                        "type": "response.output_item.added",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "output_index": output_index,
-                        "item": {
-                            "id": item_id,
-                            "type": "function_call",
-                            "status": "in_progress",
-                            "arguments": "",
-                            "call_id": call_id,
-                            "name": tool_name,
-                        }
-                    });
-
-                    sse_event_frame("response.output_item.added", &added)
+                    emit_output_item_frame(
+                        &mut state,
+                        "response.output_item.added",
+                        output_index,
+                        build_function_call_item(&item_id, call_id, tool_name, "in_progress", ""),
+                    )
                 }
                 "openai:tool-input-delta" => {
                     let Some(call_id) = data.get("id").and_then(|v| v.as_str()) else {
@@ -1574,25 +1405,9 @@ pub(super) fn serialize_event(
                     maybe_emit_response_created(this, &mut state)?;
                     ensure_response_metadata(this, &mut state);
 
-                    if !state.function_calls_by_call_id.contains_key(call_id) {
-                        let output_index = alloc_output_index(&mut state);
-                        state.function_calls_by_call_id.insert(
-                            call_id.to_string(),
-                            OpenAiResponsesFunctionCallSerializeState {
-                                item_id: format!("fc_siumai_{output_index}"),
-                                output_index,
-                                name: Some("tool".to_string()),
-                                arguments: String::new(),
-                                arguments_done: false,
-                            },
-                        );
-                    }
-
                     let (item_id, output_index, name, has_name) = {
-                        let call = state
-                            .function_calls_by_call_id
-                            .get_mut(call_id)
-                            .unwrap_or_else(|| unreachable!("function call state must exist"));
+                        let call =
+                            ensure_function_call_state(&mut state, call_id, None, Some("tool"));
 
                         call.arguments.push_str(delta);
 
@@ -1608,35 +1423,19 @@ pub(super) fn serialize_event(
                     // argument deltas with a call id.
                     let mut out = Vec::new();
                     if has_name && state.emitted_output_item_added_ids.insert(item_id.clone()) {
-                        let added = serde_json::json!({
-                            "type": "response.output_item.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": {
-                                "id": item_id,
-                                "type": "function_call",
-                                "status": "in_progress",
-                                "arguments": "",
-                                "call_id": call_id,
-                                "name": name,
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
+                        out.extend_from_slice(&emit_output_item_frame(
+                            &mut state,
                             "response.output_item.added",
-                            &added,
+                            output_index,
+                            build_function_call_item(&item_id, call_id, &name, "in_progress", ""),
                         )?);
                     }
 
-                    let payload = serde_json::json!({
-                        "type": "response.function_call_arguments.delta",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "item_id": item_id,
-                        "output_index": output_index,
-                        "delta": delta,
-                    });
-                    out.extend_from_slice(&sse_event_frame(
-                        "response.function_call_arguments.delta",
-                        &payload,
+                    out.extend_from_slice(&emit_function_call_arguments_delta_frame(
+                        &mut state,
+                        &item_id,
+                        output_index,
+                        delta,
                     )?);
                     Ok(out)
                 }
@@ -1666,14 +1465,12 @@ pub(super) fn serialize_event(
                         )
                     };
 
-                    let payload = serde_json::json!({
-                        "type": "response.function_call_arguments.done",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "item_id": item_id,
-                        "output_index": output_index,
-                        "arguments": arguments,
-                    });
-                    sse_event_frame("response.function_call_arguments.done", &payload)
+                    emit_function_call_arguments_done_frame(
+                        &mut state,
+                        &item_id,
+                        output_index,
+                        &arguments,
+                    )
                 }
                 "openai:tool-call" => {
                     maybe_emit_response_created(this, &mut state)?;
@@ -1700,7 +1497,6 @@ pub(super) fn serialize_event(
                     );
 
                     if let Some(item) = raw_item {
-                        let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
                         let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("");
 
                         // Provider tool calls may be surfaced via output_item.added (in_progress)
@@ -1708,38 +1504,26 @@ pub(super) fn serialize_event(
                         // only emit stream parts on done; dedupe via item id.
                         let is_done = !provider_executed || status == "completed";
                         if is_done {
-                            if !item_id.is_empty()
-                                && !state
-                                    .emitted_output_item_done_ids
-                                    .insert(item_id.to_string())
-                            {
-                                return Ok(Vec::new());
+                            if let Some(done) = emit_deduped_output_item_frame(
+                                &mut state,
+                                "response.output_item.done",
+                                output_index,
+                                item,
+                            )? {
+                                return Ok(done);
                             }
-
-                            let payload = serde_json::json!({
-                                "type": "response.output_item.done",
-                                "sequence_number": next_sequence_number(&mut state),
-                                "output_index": output_index,
-                                "item": item,
-                            });
-                            return sse_event_frame("response.output_item.done", &payload);
-                        }
-
-                        if !item_id.is_empty()
-                            && !state
-                                .emitted_output_item_added_ids
-                                .insert(item_id.to_string())
-                        {
                             return Ok(Vec::new());
                         }
 
-                        let payload = serde_json::json!({
-                            "type": "response.output_item.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": item,
-                        });
-                        return sse_event_frame("response.output_item.added", &payload);
+                        if let Some(added) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.added",
+                            output_index,
+                            item,
+                        )? {
+                            return Ok(added);
+                        }
+                        return Ok(Vec::new());
                     }
 
                     // Best-effort fallback: represent the stream part as a function_call item.
@@ -1753,24 +1537,13 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
-                    if !state.function_calls_by_call_id.contains_key(call_id) {
-                        state.function_calls_by_call_id.insert(
-                            call_id.to_string(),
-                            OpenAiResponsesFunctionCallSerializeState {
-                                item_id: format!("fc_siumai_{output_index}"),
-                                output_index,
-                                name: None,
-                                arguments: String::new(),
-                                arguments_done: false,
-                            },
-                        );
-                    }
-
                     let (item_id, output_index, name, arguments, emit_added, emit_done) = {
-                        let call = state
-                            .function_calls_by_call_id
-                            .get_mut(call_id)
-                            .unwrap_or_else(|| unreachable!("function call state must exist"));
+                        let call = ensure_function_call_state(
+                            &mut state,
+                            call_id,
+                            Some(output_index),
+                            None,
+                        );
 
                         let mut emit_added = false;
                         if call.name.is_none() {
@@ -1801,36 +1574,20 @@ pub(super) fn serialize_event(
                     let mut out = Vec::new();
 
                     if emit_added && state.emitted_output_item_added_ids.insert(item_id.clone()) {
-                        let added = serde_json::json!({
-                            "type": "response.output_item.added",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": {
-                                "id": item_id,
-                                "type": "function_call",
-                                "status": "in_progress",
-                                "arguments": "",
-                                "call_id": call_id,
-                                "name": name,
-                            }
-                        });
-                        out.extend_from_slice(&sse_event_frame(
+                        out.extend_from_slice(&emit_output_item_frame(
+                            &mut state,
                             "response.output_item.added",
-                            &added,
+                            output_index,
+                            build_function_call_item(&item_id, call_id, &name, "in_progress", ""),
                         )?);
                     }
 
                     if emit_done {
-                        let payload = serde_json::json!({
-                            "type": "response.function_call_arguments.done",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "item_id": item_id,
-                            "output_index": output_index,
-                            "arguments": arguments,
-                        });
-                        out.extend_from_slice(&sse_event_frame(
-                            "response.function_call_arguments.done",
-                            &payload,
+                        out.extend_from_slice(&emit_function_call_arguments_done_frame(
+                            &mut state,
+                            &item_id,
+                            output_index,
+                            &arguments,
                         )?);
                     }
 
@@ -1852,22 +1609,15 @@ pub(super) fn serialize_event(
                             data.get("outputIndex").and_then(|v| v.as_u64()),
                         );
 
-                        let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        if !item_id.is_empty()
-                            && !state
-                                .emitted_output_item_done_ids
-                                .insert(item_id.to_string())
-                        {
-                            return Ok(Vec::new());
+                        if let Some(done) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.done",
+                            output_index,
+                            item,
+                        )? {
+                            return Ok(done);
                         }
-
-                        let payload = serde_json::json!({
-                            "type": "response.output_item.done",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": item,
-                        });
-                        return sse_event_frame("response.output_item.done", &payload);
+                        return Ok(Vec::new());
                     }
 
                     // Best-effort fallback: synthesize a completed tool item from v3 parts.
@@ -1905,20 +1655,15 @@ pub(super) fn serialize_event(
                         "output": result,
                     });
 
-                    if !state
-                        .emitted_output_item_done_ids
-                        .insert(call_id.to_string())
-                    {
-                        return Ok(Vec::new());
+                    if let Some(done) = emit_deduped_output_item_frame(
+                        &mut state,
+                        "response.output_item.done",
+                        output_index,
+                        item,
+                    )? {
+                        return Ok(done);
                     }
-
-                    let payload = serde_json::json!({
-                        "type": "response.output_item.done",
-                        "sequence_number": next_sequence_number(&mut state),
-                        "output_index": output_index,
-                        "item": item,
-                    });
-                    sse_event_frame("response.output_item.done", &payload)
+                    Ok(Vec::new())
                 }
                 "openai:tool-approval-request" => {
                     maybe_emit_response_created(this, &mut state)?;
@@ -1930,22 +1675,15 @@ pub(super) fn serialize_event(
                     );
 
                     if let Some(item) = data.get("rawItem").cloned() {
-                        let item_id = item.get("id").and_then(|v| v.as_str()).unwrap_or("");
-                        if !item_id.is_empty()
-                            && !state
-                                .emitted_output_item_done_ids
-                                .insert(item_id.to_string())
-                        {
-                            return Ok(Vec::new());
+                        if let Some(done) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.done",
+                            output_index,
+                            item,
+                        )? {
+                            return Ok(done);
                         }
-
-                        let payload = serde_json::json!({
-                            "type": "response.output_item.done",
-                            "sequence_number": next_sequence_number(&mut state),
-                            "output_index": output_index,
-                            "item": item,
-                        });
-                        return sse_event_frame("response.output_item.done", &payload);
+                        return Ok(Vec::new());
                     }
 
                     Ok(Vec::new())

@@ -763,6 +763,62 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
 }
 
 #[test]
+fn responses_stream_proxy_serializes_openai_source_before_text_with_message_scaffold() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:response-metadata".to_string(),
+            data: serde_json::json!({
+                "type": "response-metadata",
+                "id": "resp_test",
+                "modelId": "gpt-test",
+                "timestamp": "2025-01-01T00:00:00.000Z",
+            }),
+        })
+        .expect("serialize response-metadata");
+
+    let bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:source".to_string(),
+            data: serde_json::json!({
+                "type": "source",
+                "sourceType": "url",
+                "id": "ann:url:https://www.rust-lang.org",
+                "url": "https://www.rust-lang.org",
+                "title": "Rust",
+            }),
+        })
+        .expect("serialize url source before text");
+    let frames = parse_sse_frames(&bytes);
+
+    let added = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.output_item.added")
+        .map(|(_, value)| value.clone())
+        .expect("message scaffold output_item.added");
+    let part_added = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.content_part.added")
+        .map(|(_, value)| value.clone())
+        .expect("message scaffold content_part.added");
+    let annotation = frames
+        .iter()
+        .find(|(ev, _)| ev == "response.output_text.annotation.added")
+        .map(|(_, value)| value.clone())
+        .expect("annotation added");
+
+    assert_eq!(added["item"]["type"], serde_json::json!("message"));
+    assert_eq!(part_added["part"]["type"], serde_json::json!("output_text"));
+    assert_eq!(
+        annotation["annotation"]["type"],
+        serde_json::json!("url_citation")
+    );
+    assert_eq!(added["item"]["id"], part_added["item_id"]);
+    assert_eq!(part_added["item_id"], annotation["item_id"]);
+}
+
+#[test]
 fn responses_stream_proxy_serializes_tool_input_stream_parts_as_function_call_arguments() {
     let conv = OpenAiResponsesEventConverter::new();
 
