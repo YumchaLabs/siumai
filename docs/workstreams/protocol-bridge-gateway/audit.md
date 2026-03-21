@@ -22,6 +22,13 @@ Current explicit request-source normalization entry points:
 - `bridge_openai_responses_json_to_chat_request(...)`
 - `bridge_openai_chat_completions_json_to_chat_request(...)`
 
+Current explicit request-source normalization customization entry points:
+
+- `bridge_anthropic_messages_json_to_chat_request_with_options(...)`
+- `bridge_gemini_generate_content_json_to_chat_request_with_options(...)`
+- `bridge_openai_responses_json_to_chat_request_with_options(...)`
+- `bridge_openai_chat_completions_json_to_chat_request_with_options(...)`
+
 Current explicit normalized response targets:
 
 - `bridge_chat_response_to_openai_responses_json_value(...)`
@@ -75,8 +82,9 @@ Current fidelity:
 
 - exact / projected for base request settings, function tool choice, provider-defined tools,
   structured output restoration, MCP server options, and thinking settings covered by fixtures
-- no typed post-normalize parser override trait by design; caller-specific inbound tweaks remain
-  wrapper-composed after normalization
+- inbound post-normalize customization now reuses the typed bridge hook/remapper/loss-policy
+  surface through the `with_options` normalization entry points
+- no whole-parser override trait by design
 
 ### Outbound non-streaming response
 

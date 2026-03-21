@@ -5,7 +5,7 @@ use serde_json::json;
 use siumai_core::bridge::{
     BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
     BridgePrimitiveRemapper, BridgeTarget, BridgeWarning, BridgeWarningKind, RequestBridgeContext,
-    RequestBridgeHook, ResponseBridgeContext, StreamBridgeContext,
+    RequestBridgeHook, RequestBridgePhase, ResponseBridgeContext, StreamBridgeContext,
 };
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 
@@ -25,6 +25,7 @@ use super::{
     bridge_chat_request_to_openai_responses_json,
     bridge_openai_chat_completions_json_to_chat_request,
     bridge_openai_responses_json_to_chat_request,
+    bridge_openai_responses_json_to_chat_request_with_options,
 };
 
 struct PrefixRemapper;
@@ -84,6 +85,7 @@ impl RequestBridgeHook for RequestAuditHook {
         request: &mut ChatRequest,
         report: &mut siumai_core::bridge::BridgeReport,
     ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(ctx.phase, RequestBridgePhase::SerializeTarget);
         assert_eq!(ctx.route_label.as_deref(), Some("tests.request.hook"));
         request.common_params.max_tokens = Some(77);
         report.add_warning(BridgeWarning::new(
@@ -116,6 +118,29 @@ impl RequestBridgeHook for RequestAuditHook {
             BridgeWarningKind::Custom,
             "request hook validated target json",
         ));
+        Ok(())
+    }
+}
+
+struct NormalizeAuditHook;
+
+impl RequestBridgeHook for NormalizeAuditHook {
+    fn transform_request(
+        &self,
+        ctx: &RequestBridgeContext,
+        request: &mut ChatRequest,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(ctx.phase, RequestBridgePhase::NormalizeSource);
+        assert_eq!(ctx.source, Some(BridgeTarget::OpenAiResponses));
+        assert_eq!(ctx.target, BridgeTarget::OpenAiResponses);
+        assert_eq!(ctx.route_label.as_deref(), Some("tests.normalize.hook"));
+        assert_eq!(ctx.path_label.as_deref(), Some("source-normalize"));
+        request.common_params.max_tokens = Some(55);
+        report.record_lossy_field(
+            "normalize.custom",
+            "custom normalize hook rewrote the normalized request",
+        );
         Ok(())
     }
 }
@@ -931,6 +956,96 @@ fn openai_responses_request_normalization_restores_instructions_and_options() {
     assert_eq!(normalized.messages[3].tool_results().len(), 1);
     assert_eq!(normalized.messages[4].metadata.id.as_deref(), Some("msg_1"));
     assert!(normalized.response_format.is_some());
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn openai_responses_request_normalization_with_options_applies_bridge_customization() {
+    use siumai_core::types::ToolChoice;
+
+    let value = json!({
+        "model": "gpt-5-mini",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "hi" }
+                ]
+            }
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "name": "math",
+                "description": "Math",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "x": { "type": "number" }
+                    }
+                }
+            }
+        ],
+        "tool_choice": {
+            "type": "function",
+            "name": "math"
+        }
+    });
+
+    let bridged = bridge_openai_responses_json_to_chat_request_with_options(
+        &value,
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.normalize.hook")
+            .with_request_hook(Arc::new(NormalizeAuditHook))
+            .with_primitive_remapper(Arc::new(PrefixRemapper)),
+    )
+    .expect("normalize");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_lossy());
+
+    let normalized = bridged.value.expect("normalized request");
+    assert_eq!(normalized.common_params.max_tokens, Some(55));
+    assert_eq!(normalized.tool_choice, Some(ToolChoice::tool("gw_math")));
+
+    let tools = normalized.tools.expect("tools");
+    let siumai_core::types::Tool::Function { function } = &tools[0] else {
+        panic!("expected function tool");
+    };
+    assert_eq!(function.name, "gw_math");
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn openai_responses_request_normalization_with_options_respects_loss_policy() {
+    let value = json!({
+        "model": "gpt-5-mini",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "hi" }
+                ]
+            }
+        ]
+    });
+
+    let bridged = bridge_openai_responses_json_to_chat_request_with_options(
+        &value,
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.normalize.hook")
+            .with_request_hook(Arc::new(NormalizeAuditHook))
+            .with_loss_policy(Arc::new(RejectLossyPolicy)),
+    )
+    .expect("normalize");
+
+    assert!(bridged.is_rejected());
+    assert!(bridged.report.is_rejected());
+    assert!(bridged.report.warnings.iter().any(|warning| {
+        warning
+            .message
+            .contains("bridge policy rejected request normalization conversion")
+    }));
 }
 
 #[cfg(feature = "openai")]

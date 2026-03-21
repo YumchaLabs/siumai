@@ -2,12 +2,13 @@
 
 use siumai_core::bridge::{
     BridgeLossAction, BridgeMode, BridgeOptions, BridgeReport, BridgeTarget, RequestBridgeContext,
-    ResponseBridgeContext, StreamBridgeContext,
+    RequestBridgePhase, ResponseBridgeContext, StreamBridgeContext,
 };
 
 use super::planner::{RequestBridgePath, RequestBridgePlan};
 
 pub(crate) const NORMALIZED_RESPONSE_PATH_LABEL: &str = "normalized-response";
+pub(crate) const SOURCE_NORMALIZE_PATH_LABEL: &str = "source-normalize";
 
 pub(crate) fn request_path_label(plan: &RequestBridgePlan) -> String {
     match plan.path {
@@ -23,11 +24,26 @@ pub(crate) fn new_request_context(
     path_label: Option<String>,
 ) -> RequestBridgeContext {
     RequestBridgeContext::new(
+        RequestBridgePhase::SerializeTarget,
         source,
         target,
         options.mode,
         options.route_label.clone(),
         path_label,
+    )
+}
+
+pub(crate) fn new_request_normalize_context(
+    source: BridgeTarget,
+    options: &BridgeOptions,
+) -> RequestBridgeContext {
+    RequestBridgeContext::new(
+        RequestBridgePhase::NormalizeSource,
+        Some(source),
+        source,
+        options.mode,
+        options.route_label.clone(),
+        Some(SOURCE_NORMALIZE_PATH_LABEL.to_string()),
     )
 }
 

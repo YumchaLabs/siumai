@@ -84,12 +84,12 @@ We will follow the architectural idea, not copy either implementation literally.
   audit coverage still needs work.
   - `BridgeLossPolicy` exists in `siumai-core::bridge`, and route-local closure adapters now exist
     in `siumai-extras`, but more fixture-backed examples still add value.
-- Protocol-source request normalization is now explicit, but not yet bridge-customizable through
-  the same hook surface.
-  - The new typed source request parsers return `ChatRequest` directly.
-  - The remaining design question is whether callers should keep composing a follow-up normalized
-    transform themselves, or whether we should add a typed post-normalize hook without turning
-    parser ownership into another glue layer.
+- Protocol-source request normalization now shares the bridge customization surface, but it still
+  needs broader audit coverage.
+  - `*_json_to_chat_request_with_options(...)` entry points now let inbound normalization reuse
+    `BridgeOptions`, `RequestBridgeHook`, `BridgePrimitiveRemapper`, and `BridgeLossPolicy`.
+  - The remaining work is better fixture coverage and clearer examples, not another parser-level
+    plugin layer.
 - Legacy customization points still sit adjacent to the bridge.
   - Existing execution and gateway hooks remain useful escape hatches, but bridge-owned typed hooks
     should become the clearly documented primary extension path.
@@ -175,11 +175,12 @@ Users should customize at the smallest typed layer that matches their need.
 For protocol-source typed request -> normalized request conversion, the current recommendation is:
 
 - keep the source parser explicit and protocol-owned
-- normalize into `ChatRequest` first
-- then compose a follow-up normalized transform in application or gateway code if needed
+- use `*_json_to_chat_request_with_options(...)` when inbound normalization should reuse the same
+  typed bridge customization surface
+- use the request hook `phase` to distinguish source-normalization from target-serialization logic
+- still avoid whole-parser replacement traits unless a clear repeated need appears
 
-We should avoid introducing a single "override the whole source parser" trait unless a clear,
-repeated need appears, because that would:
+We should avoid introducing a single "override the whole source parser" trait because that would:
 
 - recreate pairwise glue at the parser boundary
 - hide parser/report semantics behind route-local code

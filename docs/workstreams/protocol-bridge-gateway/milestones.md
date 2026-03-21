@@ -125,8 +125,9 @@ Current state:
   now exist in `siumai-core::bridge`
 - experimental request / response / stream bridge entry points now consume bridge customization
   options
-- protocol-source request normalization is now explicit, and its extension story is intentionally
-  wrapper-first instead of exposing a whole-parser override trait
+- protocol-source request normalization now also exposes `with_options` entry points so inbound
+  normalization can reuse the same typed request hook/remapper/loss-policy surface without
+  exposing a whole-parser override trait
 - `BridgeOptionsOverride` and gateway helper mode-override entry points now exist for route-level
   strictness/customization without rebuilding full bridge options
 - `siumai-extras` Axum JSON/SSE transcode helpers now accept bridge customization, and closure-
@@ -141,7 +142,8 @@ Current state:
   - stream primitive remapping on delta and final response paths
 - the customization boundary is now explicitly documented:
   - typed bridge hooks and policies are the supported user-defined conversion surface
-  - wrapper-composed post-normalize transforms are preferred over a whole-parser override trait
+  - inbound normalization now uses the same hook surface through explicit `with_options` entry
+    points instead of route-local parser forks
 
 Status: completed
 

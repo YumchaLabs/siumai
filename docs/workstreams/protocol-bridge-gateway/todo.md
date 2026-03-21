@@ -186,10 +186,12 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Integrate customization with direct request pair bridges and normalized request bridges
 - [x] Integrate customization with response and stream bridge paths
 - [x] Provide closure-friendly wrappers in `siumai-extras`
-- [x] Decide whether protocol-source -> normalized request normalization needs a typed
-  post-normalize customization hook, or should remain wrapper-composed by callers
-  - decision: remain wrapper-composed by callers for now
-  - do not add a whole-parser override trait unless repeated concrete needs emerge
+- [x] Integrate protocol-source -> normalized request normalization with the same typed request
+  customization surface
+  - exposed through `*_json_to_chat_request_with_options(...)`
+  - request hooks can now branch on `RequestBridgePhase::NormalizeSource` vs
+    `RequestBridgePhase::SerializeTarget`
+  - keep parser ownership protocol-owned; do not add a whole-parser override trait
 - [x] Do not expose raw provider JSON patching as the default bridge extension story
   - documented as an escape hatch in the migration note and customization-boundary note
 
@@ -223,7 +225,7 @@ This TODO list is intentionally organized as mergeable tracks.
   - no full N x M pairwise mesh
 - [x] Add a dedicated customization-boundary note covering:
   - typed hook / policy-based user-defined conversion
-  - wrapper-composed post-normalize transforms
+  - inbound normalization customization through explicit `with_options` bridge entry points
   - no whole-parser override trait
 - [x] Document the recommended customization direction:
   - bridge-specific trait/policy objects in core

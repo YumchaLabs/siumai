@@ -1,5 +1,9 @@
 //! Request bridge normalization from protocol JSON into `ChatRequest`.
 
+use crate::experimental_bridge::customize::apply_request_remapper;
+use crate::experimental_bridge::lifecycle::{
+    new_bridge_report, new_request_normalize_context, reject_if_needed,
+};
 #[cfg(feature = "google")]
 use std::collections::VecDeque;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -7,6 +11,7 @@ use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 use siumai_core::LlmError;
+use siumai_core::bridge::{BridgeOptions, BridgeResult, BridgeTarget};
 use siumai_core::types::chat::{ImageDetail, MediaSource, ResponseFormat};
 use siumai_core::types::{
     CacheControl, ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata,
@@ -67,10 +72,47 @@ impl ResponsesToolRegistry {
     }
 }
 
+fn normalize_request_with_options(
+    mut request: ChatRequest,
+    source: BridgeTarget,
+    options: BridgeOptions,
+) -> Result<BridgeResult<ChatRequest>, LlmError> {
+    let ctx = new_request_normalize_context(source, &options);
+    let mut report = new_bridge_report(Some(source), source, options.mode);
+
+    if let Some(remapper) = options.primitive_remapper.as_deref() {
+        apply_request_remapper(&mut request, &ctx, remapper);
+    }
+    if let Some(hook) = options.request_hook.as_deref() {
+        hook.transform_request(&ctx, &mut request, &mut report)?;
+    }
+
+    let action = options.loss_policy.request_action(&ctx, &report);
+    if reject_if_needed(&mut report, action, "request normalization", source) {
+        return Ok(BridgeResult::rejected(report));
+    }
+
+    Ok(BridgeResult::new(request, report))
+}
+
 #[cfg(feature = "anthropic")]
 pub fn bridge_anthropic_messages_json_to_chat_request(
     value: &Value,
 ) -> Result<ChatRequest, LlmError> {
+    parse_anthropic_messages_json_to_chat_request(value)
+}
+
+#[cfg(feature = "anthropic")]
+pub fn bridge_anthropic_messages_json_to_chat_request_with_options(
+    value: &Value,
+    options: BridgeOptions,
+) -> Result<BridgeResult<ChatRequest>, LlmError> {
+    let request = parse_anthropic_messages_json_to_chat_request(value)?;
+    normalize_request_with_options(request, BridgeTarget::AnthropicMessages, options)
+}
+
+#[cfg(feature = "anthropic")]
+fn parse_anthropic_messages_json_to_chat_request(value: &Value) -> Result<ChatRequest, LlmError> {
     let obj = expect_object(value, "Anthropic Messages request")?;
     let mut request = ChatRequest::new(Vec::new());
     let mut anthropic_options = Map::new();
@@ -162,6 +204,20 @@ pub fn bridge_anthropic_messages_json_to_chat_request(
 pub fn bridge_openai_responses_json_to_chat_request(
     value: &Value,
 ) -> Result<ChatRequest, LlmError> {
+    parse_openai_responses_json_to_chat_request(value)
+}
+
+#[cfg(feature = "openai")]
+pub fn bridge_openai_responses_json_to_chat_request_with_options(
+    value: &Value,
+    options: BridgeOptions,
+) -> Result<BridgeResult<ChatRequest>, LlmError> {
+    let request = parse_openai_responses_json_to_chat_request(value)?;
+    normalize_request_with_options(request, BridgeTarget::OpenAiResponses, options)
+}
+
+#[cfg(feature = "openai")]
+fn parse_openai_responses_json_to_chat_request(value: &Value) -> Result<ChatRequest, LlmError> {
     let obj = expect_object(value, "OpenAI Responses request")?;
     let mut request = ChatRequest::new(Vec::new());
     let mut openai_options = Map::new();
@@ -275,6 +331,22 @@ pub fn bridge_openai_responses_json_to_chat_request(
 pub fn bridge_openai_chat_completions_json_to_chat_request(
     value: &Value,
 ) -> Result<ChatRequest, LlmError> {
+    parse_openai_chat_completions_json_to_chat_request(value)
+}
+
+#[cfg(feature = "openai")]
+pub fn bridge_openai_chat_completions_json_to_chat_request_with_options(
+    value: &Value,
+    options: BridgeOptions,
+) -> Result<BridgeResult<ChatRequest>, LlmError> {
+    let request = parse_openai_chat_completions_json_to_chat_request(value)?;
+    normalize_request_with_options(request, BridgeTarget::OpenAiChatCompletions, options)
+}
+
+#[cfg(feature = "openai")]
+fn parse_openai_chat_completions_json_to_chat_request(
+    value: &Value,
+) -> Result<ChatRequest, LlmError> {
     let obj = expect_object(value, "OpenAI Chat Completions request")?;
     let mut request = ChatRequest::new(Vec::new());
 
@@ -321,6 +393,22 @@ pub fn bridge_openai_chat_completions_json_to_chat_request(
 
 #[cfg(feature = "google")]
 pub fn bridge_gemini_generate_content_json_to_chat_request(
+    value: &Value,
+) -> Result<ChatRequest, LlmError> {
+    parse_gemini_generate_content_json_to_chat_request(value)
+}
+
+#[cfg(feature = "google")]
+pub fn bridge_gemini_generate_content_json_to_chat_request_with_options(
+    value: &Value,
+    options: BridgeOptions,
+) -> Result<BridgeResult<ChatRequest>, LlmError> {
+    let request = parse_gemini_generate_content_json_to_chat_request(value)?;
+    normalize_request_with_options(request, BridgeTarget::GeminiGenerateContent, options)
+}
+
+#[cfg(feature = "google")]
+fn parse_gemini_generate_content_json_to_chat_request(
     value: &Value,
 ) -> Result<ChatRequest, LlmError> {
     let obj = expect_object(value, "Gemini GenerateContent request")?;

@@ -310,9 +310,17 @@ pub enum BridgePrimitiveKind {
     ToolResult,
 }
 
+/// Request bridge lifecycle phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum RequestBridgePhase {
+    NormalizeSource,
+    SerializeTarget,
+}
+
 /// Request bridge lifecycle context.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RequestBridgeContext {
+    pub phase: RequestBridgePhase,
     pub source: Option<BridgeTarget>,
     pub target: BridgeTarget,
     pub mode: BridgeMode,
@@ -322,6 +330,7 @@ pub struct RequestBridgeContext {
 
 impl RequestBridgeContext {
     pub fn new(
+        phase: RequestBridgePhase,
         source: Option<BridgeTarget>,
         target: BridgeTarget,
         mode: BridgeMode,
@@ -329,6 +338,7 @@ impl RequestBridgeContext {
         path_label: Option<String>,
     ) -> Self {
         Self {
+            phase,
             source,
             target,
             mode,
@@ -425,7 +435,7 @@ impl BridgePrimitiveContext {
     }
 }
 
-/// Request bridge customization hook.
+/// Request bridge customization hook shared by source-normalization and target-serialization paths.
 pub trait RequestBridgeHook: Send + Sync {
     fn transform_request(
         &self,
@@ -1131,6 +1141,7 @@ mod tests {
     #[test]
     fn default_loss_policy_rejects_strict_lossy_reports() {
         let ctx = RequestBridgeContext::new(
+            RequestBridgePhase::SerializeTarget,
             Some(BridgeTarget::AnthropicMessages),
             BridgeTarget::OpenAiChatCompletions,
             BridgeMode::Strict,
@@ -1191,6 +1202,7 @@ mod tests {
         assert!(options.primitive_remapper.is_some());
 
         let request_ctx = RequestBridgeContext::new(
+            RequestBridgePhase::SerializeTarget,
             Some(BridgeTarget::AnthropicMessages),
             BridgeTarget::OpenAiResponses,
             BridgeMode::BestEffort,

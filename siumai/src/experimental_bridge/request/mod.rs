@@ -14,13 +14,21 @@ pub use inspect::inspect_chat_request_bridge;
 pub use serialize::{bridge_chat_request_to_json, bridge_chat_request_to_json_with_options};
 
 #[cfg(feature = "anthropic")]
-pub use normalize::bridge_anthropic_messages_json_to_chat_request;
+pub use normalize::{
+    bridge_anthropic_messages_json_to_chat_request,
+    bridge_anthropic_messages_json_to_chat_request_with_options,
+};
 #[cfg(feature = "google")]
-pub use normalize::bridge_gemini_generate_content_json_to_chat_request;
+pub use normalize::{
+    bridge_gemini_generate_content_json_to_chat_request,
+    bridge_gemini_generate_content_json_to_chat_request_with_options,
+};
 #[cfg(feature = "openai")]
 pub use normalize::{
     bridge_openai_chat_completions_json_to_chat_request,
+    bridge_openai_chat_completions_json_to_chat_request_with_options,
     bridge_openai_responses_json_to_chat_request,
+    bridge_openai_responses_json_to_chat_request_with_options,
 };
 
 #[cfg(feature = "anthropic")]

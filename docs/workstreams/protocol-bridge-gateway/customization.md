@@ -49,6 +49,7 @@ These hooks all receive typed bridge context:
 
 - source protocol
 - target protocol
+- request phase for request-side hooks (`NormalizeSource` vs `SerializeTarget`)
 - bridge mode
 - route label
 - planner / path label
@@ -83,13 +84,25 @@ the same bridge contract for you:
 Inbound protocol-native requests should still normalize through protocol-owned parsers first:
 
 - `bridge_anthropic_messages_json_to_chat_request(...)`
+- `bridge_gemini_generate_content_json_to_chat_request(...)`
 - `bridge_openai_responses_json_to_chat_request(...)`
 - `bridge_openai_chat_completions_json_to_chat_request(...)`
 
-If an application wants additional inbound customization, the recommended composition is:
+If an application wants inbound customization, the recommended entry points are the explicit
+`with_options` variants:
 
-1. protocol-native JSON -> `ChatRequest`
-2. application-owned normalized transform
+- `bridge_anthropic_messages_json_to_chat_request_with_options(...)`
+- `bridge_gemini_generate_content_json_to_chat_request_with_options(...)`
+- `bridge_openai_responses_json_to_chat_request_with_options(...)`
+- `bridge_openai_chat_completions_json_to_chat_request_with_options(...)`
+
+Those entry points keep parser ownership in protocol code, then apply the same typed bridge
+customization surface to the normalized `ChatRequest`.
+
+The intended composition is:
+
+1. protocol-native JSON -> protocol-owned parse -> `ChatRequest`
+2. bridge-owned post-normalize remap / hook / loss-policy application
 3. unified runtime execution
 4. response / stream bridge to the desired target view
 
