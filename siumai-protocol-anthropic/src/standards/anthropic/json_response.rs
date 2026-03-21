@@ -5,11 +5,13 @@
 use crate::encoding::{JsonEncodeOptions, JsonResponseConverter};
 use crate::error::LlmError;
 use crate::provider_metadata::anthropic::AnthropicContentPartExt;
+use crate::standards::anthropic::server_tools;
 use crate::types::{
     ChatResponse, ContentPart, FinishReason, MediaSource, ToolResultContentPart, ToolResultOutput,
     Usage,
 };
 use serde::Serialize;
+use std::collections::HashMap;
 
 fn anthropic_stop_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
     match reason? {
@@ -162,11 +164,8 @@ fn provider_tool_use_block(
 ) -> serde_json::Value {
     match tool_name {
         "web_search" | "web_fetch" | "tool_search" | "code_execution" => {
-            let server_tool_name = if tool_name == "tool_search" {
-                raw_server_tool_name.unwrap_or(tool_name)
-            } else {
-                tool_name
-            };
+            let server_tool_name =
+                server_tools::replay_server_tool_name(tool_name, raw_server_tool_name, Some(input));
             let mut block = serde_json::json!({
                 "type": "server_tool_use",
                 "id": tool_call_id,
@@ -244,6 +243,100 @@ fn tool_result_content_value(output: &ToolResultOutput) -> (serde_json::Value, b
                 })
                 .collect::<Vec<_>>();
             (serde_json::Value::Array(content), false)
+        }
+    }
+}
+
+fn anthropic_web_search_result_content(output: &ToolResultOutput) -> serde_json::Value {
+    match output {
+        ToolResultOutput::Json { value } => {
+            if let Some(arr) = value.as_array() {
+                let results = arr
+                    .iter()
+                    .map(|item| {
+                        let Some(obj) = item.as_object() else {
+                            return item.clone();
+                        };
+
+                        let mut result = serde_json::Map::new();
+                        result.insert(
+                            "type".to_string(),
+                            obj.get("type")
+                                .cloned()
+                                .unwrap_or_else(|| serde_json::json!("web_search_result")),
+                        );
+                        if let Some(url) = obj.get("url") {
+                            result.insert("url".to_string(), url.clone());
+                        }
+                        if let Some(title) = obj.get("title") {
+                            result.insert("title".to_string(), title.clone());
+                        }
+                        if let Some(page_age) = obj.get("pageAge").or_else(|| obj.get("page_age")) {
+                            result.insert("page_age".to_string(), page_age.clone());
+                        }
+                        if let Some(encrypted_content) = obj
+                            .get("encryptedContent")
+                            .or_else(|| obj.get("encrypted_content"))
+                        {
+                            result
+                                .insert("encrypted_content".to_string(), encrypted_content.clone());
+                        }
+                        for (key, value) in obj {
+                            if key != "type"
+                                && key != "url"
+                                && key != "title"
+                                && key != "pageAge"
+                                && key != "page_age"
+                                && key != "encryptedContent"
+                                && key != "encrypted_content"
+                            {
+                                result.insert(key.clone(), value.clone());
+                            }
+                        }
+                        serde_json::Value::Object(result)
+                    })
+                    .collect::<Vec<_>>();
+                serde_json::Value::Array(results)
+            } else if let Some(obj) = value.as_object() {
+                if obj
+                    .get("type")
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|t| t == "web_search_tool_result_error")
+                {
+                    serde_json::json!({
+                        "type": "web_search_tool_result_error",
+                        "error_code": obj
+                            .get("errorCode")
+                            .or_else(|| obj.get("error_code"))
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null),
+                    })
+                } else {
+                    value.clone()
+                }
+            } else {
+                value.clone()
+            }
+        }
+        ToolResultOutput::ErrorJson { value } => serde_json::json!({
+            "type": "web_search_tool_result_error",
+            "error_code": value
+                .get("errorCode")
+                .or_else(|| value.get("error_code"))
+                .cloned()
+                .unwrap_or_else(|| value.clone()),
+        }),
+        ToolResultOutput::ErrorText { value } => serde_json::json!({
+            "type": "web_search_tool_result_error",
+            "error_code": value,
+        }),
+        ToolResultOutput::ExecutionDenied { reason } => serde_json::json!({
+            "type": "web_search_tool_result_error",
+            "error_code": reason.clone().unwrap_or_else(|| "execution_denied".to_string()),
+        }),
+        other => {
+            let (content, _) = tool_result_content_value(other);
+            content
         }
     }
 }
@@ -427,27 +520,30 @@ fn provider_tool_result_block(
     tool_call_id: &str,
     tool_name: &str,
     output: &ToolResultOutput,
+    raw_server_tool_name: Option<&str>,
 ) -> serde_json::Value {
     let (content, is_error) = tool_result_content_value(output);
+    let block_type =
+        server_tools::replay_server_tool_result_block_type(tool_name, raw_server_tool_name, output);
 
     match tool_name {
         "web_search" => serde_json::json!({
-            "type": "web_search_tool_result",
+            "type": block_type,
             "tool_use_id": tool_call_id,
-            "content": content,
+            "content": anthropic_web_search_result_content(output),
         }),
         "web_fetch" => serde_json::json!({
-            "type": "web_fetch_tool_result",
+            "type": block_type,
             "tool_use_id": tool_call_id,
             "content": anthropic_web_fetch_result_content(output),
         }),
         "tool_search" => serde_json::json!({
-            "type": "tool_search_tool_result",
+            "type": block_type,
             "tool_use_id": tool_call_id,
             "content": anthropic_tool_search_result_content(output),
         }),
         "code_execution" => serde_json::json!({
-            "type": "code_execution_tool_result",
+            "type": block_type,
             "tool_use_id": tool_call_id,
             "content": content,
         }),
@@ -636,6 +732,7 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
             }
             crate::types::MessageContent::MultiModal(parts) => {
                 let mut signature = thinking_signature.clone();
+                let mut raw_server_tool_names_by_id: HashMap<String, String> = HashMap::new();
 
                 for part in parts {
                     match part {
@@ -669,6 +766,16 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                                 .and_then(|meta| meta.server_name.as_deref());
 
                             if *provider_executed == Some(true) {
+                                let replayed_server_tool_name =
+                                    server_tools::replay_server_tool_name(
+                                        tool_name,
+                                        raw_server_tool_name,
+                                        Some(arguments),
+                                    );
+                                if replayed_server_tool_name != *tool_name {
+                                    raw_server_tool_names_by_id
+                                        .insert(tool_call_id.clone(), replayed_server_tool_name);
+                                }
                                 content.push(provider_tool_use_block(
                                     tool_call_id,
                                     tool_name,
@@ -693,10 +800,14 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                             provider_executed,
                             ..
                         } if *provider_executed == Some(true) => {
+                            let raw_server_tool_name = raw_server_tool_names_by_id
+                                .get(tool_call_id)
+                                .map(String::as_str);
                             content.push(provider_tool_result_block(
                                 tool_call_id,
                                 tool_name,
                                 output,
+                                raw_server_tool_name,
                             ));
                         }
                         _ => {}
@@ -943,6 +1054,134 @@ mod tests {
         assert_eq!(
             value["content"][1]["content"]["tool_references"][0]["tool_name"],
             serde_json::json!("get_weather")
+        );
+    }
+
+    #[test]
+    fn anthropic_encoder_replays_web_search_result_shape() {
+        let response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "srvtoolu_ws".to_string(),
+                tool_name: "web_search".to_string(),
+                arguments: serde_json::json!({ "query": "latest tech news" }),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "srvtoolu_ws".to_string(),
+                tool_name: "web_search".to_string(),
+                output: ToolResultOutput::json(serde_json::json!([
+                    {
+                        "type": "web_search_result",
+                        "url": "https://example.com",
+                        "title": "Example",
+                        "pageAge": "2 days ago",
+                        "encryptedContent": "secret"
+                    }
+                ])),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+        ]));
+
+        let mut out = Vec::new();
+        AnthropicMessagesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["content"][1]["content"][0]["page_age"],
+            serde_json::json!("2 days ago")
+        );
+        assert_eq!(
+            value["content"][1]["content"][0]["encrypted_content"],
+            serde_json::json!("secret")
+        );
+        assert!(value["content"][1]["content"][0].get("pageAge").is_none());
+        assert!(
+            value["content"][1]["content"][0]
+                .get("encryptedContent")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn anthropic_encoder_replays_code_execution_server_tool_name_and_result_block_type() {
+        let response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "srvtoolu_code_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                arguments: serde_json::json!({
+                    "type": "text_editor_code_execution"
+                }),
+                provider_executed: Some(true),
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "serverToolName": "text_editor_code_execution"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "srvtoolu_code_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                output: ToolResultOutput::json(serde_json::json!({
+                    "type": "text_editor_code_execution_create_result",
+                    "is_file_update": false
+                })),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+            ContentPart::ToolCall {
+                tool_call_id: "srvtoolu_code_2".to_string(),
+                tool_name: "code_execution".to_string(),
+                arguments: serde_json::json!({
+                    "type": "bash_code_execution"
+                }),
+                provider_executed: Some(true),
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "serverToolName": "bash_code_execution"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "srvtoolu_code_2".to_string(),
+                tool_name: "code_execution".to_string(),
+                output: ToolResultOutput::json(serde_json::json!({
+                    "type": "bash_code_execution_result",
+                    "stdout": "",
+                    "stderr": "",
+                    "return_code": 0
+                })),
+                provider_executed: Some(true),
+                provider_metadata: None,
+            },
+        ]));
+
+        let mut out = Vec::new();
+        AnthropicMessagesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["content"][0]["name"],
+            serde_json::json!("text_editor_code_execution")
+        );
+        assert_eq!(
+            value["content"][1]["type"],
+            serde_json::json!("text_editor_code_execution_tool_result")
+        );
+        assert_eq!(
+            value["content"][2]["name"],
+            serde_json::json!("bash_code_execution")
+        );
+        assert_eq!(
+            value["content"][3]["type"],
+            serde_json::json!("bash_code_execution_tool_result")
         );
     }
 

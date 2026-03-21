@@ -687,6 +687,68 @@ fn anthropic_code_execution_result_preserves_file_id_list() {
 }
 
 #[test]
+fn anthropic_code_execution_fixture_preserves_server_tool_name_metadata() {
+    use siumai::prelude::unified::{ContentPart, MessageContent};
+
+    let root = fixtures_dir().join("anthropic-code-execution-20250825.1");
+    let req: siumai::prelude::unified::ChatRequest = read_json(root.join("request.json"));
+    let raw: Value = read_json(root.join("response.json"));
+
+    let transformers = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new()
+        .choose_chat_transformers(
+            &req,
+            &ProviderContext::new(
+                "anthropic",
+                "https://api.anthropic.com/v1",
+                Some("test-api-key".to_string()),
+                HashMap::new(),
+            ),
+        );
+    let resp = transformers
+        .response
+        .transform_chat_response(&raw)
+        .expect("transform response");
+
+    let MessageContent::MultiModal(parts) = resp.content else {
+        panic!("expected multimodal content");
+    };
+
+    let mut server_tool_names = Vec::new();
+    for part in &parts {
+        let ContentPart::ToolCall {
+            tool_name,
+            provider_executed: Some(true),
+            ..
+        } = part
+        else {
+            continue;
+        };
+        if tool_name != "code_execution" {
+            continue;
+        }
+        let Some(meta) = part.anthropic_tool_call_metadata() else {
+            continue;
+        };
+        if let Some(server_tool_name) = meta.server_tool_name {
+            server_tool_names.push(server_tool_name);
+        }
+    }
+
+    assert!(
+        server_tool_names
+            .iter()
+            .any(|name| name == "text_editor_code_execution"),
+        "expected text_editor_code_execution serverToolName metadata"
+    );
+    assert!(
+        server_tool_names
+            .iter()
+            .any(|name| name == "bash_code_execution"),
+        "expected bash_code_execution serverToolName metadata"
+    );
+}
+
+#[test]
 fn anthropic_programmatic_tool_calling_includes_caller_metadata() {
     use siumai::prelude::unified::{ContentPart, MessageContent};
 
@@ -812,5 +874,74 @@ fn anthropic_web_fetch_fixture_normalizes_result_shape() {
     assert_eq!(
         value["content"]["source"]["mediaType"],
         serde_json::json!("text/plain")
+    );
+}
+
+#[test]
+fn anthropic_web_search_fixture_normalizes_result_shape() {
+    use siumai::prelude::unified::ContentPart;
+
+    let request_root = fixtures_dir().join("anthropic-web-search-tool.1");
+    let response_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join("anthropic")
+        .join("messages-stream")
+        .join("anthropic-web-search-tool.1.json");
+    let req: siumai::prelude::unified::ChatRequest = read_json(request_root.join("request.json"));
+    let raw: Value = read_json(response_path);
+
+    let transformers = siumai_provider_anthropic::providers::anthropic::spec::AnthropicSpec::new()
+        .choose_chat_transformers(
+            &req,
+            &ProviderContext::new(
+                "anthropic",
+                "https://api.anthropic.com/v1",
+                Some("test-api-key".to_string()),
+                HashMap::new(),
+            ),
+        );
+    let resp = transformers
+        .response
+        .transform_chat_response(&raw)
+        .expect("transform response");
+
+    let MessageContent::MultiModal(parts) = resp.content else {
+        panic!("expected multimodal content");
+    };
+
+    let web_search_result = parts.iter().find_map(|part| {
+        let ContentPart::ToolResult {
+            tool_name,
+            output: siumai_core::types::ToolResultOutput::Json { value },
+            provider_executed: Some(true),
+            ..
+        } = part
+        else {
+            return None;
+        };
+        (tool_name == "web_search").then_some(value)
+    });
+
+    let value = web_search_result.expect("web_search tool result");
+    let items = value.as_array().expect("web_search results array");
+    assert!(!items.is_empty(), "expected non-empty web_search results");
+    assert!(items.iter().all(|item| item.get("page_age").is_none()));
+    assert!(
+        items
+            .iter()
+            .all(|item| item.get("encrypted_content").is_none())
+    );
+    assert!(items.iter().all(|item| item.get("pageAge").is_some()));
+    assert!(
+        items
+            .iter()
+            .all(|item| item.get("encryptedContent").is_some())
+    );
+    assert!(
+        items
+            .iter()
+            .any(|item| { item.get("pageAge") == Some(&serde_json::json!("December 21, 2015")) }),
+        "expected at least one web_search result to preserve pageAge in camelCase"
     );
 }

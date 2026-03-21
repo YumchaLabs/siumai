@@ -332,6 +332,27 @@ fn anthropic_messages_response_bridge_roundtrip_programmatic_tool_case_matches_p
 }
 
 #[test]
+fn anthropic_messages_response_bridge_roundtrip_code_execution_provider_cases_match_projection() {
+    let exact_cases = [
+        "anthropic-code-execution-20250825.1",
+        "anthropic-code-execution-20250825.2",
+        "anthropic-code-execution-20250825.pptx-skill",
+    ];
+
+    for case in exact_cases {
+        assert_eq!(
+            roundtrip_provider_response_json(case),
+            transform_provider_response_json(
+                case,
+                &fixtures_dir().join(case).join("response.json")
+            ),
+            "fixture case: {}",
+            fixtures_dir().join(case).display()
+        );
+    }
+}
+
+#[test]
 fn anthropic_messages_response_bridge_roundtrip_code_execution_case_preserves_visible_parts() {
     let case = "anthropic-code-execution-20250825.1";
     let roundtripped = roundtrip_provider_response_json(case);

@@ -152,15 +152,7 @@ pub fn parse_response_content_and_tools(
                         .or_else(|| content_block.server_name.clone())
                         .unwrap_or_else(|| "mcp".to_string())
                 } else {
-                    match block_type {
-                        "tool_search_tool_result" => "tool_search".to_string(),
-                        "text_editor_code_execution_tool_result"
-                        | "bash_code_execution_tool_result" => "code_execution".to_string(),
-                        _ => block_type
-                            .strip_suffix("_tool_result")
-                            .unwrap_or(block_type)
-                            .to_string(),
-                    }
+                    server_tools::normalize_server_tool_result_name(block_type).to_string()
                 };
 
                 let output = if block_type == "mcp_tool_result" {
@@ -186,149 +178,13 @@ pub fn parse_response_content_and_tools(
                     } else {
                         ToolResultOutput::content(out_parts)
                     }
-                } else if block_type == "web_fetch_tool_result" {
-                    if let Some(obj) = content.as_object() {
-                        let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                        if tpe == "web_fetch_result" {
-                            let url = obj.get("url").cloned().unwrap_or(serde_json::json!(null));
-                            let retrieved_at = obj
-                                .get("retrieved_at")
-                                .cloned()
-                                .unwrap_or(serde_json::json!(null));
-                            let content = obj.get("content").and_then(|v| v.as_object());
-
-                            let mut out_content = serde_json::Map::new();
-                            if let Some(content) = content {
-                                if let Some(v) = content.get("type") {
-                                    out_content.insert("type".to_string(), v.clone());
-                                }
-                                if let Some(v) = content.get("title") {
-                                    out_content.insert("title".to_string(), v.clone());
-                                }
-                                if let Some(v) = content.get("citations") {
-                                    out_content.insert("citations".to_string(), v.clone());
-                                }
-                                if let Some(source) =
-                                    content.get("source").and_then(|v| v.as_object())
-                                {
-                                    let mut out_source = serde_json::Map::new();
-                                    if let Some(v) = source.get("type") {
-                                        out_source.insert("type".to_string(), v.clone());
-                                    }
-                                    if let Some(v) =
-                                        source.get("media_type").or_else(|| source.get("mediaType"))
-                                    {
-                                        out_source.insert("mediaType".to_string(), v.clone());
-                                    }
-                                    if let Some(v) = source.get("data") {
-                                        out_source.insert("data".to_string(), v.clone());
-                                    }
-                                    for (key, value) in source {
-                                        if key != "type"
-                                            && key != "media_type"
-                                            && key != "mediaType"
-                                            && key != "data"
-                                        {
-                                            out_source.insert(key.clone(), value.clone());
-                                        }
-                                    }
-                                    out_content.insert(
-                                        "source".to_string(),
-                                        serde_json::Value::Object(out_source),
-                                    );
-                                }
-                                for (key, value) in content {
-                                    if key != "type"
-                                        && key != "title"
-                                        && key != "citations"
-                                        && key != "source"
-                                    {
-                                        out_content.insert(key.clone(), value.clone());
-                                    }
-                                }
-                            }
-
-                            ToolResultOutput::json(serde_json::json!({
-                                "type": "web_fetch_result",
-                                "url": url,
-                                "retrievedAt": retrieved_at,
-                                "content": serde_json::Value::Object(out_content),
-                            }))
-                        } else if tpe == "web_fetch_tool_result_error" {
-                            let error_code = obj
-                                .get("error_code")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            ToolResultOutput::error_json(serde_json::json!({
-                                "type": "web_fetch_tool_result_error",
-                                "errorCode": error_code,
-                            }))
-                        } else {
-                            ToolResultOutput::json(content.clone())
-                        }
+                } else if let Some((result, is_error)) =
+                    server_tools::normalize_server_tool_result(block_type, content)
+                {
+                    if is_error {
+                        ToolResultOutput::error_json(result)
                     } else {
-                        ToolResultOutput::json(content.clone())
-                    }
-                } else if block_type == "tool_search_tool_result" {
-                    if let Some(obj) = content.as_object() {
-                        let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                        if tpe == "tool_search_tool_search_result" {
-                            let refs = obj
-                                .get("tool_references")
-                                .and_then(|v| v.as_array())
-                                .cloned()
-                                .unwrap_or_default()
-                                .into_iter()
-                                .filter_map(|v| v.as_object().cloned())
-                                .map(|ref_obj| {
-                                    serde_json::json!({
-                                        "type": ref_obj.get("type").cloned().unwrap_or_else(|| serde_json::json!("tool_reference")),
-                                        "toolName": ref_obj.get("tool_name").cloned().unwrap_or(serde_json::Value::Null),
-                                    })
-                                })
-                                .collect::<Vec<_>>();
-                            ToolResultOutput::json(serde_json::Value::Array(refs))
-                        } else {
-                            let error_code = obj
-                                .get("error_code")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            ToolResultOutput::error_json(serde_json::json!({
-                                "type": "tool_search_tool_result_error",
-                                "errorCode": error_code,
-                            }))
-                        }
-                    } else {
-                        ToolResultOutput::json(content.clone())
-                    }
-                } else if block_type == "code_execution_tool_result" {
-                    if let Some(obj) = content.as_object() {
-                        let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                        if tpe == "code_execution_result" {
-                            let mut out = serde_json::json!({
-                                "type": "code_execution_result",
-                                "stdout": obj.get("stdout").cloned().unwrap_or(serde_json::Value::Null),
-                                "stderr": obj.get("stderr").cloned().unwrap_or(serde_json::Value::Null),
-                                "return_code": obj.get("return_code").cloned().unwrap_or(serde_json::Value::Null),
-                            });
-                            if let Some(v) = obj.get("content") {
-                                out["content"] = v.clone();
-                            }
-                            ToolResultOutput::json(out)
-                        } else if tpe == "code_execution_tool_result_error" {
-                            let error_code = obj
-                                .get("error_code")
-                                .cloned()
-                                .unwrap_or(serde_json::Value::Null);
-                            ToolResultOutput::error_json(serde_json::json!({
-                                "type": "code_execution_tool_result_error",
-                                "errorCode": error_code,
-                            }))
-                        } else {
-                            ToolResultOutput::json(content.clone())
-                        }
-                    } else {
-                        ToolResultOutput::json(content.clone())
+                        ToolResultOutput::json(result)
                     }
                 } else {
                     let inferred_error = content_block.is_error.unwrap_or(false)
@@ -685,6 +541,10 @@ mod tests {
                     match output {
                         crate::types::ToolResultOutput::Json { value } => {
                             assert!(value.is_array());
+                            assert_eq!(value[0]["pageAge"], serde_json::Value::Null,);
+                            assert_eq!(value[0]["encryptedContent"], serde_json::json!("..."),);
+                            assert!(value[0].get("page_age").is_none());
+                            assert!(value[0].get("encrypted_content").is_none());
                         }
                         other => panic!("Expected JSON output, got {:?}", other),
                     }

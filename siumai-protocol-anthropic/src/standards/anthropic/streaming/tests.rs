@@ -324,6 +324,13 @@ async fn emits_custom_events_for_server_tool_use_and_results() {
             assert_eq!(data["toolName"], serde_json::json!("web_search"));
             assert_eq!(data["providerExecuted"], serde_json::json!(true));
             assert!(data["result"].is_array());
+            assert_eq!(data["result"][0]["pageAge"], serde_json::Value::Null);
+            assert_eq!(
+                data["result"][0]["encryptedContent"],
+                serde_json::json!("...")
+            );
+            assert!(data["result"][0].get("page_age").is_none());
+            assert!(data["result"][0].get("encrypted_content").is_none());
         }
         other => panic!("Expected Custom event, got {:?}", other),
     }
