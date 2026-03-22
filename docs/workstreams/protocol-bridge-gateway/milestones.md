@@ -243,6 +243,9 @@ Current state:
   protocols:
   - OpenAI Responses exact and best-effort lossy restoration
   - OpenAI Chat Completions exact and best-effort request restoration
+  - OpenAI Chat Completions same-protocol request bridge roundtrip coverage for system-message,
+    assistant tool-call/tool-result, structured-output response-format, and documented rejected
+    PDF file-id replay
   - Gemini GenerateContent projected request restoration and same-protocol roundtrip coverage
   - Anthropic Messages settings / tools / structured output / MCP / thinking restoration
 - response/stream fixture expansion has now started with initial same-protocol roundtrip coverage

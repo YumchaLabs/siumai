@@ -275,6 +275,13 @@ This TODO list is intentionally organized as mergeable tracks.
     - exact system / assistant tool-call / tool-result / file input restoration cases
     - best-effort system-message-mode cases
     - response-format JSON schema restoration
+  - OpenAI Chat Completions request bridge same-protocol roundtrip now has initial exact fixture
+    coverage for:
+    - system-message replay
+    - assistant tool-call replay
+    - assistant tool-result replay
+    - structured-output response-format replay
+    - documented rejected PDF file-id case for unsupported chat file media replay
   - Gemini GenerateContent request normalization now has initial coverage for:
     - system instruction / message / tool reconstruction
     - toolConfig function-calling and retrieval config restoration
