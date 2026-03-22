@@ -123,8 +123,11 @@ This TODO list is intentionally organized as mergeable tracks.
     - preserved native top-level fields (`system_fingerprint`, `service_tier`, OpenAI usage totals/details)
     - documented lossy / rejected cases for reasoning blocks, tool results, tool approval requests,
       stop-sequence finish reasons, and top-level provider metadata
-    - initial same-protocol response roundtrip coverage for text, tool calls, usage breakdown, and
-      preserved top-level chat-completions fields
+    - initial same-protocol response fixture roundtrip coverage for:
+      - legacy `function_call` replay
+      - assistant text + tool-call replay
+      - usage breakdown replay
+      - preserved top-level chat-completions fields (`system_fingerprint`, `service_tier`)
   - Anthropic Messages same-protocol response roundtrip now has initial projected fixture
     coverage with:
     - exact/projected JSON output cases

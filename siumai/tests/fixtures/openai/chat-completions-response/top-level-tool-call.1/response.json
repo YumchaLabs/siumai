@@ -1,0 +1,43 @@
+{
+  "id": "chatcmpl_123",
+  "object": "chat.completion",
+  "created": 1730000000,
+  "model": "gpt-4.1-mini",
+  "system_fingerprint": "fp_123",
+  "service_tier": "priority",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Let me check.",
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "weather",
+              "arguments": "{\"city\":\"Tokyo\"}"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 11,
+    "completion_tokens": 7,
+    "total_tokens": 18,
+    "prompt_tokens_details": {
+      "cached_tokens": 3,
+      "audio_tokens": 2
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 4,
+      "audio_tokens": 1,
+      "accepted_prediction_tokens": 5,
+      "rejected_prediction_tokens": 6
+    }
+  }
+}

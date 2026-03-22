@@ -246,6 +246,9 @@ Current state:
   - OpenAI Chat Completions same-protocol request bridge roundtrip coverage for system-message,
     assistant tool-call/tool-result, structured-output response-format, and documented rejected
     PDF file-id replay
+  - OpenAI Chat Completions same-protocol response bridge fixture roundtrip coverage for legacy
+    `function_call`, assistant text + tool-call replay, usage details, and preserved
+    `system_fingerprint` / `service_tier`
   - Gemini GenerateContent projected request restoration and same-protocol roundtrip coverage
   - Anthropic Messages settings / tools / structured output / MCP / thinking restoration
 - response/stream fixture expansion has now started with initial same-protocol roundtrip coverage
