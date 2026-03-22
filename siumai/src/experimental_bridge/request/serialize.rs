@@ -75,28 +75,28 @@ pub fn bridge_chat_request_to_json_with_options(
 }
 
 define_request_bridge_wrappers!(
-    "openai",
+    feature = "openai",
     bridge_chat_request_to_openai_responses_json,
     bridge_chat_request_to_openai_responses_json_with_options,
     BridgeTarget::OpenAiResponses,
     "OpenAI Responses"
 );
 define_request_bridge_wrappers!(
-    "openai",
+    feature = "openai",
     bridge_chat_request_to_openai_chat_completions_json,
     bridge_chat_request_to_openai_chat_completions_json_with_options,
     BridgeTarget::OpenAiChatCompletions,
     "OpenAI Chat Completions"
 );
 define_request_bridge_wrappers!(
-    "anthropic",
+    feature = "anthropic",
     bridge_chat_request_to_anthropic_messages_json,
     bridge_chat_request_to_anthropic_messages_json_with_options,
     BridgeTarget::AnthropicMessages,
     "Anthropic Messages"
 );
 define_request_bridge_wrappers!(
-    "google",
+    any(feature = "google", feature = "google-vertex"),
     bridge_chat_request_to_gemini_generate_content_json,
     bridge_chat_request_to_gemini_generate_content_json_with_options,
     BridgeTarget::GeminiGenerateContent,

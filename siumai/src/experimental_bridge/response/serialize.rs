@@ -96,7 +96,7 @@ pub fn bridge_chat_response_to_json_value_with_options(
 }
 
 define_response_bridge_wrappers!(
-    "openai",
+    feature = "openai",
     bridge_chat_response_to_openai_responses_json_bytes,
     bridge_chat_response_to_openai_responses_json_bytes_with_options,
     bridge_chat_response_to_openai_responses_json_value,
@@ -105,7 +105,7 @@ define_response_bridge_wrappers!(
     "OpenAI Responses"
 );
 define_response_bridge_wrappers!(
-    "openai",
+    feature = "openai",
     bridge_chat_response_to_openai_chat_completions_json_bytes,
     bridge_chat_response_to_openai_chat_completions_json_bytes_with_options,
     bridge_chat_response_to_openai_chat_completions_json_value,
@@ -114,7 +114,7 @@ define_response_bridge_wrappers!(
     "OpenAI Chat Completions"
 );
 define_response_bridge_wrappers!(
-    "anthropic",
+    feature = "anthropic",
     bridge_chat_response_to_anthropic_messages_json_bytes,
     bridge_chat_response_to_anthropic_messages_json_bytes_with_options,
     bridge_chat_response_to_anthropic_messages_json_value,
@@ -123,7 +123,7 @@ define_response_bridge_wrappers!(
     "Anthropic Messages"
 );
 define_response_bridge_wrappers!(
-    "google",
+    any(feature = "google", feature = "google-vertex"),
     bridge_chat_response_to_gemini_generate_content_json_bytes,
     bridge_chat_response_to_gemini_generate_content_json_bytes_with_options,
     bridge_chat_response_to_gemini_generate_content_json_value,

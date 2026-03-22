@@ -134,6 +134,17 @@ fn inspect_response_content(
                 );
             }
             ContentPart::ToolResult {
+                tool_name,
+                output,
+                provider_executed,
+                ..
+            } if caps.target == BridgeTarget::GeminiGenerateContent
+                && *provider_executed == Some(true)
+                && tool_name == "code_execution" =>
+            {
+                inspect_gemini_code_execution_tool_result(&path, output, report);
+            }
+            ContentPart::ToolResult {
                 output,
                 provider_executed,
                 ..
@@ -224,6 +235,16 @@ fn inspect_response_content_part_provider_metadata(
                 ContentPart::ToolCall { .. },
             ) => {
                 inspect_anthropic_tool_call_part_provider_metadata(path, value, report);
+            }
+            (
+                ResponseContentPartProviderMetadataMode::GeminiGenerateContent,
+                namespace,
+                ContentPart::Text { .. }
+                | ContentPart::Reasoning { .. }
+                | ContentPart::ToolCall { .. }
+                | ContentPart::ToolResult { .. },
+            ) if namespace == "google" || namespace == "vertex" => {
+                inspect_gemini_content_part_provider_metadata(path, namespace, value, report);
             }
             _ => {
                 report.record_dropped_field(
@@ -385,8 +406,10 @@ fn inspect_response_provider_metadata(
             (ResponseProviderMetadataMode::AnthropicMessages, "anthropic") => {
                 inspect_anthropic_response_provider_metadata(response, metadata, report);
             }
-            (ResponseProviderMetadataMode::GeminiGenerateContent, "google") => {
-                inspect_gemini_response_provider_metadata(metadata, report);
+            (ResponseProviderMetadataMode::GeminiGenerateContent, namespace)
+                if namespace == "google" || namespace == "vertex" =>
+            {
+                inspect_gemini_response_provider_metadata(namespace, metadata, report);
             }
             _ => {
                 report.record_dropped_field(
@@ -424,6 +447,7 @@ fn inspect_openai_response_provider_metadata(
 }
 
 fn inspect_gemini_response_provider_metadata(
+    namespace: &str,
     metadata: &std::collections::HashMap<String, serde_json::Value>,
     report: &mut BridgeReport,
 ) {
@@ -432,43 +456,43 @@ fn inspect_gemini_response_provider_metadata(
     for key in metadata.keys() {
         match key.as_str() {
             "groundingMetadata" => report.record_carried_provider_metadata(
-                "provider_metadata.google.groundingMetadata",
+                format!("provider_metadata.{namespace}.groundingMetadata"),
                 "Gemini GenerateContent response encoding preserves grounding metadata",
             ),
             "urlContextMetadata" => report.record_carried_provider_metadata(
-                "provider_metadata.google.urlContextMetadata",
+                format!("provider_metadata.{namespace}.urlContextMetadata"),
                 "Gemini GenerateContent response encoding preserves URL context metadata",
             ),
             "promptFeedback" => report.record_carried_provider_metadata(
-                "provider_metadata.google.promptFeedback",
+                format!("provider_metadata.{namespace}.promptFeedback"),
                 "Gemini GenerateContent response encoding preserves prompt feedback",
             ),
             "usageMetadata" => report.record_carried_provider_metadata(
-                "provider_metadata.google.usageMetadata",
+                format!("provider_metadata.{namespace}.usageMetadata"),
                 "Gemini GenerateContent response encoding preserves native usage metadata",
             ),
             "safetyRatings" => report.record_carried_provider_metadata(
-                "provider_metadata.google.safetyRatings",
+                format!("provider_metadata.{namespace}.safetyRatings"),
                 "Gemini GenerateContent response encoding preserves candidate safety ratings",
             ),
             "avgLogprobs" => report.record_carried_provider_metadata(
-                "provider_metadata.google.avgLogprobs",
+                format!("provider_metadata.{namespace}.avgLogprobs"),
                 "Gemini GenerateContent response encoding preserves average log probabilities",
             ),
             "logprobsResult" => report.record_carried_provider_metadata(
-                "provider_metadata.google.logprobsResult",
+                format!("provider_metadata.{namespace}.logprobsResult"),
                 "Gemini GenerateContent response encoding preserves logprobs results",
             ),
             "sources" if has_grounding_metadata => report.record_carried_provider_metadata(
-                "provider_metadata.google.sources",
+                format!("provider_metadata.{namespace}.sources"),
                 "Gemini GenerateContent response encoding can recover normalized sources from preserved grounding metadata",
             ),
             "sources" => report.record_lossy_field(
-                "provider_metadata.google.sources",
+                format!("provider_metadata.{namespace}.sources"),
                 "Gemini GenerateContent response encoding cannot replay derived source lists exactly without grounding metadata",
             ),
             _ => report.record_dropped_field(
-                format!("provider_metadata.google.{key}"),
+                format!("provider_metadata.{namespace}.{key}"),
                 "Gemini GenerateContent response encoding does not preserve this Google provider metadata field",
             ),
         }
@@ -716,10 +740,85 @@ fn inspect_openai_response_tool_result(
     }
 }
 
+fn inspect_gemini_code_execution_tool_result(
+    path: &str,
+    output: &ToolResultOutput,
+    report: &mut BridgeReport,
+) {
+    match output {
+        ToolResultOutput::Json { value } | ToolResultOutput::ErrorJson { value } => {
+            let Some(obj) = value.as_object() else {
+                report.record_lossy_field(
+                    path,
+                    "Gemini GenerateContent codeExecutionResult projects non-object tool results into outcome/output fields",
+                );
+                return;
+            };
+
+            if obj.keys().any(|key| key != "outcome" && key != "output") {
+                report.record_lossy_field(
+                    path,
+                    "Gemini GenerateContent codeExecutionResult only preserves `outcome` and `output` fields",
+                );
+            }
+        }
+        ToolResultOutput::Text { .. } => report.record_lossy_field(
+            path,
+            "Gemini GenerateContent codeExecutionResult replays text-only tool results with an unspecified outcome",
+        ),
+        ToolResultOutput::ErrorText { .. } => report.record_lossy_field(
+            path,
+            "Gemini GenerateContent codeExecutionResult cannot preserve text-error classification exactly",
+        ),
+        ToolResultOutput::ExecutionDenied { .. } => report.record_lossy_field(
+            path,
+            "Gemini GenerateContent codeExecutionResult projects execution denial into generic failed output",
+        ),
+        ToolResultOutput::Content { value } if tool_result_content_has_binary_like_parts(value) => {
+            report.record_lossy_field(
+                path,
+                "Gemini GenerateContent codeExecutionResult flattens non-text tool result content into a string summary",
+            );
+        }
+        ToolResultOutput::Content { .. } => report.record_lossy_field(
+            path,
+            "Gemini GenerateContent codeExecutionResult flattens multimodal tool result content into a string summary",
+        ),
+    }
+}
+
 fn tool_result_content_has_binary_like_parts(parts: &[ToolResultContentPart]) -> bool {
     parts
         .iter()
         .any(|part| !matches!(part, ToolResultContentPart::Text { .. }))
+}
+
+fn inspect_gemini_content_part_provider_metadata(
+    path: &str,
+    namespace: &str,
+    value: &serde_json::Value,
+    report: &mut BridgeReport,
+) {
+    let Some(metadata) = value.as_object() else {
+        report.record_dropped_field(
+            format!("{path}.provider_metadata.{namespace}"),
+            "Gemini GenerateContent response encoding requires object-shaped content-part provider metadata",
+        );
+        return;
+    };
+
+    for key in metadata.keys() {
+        match key.as_str() {
+            "thoughtSignature" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.{namespace}.thoughtSignature"),
+                "Gemini GenerateContent response encoding preserves content-part thought signatures",
+            ),
+            _ => report.record_dropped_field(
+                format!("{path}.provider_metadata.{namespace}.{key}"),
+                "Gemini GenerateContent response encoding does not preserve this content-part provider metadata field",
+            ),
+        }
+    }
 }
 
 fn inspect_anthropic_tool_call_part_provider_metadata(

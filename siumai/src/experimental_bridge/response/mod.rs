@@ -20,7 +20,7 @@ pub use serialize::{
     bridge_chat_response_to_anthropic_messages_json_value,
     bridge_chat_response_to_anthropic_messages_json_value_with_options,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub use serialize::{
     bridge_chat_response_to_gemini_generate_content_json_bytes,
     bridge_chat_response_to_gemini_generate_content_json_bytes_with_options,

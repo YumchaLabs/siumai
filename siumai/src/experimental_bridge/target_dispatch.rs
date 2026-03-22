@@ -56,7 +56,7 @@ pub(crate) fn transform_chat_request_to_json(
             }
         }
         BridgeTarget::GeminiGenerateContent => {
-            #[cfg(feature = "google")]
+            #[cfg(any(feature = "google", feature = "google-vertex"))]
             {
                 let tx =
                     siumai_protocol_gemini::standards::gemini::transformers::GeminiRequestTransformer {
@@ -65,10 +65,10 @@ pub(crate) fn transform_chat_request_to_json(
                     };
                 tx.transform_chat(request)
             }
-            #[cfg(not(feature = "google"))]
+            #[cfg(not(any(feature = "google", feature = "google-vertex")))]
             {
                 Err(LlmError::UnsupportedOperation(
-                    "google feature is disabled".to_string(),
+                    "google/google-vertex feature is disabled".to_string(),
                 ))
             }
         }
@@ -130,7 +130,7 @@ pub(crate) fn encode_chat_response_to_json_bytes(
             }
         }
         BridgeTarget::GeminiGenerateContent => {
-            #[cfg(feature = "google")]
+            #[cfg(any(feature = "google", feature = "google-vertex"))]
             {
                 encode_chat_response_as_json(
                     response,
@@ -138,10 +138,10 @@ pub(crate) fn encode_chat_response_to_json_bytes(
                     opts,
                 )
             }
-            #[cfg(not(feature = "google"))]
+            #[cfg(not(any(feature = "google", feature = "google-vertex")))]
             {
                 Err(LlmError::UnsupportedOperation(
-                    "google feature is disabled".to_string(),
+                    "google/google-vertex feature is disabled".to_string(),
                 ))
             }
         }
@@ -218,7 +218,7 @@ where
             }
         }
         BridgeTarget::GeminiGenerateContent => {
-            #[cfg(feature = "google")]
+            #[cfg(any(feature = "google", feature = "google-vertex"))]
             {
                 Ok(encode_chat_stream_as_sse(
                     stream,
@@ -227,10 +227,10 @@ where
                     ),
                 ))
             }
-            #[cfg(not(feature = "google"))]
+            #[cfg(not(any(feature = "google", feature = "google-vertex")))]
             {
                 Err(LlmError::UnsupportedOperation(
-                    "google feature is disabled".to_string(),
+                    "google/google-vertex feature is disabled".to_string(),
                 ))
             }
         }

@@ -20,6 +20,7 @@ pub(super) enum ResponseFinishReasonMode {
 pub(super) enum ResponseContentPartProviderMetadataMode {
     OpenAiResponses,
     AnthropicMessages,
+    GeminiGenerateContent,
     None,
 }
 
@@ -93,7 +94,7 @@ pub(super) const fn response_target_capabilities(
         },
         BridgeTarget::GeminiGenerateContent => ResponseTargetCapabilities {
             target,
-            supports_reasoning_blocks: false,
+            supports_reasoning_blocks: true,
             supports_system_fingerprint: false,
             supports_service_tier: false,
             supports_provider_executed_tool_results: false,
@@ -101,7 +102,8 @@ pub(super) const fn response_target_capabilities(
             supports_source_parts_as_grounding: true,
             usage_mode: ResponseUsageMode::GeminiPartialBreakdown,
             finish_reason_mode: ResponseFinishReasonMode::GeminiGenerateContent,
-            content_part_provider_metadata_mode: ResponseContentPartProviderMetadataMode::None,
+            content_part_provider_metadata_mode:
+                ResponseContentPartProviderMetadataMode::GeminiGenerateContent,
             provider_metadata_mode: ResponseProviderMetadataMode::GeminiGenerateContent,
         },
     }

@@ -364,6 +364,10 @@ google-vertex = [
 
     "siumai-provider-google-vertex/google-vertex",
 
+    "dep:siumai-protocol-gemini",
+
+    "siumai-protocol-gemini/google",
+
 ]
 
 ollama = ["siumai-core/ollama", "siumai-registry/ollama", "dep:siumai-provider-ollama", "siumai-provider-ollama/ollama"]

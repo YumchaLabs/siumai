@@ -138,12 +138,20 @@ This TODO list is intentionally organized as mergeable tracks.
     - preserved aggregate usage totals plus `thoughtsTokenCount` / `cachedContentTokenCount`
     - preserved native `responseId` / `modelVersion`
     - preserved `groundingMetadata` / `urlContextMetadata` with source-grounding replay
-    - documented lossy cases for reasoning blocks, generic STOP finish-reason collapse, prompt /
-      completion audio breakdown, prediction-token breakdown, and dropped `system_fingerprint` /
-      `service_tier`
-    - initial projected same-protocol roundtrip coverage for visible text, tool calls, usage
-      totals, reasoning-token counts, and preserved grounding/url-context metadata while
-      documenting dropped reasoning blocks
+    - documented lossy cases for generic STOP finish-reason collapse on client tool calls, prompt
+      / completion audio breakdown, prediction-token breakdown, and dropped
+      `system_fingerprint` / `service_tier`
+    - same-protocol response encoding now reuses the shared Gemini content converter so bridge
+      output preserves:
+      - multi-part visible text segments
+      - reasoning blocks
+      - part-level `thoughtSignature`
+      - provider-executed `code_execution` call/result pairs
+    - initial same-protocol roundtrip fixture coverage now validates:
+      - exact replay of visible text + reasoning partitioning with `thoughtSignature`
+      - exact replay of provider-executed `code_execution` call/result pairs
+      - documented lossy report behavior for client tool-call finish-reason collapse while still
+        preserving tool-call semantics
 
 ## 5) Make streaming bridges explicit
 
@@ -296,6 +304,17 @@ This TODO list is intentionally organized as mergeable tracks.
     - function tool-choice replay
     - empty tools omission replay
     - documented projected `googleSearch` replay with model uplift
+  - Gemini GenerateContent response bridge same-protocol roundtrip now has fixture coverage for:
+    - exact visible text + reasoning + `thoughtSignature` replay
+    - exact provider-executed `code_execution` call/result replay
+    - documented lossy client tool-call `finish_reason` collapse into generic `STOP` while keeping
+      projected tool-call semantics
+  - the same Gemini bridge surface is now available from `google-vertex` builds as well:
+    - request normalization / request bridge / response bridge / stream bridge helpers no longer
+      require enabling the separate `google` feature just to target Gemini wire format
+    - Vertex chat response same-protocol roundtrip fixtures now cover the same projected/exact
+      cases for reasoning, `thoughtSignature`, tool calls, and provider-executed
+      `code_execution`
   - Anthropic Messages request normalization now has fixture coverage for:
     - base request settings
     - function tool choice and provider-defined tool restoration

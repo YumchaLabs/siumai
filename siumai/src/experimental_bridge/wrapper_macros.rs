@@ -1,8 +1,8 @@
 //! Shared wrapper macros for experimental bridge convenience functions.
 
 macro_rules! define_request_bridge_wrappers {
-    ($feature:literal, $plain_fn:ident, $options_fn:ident, $target:expr, $label:literal) => {
-        #[cfg(feature = $feature)]
+    ($cfg:meta, $plain_fn:ident, $options_fn:ident, $target:expr, $label:literal) => {
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "`.")]
         pub fn $plain_fn(
             request: &ChatRequest,
@@ -12,7 +12,7 @@ macro_rules! define_request_bridge_wrappers {
             bridge_chat_request_to_json(request, source, $target, mode)
         }
 
-        #[cfg(feature = $feature)]
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "` with bridge customization.")]
         pub fn $options_fn(
             request: &ChatRequest,
@@ -26,7 +26,7 @@ macro_rules! define_request_bridge_wrappers {
 
 macro_rules! define_response_bridge_wrappers {
     (
-        $feature:literal,
+        $cfg:meta,
         $bytes_fn:ident,
         $bytes_options_fn:ident,
         $value_fn:ident,
@@ -34,7 +34,7 @@ macro_rules! define_response_bridge_wrappers {
         $target:expr,
         $label:literal
     ) => {
-        #[cfg(feature = $feature)]
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "`.")]
         pub fn $bytes_fn(
             response: &ChatResponse,
@@ -45,7 +45,7 @@ macro_rules! define_response_bridge_wrappers {
             bridge_chat_response_to_json_bytes(response, source, $target, mode, opts)
         }
 
-        #[cfg(feature = $feature)]
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "` with bridge customization.")]
         pub fn $bytes_options_fn(
             response: &ChatResponse,
@@ -58,7 +58,7 @@ macro_rules! define_response_bridge_wrappers {
             )
         }
 
-        #[cfg(feature = $feature)]
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "`.")]
         pub fn $value_fn(
             response: &ChatResponse,
@@ -69,7 +69,7 @@ macro_rules! define_response_bridge_wrappers {
             bridge_chat_response_to_json_value(response, source, $target, mode, opts)
         }
 
-        #[cfg(feature = $feature)]
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "` with bridge customization.")]
         pub fn $value_options_fn(
             response: &ChatResponse,
@@ -85,8 +85,8 @@ macro_rules! define_response_bridge_wrappers {
 }
 
 macro_rules! define_stream_bridge_wrappers {
-    ($feature:literal, $plain_fn:ident, $options_fn:ident, $target:expr, $label:literal) => {
-        #[cfg(feature = $feature)]
+    ($cfg:meta, $plain_fn:ident, $options_fn:ident, $target:expr, $label:literal) => {
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "`.")]
         pub fn $plain_fn<S>(
             stream: S,
@@ -99,7 +99,7 @@ macro_rules! define_stream_bridge_wrappers {
             bridge_chat_stream_to_bytes(stream, source, $target, mode)
         }
 
-        #[cfg(feature = $feature)]
+        #[cfg($cfg)]
         #[doc = concat!("Convenience wrapper for `", $label, "` with bridge customization.")]
         pub fn $options_fn<S>(
             stream: S,

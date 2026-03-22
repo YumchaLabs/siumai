@@ -18,7 +18,7 @@ pub use serialize::{
     bridge_chat_stream_to_anthropic_messages_sse,
     bridge_chat_stream_to_anthropic_messages_sse_with_options,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub use serialize::{
     bridge_chat_stream_to_gemini_generate_content_sse,
     bridge_chat_stream_to_gemini_generate_content_sse_with_options,

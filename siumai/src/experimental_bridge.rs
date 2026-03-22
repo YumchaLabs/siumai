@@ -43,7 +43,7 @@ pub use request::{
     bridge_chat_request_to_anthropic_messages_json,
     bridge_chat_request_to_anthropic_messages_json_with_options,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub use request::{
     bridge_chat_request_to_gemini_generate_content_json,
     bridge_chat_request_to_gemini_generate_content_json_with_options,
@@ -68,7 +68,7 @@ pub use response::{
     bridge_chat_response_to_anthropic_messages_json_value,
     bridge_chat_response_to_anthropic_messages_json_value_with_options,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub use response::{
     bridge_chat_response_to_gemini_generate_content_json_bytes,
     bridge_chat_response_to_gemini_generate_content_json_bytes_with_options,
@@ -91,7 +91,7 @@ pub use stream::{
     bridge_chat_stream_to_anthropic_messages_sse,
     bridge_chat_stream_to_anthropic_messages_sse_with_options,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub use stream::{
     bridge_chat_stream_to_gemini_generate_content_sse,
     bridge_chat_stream_to_gemini_generate_content_sse_with_options,

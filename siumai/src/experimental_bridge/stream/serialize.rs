@@ -32,28 +32,28 @@ where
 }
 
 define_stream_bridge_wrappers!(
-    "openai",
+    feature = "openai",
     bridge_chat_stream_to_openai_responses_sse,
     bridge_chat_stream_to_openai_responses_sse_with_options,
     BridgeTarget::OpenAiResponses,
     "OpenAI Responses"
 );
 define_stream_bridge_wrappers!(
-    "openai",
+    feature = "openai",
     bridge_chat_stream_to_openai_chat_completions_sse,
     bridge_chat_stream_to_openai_chat_completions_sse_with_options,
     BridgeTarget::OpenAiChatCompletions,
     "OpenAI Chat Completions"
 );
 define_stream_bridge_wrappers!(
-    "anthropic",
+    feature = "anthropic",
     bridge_chat_stream_to_anthropic_messages_sse,
     bridge_chat_stream_to_anthropic_messages_sse_with_options,
     BridgeTarget::AnthropicMessages,
     "Anthropic Messages"
 );
 define_stream_bridge_wrappers!(
-    "google",
+    any(feature = "google", feature = "google-vertex"),
     bridge_chat_stream_to_gemini_generate_content_sse,
     bridge_chat_stream_to_gemini_generate_content_sse_with_options,
     BridgeTarget::GeminiGenerateContent,

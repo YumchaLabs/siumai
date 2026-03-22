@@ -82,8 +82,24 @@ Current state:
   - `cachedContentTokenCount`
   - `groundingMetadata` / `urlContextMetadata`
   - source-grounding replay via preserved grounding metadata or normalized source parts
+- Gemini GenerateContent same-protocol response encoding now also reuses the shared Gemini content
+  conversion path, so fixture-backed roundtrip coverage can validate:
+  - exact multi-part visible text + reasoning replay
+  - exact part-level `thoughtSignature` replay
+  - exact provider-executed `code_execution` call/result replay
+  - documented lossy report behavior for client tool-call `finish_reason` collapse into generic
+    `STOP`
+- the same Gemini bridge helpers are now available under `google-vertex` builds, so Vertex users
+  do not need the separate `google` feature just to access:
+  - Gemini request normalization
+  - Gemini request/response bridge helpers
+  - Gemini stream bridge helpers
+- Vertex same-protocol response roundtrip fixture coverage now mirrors the Gemini cases for:
+  - reasoning + `thoughtSignature`
+  - provider-executed `code_execution`
+  - documented client tool-call `finish_reason` projection
 - initial same-protocol response roundtrip fixture coverage now exists for OpenAI Responses and
-  Anthropic Messages
+  Anthropic Messages, and Gemini GenerateContent
 - that coverage is intentionally split into exact, projected, and documented-lossy cases rather
   than claiming full wire-level losslessness
 - remaining work is mainly cross-target usage / reasoning / structured-output audit
@@ -252,9 +268,15 @@ Current state:
   - Gemini GenerateContent projected request restoration and initial same-protocol request bridge
     fixture roundtrip coverage for function tools, function tool-choice, and empty-tools omission,
     plus documented projected `googleSearch` replay with model uplift
+  - Gemini GenerateContent same-protocol response bridge fixture roundtrip coverage for
+    multi-part visible text + reasoning replay, part-level `thoughtSignature`, provider-executed
+    `code_execution` call/result replay, and documented client tool-call `finish_reason`
+    projection
+  - the same Gemini bridge helper surface is now exposed from `google-vertex` builds, with Vertex
+    response roundtrip fixture coverage for the same reasoning/tool/code-execution cases
   - Anthropic Messages settings / tools / structured output / MCP / thinking restoration
 - response/stream fixture expansion has now started with initial same-protocol roundtrip coverage
-  for OpenAI Responses and Anthropic Messages
+  for OpenAI Responses, Anthropic Messages, and Gemini GenerateContent
 - `siumai-extras` now also has Axum router-level smoke coverage for:
   - OpenAI Responses JSON/SSE output routes
   - Anthropic Messages JSON/SSE output routes

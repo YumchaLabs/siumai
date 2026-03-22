@@ -18,7 +18,7 @@ pub use normalize::{
     bridge_anthropic_messages_json_to_chat_request,
     bridge_anthropic_messages_json_to_chat_request_with_options,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub use normalize::{
     bridge_gemini_generate_content_json_to_chat_request,
     bridge_gemini_generate_content_json_to_chat_request_with_options,
@@ -36,7 +36,7 @@ pub use serialize::{
     bridge_chat_request_to_anthropic_messages_json,
     bridge_chat_request_to_anthropic_messages_json_with_options,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub use serialize::{
     bridge_chat_request_to_gemini_generate_content_json,
     bridge_chat_request_to_gemini_generate_content_json_with_options,

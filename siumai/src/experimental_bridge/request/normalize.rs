@@ -6,7 +6,7 @@ use crate::experimental_bridge::lifecycle::{
 };
 #[cfg(feature = "anthropic")]
 use std::collections::BTreeMap;
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 use std::collections::VecDeque;
 use std::collections::{BTreeSet, HashMap};
 #[cfg(feature = "anthropic")]
@@ -22,14 +22,14 @@ use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole, Tool,
     ToolChoice, ToolResultContentPart, ToolResultOutput,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 use siumai_protocol_gemini::standards::gemini::types::{
     CodeExecutionOutcome as GeminiCodeExecutionOutcome, Content as GeminiContent,
     FunctionCallingMode as GeminiFunctionCallingMode, GeminiTool as GeminiRequestTool,
     GenerateContentRequest as GeminiGenerateContentRequest,
     GenerationConfig as GeminiGenerationConfig, Part as GeminiPart, ToolConfig as GeminiToolConfig,
 };
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 use uuid::Uuid;
 
 #[cfg(feature = "anthropic")]
@@ -397,14 +397,14 @@ fn parse_openai_chat_completions_json_to_chat_request(
     Ok(request)
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub fn bridge_gemini_generate_content_json_to_chat_request(
     value: &Value,
 ) -> Result<ChatRequest, LlmError> {
     parse_gemini_generate_content_json_to_chat_request(value)
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 pub fn bridge_gemini_generate_content_json_to_chat_request_with_options(
     value: &Value,
     options: BridgeOptions,
@@ -413,7 +413,7 @@ pub fn bridge_gemini_generate_content_json_to_chat_request_with_options(
     normalize_request_with_options(request, BridgeTarget::GeminiGenerateContent, options)
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_generate_content_json_to_chat_request(
     value: &Value,
 ) -> Result<ChatRequest, LlmError> {
@@ -509,13 +509,13 @@ fn parse_gemini_generate_content_json_to_chat_request(
     Ok(request)
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 #[derive(Debug, Default)]
 struct GeminiToolConfigParse {
     allowed_function_names: Option<Vec<String>>,
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_system_instruction(
     content: &GeminiContent,
 ) -> Result<Option<ChatMessage>, LlmError> {
@@ -534,7 +534,7 @@ fn parse_gemini_system_instruction(
     }
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_content(
     content: &GeminiContent,
     pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
@@ -554,7 +554,7 @@ fn parse_gemini_content(
     Ok(Some(message_from_parts(role, parts)))
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_message_role(
     role: Option<&str>,
     parts: &[ContentPart],
@@ -593,7 +593,7 @@ fn parse_gemini_message_role(
     }
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_part(
     part: &GeminiPart,
     pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
@@ -722,7 +722,7 @@ fn parse_gemini_part(
     })
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_inline_data_part(
     mime_type: &str,
     data: &str,
@@ -757,7 +757,7 @@ fn parse_gemini_inline_data_part(
     }
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_file_data_part(
     file_uri: &str,
     mime_type: Option<&str>,
@@ -798,7 +798,7 @@ fn parse_gemini_file_data_part(
     }
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_function_response_output(value: &Value) -> ToolResultOutput {
     let payload = value
         .as_object()
@@ -812,7 +812,7 @@ fn parse_gemini_function_response_output(value: &Value) -> ToolResultOutput {
     }
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn gemini_thought_signature_provider_metadata(
     thought_signature: Option<&str>,
 ) -> Option<HashMap<String, Value>> {
@@ -825,7 +825,7 @@ fn gemini_thought_signature_provider_metadata(
     )]))
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn push_pending_gemini_tool_call_id(
     pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
     tool_name: &str,
@@ -838,7 +838,7 @@ fn push_pending_gemini_tool_call_id(
     tool_call_id
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn take_pending_gemini_tool_call_id(
     pending_tool_call_ids: &mut HashMap<String, VecDeque<String>>,
     tool_name: &str,
@@ -858,7 +858,7 @@ fn take_pending_gemini_tool_call_id(
     tool_call_id.unwrap_or_else(|| format!("call_{}", Uuid::new_v4().simple()))
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_tools(tools: &[GeminiRequestTool]) -> Result<Vec<Tool>, LlmError> {
     let mut parsed = Vec::new();
 
@@ -978,7 +978,7 @@ fn parse_gemini_tools(tools: &[GeminiRequestTool]) -> Result<Vec<Tool>, LlmError
     Ok(parsed)
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_provider_defined_tool(provider_id: &str, default_name: &str, args: Value) -> Tool {
     let mut tool = default_provider_defined_tool(provider_id).unwrap_or_else(|| {
         Tool::provider_defined(provider_id.to_string(), default_name.to_string())
@@ -992,7 +992,7 @@ fn parse_gemini_provider_defined_tool(provider_id: &str, default_name: &str, arg
     tool
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_tool_config(
     tool_config: &GeminiToolConfig,
     raw_tool_config: Option<&Map<String, Value>>,
@@ -1083,7 +1083,7 @@ fn parse_gemini_tool_config(
     Ok(parsed)
 }
 
-#[cfg(feature = "google")]
+#[cfg(any(feature = "google", feature = "google-vertex"))]
 fn parse_gemini_generation_config(
     generation_config: &GeminiGenerationConfig,
     raw_generation_config: Option<&Map<String, Value>>,
