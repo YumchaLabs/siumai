@@ -1,13 +1,144 @@
 //! Bridge customization helpers shared across request/response/stream paths.
 
+use std::sync::Arc;
+
 use siumai_core::bridge::{
-    BridgeMode, BridgePrimitiveContext, BridgePrimitiveKind, BridgePrimitiveRemapper, BridgeTarget,
+    BridgeCustomization, BridgeMode, BridgePrimitiveContext, BridgePrimitiveKind,
+    BridgePrimitiveRemapper, BridgeReport, BridgeTarget, BridgeWarning, BridgeWarningKind,
     RequestBridgeContext, ResponseBridgeContext, StreamBridgeContext,
 };
 use siumai_core::streaming::ChatStreamEvent;
 use siumai_core::types::{
-    ChatMessage, ChatRequest, ChatResponse, ContentPart, MessageContent, Tool, ToolChoice,
+    ChatMessage, ChatRequest, ChatResponse, ContentPart, MessageContent, ProviderDefinedTool, Tool,
+    ToolChoice,
 };
+
+type ProviderToolArgsMapper = dyn Fn(&RequestBridgeContext, &ProviderDefinedTool, &mut BridgeReport) -> serde_json::Value
+    + Send
+    + Sync;
+
+/// Declarative provider-defined tool rewrite rule for request bridging.
+#[derive(Clone)]
+pub struct ProviderToolRewriteRule {
+    from_tool_id: String,
+    to_tool_id: String,
+    target_name: Option<String>,
+    args_mapper: Option<Arc<ProviderToolArgsMapper>>,
+}
+
+impl ProviderToolRewriteRule {
+    pub fn new(from_tool_id: impl Into<String>, to_tool_id: impl Into<String>) -> Self {
+        Self {
+            from_tool_id: from_tool_id.into(),
+            to_tool_id: to_tool_id.into(),
+            target_name: None,
+            args_mapper: None,
+        }
+    }
+
+    pub fn with_target_name(mut self, target_name: impl Into<String>) -> Self {
+        self.target_name = Some(target_name.into());
+        self
+    }
+
+    pub fn with_args_mapper(mut self, args_mapper: Arc<ProviderToolArgsMapper>) -> Self {
+        self.args_mapper = Some(args_mapper);
+        self
+    }
+
+    fn matches(&self, tool: &ProviderDefinedTool) -> bool {
+        tool.id == self.from_tool_id
+    }
+
+    fn rewrite(
+        &self,
+        ctx: &RequestBridgeContext,
+        tool: &ProviderDefinedTool,
+        report: &mut BridgeReport,
+    ) -> ProviderDefinedTool {
+        let args = self
+            .args_mapper
+            .as_ref()
+            .map(|mapper| mapper(ctx, tool, report))
+            .unwrap_or_else(|| tool.args.clone());
+
+        ProviderDefinedTool::new(
+            self.to_tool_id.clone(),
+            self.target_name
+                .clone()
+                .unwrap_or_else(|| tool.name.clone()),
+        )
+        .with_args(args)
+    }
+}
+
+/// Ready-made bridge customization that rewrites provider-defined tools before request serialization.
+///
+/// This is primarily useful for direct pair bridges where applications want to map an otherwise
+/// unsupported provider-hosted tool into an equivalent tool on the target protocol without
+/// rewriting the whole request manually.
+#[derive(Clone, Default)]
+pub struct ProviderToolRewriteCustomization {
+    rules: Vec<ProviderToolRewriteRule>,
+}
+
+impl ProviderToolRewriteCustomization {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_rule(mut self, rule: ProviderToolRewriteRule) -> Self {
+        self.rules.push(rule);
+        self
+    }
+
+    pub fn map_provider_tool_id(
+        mut self,
+        from_tool_id: impl Into<String>,
+        to_tool_id: impl Into<String>,
+    ) -> Self {
+        self.rules
+            .push(ProviderToolRewriteRule::new(from_tool_id, to_tool_id));
+        self
+    }
+}
+
+impl BridgeCustomization for ProviderToolRewriteCustomization {
+    fn transform_request(
+        &self,
+        ctx: &RequestBridgeContext,
+        request: &mut ChatRequest,
+        report: &mut BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        let Some(tools) = request.tools.as_mut() else {
+            return Ok(());
+        };
+
+        for tool in tools {
+            let Tool::ProviderDefined(provider_tool) = tool else {
+                continue;
+            };
+
+            let Some(rule) = self.rules.iter().find(|rule| rule.matches(provider_tool)) else {
+                continue;
+            };
+
+            let original_id = provider_tool.id.clone();
+            let rewritten = rule.rewrite(ctx, provider_tool, report);
+            let rewritten_id = rewritten.id.clone();
+            *provider_tool = rewritten;
+
+            report.add_warning(BridgeWarning::new(
+                BridgeWarningKind::Custom,
+                format!(
+                    "bridge customization rewrote provider-defined tool `{original_id}` to `{rewritten_id}`"
+                ),
+            ));
+        }
+
+        Ok(())
+    }
+}
 
 fn primitive_context(
     source: Option<BridgeTarget>,

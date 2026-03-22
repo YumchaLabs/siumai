@@ -8,11 +8,14 @@ use siumai_core::bridge::{
     BridgeWarningKind, RequestBridgeContext, RequestBridgeHook, RequestBridgePhase,
     ResponseBridgeContext, StreamBridgeContext,
 };
-use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
+use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, ProviderDefinedTool, Tool};
+
+use crate::experimental_bridge::{ProviderToolRewriteCustomization, ProviderToolRewriteRule};
 
 #[cfg(feature = "anthropic")]
 use super::{
     bridge_anthropic_messages_json_to_chat_request, bridge_chat_request_to_anthropic_messages_json,
+    bridge_chat_request_to_anthropic_messages_json_with_options,
 };
 #[cfg(feature = "google")]
 use super::{
@@ -24,6 +27,7 @@ use super::{
     bridge_chat_request_to_openai_chat_completions_json,
     bridge_chat_request_to_openai_chat_completions_json_with_options,
     bridge_chat_request_to_openai_responses_json,
+    bridge_chat_request_to_openai_responses_json_with_options,
     bridge_openai_chat_completions_json_to_chat_request,
     bridge_openai_responses_json_to_chat_request,
     bridge_openai_responses_json_to_chat_request_with_options,
@@ -421,6 +425,66 @@ fn anthropic_direct_pair_bridge_translates_web_search_tool_and_required_choice()
 
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 #[test]
+fn anthropic_direct_pair_customization_can_rewrite_provider_tool_before_openai_translation() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("fetch docs").build())
+        .tools(vec![Tool::ProviderDefined(
+            ProviderDefinedTool::new("anthropic.web_fetch_20250910", "web_fetch").with_args(
+                json!({
+                    "allowedDomains": ["example.com"]
+                }),
+            ),
+        )])
+        .model("gpt-4.1-mini")
+        .build();
+
+    let customization = ProviderToolRewriteCustomization::new().with_rule(
+        ProviderToolRewriteRule::new("anthropic.web_fetch_20250910", "openai.web_search")
+            .with_args_mapper(Arc::new(|_ctx, tool, _report| {
+                let allowed_domains = tool
+                    .args
+                    .get("allowedDomains")
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+                json!({
+                    "filters": {
+                        "allowedDomains": allowed_domains,
+                    }
+                })
+            })),
+    );
+
+    let bridged = bridge_chat_request_to_openai_responses_json_with_options(
+        &request,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort).with_customization(Arc::new(customization)),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(
+        bridged.report.warnings.iter().any(|warning| warning
+            .message
+            .contains("rewrote provider-defined tool `anthropic.web_fetch_20250910`")),
+        "expected provider tool rewrite warning: {:?}",
+        bridged.report.warnings
+    );
+
+    let value = bridged.value.expect("json body");
+    let tools = value
+        .get("tools")
+        .and_then(|value| value.as_array())
+        .expect("responses tools array");
+
+    assert_eq!(tools[0]["type"], serde_json::json!("web_search"));
+    assert_eq!(
+        tools[0]["filters"]["allowed_domains"],
+        serde_json::json!(["example.com"])
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
 fn anthropic_direct_pair_bridge_replays_assistant_reasoning_without_openai_item_id() {
     let mut assistant = ChatMessage::assistant_with_content(vec![
         ContentPart::reasoning("hidden chain of thought"),
@@ -577,6 +641,56 @@ fn openai_direct_pair_bridge_maps_web_search_choice_and_parallel_policy() {
             "name": "web_search",
             "disable_parallel_tool_use": true
         })
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn openai_direct_pair_customization_can_rewrite_provider_tool_before_anthropic_translation() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("search images").build())
+        .tools(vec![Tool::ProviderDefined(ProviderDefinedTool::new(
+            "openai.image_generation",
+            "generateImage",
+        ))])
+        .model("claude-3-5-sonnet-latest")
+        .build();
+
+    let customization = ProviderToolRewriteCustomization::new().with_rule(
+        ProviderToolRewriteRule::new("openai.image_generation", "anthropic.web_search_20250305")
+            .with_args_mapper(Arc::new(|_ctx, _tool, _report| {
+                json!({
+                    "allowedDomains": ["example.com"]
+                })
+            })),
+    );
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json_with_options(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeOptions::new(BridgeMode::BestEffort).with_customization(Arc::new(customization)),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(
+        bridged.report.warnings.iter().any(|warning| warning
+            .message
+            .contains("rewrote provider-defined tool `openai.image_generation`")),
+        "expected provider tool rewrite warning: {:?}",
+        bridged.report.warnings
+    );
+
+    let value = bridged.value.expect("json body");
+    let tools = value
+        .get("tools")
+        .and_then(|value| value.as_array())
+        .expect("anthropic tools array");
+
+    assert_eq!(tools[0]["type"], serde_json::json!("web_search_20250305"));
+    assert_eq!(
+        tools[0]["allowed_domains"],
+        serde_json::json!(["example.com"])
     );
 }
 

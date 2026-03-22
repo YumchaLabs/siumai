@@ -20,6 +20,7 @@ pub mod stream;
 mod target_dispatch;
 mod wrapper_macros;
 
+pub use customize::{ProviderToolRewriteCustomization, ProviderToolRewriteRule};
 pub use planner::{RequestBridgePath, RequestBridgePlan, plan_chat_request_bridge};
 pub use request::{
     bridge_chat_request_to_json, bridge_chat_request_to_json_with_options,
