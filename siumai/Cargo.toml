@@ -1592,7 +1592,7 @@ name = "bridge-customization"
 
 path = "examples/06-extensibility/bridge-customization.rs"
 
-required-features = ["openai"]
+required-features = ["openai", "anthropic"]
 
 
 

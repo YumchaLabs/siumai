@@ -157,6 +157,11 @@ Current state:
   - typed bridge hooks and policies are the supported user-defined conversion surface
   - inbound normalization now uses the same hook surface through explicit `with_options` entry
     points instead of route-local parser forks
+- `ProviderToolRewriteCustomization` and `ProviderToolRewriteRule` now provide a small,
+  declarative customization layer for provider-hosted tool rewrites before direct pair
+  translation
+- direct pair hosted-tool rule tables and OpenAI MCP -> Anthropic `mcp_servers` helpers are now
+  isolated from pair-specific glue so new compat work does not require editing one large file
 
 Status: completed
 
@@ -213,6 +218,9 @@ Current state:
   - `BridgeCustomization`
   - `BridgeOptions::with_customization(...)`
   - request mutation, target JSON overlay, JSON validation, and tool-name remapping in one object
+- `bridge-customization` now also demonstrates provider-hosted tool rewrite using
+  `ProviderToolRewriteCustomization` so cross-protocol hosted-tool conversion does not require
+  request JSON patch glue
 - runnable bridge demos now exist for:
   - Anthropic Messages request normalization -> OpenAI Responses JSON/SSE output
   - OpenAI Responses request normalization -> Anthropic Messages JSON/SSE output
@@ -224,6 +232,10 @@ Current state:
     core stream bridge wiring
 - gateway migration guidance now exists at:
   - `docs/workstreams/protocol-bridge-gateway/migration.md`
+- the customization note now documents:
+  - curated in-tree hosted-tool translations in direct pair bridges
+  - user-defined hosted-tool rewrite via `ProviderToolRewriteCustomization`
+  - gateway reuse of the same customization objects through policy/route helper entry points
 - request normalization now has fixture-based coverage across the four currently supported source
   protocols:
   - OpenAI Responses exact and best-effort lossy restoration

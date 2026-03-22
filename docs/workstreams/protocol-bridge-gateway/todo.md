@@ -102,6 +102,8 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Keep direct bridges limited to high-value / high-loss pairs
 - [x] Move reasoning / tools / cache control / approval logic into reusable primitives
 - [x] Ensure pair bridges compose primitives instead of embedding all mapping logic inline
+- [x] Extract reusable hosted-tool translation rule tables from direct pair request bridges
+- [x] Isolate OpenAI MCP -> Anthropic `mcp_servers` conversion helpers from pair-specific glue
 
 ## 4) Make non-streaming response bridges explicit
 
@@ -201,6 +203,11 @@ This TODO list is intentionally organized as mergeable tracks.
   - keep parser ownership protocol-owned; do not add a whole-parser override trait
 - [x] Do not expose raw provider JSON patching as the default bridge extension story
   - documented as an escape hatch in the migration note and customization-boundary note
+- [x] Add declarative provider-defined tool rewrite customization for direct-pair hosted-tool
+  compatibility
+  - `ProviderToolRewriteCustomization`
+  - `ProviderToolRewriteRule`
+  - argument remapping stays semantic and typed instead of patching final JSON
 
 ## 7) Add gateway runtime policy
 
@@ -247,6 +254,12 @@ This TODO list is intentionally organized as mergeable tracks.
   - [x] custom tool remapper
   - [x] custom stream transform
   - [x] pure bridge request customization bundle
+- [x] Document the hosted-tool rewrite path explicitly:
+  - direct pair curated hosted-tool translations remain in-tree
+  - user-defined hosted-tool translation uses `ProviderToolRewriteCustomization`
+  - gateway helpers reuse the same customization object instead of introducing gateway-only hooks
+- [x] Extend the bridge customization example to show provider-hosted tool rewrite before direct
+  pair translation
 - [x] Update `docs/README.md` to include this workstream
 - [x] Add a migration note if any public gateway helpers change shape
 

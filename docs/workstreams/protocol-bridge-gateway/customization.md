@@ -130,6 +130,30 @@ Current examples:
 These direct pair bridges are intentionally curated in-tree. End users should not have to fork them
 for small custom behavior, because the typed hooks and remappers are supposed to cover that space.
 
+### 4) Direct pair hosted-tool translation is curated, but user-extensible
+
+The direct Anthropic Messages <-> OpenAI Responses bridges now carry in-tree hosted-tool
+translation rules for the highest-value semantic pairs instead of scattering those mappings across
+one large pair file.
+
+Current curated translations include:
+
+- Anthropic `web_search_20250305` -> OpenAI `openai.web_search`
+- Anthropic `code_execution_20250522` / `code_execution_20250825` -> OpenAI
+  `openai.code_interpreter`
+- OpenAI `web_search` / `web_search_preview` -> Anthropic `web_search_20250305`
+- OpenAI `code_interpreter` -> Anthropic `code_execution_20250825`
+- OpenAI `computer_use` -> Anthropic `computer_20250124`
+- OpenAI `mcp` -> Anthropic `mcp_servers` through a dedicated helper, not as a generic
+  provider-defined tool rewrite
+
+That split is intentional:
+
+- repository-owned direct bridges keep the common hosted-tool mappings in one audited place
+- users do not need to copy those tables into route-local glue
+- uncommon or application-specific hosted-tool compatibility is handled by a narrow customization
+  surface instead of introducing a runtime `N x M` plugin mesh
+
 ## What is intentionally not the default model
 
 ### 1) No whole-parser override trait
@@ -212,6 +236,58 @@ Use `RequestBridgeHook::transform_json` plus `validate_json`.
 
 This is the narrow place where target-specific mutation is acceptable without turning the whole
 bridge into raw JSON patch code.
+
+### Case E - "I need a custom hosted-tool rewrite across protocols"
+
+Use `ProviderToolRewriteCustomization`.
+
+This is the preferred escape hatch when:
+
+- the direct pair bridge does not already know your hosted tool
+- you want to translate one provider-defined tool into another before target serialization
+- you want to map arguments semantically instead of patching the final target JSON
+
+Minimal pattern:
+
+```rust
+use std::sync::Arc;
+
+use serde_json::json;
+use siumai::experimental::bridge::{
+    BridgeMode, BridgeOptions, BridgeTarget, ProviderToolRewriteCustomization,
+    ProviderToolRewriteRule, bridge_chat_request_to_openai_responses_json_with_options,
+};
+
+let customization = ProviderToolRewriteCustomization::new().with_rule(
+    ProviderToolRewriteRule::new("anthropic.web_fetch_20250910", "openai.web_search")
+        .with_args_mapper(Arc::new(|_ctx, tool, _report| {
+            let allowed_domains = tool
+                .args
+                .get("allowedDomains")
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+
+            json!({
+                "filters": {
+                    "allowedDomains": allowed_domains,
+                }
+            })
+        })),
+);
+
+let bridged = bridge_chat_request_to_openai_responses_json_with_options(
+    &request,
+    Some(BridgeTarget::AnthropicMessages),
+    BridgeOptions::new(BridgeMode::BestEffort).with_customization(Arc::new(customization)),
+)?;
+```
+
+Recommended rule:
+
+- if the change is "translate hosted tool semantics", prefer `ProviderToolRewriteCustomization`
+- if the change is "adjust final wire fields after semantics are already correct", use the JSON
+  overlay hooks
+- do not start with raw JSON patching for hosted-tool conversion
 
 ## Minimal shape for applications
 
@@ -304,6 +380,27 @@ Inside `MyBridgeCustomization`:
 - mutate `ChatRequest` before serialization only for semantic changes
 - mutate `serde_json::Value` after serialization only for target-wire overlays
 - validate the final body before returning it to the caller
+
+## Gateway reuse path
+
+Gateway adapters reuse the same bridge customization objects instead of defining a second gateway
+hook system.
+
+That means the same `ProviderToolRewriteCustomization` or custom `BridgeCustomization` object can
+be attached through:
+
+- `BridgeOptions::with_customization(...)`
+- `BridgeOptionsOverride::with_customization(...)`
+- `GatewayBridgePolicy::with_customization(...)`
+- `NormalizeRequestOptions::with_bridge_customization(...)`
+- `TranscodeJsonOptions::with_bridge_customization(...)`
+- `TranscodeSseOptions::with_bridge_customization(...)`
+
+That is the intended layering:
+
+1. define semantic bridge policy once
+2. reuse it in direct bridge code or gateway route helpers
+3. avoid separate gateway-only hosted-tool rewrite logic
 
 ## Runnable references
 

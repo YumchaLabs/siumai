@@ -224,26 +224,36 @@ File: `bridge-customization.rs`
 
 Description:
 Shows the recommended reusable bridge extension path for protocol bridging without adding parser
-forks or route-local glue. The example implements `BridgeCustomization`, attaches it through
-`BridgeOptions::with_customization(...)`, and demonstrates request mutation, target JSON overlay,
-JSON validation, and tool-name remapping in one object.
+forks or route-local glue. The example demonstrates both:
+- reusable typed bridge policy with `BridgeCustomization`
+- provider-hosted tool rewrite with `ProviderToolRewriteCustomization`
+
+It attaches both through `BridgeOptions::with_customization(...)` and shows request mutation,
+target JSON overlay, JSON validation, tool-name remapping, and hosted-tool translation before
+direct pair bridging.
 
 Use Cases:
 - Route or tenant specific protocol bridge policy
 - Reusable request customization shared across multiple bridge routes
 - Target JSON overlays that should remain bridge-aware
 - Tool naming policy that must stay consistent across request serialization
+- Cross-protocol hosted-tool compatibility without writing request JSON patch glue
 
 Run:
 ```bash
-cargo run -p siumai --example bridge-customization --features openai
+cargo run -p siumai --example bridge-customization --features "openai,anthropic"
 ```
 
 Key Concepts:
 1. Implement `BridgeCustomization` for reusable multi-phase policies
 2. Branch on `RequestBridgeContext` and `BridgePrimitiveContext`
-3. Use `with_customization(...)` instead of inventing parser-level traits
-4. Keep protocol parsing/serialization in protocol crates and apply custom behavior in the bridge
+3. Use `ProviderToolRewriteCustomization` when the requirement is hosted-tool semantic rewrite
+4. Use `with_customization(...)` instead of inventing parser-level traits or request JSON glue
+5. Keep protocol parsing/serialization in protocol crates and apply custom behavior in the bridge
+
+If the same bridge customization is needed in gateway routes, reuse the same object through
+`GatewayBridgePolicy::with_customization(...)` or the Axum helper
+`with_bridge_customization(...)` entry points instead of creating separate gateway-only hooks.
 
 ---
 
