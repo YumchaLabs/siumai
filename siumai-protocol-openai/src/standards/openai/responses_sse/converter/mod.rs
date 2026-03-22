@@ -17,6 +17,7 @@ mod pending;
 mod provider_tools;
 mod reasoning;
 mod stream_meta;
+mod tool_events;
 
 mod serialize;
 mod sse;
@@ -87,6 +88,12 @@ pub struct OpenAiResponsesEventConverter {
     emitted_custom_tool_call_ids: Arc<Mutex<HashSet<String>>>,
 
     serialize_state: Arc<Mutex<OpenAiResponsesSerializeState>>,
+}
+
+#[derive(Debug, Default, Clone)]
+pub(super) struct OpenAiResponsesEventExtras {
+    pub(super) output_index: Option<u64>,
+    pub(super) raw_item: Option<serde_json::Value>,
 }
 
 impl Default for OpenAiResponsesEventConverter {
