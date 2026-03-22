@@ -312,6 +312,9 @@ This TODO list is intentionally organized as mergeable tracks.
   - the same Gemini bridge surface is now available from `google-vertex` builds as well:
     - request normalization / request bridge / response bridge / stream bridge helpers no longer
       require enabling the separate `google` feature just to target Gemini wire format
+    - Vertex request bridge currently keeps the same provider-hosted-tool target-capability
+      projection as native Gemini builds, including model uplift for same-protocol replay of
+      `google_search` and `code_execution`
     - Vertex chat response same-protocol roundtrip fixtures now cover the same projected/exact
       cases for reasoning, `thoughtSignature`, tool calls, and provider-executed
       `code_execution`

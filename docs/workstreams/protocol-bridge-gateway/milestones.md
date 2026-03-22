@@ -94,6 +94,10 @@ Current state:
   - Gemini request normalization
   - Gemini request/response bridge helpers
   - Gemini stream bridge helpers
+- Vertex same-protocol request roundtrip coverage now also documents that provider-hosted tools
+  such as `google_search` and `code_execution` continue to follow the shared Gemini
+  target-capability projection path, including model uplift, rather than a Vertex-only exact
+  replay path
 - Vertex same-protocol response roundtrip fixture coverage now mirrors the Gemini cases for:
   - reasoning + `thoughtSignature`
   - provider-executed `code_execution`
