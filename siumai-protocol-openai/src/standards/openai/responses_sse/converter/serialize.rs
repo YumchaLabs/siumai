@@ -386,6 +386,7 @@ pub(super) fn serialize_event(
         output_index: u64,
         final_text: &str,
         annotations: &[serde_json::Value],
+        logprobs: Option<serde_json::Value>,
     ) -> Result<(Vec<u8>, serde_json::Value), LlmError> {
         let output_text_done = serde_json::json!({
             "type": "response.output_text.done",
@@ -395,26 +396,31 @@ pub(super) fn serialize_event(
             "content_index": state.message.content_index,
             "text": final_text,
         });
+        let mut part = serde_json::json!({
+            "type": "output_text",
+            "text": final_text,
+            "annotations": annotations,
+        });
+        if let Some(logprobs) = output_text_logprobs_value(logprobs)
+            && let Some(obj) = part.as_object_mut()
+        {
+            obj.insert("logprobs".to_string(), logprobs);
+        }
+
         let part_done = serde_json::json!({
             "type": "response.content_part.done",
             "sequence_number": next_sequence_number(state),
             "item_id": item_id,
             "output_index": output_index,
             "content_index": state.message.content_index,
-            "part": {
-                "type": "output_text",
-                "text": final_text,
-                "annotations": annotations,
-            }
+            "part": part.clone(),
         });
         let item = serde_json::json!({
             "id": item_id,
             "type": "message",
             "status": "completed",
             "role": "assistant",
-            "content": [
-                { "type": "output_text", "text": final_text, "annotations": annotations }
-            ]
+            "content": [part],
         });
         let item_done = serde_json::json!({
             "type": "response.output_item.done",
@@ -510,6 +516,56 @@ pub(super) fn serialize_event(
         })
     }
 
+    fn build_mcp_call_item(
+        item_id: &str,
+        name: &str,
+        status: &str,
+        arguments: &str,
+        output: Option<serde_json::Value>,
+        server_label: Option<String>,
+    ) -> serde_json::Value {
+        let mut item = serde_json::json!({
+            "id": item_id,
+            "type": "mcp_call",
+            "status": status,
+            "name": name,
+            "arguments": arguments,
+        });
+
+        if let Some(output) = output
+            && let Some(obj) = item.as_object_mut()
+        {
+            obj.insert("output".to_string(), output);
+        }
+        if let Some(server_label) = server_label
+            && let Some(obj) = item.as_object_mut()
+        {
+            obj.insert(
+                "server_label".to_string(),
+                serde_json::Value::String(server_label),
+            );
+        }
+
+        item
+    }
+
+    fn output_text_logprobs_value(
+        logprobs: Option<serde_json::Value>,
+    ) -> Option<serde_json::Value> {
+        let logprobs = logprobs?;
+        match logprobs {
+            serde_json::Value::Array(groups) => {
+                let first = groups.first().cloned()?;
+                if first.is_array() {
+                    Some(first)
+                } else {
+                    Some(serde_json::Value::Array(groups))
+                }
+            }
+            other => Some(other),
+        }
+    }
+
     fn emit_function_call_arguments_delta_frame(
         state: &mut OpenAiResponsesSerializeState,
         item_id: &str,
@@ -540,6 +596,22 @@ pub(super) fn serialize_event(
             "arguments": arguments,
         });
         sse_event_frame("response.function_call_arguments.done", &payload)
+    }
+
+    fn emit_mcp_call_arguments_done_frame(
+        state: &mut OpenAiResponsesSerializeState,
+        item_id: &str,
+        output_index: u64,
+        arguments: &str,
+    ) -> Result<Vec<u8>, LlmError> {
+        let payload = serde_json::json!({
+            "type": "response.mcp_call_arguments.done",
+            "sequence_number": next_sequence_number(state),
+            "item_id": item_id,
+            "output_index": output_index,
+            "arguments": arguments,
+        });
+        sse_event_frame("response.mcp_call_arguments.done", &payload)
     }
 
     let mut state = this
@@ -767,6 +839,9 @@ pub(super) fn serialize_event(
             };
 
             let annotations = state.message.annotations.clone();
+            let response_logprobs =
+                crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(response)
+                    .and_then(|meta| meta.logprobs);
             let mut output: Vec<serde_json::Value> = Vec::new();
             output.extend(function_outputs);
 
@@ -779,11 +854,21 @@ pub(super) fn serialize_event(
                     output_index,
                     &final_text,
                     &annotations,
+                    response_logprobs.clone(),
                 )?;
                 out.extend_from_slice(&message_out);
                 output.push(item);
             } else if !final_text.is_empty() {
-                output.push(serde_json::json!({ "type": "output_text", "text": final_text }));
+                let mut output_text = serde_json::json!({
+                    "type": "output_text",
+                    "text": final_text,
+                });
+                if let Some(logprobs) = output_text_logprobs_value(response_logprobs.clone())
+                    && let Some(obj) = output_text.as_object_mut()
+                {
+                    obj.insert("logprobs".to_string(), logprobs);
+                }
+                output.push(output_text);
             }
 
             let usage = response
@@ -1003,6 +1088,7 @@ pub(super) fn serialize_event(
                         output_index,
                         &final_text,
                         &[],
+                        None,
                     )?;
                     out.extend_from_slice(&done_frames);
                     Ok(out)
@@ -1262,6 +1348,7 @@ pub(super) fn serialize_event(
                         ensure_response_metadata(this, &mut state);
 
                     let mut out = Vec::new();
+                    let finish_logprobs = provider_meta.and_then(|v| v.get("logprobs")).cloned();
 
                     // Close open function calls (best-effort): emit done + output_item.done.
                     let mut function_outputs: Vec<serde_json::Value> = Vec::new();
@@ -1319,12 +1406,21 @@ pub(super) fn serialize_event(
                             output_index,
                             &final_text,
                             &annotations,
+                            finish_logprobs.clone(),
                         )?;
                         out.extend_from_slice(&message_out);
                         output.push(item);
                     } else if !final_text.is_empty() {
-                        output
-                            .push(serde_json::json!({ "type": "output_text", "text": final_text }));
+                        let mut output_text = serde_json::json!({
+                            "type": "output_text",
+                            "text": final_text,
+                        });
+                        if let Some(logprobs) = output_text_logprobs_value(finish_logprobs.clone())
+                            && let Some(obj) = output_text.as_object_mut()
+                        {
+                            obj.insert("logprobs".to_string(), logprobs);
+                        }
+                        output.push(output_text);
                     }
 
                     let usage = state.latest_usage.clone();
@@ -1537,6 +1633,35 @@ pub(super) fn serialize_event(
                         return Ok(Vec::new());
                     }
 
+                    if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
+                        let output_index = provider_tool_output_index(
+                            &mut state,
+                            Some(call_id),
+                            data.get("outputIndex").and_then(|v| v.as_u64()),
+                        );
+                        let arguments =
+                            normalize_json_string(data.get("input")).unwrap_or_default();
+                        let mut out = Vec::new();
+
+                        if let Some(added) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.added",
+                            output_index,
+                            build_mcp_call_item(call_id, mcp_name, "in_progress", "", None, None),
+                        )? {
+                            out.extend_from_slice(&added);
+                        }
+
+                        out.extend_from_slice(&emit_mcp_call_arguments_done_frame(
+                            &mut state,
+                            call_id,
+                            output_index,
+                            &arguments,
+                        )?);
+
+                        return Ok(out);
+                    }
+
                     let (item_id, output_index, name, arguments, emit_added, emit_done) = {
                         let call = ensure_function_call_state(
                             &mut state,
@@ -1645,6 +1770,55 @@ pub(super) fn serialize_event(
                     let input = normalize_json_string(data.get("input"))
                         .map(serde_json::Value::String)
                         .unwrap_or_else(|| serde_json::Value::String("{}".to_string()));
+
+                    if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
+                        let (name, arguments, output, server_label) = result
+                            .as_object()
+                            .map(|obj| {
+                                let name = obj
+                                    .get("name")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or(mcp_name)
+                                    .to_string();
+                                let arguments = obj
+                                    .get("arguments")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("{}")
+                                    .to_string();
+                                let output =
+                                    obj.get("output").cloned().unwrap_or_else(|| result.clone());
+                                let server_label = obj
+                                    .get("serverLabel")
+                                    .and_then(|v| v.as_str())
+                                    .map(ToString::to_string);
+                                (name, arguments, output, server_label)
+                            })
+                            .unwrap_or_else(|| {
+                                (
+                                    mcp_name.to_string(),
+                                    input.as_str().unwrap_or("{}").to_string(),
+                                    result.clone(),
+                                    None,
+                                )
+                            });
+
+                        if let Some(done) = emit_deduped_output_item_frame(
+                            &mut state,
+                            "response.output_item.done",
+                            output_index,
+                            build_mcp_call_item(
+                                call_id,
+                                &name,
+                                "completed",
+                                &arguments,
+                                Some(output),
+                                server_label,
+                            ),
+                        )? {
+                            return Ok(done);
+                        }
+                        return Ok(Vec::new());
+                    }
 
                     let item = serde_json::json!({
                         "id": call_id,

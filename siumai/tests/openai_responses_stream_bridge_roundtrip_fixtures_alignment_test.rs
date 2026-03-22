@@ -109,7 +109,12 @@ struct OpenAiStreamSummary {
     provider_tool_calls: BTreeMap<String, usize>,
     provider_tool_results: BTreeMap<String, usize>,
     tool_approval_requests: BTreeMap<String, usize>,
+    source_types: BTreeMap<String, usize>,
     source_urls: BTreeMap<String, usize>,
+    custom_error_types: BTreeMap<String, usize>,
+    stream_errors: Vec<String>,
+    finish_logprobs_blocks: usize,
+    finish_logprobs_tokens: usize,
 }
 
 fn push_adjacent_unique<T: PartialEq>(items: &mut Vec<T>, value: T) {
@@ -143,6 +148,19 @@ fn reasoning_boundary_from_custom(data: &Value) -> ReasoningBoundary {
     }
 }
 
+fn count_nested_array_items(value: Option<&Value>) -> (usize, usize) {
+    let Some(items) = value.and_then(Value::as_array) else {
+        return (0, 0);
+    };
+
+    let mut total = 0;
+    for item in items {
+        total += item.as_array().map(|inner| inner.len()).unwrap_or(0);
+    }
+
+    (items.len(), total)
+}
+
 fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
     let mut summary = OpenAiStreamSummary {
         has_stream_start: false,
@@ -159,7 +177,12 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
         provider_tool_calls: BTreeMap::new(),
         provider_tool_results: BTreeMap::new(),
         tool_approval_requests: BTreeMap::new(),
+        source_types: BTreeMap::new(),
         source_urls: BTreeMap::new(),
+        custom_error_types: BTreeMap::new(),
+        stream_errors: Vec::new(),
+        finish_logprobs_blocks: 0,
+        finish_logprobs_tokens: 0,
     };
     let mut text_deltas = Vec::new();
 
@@ -217,6 +240,11 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                             .and_then(Value::as_u64)
                             .and_then(|value| u32::try_from(value).ok())
                             .or(summary.completion_tokens);
+                        let (blocks, tokens) = count_nested_array_items(
+                            data.pointer("/providerMetadata/openai/logprobs"),
+                        );
+                        summary.finish_logprobs_blocks = blocks;
+                        summary.finish_logprobs_tokens = tokens;
                     }
                     Some("reasoning-start") => {
                         push_adjacent_unique(
@@ -267,12 +295,25 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                     }
                     Some("source") => {
                         increment_count(
+                            &mut summary.source_types,
+                            data.get("sourceType").and_then(Value::as_str),
+                        );
+                        increment_count(
                             &mut summary.source_urls,
                             data.get("url").and_then(Value::as_str),
                         );
                     }
+                    Some("error") => {
+                        increment_count(
+                            &mut summary.custom_error_types,
+                            data.pointer("/error/type").and_then(Value::as_str),
+                        );
+                    }
                     _ => {}
                 }
+            }
+            ChatStreamEvent::Error { error } => {
+                push_adjacent_unique(&mut summary.stream_errors, error.clone());
             }
             _ => {}
         }
@@ -312,10 +353,24 @@ fn fixture_summary(path: &str) -> OpenAiStreamSummary {
 #[tokio::test]
 async fn openai_responses_stream_bridge_roundtrip_fixture_summary_cases_match() {
     let summary_cases = [
+        "apply-patch/openai-apply-patch-tool.1.chunks.txt",
+        "apply-patch/openai-apply-patch-tool-delete.1.chunks.txt",
+        "code-interpreter/openai-code-interpreter-tool.1.chunks.txt",
+        "file-search/openai-file-search-tool.1.chunks.txt",
+        "file-search/openai-file-search-tool.2.chunks.txt",
+        "image-generation/openai-image-generation-tool.1.chunks.txt",
+        "local-shell/openai-local-shell-tool.1.chunks.txt",
+        "mcp/openai-mcp-tool.1.chunks.txt",
+        "misc/openai-incomplete-finish-reason.1.chunks.txt",
+        "misc/openai-logprobs.1.chunks.txt",
+        "shell/openai-shell-tool.1.chunks.txt",
         "text/openai-text-deltas.1.chunks.txt",
         "reasoning/openai-reasoning-encrypted-content.1.chunks.txt",
         "reasoning/openai-reasoning-encrypted-empty-summary.1.chunks.txt",
         "mcp/openai-mcp-tool-approval.1.chunks.txt",
+        "mcp/openai-mcp-tool-approval.2.chunks.txt",
+        "mcp/openai-mcp-tool-approval.3.chunks.txt",
+        "mcp/openai-mcp-tool-approval.4.chunks.txt",
         "web-search/openai-web-search-tool.1.chunks.txt",
     ];
 

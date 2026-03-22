@@ -179,6 +179,18 @@ This TODO list is intentionally organized as mergeable tracks.
     - prompt/completion totals
     - text reconstruction
     - reasoning boundary identity
+    - broader same-protocol provider-tool families and misc finish payloads, including:
+      - apply-patch
+      - code-interpreter
+      - file-search
+      - image-generation
+      - local-shell
+      - MCP tool + approval fixtures
+      - shell
+      - finish-carried logprobs
+    - same-protocol serializer gap fixes now explicitly cover:
+      - MCP provider tool-call replay on OpenAI Responses stream re-serialization
+      - finish-carried output-text logprobs replay
   - Anthropic Messages stream roundtrip coverage now validates:
     - start metadata
     - finish reason

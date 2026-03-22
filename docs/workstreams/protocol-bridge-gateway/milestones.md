@@ -159,6 +159,19 @@ Current state:
 - same-protocol OpenAI Responses and Anthropic Messages stream roundtrip fixtures now validate
   semantic summaries instead of raw event-for-event equality because target serializers may
   legitimately regenerate protocol frames, timestamps, and duplicate deltas during replay
+- OpenAI Responses same-protocol stream roundtrip coverage has since been expanded to include:
+  - apply-patch
+  - code-interpreter
+  - file-search
+  - image-generation
+  - local-shell
+  - MCP tool + approval flows
+  - shell
+  - finish-carried logprobs
+- the OpenAI Responses stream serializer now also preserves two previously exposed same-protocol
+  replay gaps:
+  - MCP provider tool-call replay
+  - finish-carried output-text logprobs replay
 
 Status: completed
 

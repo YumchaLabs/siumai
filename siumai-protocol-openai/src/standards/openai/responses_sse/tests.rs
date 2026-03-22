@@ -1095,6 +1095,113 @@ fn responses_stream_proxy_serializes_tool_call_and_result_even_with_non_openai_e
 }
 
 #[test]
+fn responses_stream_proxy_roundtrips_mcp_tool_parts_without_raw_item() {
+    let encoder = OpenAiResponsesEventConverter::new();
+
+    let tool_call_bytes = encoder
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "mcp_1",
+                "toolName": "mcp.web_search_exa",
+                "providerExecuted": true,
+                "dynamic": true,
+                "input": "{\"query\":\"nyc mayor\"}",
+            }),
+        })
+        .expect("serialize mcp tool-call");
+    let call_frames = parse_sse_frames(&tool_call_bytes);
+    assert!(call_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.added" && v["item"]["type"] == serde_json::json!("mcp_call")
+    }));
+    assert!(call_frames.iter().any(|(ev, v)| {
+        ev == "response.mcp_call_arguments.done"
+            && v["arguments"] == serde_json::json!("{\"query\":\"nyc mayor\"}")
+    }));
+
+    let tool_result_bytes = encoder
+        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
+            event_type: "openai:tool-result".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "mcp_1",
+                "toolName": "mcp.web_search_exa",
+                "providerExecuted": true,
+                "dynamic": true,
+                "result": {
+                    "type": "call",
+                    "serverLabel": "exa",
+                    "name": "web_search_exa",
+                    "arguments": "{\"query\":\"nyc mayor\"}",
+                    "output": { "hits": 3 }
+                }
+            }),
+        })
+        .expect("serialize mcp tool-result");
+    let result_frames = parse_sse_frames(&tool_result_bytes);
+    assert!(result_frames.iter().any(|(ev, v)| {
+        ev == "response.output_item.done"
+            && v["item"]["type"] == serde_json::json!("mcp_call")
+            && v["item"]["output"]["hits"] == serde_json::json!(3)
+    }));
+
+    let decoder = OpenAiResponsesEventConverter::new();
+    let mut events = Vec::new();
+    for (index, (event_name, payload)) in call_frames
+        .into_iter()
+        .chain(result_frames.into_iter())
+        .enumerate()
+    {
+        let out = futures::executor::block_on(decoder.convert_event(eventsource_stream::Event {
+            event: event_name,
+            data: serde_json::to_string(&payload).expect("serialize payload"),
+            id: index.to_string(),
+            retry: None,
+        }));
+        for item in out {
+            events.push(item.expect("decode roundtrip frame"));
+        }
+    }
+
+    let tool_calls = events
+        .iter()
+        .filter_map(|event| match event {
+            crate::streaming::ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::json!("tool-call"))
+                    && data.get("toolName") == Some(&serde_json::json!("mcp.web_search_exa"))
+                    && data.get("providerExecuted") == Some(&serde_json::json!(true)) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .count();
+    let tool_results = events
+        .iter()
+        .filter_map(|event| match event {
+            crate::streaming::ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::json!("tool-result"))
+                    && data.get("toolName") == Some(&serde_json::json!("mcp.web_search_exa"))
+                    && data.get("providerExecuted") == Some(&serde_json::json!(true)) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .count();
+
+    assert_eq!(
+        tool_calls, 1,
+        "expected one provider-executed mcp tool-call"
+    );
+    assert_eq!(
+        tool_results, 1,
+        "expected one provider-executed mcp tool-result"
+    );
+}
+
+#[test]
 fn responses_stream_bridge_maps_gemini_tool_events_to_openai_output_items() {
     let conv = OpenAiResponsesEventConverter::new();
     let mut bridge = crate::streaming::OpenAiResponsesStreamPartsBridge::new();

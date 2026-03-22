@@ -189,7 +189,21 @@ Path:
 Current fidelity:
 
 - projected exactness for response metadata, finish reason, prompt/completion totals, text
-  reconstruction, and reasoning boundary identity
+  reconstruction, reasoning boundary identity, and the currently audited provider-hosted tool
+  families covered by same-protocol fixtures
+- same-protocol stream replay now explicitly preserves:
+  - MCP provider tool-call / tool-result replay without degrading calls into generic
+    function-call-only semantics
+  - finish-carried output-text `logprobs` on OpenAI Responses streams
+  - provider-hosted tool families currently fixture-covered in stream roundtrip tests:
+    - apply-patch
+    - code-interpreter
+    - file-search
+    - image-generation
+    - local-shell
+    - MCP tool + approval flows
+    - shell
+    - web-search
 - the stream path is currently audited at semantic totals/boundaries, not every nested usage-detail
   field carried by non-streaming Responses JSON
 - raw event-for-event equality is intentionally not required

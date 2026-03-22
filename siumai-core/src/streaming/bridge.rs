@@ -217,6 +217,7 @@ impl OpenAiResponsesStreamPartsBridge {
 
         self.emitted_tool_call_ids.insert(tool_call_id.clone());
 
+        let raw_item = openai_provider_tool_call_raw_item(&tool_call_id, &tool_name, &input_str);
         let mut payload = serde_json::json!({
             "type": "tool-call",
             "toolCallId": tool_call_id,
@@ -227,13 +228,7 @@ impl OpenAiResponsesStreamPartsBridge {
             // The OpenAI Responses serializer requires `rawItem` for provider tool results.
             // We also attach a best-effort `rawItem` on tool-call so a downstream gateway
             // can emit output_item.added consistently.
-            "rawItem": {
-                "id": data.get("toolCallId").cloned().unwrap_or(serde_json::Value::Null),
-                "type": "custom_tool_call",
-                "status": "in_progress",
-                "name": data.get("toolName").cloned().unwrap_or(serde_json::Value::Null),
-                "input": normalize_json_string_value(data.get("input")).unwrap_or(serde_json::Value::String("{}".to_string())),
-            }
+            "rawItem": raw_item,
         });
         if let Some(pm) = data.get("providerMetadata")
             && let Some(obj) = payload.as_object_mut()
@@ -296,6 +291,8 @@ impl OpenAiResponsesStreamPartsBridge {
         // synthesize a tool-call scaffold so downstream clients see output_item.added.
         if !self.emitted_tool_call_ids.contains(&tool_call_id) {
             self.emitted_tool_call_ids.insert(tool_call_id.clone());
+            let raw_item =
+                openai_provider_tool_call_raw_item(&tool_call_id, &tool_name, &input_str);
             let mut tool_call_payload = serde_json::json!({
                 "type": "tool-call",
                 "toolCallId": tool_call_id,
@@ -303,13 +300,7 @@ impl OpenAiResponsesStreamPartsBridge {
                 "input": input_str,
                 "providerExecuted": provider_executed,
                 "dynamic": dynamic,
-                "rawItem": {
-                    "id": data.get("toolCallId").cloned().unwrap_or(serde_json::Value::Null),
-                    "type": "custom_tool_call",
-                    "status": "in_progress",
-                    "name": data.get("toolName").cloned().unwrap_or(serde_json::Value::Null),
-                    "input": serde_json::Value::String(input_str.clone()),
-                }
+                "rawItem": raw_item,
             });
             if let Some(pm) = data.get("providerMetadata")
                 && let Some(obj) = tool_call_payload.as_object_mut()
@@ -331,6 +322,13 @@ impl OpenAiResponsesStreamPartsBridge {
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
+        let raw_item = openai_provider_tool_result_raw_item(
+            &tool_call_id,
+            &tool_name,
+            &input_str,
+            &result,
+            is_error,
+        );
         let mut result_payload = serde_json::json!({
             "type": "tool-result",
             "toolCallId": tool_call_id,
@@ -338,15 +336,7 @@ impl OpenAiResponsesStreamPartsBridge {
             "providerExecuted": provider_executed,
             "dynamic": dynamic,
             // The OpenAI Responses serializer currently requires `rawItem` here.
-            "rawItem": {
-                "id": data.get("toolCallId").cloned().unwrap_or(serde_json::Value::Null),
-                "type": "custom_tool_call",
-                "status": "completed",
-                "name": data.get("toolName").cloned().unwrap_or(serde_json::Value::Null),
-                "input": serde_json::Value::String(input_str),
-                "output": result,
-                "is_error": is_error,
-            }
+            "rawItem": raw_item,
         });
         if let Some(pm) = data.get("providerMetadata")
             && let Some(obj) = result_payload.as_object_mut()
@@ -371,15 +361,95 @@ fn normalize_json_string(value: Option<&serde_json::Value>) -> Option<String> {
     }
 }
 
-fn normalize_json_string_value(value: Option<&serde_json::Value>) -> Option<serde_json::Value> {
-    let value = value?;
-    match value {
-        serde_json::Value::String(s) => Some(serde_json::Value::String(s.clone())),
-        serde_json::Value::Null => None,
-        other => serde_json::to_string(other)
-            .ok()
-            .map(serde_json::Value::String),
+fn openai_provider_tool_call_raw_item(
+    tool_call_id: &str,
+    tool_name: &str,
+    input_str: &str,
+) -> serde_json::Value {
+    if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
+        return serde_json::json!({
+            "id": tool_call_id,
+            "type": "mcp_call",
+            "status": "in_progress",
+            "name": mcp_name,
+            "arguments": input_str,
+        });
     }
+
+    serde_json::json!({
+        "id": tool_call_id,
+        "type": "custom_tool_call",
+        "status": "in_progress",
+        "name": tool_name,
+        "input": input_str,
+    })
+}
+
+fn openai_provider_tool_result_raw_item(
+    tool_call_id: &str,
+    tool_name: &str,
+    input_str: &str,
+    result: &serde_json::Value,
+    is_error: bool,
+) -> serde_json::Value {
+    if let Some(mcp_name) = tool_name.strip_prefix("mcp.") {
+        let (name, arguments, output, server_label) = result
+            .as_object()
+            .map(|obj| {
+                let name = obj
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(mcp_name)
+                    .to_string();
+                let arguments = obj
+                    .get("arguments")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(input_str)
+                    .to_string();
+                let output = obj.get("output").cloned().unwrap_or_else(|| result.clone());
+                let server_label = obj
+                    .get("serverLabel")
+                    .and_then(|v| v.as_str())
+                    .map(ToString::to_string);
+                (name, arguments, output, server_label)
+            })
+            .unwrap_or_else(|| {
+                (
+                    mcp_name.to_string(),
+                    input_str.to_string(),
+                    result.clone(),
+                    None,
+                )
+            });
+
+        let mut raw_item = serde_json::json!({
+            "id": tool_call_id,
+            "type": "mcp_call",
+            "status": "completed",
+            "name": name,
+            "arguments": arguments,
+            "output": output,
+        });
+        if let Some(server_label) = server_label
+            && let Some(obj) = raw_item.as_object_mut()
+        {
+            obj.insert(
+                "server_label".to_string(),
+                serde_json::Value::String(server_label),
+            );
+        }
+        return raw_item;
+    }
+
+    serde_json::json!({
+        "id": tool_call_id,
+        "type": "custom_tool_call",
+        "status": "completed",
+        "name": tool_name,
+        "input": input_str,
+        "output": result,
+        "is_error": is_error,
+    })
 }
 
 #[cfg(test)]
@@ -519,5 +589,87 @@ mod tests {
             panic!("expected Custom");
         };
         assert_eq!(event_type, "custom:raw");
+    }
+
+    #[test]
+    fn bridge_v3_mcp_tool_events_rebuild_openai_mcp_raw_items() {
+        let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+        let call = ChatStreamEvent::Custom {
+            event_type: "custom:any".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "mcp_1",
+                "toolName": "mcp.web_search_exa",
+                "input": "{\"query\":\"nyc mayor\"}",
+                "providerExecuted": true,
+            }),
+        };
+        let result = ChatStreamEvent::Custom {
+            event_type: "custom:any".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "mcp_1",
+                "toolName": "mcp.web_search_exa",
+                "providerExecuted": true,
+                "result": {
+                    "type": "call",
+                    "serverLabel": "exa",
+                    "name": "web_search_exa",
+                    "arguments": "{\"query\":\"nyc mayor\"}",
+                    "output": { "hits": 3 }
+                }
+            }),
+        };
+
+        let bridged_call = bridge.bridge_event(call);
+        assert_eq!(bridged_call.len(), 1);
+        let ChatStreamEvent::Custom {
+            data: call_data, ..
+        } = &bridged_call[0]
+        else {
+            panic!("expected bridged call custom event");
+        };
+        assert_eq!(
+            call_data.pointer("/rawItem/type").and_then(|v| v.as_str()),
+            Some("mcp_call")
+        );
+        assert_eq!(
+            call_data.pointer("/rawItem/name").and_then(|v| v.as_str()),
+            Some("web_search_exa")
+        );
+        assert_eq!(
+            call_data
+                .pointer("/rawItem/arguments")
+                .and_then(|v| v.as_str()),
+            Some("{\"query\":\"nyc mayor\"}")
+        );
+
+        let bridged_result = bridge.bridge_event(result);
+        assert_eq!(bridged_result.len(), 1);
+        let ChatStreamEvent::Custom {
+            data: result_data, ..
+        } = &bridged_result[0]
+        else {
+            panic!("expected bridged result custom event");
+        };
+        assert_eq!(
+            result_data
+                .pointer("/rawItem/type")
+                .and_then(|v| v.as_str()),
+            Some("mcp_call")
+        );
+        assert_eq!(
+            result_data
+                .pointer("/rawItem/server_label")
+                .and_then(|v| v.as_str()),
+            Some("exa")
+        );
+        assert_eq!(
+            result_data
+                .pointer("/rawItem/output/hits")
+                .and_then(|v| v.as_u64()),
+            Some(3)
+        );
     }
 }
