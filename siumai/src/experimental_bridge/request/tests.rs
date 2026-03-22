@@ -8,10 +8,16 @@ use siumai_core::bridge::{
     BridgeWarningKind, RequestBridgeContext, RequestBridgeHook, RequestBridgePhase,
     ResponseBridgeContext, StreamBridgeContext,
 };
-use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, ProviderDefinedTool, Tool};
+use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+use siumai_core::types::{ProviderDefinedTool, Tool};
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
 use crate::experimental_bridge::{ProviderToolRewriteCustomization, ProviderToolRewriteRule};
 
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+use super::bridge_chat_request_to_openai_responses_json_with_options;
 #[cfg(feature = "anthropic")]
 use super::{
     bridge_anthropic_messages_json_to_chat_request, bridge_chat_request_to_anthropic_messages_json,
@@ -27,7 +33,6 @@ use super::{
     bridge_chat_request_to_openai_chat_completions_json,
     bridge_chat_request_to_openai_chat_completions_json_with_options,
     bridge_chat_request_to_openai_responses_json,
-    bridge_chat_request_to_openai_responses_json_with_options,
     bridge_openai_chat_completions_json_to_chat_request,
     bridge_openai_responses_json_to_chat_request,
     bridge_openai_responses_json_to_chat_request_with_options,
