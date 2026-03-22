@@ -20,6 +20,29 @@ use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageRole, Tool, ToolChoice,
 };
 
+use super::tool_rules::{
+    ProviderToolTranslationRule, TargetToolNamePolicy, find_provider_tool_translation_rule,
+};
+
+const ANTHROPIC_TO_OPENAI_TOOL_RULES: &[ProviderToolTranslationRule] = &[
+    ProviderToolTranslationRule {
+        source_tool_types: &["web_search_20250305"],
+        target_tool_id: "openai.web_search",
+        target_tool_name: TargetToolNamePolicy::PreserveSourceName,
+        choice_name: None,
+        aliases: &[],
+        args_mapper: map_web_search_args,
+    },
+    ProviderToolTranslationRule {
+        source_tool_types: &["code_execution_20250522", "code_execution_20250825"],
+        target_tool_id: "openai.code_interpreter",
+        target_tool_name: TargetToolNamePolicy::PreserveSourceName,
+        choice_name: None,
+        aliases: &[],
+        args_mapper: map_code_execution_args,
+    },
+];
+
 pub(crate) fn serialize_anthropic_messages_to_openai_responses(
     request: &ChatRequest,
     report: &mut BridgeReport,
@@ -147,20 +170,13 @@ fn map_anthropic_provider_tool(
 ) -> Option<Tool> {
     let tool_type = provider_tool.tool_type().unwrap_or_default();
 
-    match tool_type {
-        "web_search_20250305" => Some(
-            Tool::provider_defined("openai.web_search", provider_tool.name.clone())
-                .with_args(map_web_search_args(index, &provider_tool.args, report)),
-        ),
-        "code_execution_20250522" | "code_execution_20250825" => Some(
-            Tool::provider_defined("openai.code_interpreter", provider_tool.name.clone())
-                .with_args(map_code_execution_args(index, &provider_tool.args, report)),
-        ),
-        other => {
+    match find_provider_tool_translation_rule(provider_tool, ANTHROPIC_TO_OPENAI_TOOL_RULES) {
+        Some(rule) => Some(rule.translate_tool(index, provider_tool, report)),
+        None => {
             report.record_dropped_field(
                 format!("tools[{index}]"),
                 format!(
-                    "OpenAI Responses direct pair does not yet have a stable mapping for Anthropic server tool `{other}`"
+                    "OpenAI Responses direct pair does not yet have a stable mapping for Anthropic server tool `{tool_type}`"
                 ),
             );
             None

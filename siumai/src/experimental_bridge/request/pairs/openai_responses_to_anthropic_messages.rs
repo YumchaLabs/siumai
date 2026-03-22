@@ -23,6 +23,37 @@ use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageRole, Tool, ToolChoice,
 };
 
+use super::tool_rules::{
+    ProviderToolTranslationRule, TargetToolNamePolicy, find_provider_tool_translation_rule,
+};
+
+const OPENAI_TO_ANTHROPIC_TOOL_RULES: &[ProviderToolTranslationRule] = &[
+    ProviderToolTranslationRule {
+        source_tool_types: &["web_search", "web_search_preview"],
+        target_tool_id: siumai_core::tools::anthropic::WEB_SEARCH_20250305_ID,
+        target_tool_name: TargetToolNamePolicy::Fixed("web_search"),
+        choice_name: Some("web_search"),
+        aliases: &["web_search", "web_search_preview"],
+        args_mapper: map_web_search_args,
+    },
+    ProviderToolTranslationRule {
+        source_tool_types: &["code_interpreter"],
+        target_tool_id: siumai_core::tools::anthropic::CODE_EXECUTION_20250825_ID,
+        target_tool_name: TargetToolNamePolicy::Fixed("code_execution"),
+        choice_name: Some("code_execution"),
+        aliases: &["code_interpreter"],
+        args_mapper: map_code_execution_args,
+    },
+    ProviderToolTranslationRule {
+        source_tool_types: &["computer_use"],
+        target_tool_id: siumai_core::tools::anthropic::COMPUTER_20250124_ID,
+        target_tool_name: TargetToolNamePolicy::Fixed("computer"),
+        choice_name: Some("computer"),
+        aliases: &["computer_use", "computer_use_preview"],
+        args_mapper: map_computer_use_args,
+    },
+];
+
 pub(crate) fn serialize_openai_responses_to_anthropic_messages(
     request: &ChatRequest,
     report: &mut BridgeReport,
@@ -164,41 +195,6 @@ fn map_openai_provider_tool(
     let tool_type = provider_tool.tool_type().unwrap_or_default();
 
     match tool_type {
-        "web_search" | "web_search_preview" => ToolTranslation::AnthropicTool {
-            tool: Tool::provider_defined(
-                siumai_core::tools::anthropic::WEB_SEARCH_20250305_ID,
-                "web_search",
-            )
-            .with_args(map_web_search_args(index, &provider_tool.args, report)),
-            choice_name: "web_search".to_string(),
-            aliases: vec![
-                provider_tool.name.clone(),
-                "web_search".to_string(),
-                "web_search_preview".to_string(),
-            ],
-        },
-        "code_interpreter" => ToolTranslation::AnthropicTool {
-            tool: Tool::provider_defined(
-                siumai_core::tools::anthropic::CODE_EXECUTION_20250825_ID,
-                "code_execution",
-            )
-            .with_args(map_code_execution_args(index, &provider_tool.args, report)),
-            choice_name: "code_execution".to_string(),
-            aliases: vec![provider_tool.name.clone(), "code_interpreter".to_string()],
-        },
-        "computer_use" => ToolTranslation::AnthropicTool {
-            tool: Tool::provider_defined(
-                siumai_core::tools::anthropic::COMPUTER_20250124_ID,
-                "computer",
-            )
-            .with_args(map_computer_use_args(index, &provider_tool.args, report)),
-            choice_name: "computer".to_string(),
-            aliases: vec![
-                provider_tool.name.clone(),
-                "computer_use".to_string(),
-                "computer_use_preview".to_string(),
-            ],
-        },
         "mcp" => match map_mcp_server(index, provider_tool, report) {
             Some(server) => ToolTranslation::McpServer {
                 server,
@@ -207,13 +203,23 @@ fn map_openai_provider_tool(
             None => ToolTranslation::Dropped,
         },
         other => {
-            report.record_dropped_field(
+            match find_provider_tool_translation_rule(provider_tool, OPENAI_TO_ANTHROPIC_TOOL_RULES)
+            {
+                Some(rule) => ToolTranslation::AnthropicTool {
+                    tool: rule.translate_tool(index, provider_tool, report),
+                    choice_name: rule.choice_name(provider_tool),
+                    aliases: rule.aliases(provider_tool),
+                },
+                None => {
+                    report.record_dropped_field(
                 format!("tools[{index}]"),
                 format!(
                     "Anthropic direct pair does not yet have a stable mapping for OpenAI Responses tool `{other}`"
                 ),
             );
-            ToolTranslation::Dropped
+                    ToolTranslation::Dropped
+                }
+            }
         }
     }
 }
