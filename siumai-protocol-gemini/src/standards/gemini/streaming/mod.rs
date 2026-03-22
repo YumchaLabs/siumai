@@ -7,8 +7,8 @@ use super::types::GeminiConfig;
 use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{
-    ChatStreamEvent, LanguageModelV3Source, LanguageModelV3StreamPart, StreamStateTracker,
-    V3UnsupportedPartBehavior,
+    ChatStreamEvent, LanguageModelV3Source, LanguageModelV3StreamPart, SharedV3ProviderMetadata,
+    StreamStateTracker, V3UnsupportedPartBehavior,
 };
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
@@ -28,6 +28,14 @@ struct GeminiFunctionCallSerializeState {
 #[derive(Debug, Default, Clone)]
 struct GeminiSerializeState {
     function_calls_by_id: std::collections::HashMap<String, GeminiFunctionCallSerializeState>,
+    active_reasoning_provider_metadata: Option<SharedV3ProviderMetadata>,
+    pending_reasoning_chunk: Option<GeminiPendingReasoningSerializeState>,
+}
+
+#[derive(Debug, Default, Clone)]
+struct GeminiPendingReasoningSerializeState {
+    delta: String,
+    provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
 /// Gemini stream response structure

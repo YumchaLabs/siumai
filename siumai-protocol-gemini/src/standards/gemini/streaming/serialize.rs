@@ -27,10 +27,78 @@ pub(super) fn serialize_event(
         }
     }
 
+    fn thought_signature_from_provider_metadata(
+        provider_metadata: Option<&SharedV3ProviderMetadata>,
+    ) -> Option<String> {
+        let provider_metadata = provider_metadata?;
+
+        for preferred in ["google", "vertex"] {
+            if let Some(sig) = provider_metadata
+                .get(preferred)
+                .and_then(|value| value.get("thoughtSignature"))
+                .and_then(|value| value.as_str())
+            {
+                return Some(sig.to_string());
+            }
+        }
+
+        provider_metadata.values().find_map(|value| {
+            value
+                .get("thoughtSignature")
+                .and_then(|value| value.as_str())
+                .map(ToString::to_string)
+        })
+    }
+
+    fn serialize_reasoning_chunk(
+        delta: &str,
+        provider_metadata: Option<&SharedV3ProviderMetadata>,
+    ) -> Result<Vec<u8>, LlmError> {
+        let mut part = serde_json::Map::new();
+        part.insert(
+            "text".to_string(),
+            serde_json::Value::String(delta.to_string()),
+        );
+        part.insert("thought".to_string(), serde_json::Value::Bool(true));
+        if let Some(sig) = thought_signature_from_provider_metadata(provider_metadata) {
+            part.insert(
+                "thoughtSignature".to_string(),
+                serde_json::Value::String(sig),
+            );
+        }
+
+        let payload = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [serde_json::Value::Object(part)]
+                    }
+                }
+            ]
+        });
+        sse_data_frame(&payload)
+    }
+
+    fn flush_pending_reasoning_chunk(this: &GeminiEventConverter) -> Result<Vec<u8>, LlmError> {
+        let pending = {
+            let mut state = this.serialize_state.lock().map_err(|_| {
+                LlmError::InternalError("serialize_state lock poisoned".to_string())
+            })?;
+            state.pending_reasoning_chunk.take()
+        };
+
+        let Some(pending) = pending else {
+            return Ok(Vec::new());
+        };
+
+        serialize_reasoning_chunk(&pending.delta, pending.provider_metadata.as_ref())
+    }
+
     match event {
         // Gemini streaming does not have an explicit "start" frame; the first chunk carries data.
-        ChatStreamEvent::StreamStart { .. } => Ok(Vec::new()),
+        ChatStreamEvent::StreamStart { .. } => flush_pending_reasoning_chunk(this),
         ChatStreamEvent::ContentDelta { delta, .. } => {
+            let mut out = flush_pending_reasoning_chunk(this)?;
             let payload = serde_json::json!({
                 "candidates": [
                     {
@@ -42,24 +110,41 @@ pub(super) fn serialize_event(
                     }
                 ]
             });
-            sse_data_frame(&payload)
+            out.extend_from_slice(&sse_data_frame(&payload)?);
+            Ok(out)
         }
         ChatStreamEvent::ThinkingDelta { delta } => {
-            // Gemini thinking chunks use `thought: true` on the part.
-            let payload = serde_json::json!({
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [
-                                { "text": delta, "thought": true }
-                            ]
-                        }
-                    }
-                ]
-            });
-            sse_data_frame(&payload)
+            let (pending, active_provider_metadata) = {
+                let mut state = this.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+                (
+                    state.pending_reasoning_chunk.take(),
+                    state.active_reasoning_provider_metadata.clone(),
+                )
+            };
+
+            if let Some(pending) = pending {
+                if pending.delta == *delta {
+                    return serialize_reasoning_chunk(
+                        &pending.delta,
+                        pending.provider_metadata.as_ref(),
+                    );
+                }
+
+                let mut out =
+                    serialize_reasoning_chunk(&pending.delta, pending.provider_metadata.as_ref())?;
+                out.extend_from_slice(&serialize_reasoning_chunk(
+                    delta,
+                    active_provider_metadata.as_ref(),
+                )?);
+                return Ok(out);
+            }
+
+            serialize_reasoning_chunk(delta, active_provider_metadata.as_ref())
         }
         ChatStreamEvent::UsageUpdate { usage } => {
+            let mut out = flush_pending_reasoning_chunk(this)?;
             let thoughts = usage
                 .completion_tokens_details
                 .as_ref()
@@ -79,7 +164,8 @@ pub(super) fn serialize_event(
                     "thoughtsTokenCount": thoughts,
                 }
             });
-            sse_data_frame(&payload)
+            out.extend_from_slice(&sse_data_frame(&payload)?);
+            Ok(out)
         }
         ChatStreamEvent::ToolCallDelta {
             id,
@@ -87,6 +173,7 @@ pub(super) fn serialize_event(
             arguments_delta,
             ..
         } => {
+            let mut out = flush_pending_reasoning_chunk(this)?;
             let mut state = this.serialize_state.lock().map_err(|_| {
                 LlmError::InternalError("serialize_state lock poisoned".to_string())
             })?;
@@ -153,9 +240,11 @@ pub(super) fn serialize_event(
                     }
                 ]
             });
-            sse_data_frame(&payload)
+            out.extend_from_slice(&sse_data_frame(&payload)?);
+            Ok(out)
         }
         ChatStreamEvent::StreamEnd { response } => {
+            let mut out = flush_pending_reasoning_chunk(this)?;
             let reason = response
                 .finish_reason
                 .as_ref()
@@ -182,8 +271,6 @@ pub(super) fn serialize_event(
                     "thoughtsTokenCount": thoughts,
                 })
             });
-
-            let mut out = Vec::new();
 
             // Flush pending tool calls (best-effort) before finish chunk.
             if let Ok(mut state) = this.serialize_state.lock() {
@@ -238,6 +325,8 @@ pub(super) fn serialize_event(
                         out.extend_from_slice(&frame);
                     }
                 }
+                state.active_reasoning_provider_metadata = None;
+                state.pending_reasoning_chunk = None;
             }
 
             let payload = serde_json::json!({
@@ -250,11 +339,13 @@ pub(super) fn serialize_event(
             Ok(out)
         }
         ChatStreamEvent::Error { error } => {
+            let mut out = flush_pending_reasoning_chunk(this)?;
             // Gemini SSE errors do not have a stable in-band frame; emit a best-effort JSON payload.
             let payload = serde_json::json!({
                 "error": { "message": error }
             });
-            sse_data_frame(&payload)
+            out.extend_from_slice(&sse_data_frame(&payload)?);
+            Ok(out)
         }
         ChatStreamEvent::Custom { data, .. } => {
             let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {
@@ -262,7 +353,58 @@ pub(super) fn serialize_event(
             };
 
             match part {
+                LanguageModelV3StreamPart::ReasoningStart {
+                    provider_metadata, ..
+                } => {
+                    let out = flush_pending_reasoning_chunk(this)?;
+                    let mut state = this.serialize_state.lock().map_err(|_| {
+                        LlmError::InternalError("serialize_state lock poisoned".to_string())
+                    })?;
+                    state.active_reasoning_provider_metadata = provider_metadata;
+                    Ok(out)
+                }
+                LanguageModelV3StreamPart::ReasoningDelta {
+                    delta,
+                    provider_metadata,
+                    ..
+                } => {
+                    let previous = {
+                        let mut state = this.serialize_state.lock().map_err(|_| {
+                            LlmError::InternalError("serialize_state lock poisoned".to_string())
+                        })?;
+
+                        let carry_provider_metadata = provider_metadata
+                            .clone()
+                            .or_else(|| state.active_reasoning_provider_metadata.clone());
+
+                        if let Some(provider_metadata) = provider_metadata {
+                            state.active_reasoning_provider_metadata = Some(provider_metadata);
+                        }
+
+                        state.pending_reasoning_chunk.replace(
+                            GeminiPendingReasoningSerializeState {
+                                delta,
+                                provider_metadata: carry_provider_metadata,
+                            },
+                        )
+                    };
+
+                    let Some(previous) = previous else {
+                        return Ok(Vec::new());
+                    };
+
+                    serialize_reasoning_chunk(&previous.delta, previous.provider_metadata.as_ref())
+                }
+                LanguageModelV3StreamPart::ReasoningEnd { .. } => {
+                    let out = flush_pending_reasoning_chunk(this)?;
+                    let mut state = this.serialize_state.lock().map_err(|_| {
+                        LlmError::InternalError("serialize_state lock poisoned".to_string())
+                    })?;
+                    state.active_reasoning_provider_metadata = None;
+                    Ok(out)
+                }
                 LanguageModelV3StreamPart::Source(source) => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
                     let chunk = match source {
                         LanguageModelV3Source::Url { url, title, .. } => {
                             let mut web = serde_json::Map::new();
@@ -301,13 +443,15 @@ pub(super) fn serialize_event(
                             }
                         ]
                     });
-                    sse_data_frame(&payload)
+                    out.extend_from_slice(&sse_data_frame(&payload)?);
+                    Ok(out)
                 }
                 LanguageModelV3StreamPart::Finish {
                     usage,
                     finish_reason,
                     ..
                 } => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
                     let unified = finish_reason.unified.to_ascii_lowercase();
                     let reason = if unified.contains("length") || unified.contains("max") {
                         "MAX_TOKENS"
@@ -333,9 +477,74 @@ pub(super) fn serialize_event(
                             "thoughtsTokenCount": usage.output_tokens.reasoning.map(|v| v.min(u32::MAX as u64) as u32),
                         }
                     });
-                    sse_data_frame(&payload)
+                    out.extend_from_slice(&sse_data_frame(&payload)?);
+                    Ok(out)
+                }
+                LanguageModelV3StreamPart::ToolCall(call) => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
+                    let parsed: serde_json::Value =
+                        crate::streaming::parse_json_with_repair(&call.input).map_err(|e| {
+                            LlmError::ParseError(format!(
+                                "Failed to parse Gemini tool call input JSON: {e}"
+                            ))
+                        })?;
+
+                    let mut part = serde_json::Map::new();
+                    if call.provider_executed.unwrap_or(false) && call.tool_name == "code_execution"
+                    {
+                        let language = parsed
+                            .get("language")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or("PYTHON");
+                        let code = parsed
+                            .get("code")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or_default();
+
+                        part.insert(
+                            "executableCode".to_string(),
+                            serde_json::json!({
+                                "language": language,
+                                "code": code,
+                            }),
+                        );
+                    } else {
+                        let Some(obj) = parsed.as_object() else {
+                            return Ok(out);
+                        };
+
+                        part.insert(
+                            "functionCall".to_string(),
+                            serde_json::json!({
+                                "name": call.tool_name,
+                                "args": serde_json::Value::Object(obj.clone()),
+                            }),
+                        );
+                    }
+
+                    if let Some(sig) =
+                        thought_signature_from_provider_metadata(call.provider_metadata.as_ref())
+                    {
+                        part.insert(
+                            "thoughtSignature".to_string(),
+                            serde_json::Value::String(sig),
+                        );
+                    }
+
+                    let payload = serde_json::json!({
+                        "candidates": [
+                            {
+                                "content": {
+                                    "parts": [serde_json::Value::Object(part)]
+                                }
+                            }
+                        ]
+                    });
+                    out.extend_from_slice(&sse_data_frame(&payload)?);
+                    Ok(out)
                 }
                 LanguageModelV3StreamPart::ToolResult(tr) => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
                     if tr.tool_name == "code_execution" {
                         let outcome = tr
                             .result
@@ -356,18 +565,31 @@ pub(super) fn serialize_event(
                             );
                         }
 
+                        let mut part = serde_json::Map::new();
+                        part.insert(
+                            "codeExecutionResult".to_string(),
+                            serde_json::Value::Object(res),
+                        );
+                        if let Some(sig) =
+                            thought_signature_from_provider_metadata(tr.provider_metadata.as_ref())
+                        {
+                            part.insert(
+                                "thoughtSignature".to_string(),
+                                serde_json::Value::String(sig),
+                            );
+                        }
+
                         let payload = serde_json::json!({
                             "candidates": [
                                 {
                                     "content": {
-                                        "parts": [
-                                            { "codeExecutionResult": serde_json::Value::Object(res) }
-                                        ]
+                                        "parts": [serde_json::Value::Object(part)]
                                     }
                                 }
                             ]
                         });
-                        return sse_data_frame(&payload);
+                        out.extend_from_slice(&sse_data_frame(&payload)?);
+                        return Ok(out);
                     }
 
                     if this.emit_function_response_tool_results {
@@ -379,6 +601,14 @@ pub(super) fn serialize_event(
                                 "response": tr.result
                             }),
                         );
+                        if let Some(sig) =
+                            thought_signature_from_provider_metadata(tr.provider_metadata.as_ref())
+                        {
+                            part.insert(
+                                "thoughtSignature".to_string(),
+                                serde_json::Value::String(sig),
+                            );
+                        }
 
                         let mut payload = serde_json::Map::new();
                         payload.insert(
@@ -392,7 +622,10 @@ pub(super) fn serialize_event(
                             serde_json::json!({ "toolCallId": tr.tool_call_id }),
                         );
 
-                        return sse_data_frame(&serde_json::Value::Object(payload));
+                        out.extend_from_slice(&sse_data_frame(&serde_json::Value::Object(
+                            payload,
+                        ))?);
+                        return Ok(out);
                     }
 
                     if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
@@ -405,10 +638,10 @@ pub(super) fn serialize_event(
                         });
                     }
 
-                    Ok(Vec::new())
+                    Ok(out)
                 }
                 other => {
-                    let mut out = Vec::new();
+                    let mut out = flush_pending_reasoning_chunk(this)?;
                     for ev in other.to_best_effort_chat_events() {
                         out.extend_from_slice(&this.serialize_event(&ev)?);
                     }

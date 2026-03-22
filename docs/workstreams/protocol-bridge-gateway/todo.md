@@ -318,6 +318,13 @@ This TODO list is intentionally organized as mergeable tracks.
     - Vertex chat response same-protocol roundtrip fixtures now cover the same projected/exact
       cases for reasoning, `thoughtSignature`, tool calls, and provider-executed
       `code_execution`
+    - Gemini family stream same-protocol roundtrip fixtures now cover both Google and Vertex
+      decoders for:
+      - provider-executed `code_execution` call/result replay
+      - reasoning `thoughtSignature` replay with provider namespace preservation
+    - Gemini stream serializer now preserves provider-hosted `code_execution` tool-call chunks as
+      `executableCode` and carries reasoning `thoughtSignature` through the paired
+      `reasoning-delta` / `ThinkingDelta` path without duplicating the emitted thinking chunk
   - Anthropic Messages request normalization now has fixture coverage for:
     - base request settings
     - function tool choice and provider-defined tool restoration

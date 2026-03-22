@@ -102,6 +102,13 @@ Current state:
   - reasoning + `thoughtSignature`
   - provider-executed `code_execution`
   - documented client tool-call `finish_reason` projection
+- Gemini family same-protocol stream roundtrip fixture coverage now exists for both Google and
+  Vertex decoders, including:
+  - provider-executed `code_execution` call/result replay
+  - reasoning `thoughtSignature` replay with provider namespace preservation
+- Gemini stream serialization now keeps provider-hosted `code_execution` tool calls on the
+  `executableCode` path and preserves reasoning `thoughtSignature` without emitting duplicate
+  thinking chunks during same-protocol replay
 - initial same-protocol response roundtrip fixture coverage now exists for OpenAI Responses and
   Anthropic Messages, and Gemini GenerateContent
 - that coverage is intentionally split into exact, projected, and documented-lossy cases rather

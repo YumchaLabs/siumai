@@ -734,3 +734,105 @@ fn gemini_serializes_v3_code_execution_tool_result_as_code_execution_result_part
         serde_json::json!("1")
     );
 }
+
+#[test]
+fn gemini_serializes_provider_executed_code_execution_tool_call_as_executable_code_part() {
+    let config = create_test_config();
+    let converter = GeminiEventConverter::new(config);
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Custom {
+            event_type: "openai:tool-call".to_string(),
+            data: serde_json::json!({
+                "type": "tool-call",
+                "toolCallId": "call_1",
+                "toolName": "code_execution",
+                "providerExecuted": true,
+                "input": {
+                    "language": "PYTHON",
+                    "code": "print(1)"
+                }
+            }),
+        })
+        .expect("serialize provider-executed code_execution tool-call");
+
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["executableCode"]["language"],
+        serde_json::json!("PYTHON")
+    );
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["executableCode"]["code"],
+        serde_json::json!("print(1)")
+    );
+}
+
+#[test]
+fn gemini_serializes_reasoning_metadata_through_thinking_delta_without_duplicate_chunk() {
+    let config = create_test_config();
+    let converter = GeminiEventConverter::new(config);
+
+    let start_bytes = converter
+        .serialize_event(&ChatStreamEvent::Custom {
+            event_type: "openai:reasoning-start".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-start",
+                "id": "rs_1",
+                "providerMetadata": {
+                    "google": {
+                        "thoughtSignature": "stream_sig"
+                    }
+                }
+            }),
+        })
+        .expect("serialize reasoning-start");
+    assert!(
+        start_bytes.is_empty(),
+        "reasoning-start should not emit a standalone chunk"
+    );
+
+    let delta_bytes = converter
+        .serialize_event(&ChatStreamEvent::Custom {
+            event_type: "openai:reasoning-delta".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-delta",
+                "id": "rs_1",
+                "delta": "thinking...",
+                "providerMetadata": {
+                    "google": {
+                        "thoughtSignature": "stream_sig"
+                    }
+                }
+            }),
+        })
+        .expect("serialize reasoning-delta");
+    assert!(
+        delta_bytes.is_empty(),
+        "reasoning-delta should wait for the paired ThinkingDelta"
+    );
+
+    let thinking_bytes = converter
+        .serialize_event(&ChatStreamEvent::ThinkingDelta {
+            delta: "thinking...".to_string(),
+        })
+        .expect("serialize ThinkingDelta");
+
+    let frames = parse_sse_json_frames(&thinking_bytes);
+    assert_eq!(
+        frames.len(),
+        1,
+        "expected one reasoning chunk after suppression"
+    );
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["thought"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["thoughtSignature"],
+        serde_json::json!("stream_sig")
+    );
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["text"],
+        serde_json::json!("thinking...")
+    );
+}
