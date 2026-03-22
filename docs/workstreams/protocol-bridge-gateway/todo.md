@@ -290,6 +290,12 @@ This TODO list is intentionally organized as mergeable tracks.
     - toolConfig function-calling and retrieval config restoration
     - same-protocol projected replay of `executableCode` / `codeExecutionResult`
     - structured-output provider option restoration via `responseJsonSchema`
+  - Gemini GenerateContent request bridge same-protocol roundtrip now has initial exact fixture
+    coverage for:
+    - function tool replay
+    - function tool-choice replay
+    - empty tools omission replay
+    - documented projected `googleSearch` replay with model uplift
   - Anthropic Messages request normalization now has fixture coverage for:
     - base request settings
     - function tool choice and provider-defined tool restoration
