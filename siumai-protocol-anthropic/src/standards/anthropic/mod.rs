@@ -11,6 +11,7 @@ pub mod errors;
 pub mod json_response;
 pub mod params;
 pub mod provider_metadata;
+pub mod request_options;
 pub mod server_tools;
 pub mod streaming;
 pub mod thinking;

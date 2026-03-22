@@ -254,6 +254,7 @@ This TODO list is intentionally organized as mergeable tracks.
 - [ ] Add fixture-based bridge tests for request, response, and streaming paths
   - OpenAI Responses request normalization now has initial fixture coverage for:
     - exact assistant/tool/provider-tool input cases
+    - exact `text.format` structured-output restoration
     - best-effort `item_reference` restoration cases
     - known lossy `function_call_output`-only cases where tool name is not recoverable
   - OpenAI Chat Completions request normalization now has fixture coverage for:
@@ -278,6 +279,17 @@ This TODO list is intentionally organized as mergeable tracks.
     - encrypted reasoning -> redacted thinking replay
     - system-message replay
     - explicit reporting for unsupported OpenAI local-shell tools
+  - OpenAI Responses request bridge same-protocol roundtrip now has initial exact fixture coverage
+    for:
+    - visible text / assistant tool-call input replay
+    - system-message mode projection
+    - structured-output `text.format` replay
+  - Anthropic Messages request bridge same-protocol roundtrip now has initial exact fixture
+    coverage for:
+    - base settings / tool-choice / provider-hosted tool replay
+    - native structured-output `output_format` replay
+    - thinking / MCP / context-management / effort overlays from provider options
+    - container skill replay for code-execution skill environments
   - OpenAI Responses response roundtrip now has initial fixture coverage for:
     - exact same-protocol cases, including web-search source-citation replay and file-search
       source extraction from provider results

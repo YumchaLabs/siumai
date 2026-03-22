@@ -1,0 +1,30 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "Text": "Return a person object"
+      },
+      "metadata": {}
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano"
+  },
+  "responseFormat": {
+    "type": "json",
+    "name": "person",
+    "description": "Structured person payload",
+    "strict": true,
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "age": { "type": "integer" }
+      },
+      "required": ["name"],
+      "additionalProperties": false
+    }
+  },
+  "stream": false
+}

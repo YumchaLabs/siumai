@@ -12,6 +12,9 @@ use crate::streaming::SseEventConverter;
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
 
+use super::request_options::{
+    anthropic_request_body_overlays_needed, apply_anthropic_request_body_overlays,
+};
 use super::thinking::ThinkingResponseParser;
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
 use super::utils::{
@@ -265,6 +268,9 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     if let Some(meta) = &spec.metadata {
                         body["metadata"] = meta.clone();
                     }
+                }
+                if anthropic_request_body_overlays_needed(req) {
+                    apply_anthropic_request_body_overlays(req, &mut body);
                 }
                 if req.stream {
                     body["stream"] = serde_json::json!(true);

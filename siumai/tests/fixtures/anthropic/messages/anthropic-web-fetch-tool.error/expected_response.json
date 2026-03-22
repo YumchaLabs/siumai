@@ -21,7 +21,7 @@
         "toolName": "web_fetch",
         "output": {
           "type": "error-json",
-          "value": { "type": "web_fetch_tool_result_error", "error_code": "unavailable" }
+          "value": { "type": "web_fetch_tool_result_error", "errorCode": "unavailable" }
         },
         "providerExecuted": true
       },

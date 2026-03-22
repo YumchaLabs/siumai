@@ -11,7 +11,13 @@
         "toolCallId": "srvtoolu_011Jcb838xqvZyWwDt7bWqAz",
         "toolName": "tool_search",
         "input": { "query": "weather current conditions San Francisco" },
-        "providerExecuted": true
+        "providerExecuted": true,
+        "providerMetadata": {
+          "anthropic": {
+            "caller": { "type": "direct" },
+            "serverToolName": "tool_search_tool_bm25"
+          }
+        }
       },
       {
         "type": "tool-result",

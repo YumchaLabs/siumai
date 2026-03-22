@@ -1,15 +1,11 @@
 use crate::core::{ChatTransformers, ProviderContext, ProviderSpec};
 use crate::error::LlmError;
-use crate::provider_options::anthropic::{
-    AnthropicOptions, AnthropicResponseFormat, ThinkingModeConfig,
-};
 use crate::standards::anthropic::chat::AnthropicChatStandard;
 use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
 use crate::types::Tool;
 use reqwest::header::HeaderMap;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 
 /// Anthropic ProviderSpec implementation
 ///
@@ -304,10 +300,18 @@ impl ProviderSpec for AnthropicSpec {
             }
         };
 
-        if self
-            .anthropic_mcp_servers_from_provider_options_map(req)
-            .is_some()
-        {
+        let has_mcp_servers = req
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|value| value.as_object())
+            .and_then(|options| {
+                options
+                    .get("mcpServers")
+                    .or_else(|| options.get("mcp_servers"))
+            })
+            .and_then(|value| value.as_array())
+            .is_some_and(|servers| !servers.is_empty());
+        if has_mcp_servers {
             push_token("mcp-client-2025-04-04");
         }
 
@@ -395,369 +399,14 @@ impl ProviderSpec for AnthropicSpec {
 
     fn chat_before_send(
         &self,
-        req: &ChatRequest,
+        _req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // Handle Anthropic-specific options (thinking_mode, response_format, etc.).
-        let options = self.anthropic_options_from_provider_options_map(req);
-
-        let thinking_mode: Option<ThinkingModeConfig> =
-            options.as_ref().and_then(|o| o.thinking_mode.clone());
-        let response_format: Option<AnthropicResponseFormat> =
-            options.as_ref().and_then(|o| o.response_format.clone());
-        let mcp_servers: Option<Vec<serde_json::Value>> =
-            self.anthropic_mcp_servers_from_provider_options_map(req);
-        let container = self
-            .anthropic_container_from_provider_options_map(req)
-            .or_else(|| {
-                options
-                    .as_ref()
-                    .and_then(|o| o.container.clone())
-                    .and_then(|c| serde_json::to_value(c).ok())
-                    .and_then(|v| {
-                        if v.as_object().is_some_and(|o| o.is_empty()) {
-                            None
-                        } else {
-                            Some(v)
-                        }
-                    })
-            });
-        let context_management = options.as_ref().and_then(|o| o.context_management.clone());
-        let effort = options.as_ref().and_then(|o| o.effort);
-
-        // Vercel-aligned: cap max_tokens for known models (warnings handled by middleware).
-        let model_id = req.common_params.model.clone();
-        let max_output_tokens =
-            super::model_constants::try_get_max_output_tokens(model_id.as_str());
-        let needs_max_tokens_cap = max_output_tokens.is_some()
-            && req
-                .common_params
-                .max_tokens
-                .is_some_and(|mt| mt > max_output_tokens.unwrap_or(mt));
-
-        // If neither thinking nor response format configured, nothing to inject
-        if thinking_mode.is_none()
-            && response_format.is_none()
-            && mcp_servers.is_none()
-            && container.is_none()
-            && context_management.is_none()
-            && effort.is_none()
-            && !needs_max_tokens_cap
-        {
-            return None;
-        }
-
-        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-            let mut out = body.clone();
-
-            // Inject thinking mode configuration (Vercel-aligned).
-            if let Some(ref thinking) = thinking_mode
-                && thinking.enabled
-            {
-                let budget = thinking.thinking_budget.unwrap_or(1024);
-
-                out["thinking"] = serde_json::json!({
-                    "type": "enabled",
-                    "budget_tokens": budget
-                });
-
-                // Vercel-aligned: temperature/top_p/top_k are not supported when thinking is enabled.
-                if let Some(obj) = out.as_object_mut() {
-                    obj.remove("temperature");
-                    obj.remove("top_p");
-                    obj.remove("top_k");
-                }
-
-                // Vercel-aligned: adjust max_tokens to account for thinking budget.
-                if let Some(mt) = out.get("max_tokens").and_then(|v| v.as_u64()) {
-                    out["max_tokens"] = serde_json::json!(mt.saturating_add(budget as u64));
-                }
-            }
 
             // 🎯 Inject structured output if configured
-            if let Some(ref rf) = response_format {
-                match rf {
-                    AnthropicResponseFormat::JsonObject => {
-                        out["output_format"] = serde_json::json!({ "type": "json_object" });
-                    }
-                    AnthropicResponseFormat::JsonSchema {
-                        name,
-                        schema,
-                        strict,
-                    } => {
-                        let _ = (name, strict);
-                        out["output_format"] = serde_json::json!({
-                            "type": "json_schema",
-                            "schema": schema
-                        });
-                    }
-                }
-            }
 
-            if let Some(ref servers) = mcp_servers {
-                out["mcp_servers"] = serde_json::Value::Array(servers.clone());
-            }
 
-            if let Some(ref container) = container {
-                out["container"] = container.clone();
-            }
-
-            if let Some(ref cm) = context_management {
-                out["context_management"] = cm.clone();
-            }
-
-            if let Some(effort) = effort {
-                out["output_config"] = serde_json::json!({
-                    "effort": effort,
-                });
-            }
-
-            // Vercel-aligned: limit max_tokens to the model max for known models.
-            if let Some(max_out) = max_output_tokens
-                && let Some(mt) = out.get("max_tokens").and_then(|v| v.as_u64())
-                && mt > max_out as u64
-            {
-                out["max_tokens"] = serde_json::json!(max_out);
-            }
-
-            Ok(out)
-        };
-        Some(Arc::new(hook))
-    }
-}
-
-impl AnthropicSpec {
-    fn anthropic_options_from_provider_options_map(
-        &self,
-        req: &ChatRequest,
-    ) -> Option<AnthropicOptions> {
-        let value = req.provider_options_map.get("anthropic")?;
-        self.anthropic_options_from_provider_options_value(value)
-    }
-
-    fn anthropic_options_from_provider_options_value(
-        &self,
-        value: &serde_json::Value,
-    ) -> Option<AnthropicOptions> {
-        let normalized = Self::normalize_anthropic_provider_options_json(value);
-        serde_json::from_value(normalized).ok()
-    }
-
-    fn normalize_anthropic_provider_options_json(value: &serde_json::Value) -> serde_json::Value {
-        fn normalize_key(k: &str) -> Option<&'static str> {
-            Some(match k {
-                // AnthropicOptions
-                "promptCaching" => "prompt_caching",
-                "thinkingMode" => "thinking_mode",
-                "responseFormat" => "response_format",
-                "structuredOutputMode" => "structured_output_mode",
-                "contextManagement" => "context_management",
-                "toolStreaming" => "tool_streaming",
-                "expiresAt" => "expires_at",
-                // PromptCachingConfig
-                "cacheControl" => "cache_control",
-                // AnthropicCacheControl
-                "cacheType" => "cache_type",
-                "messageIndex" => "message_index",
-                // ThinkingModeConfig
-                "thinkingBudget" => "thinking_budget",
-                // Agent skills container
-                "skillId" => "skill_id",
-                // Context management edit fields (Vercel shape -> API snake_case)
-                "clearAtLeast" => "clear_at_least",
-                "clearToolInputs" => "clear_tool_inputs",
-                "excludeTools" => "exclude_tools",
-                _ => return None,
-            })
-        }
-
-        fn inner(value: &serde_json::Value) -> serde_json::Value {
-            match value {
-                serde_json::Value::Object(map) => {
-                    let mut out = serde_json::Map::new();
-                    for (k, v) in map {
-                        // Vercel-aligned: `providerOptions.anthropic.thinking`
-                        // shape -> our `thinking_mode`.
-                        if k == "thinking"
-                            && let Some(obj) = v.as_object()
-                        {
-                            let enabled = obj
-                                .get("type")
-                                .and_then(|t| t.as_str())
-                                .map(|t| t == "enabled")
-                                .unwrap_or(false);
-                            let budget = obj
-                                .get("budgetTokens")
-                                .or_else(|| obj.get("budget_tokens"))
-                                .and_then(|b| b.as_u64())
-                                .and_then(|b| u32::try_from(b).ok());
-
-                            let mut thinking_mode = serde_json::Map::new();
-                            thinking_mode
-                                .insert("enabled".to_string(), serde_json::Value::Bool(enabled));
-                            if let Some(b) = budget {
-                                thinking_mode
-                                    .insert("thinking_budget".to_string(), serde_json::json!(b));
-                            }
-                            out.insert(
-                                "thinking_mode".to_string(),
-                                serde_json::Value::Object(thinking_mode),
-                            );
-                            continue;
-                        }
-
-                        let nk = normalize_key(k).unwrap_or(k);
-                        out.insert(nk.to_string(), inner(v));
-                    }
-                    serde_json::Value::Object(out)
-                }
-                serde_json::Value::Array(arr) => {
-                    serde_json::Value::Array(arr.iter().map(inner).collect())
-                }
-                other => other.clone(),
-            }
-        }
-
-        inner(value)
-    }
-
-    fn anthropic_mcp_servers_from_provider_options_map(
-        &self,
-        req: &ChatRequest,
-    ) -> Option<Vec<serde_json::Value>> {
-        let value = req.provider_options_map.get("anthropic")?;
-        let obj = value.as_object()?;
-
-        let servers = obj
-            .get("mcpServers")
-            .or_else(|| obj.get("mcp_servers"))
-            .and_then(|v| v.as_array())
-            .cloned()?;
-
-        if servers.is_empty() {
-            return None;
-        }
-
-        let normalized: Vec<serde_json::Value> = servers
-            .into_iter()
-            .filter_map(|v| v.as_object().cloned())
-            .map(|map| {
-                let mut out = serde_json::Map::new();
-
-                for (k, v) in map {
-                    let nk = match k.as_str() {
-                        "serverName" => "name",
-                        "serverUrl" => "url",
-                        "authorizationToken" => "authorization_token",
-                        "toolConfiguration" => "tool_configuration",
-                        "allowedTools" => "allowed_tools",
-                        other => other,
-                    };
-                    if nk == "tool_configuration" && v.is_object() {
-                        let mut tc = serde_json::Map::new();
-                        if let Some(obj) = v.as_object() {
-                            for (k, v) in obj {
-                                let nk = match k.as_str() {
-                                    "allowedTools" => "allowed_tools",
-                                    other => other,
-                                };
-                                tc.insert(nk.to_string(), v.clone());
-                            }
-                        }
-                        out.insert(
-                            "tool_configuration".to_string(),
-                            serde_json::Value::Object(tc),
-                        );
-                        continue;
-                    }
-                    out.insert(nk.to_string(), v);
-                }
-
-                serde_json::Value::Object(out)
-            })
-            .collect();
-
-        if normalized.is_empty() {
-            None
-        } else {
-            Some(normalized)
-        }
-    }
-
-    fn anthropic_container_from_provider_options_map(
-        &self,
-        req: &ChatRequest,
-    ) -> Option<serde_json::Value> {
-        let value = req.provider_options_map.get("anthropic")?;
-        let obj = value.as_object()?;
-
-        let container = obj.get("container").or_else(|| obj.get("container_id"))?;
-
-        match container {
-            serde_json::Value::String(id) => {
-                if id.trim().is_empty() {
-                    None
-                } else {
-                    Some(serde_json::Value::String(id.clone()))
-                }
-            }
-            serde_json::Value::Object(map) => {
-                let id = map
-                    .get("id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let skills = map.get("skills").and_then(|v| v.as_array());
-
-                let normalized_skills: Vec<serde_json::Value> = skills
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|v| v.as_object())
-                    .map(|skill| {
-                        let mut out = serde_json::Map::new();
-                        if let Some(v) = skill.get("type") {
-                            out.insert("type".to_string(), v.clone());
-                        }
-                        let skill_id = skill
-                            .get("skillId")
-                            .or_else(|| skill.get("skill_id"))
-                            .and_then(|v| v.as_str())
-                            .map(|s| s.to_string());
-                        if let Some(skill_id) = skill_id {
-                            out.insert("skill_id".to_string(), serde_json::json!(skill_id));
-                        }
-                        if let Some(v) = skill.get("version") {
-                            out.insert("version".to_string(), v.clone());
-                        }
-                        serde_json::Value::Object(out)
-                    })
-                    .filter(|v| v.as_object().is_some_and(|o| !o.is_empty()))
-                    .collect();
-
-                // Vercel-aligned: when no skills are provided, `container` is sent as a string id.
-                if normalized_skills.is_empty() && id.as_ref().is_some_and(|s| !s.is_empty()) {
-                    return Some(serde_json::Value::String(id.unwrap()));
-                }
-
-                let mut out = serde_json::Map::new();
-                if let Some(id) = id
-                    && !id.is_empty()
-                {
-                    out.insert("id".to_string(), serde_json::Value::String(id));
-                }
-                if !normalized_skills.is_empty() {
-                    out.insert(
-                        "skills".to_string(),
-                        serde_json::Value::Array(normalized_skills),
-                    );
-                }
-                if out.is_empty() {
-                    None
-                } else {
-                    Some(serde_json::Value::Object(out))
-                }
-            }
-            _ => None,
-        }
+        None
     }
 }
 

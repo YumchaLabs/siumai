@@ -10,7 +10,13 @@
           "pattern": "weather|SF|San Francisco|forecast|temperature|climate",
           "limit": 10
         },
-        "providerExecuted": true
+        "providerExecuted": true,
+        "providerMetadata": {
+          "anthropic": {
+            "caller": { "type": "direct" },
+            "serverToolName": "tool_search_tool_regex"
+          }
+        }
       },
       {
         "type": "tool-result",

@@ -87,6 +87,7 @@ fn openai_responses_request_normalization_fixture_exact_cases_match() {
         "assistant-tool-call",
         "assistant-tool-call-multiple",
         "local-shell-store-false",
+        "structured-output-json-schema",
         "tool-output-local-shell",
         "tool-output-shell",
         "tool-output-apply-patch",
