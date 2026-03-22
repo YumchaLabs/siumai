@@ -343,6 +343,13 @@ This TODO list is intentionally organized as mergeable tracks.
     - visible text / assistant tool-call input replay
     - system-message mode projection
     - structured-output `text.format` replay
+  - OpenAI Chat Completions stream bridge same-protocol roundtrip now has fixture summary coverage
+    for:
+    - assistant role + visible text + terminal finish replay
+    - tool-call argument accumulation + usage replay
+    - multi-tool-call replay
+    - Azure model-router style empty-initial-model handling without synthetic stream-start
+      metadata injection
   - Anthropic Messages request bridge same-protocol roundtrip now has initial exact fixture
     coverage for:
     - base settings / tool-choice / provider-hosted tool replay

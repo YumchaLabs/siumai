@@ -109,6 +109,11 @@ Current state:
 - Gemini stream serialization now keeps provider-hosted `code_execution` tool calls on the
   `executableCode` path and preserves reasoning `thoughtSignature` without emitting duplicate
   thinking chunks during same-protocol replay
+- OpenAI Chat Completions same-protocol stream roundtrip fixture coverage now exists for:
+  - assistant role/text/finish replay
+  - tool-call argument accumulation plus usage replay
+  - multiple tool-call replay
+  - Azure model-router style chunks without synthetic start metadata injection
 - initial same-protocol response roundtrip fixture coverage now exists for OpenAI Responses and
   Anthropic Messages, and Gemini GenerateContent
 - that coverage is intentionally split into exact, projected, and documented-lossy cases rather
