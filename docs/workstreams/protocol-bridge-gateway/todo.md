@@ -270,6 +270,14 @@ This TODO list is intentionally organized as mergeable tracks.
     - function tool choice and provider-defined tool restoration
     - structured output and MCP server options
     - thinking body/provider option restoration
+  - Anthropic Messages -> OpenAI Responses request direct-pair fixture coverage now validates:
+    - `web_search` and `code_execution` tool projection
+    - Anthropic effort -> OpenAI reasoning effort projection
+    - structured output `text.format` projection
+  - OpenAI Responses -> Anthropic Messages request direct-pair fixture coverage now validates:
+    - encrypted reasoning -> redacted thinking replay
+    - system-message replay
+    - explicit reporting for unsupported OpenAI local-shell tools
   - OpenAI Responses response roundtrip now has initial fixture coverage for:
     - exact same-protocol cases, including web-search source-citation replay and file-search
       source extraction from provider results

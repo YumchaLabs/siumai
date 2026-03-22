@@ -442,6 +442,39 @@ pub fn convert_chat_completions_response_format(
     }
 }
 
+/// Convert Siumai response format into the OpenAI Responses `text.format` wire shape.
+pub fn convert_responses_response_format(
+    fmt: &crate::types::chat::ResponseFormat,
+) -> serde_json::Value {
+    match fmt {
+        crate::types::chat::ResponseFormat::Json {
+            schema,
+            name,
+            description,
+            strict,
+        } => {
+            let mut out = serde_json::json!({
+                "type": "json_schema",
+                "schema": schema,
+                "strict": strict.unwrap_or(true),
+            });
+
+            if let Some(name) = name.as_deref().filter(|value| !value.trim().is_empty()) {
+                out["name"] = serde_json::json!(name);
+            }
+
+            if let Some(description) = description
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                out["description"] = serde_json::json!(description);
+            }
+
+            out
+        }
+    }
+}
+
 /// Convert Siumai tool choice to OpenAI Responses API wire format.
 ///
 /// Vercel AI SDK mapping (Responses API):

@@ -1164,6 +1164,25 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                     body["max_output_tokens"] = serde_json::json!(max_tokens);
                 }
 
+                if let Some(fmt) = &req.response_format {
+                    let text = body
+                        .as_object_mut()
+                        .expect("responses request body must be an object")
+                        .entry("text".to_string())
+                        .or_insert_with(|| serde_json::json!({}));
+
+                    if !text.is_object() {
+                        *text = serde_json::json!({});
+                    }
+
+                    text.as_object_mut()
+                        .expect("responses text entry was normalized to an object")
+                        .insert(
+                            "format".to_string(),
+                            crate::standards::openai::utils::convert_responses_response_format(fmt),
+                        );
+                }
+
                 Ok(body)
             }
 
@@ -1303,6 +1322,40 @@ mod tests {
             input[0].get("content").and_then(|v| v.as_str()),
             Some("sys")
         );
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_maps_structured_output_to_text_format() {
+        use crate::types::{ChatMessage, ResponseFormat};
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+        let req = ChatRequest::builder()
+            .message(ChatMessage::user("hi").build())
+            .response_format(
+                ResponseFormat::json_schema(schema.clone())
+                    .with_name("result")
+                    .with_strict(true),
+            )
+            .model("gpt-4.1-mini")
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+        assert_eq!(
+            body["text"]["format"]["type"],
+            serde_json::json!("json_schema")
+        );
+        assert_eq!(body["text"]["format"]["name"], serde_json::json!("result"));
+        assert_eq!(body["text"]["format"]["strict"], serde_json::json!(true));
+        assert_eq!(body["text"]["format"]["schema"], schema);
     }
 
     #[test]
