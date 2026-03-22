@@ -25,7 +25,11 @@ pub(super) fn serialize_event(
     }
 
     fn reset_stream_state(state: &mut AnthropicSerializeState) {
-        *state = AnthropicSerializeState::default();
+        let terminal_emitted = state.terminal_emitted;
+        *state = AnthropicSerializeState {
+            terminal_emitted,
+            ..AnthropicSerializeState::default()
+        };
     }
 
     fn ensure_message_metadata(state: &mut AnthropicSerializeState) {
@@ -59,6 +63,10 @@ pub(super) fn serialize_event(
     ) -> Result<Vec<u8>, LlmError> {
         if state.message_start_emitted {
             return Ok(Vec::new());
+        }
+
+        if state.terminal_emitted {
+            *state = AnthropicSerializeState::default();
         }
 
         state.message_start_emitted = true;
@@ -165,6 +173,14 @@ pub(super) fn serialize_event(
                 sse_typed_frame(&payload)
             }
             ChatStreamEvent::ContentDelta { delta, .. } => {
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+                if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
+                    state.last_v3_text_delta = None;
+                    return Ok(Vec::new());
+                }
+                state.last_v3_text_delta = None;
+
                 let (mut out, idx) =
                     ensure_active_block(state, AnthropicSerializeBlockKind::Text, |idx| {
                         serde_json::json!({
@@ -183,6 +199,14 @@ pub(super) fn serialize_event(
                 Ok(out)
             }
             ChatStreamEvent::ThinkingDelta { delta } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_tool_call = None;
+                if state.last_v3_thinking_delta.as_deref() == Some(delta.as_str()) {
+                    state.last_v3_thinking_delta = None;
+                    return Ok(Vec::new());
+                }
+                state.last_v3_thinking_delta = None;
+
                 let (mut out, idx) =
                     ensure_active_block(state, AnthropicSerializeBlockKind::Thinking, |idx| {
                         serde_json::json!({
@@ -206,6 +230,20 @@ pub(super) fn serialize_event(
                 arguments_delta,
                 ..
             } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                let signature = AnthropicToolDeltaSignature {
+                    id: id.clone(),
+                    function_name: function_name.clone(),
+                    arguments_delta: arguments_delta.clone(),
+                };
+                if state.last_v3_tool_call.as_ref() == Some(&signature) {
+                    state.last_v3_tool_call = None;
+                    return Ok(Vec::new());
+                }
+                state.last_v3_tool_call = None;
+                state.seen_tool_call_ids.insert(id.clone());
+
                 let (mut out, idx) = ensure_active_block(
                     state,
                     AnthropicSerializeBlockKind::Tool { id: id.clone() },
@@ -235,10 +273,20 @@ pub(super) fn serialize_event(
                 Ok(out)
             }
             ChatStreamEvent::UsageUpdate { usage } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
                 state.latest_usage = Some(usage.clone());
                 Ok(Vec::new())
             }
             ChatStreamEvent::StreamEnd { response } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+                if state.terminal_emitted {
+                    return Ok(Vec::new());
+                }
+
                 // Ensure we have a model/id even if StreamStart was not present.
                 if state.model.is_none() {
                     state.model = response.model.clone();
@@ -278,11 +326,15 @@ pub(super) fn serialize_event(
 
                 let msg_stop = serde_json::json!({ "type": "message_stop" });
                 out.extend_from_slice(&sse_typed_frame(&msg_stop)?);
+                state.terminal_emitted = true;
                 reset_stream_state(state);
 
                 Ok(out)
             }
             ChatStreamEvent::Error { error } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
                 let payload = serde_json::json!({
                     "type": "error",
                     "error": { "type": "api_error", "message": error, "details": serde_json::Value::Null }
@@ -386,7 +438,29 @@ pub(super) fn serialize_event(
         .map_err(|_| LlmError::InternalError("serialize_state lock poisoned".to_string()))?;
 
     match event {
-        ChatStreamEvent::Custom { data, .. } => {
+        ChatStreamEvent::Custom { event_type, data } => {
+            if matches!(
+                event_type.as_str(),
+                "openai:tool-input-start" | "openai:tool-input-delta" | "openai:tool-input-end"
+            ) && let Some(id) = data.get("id").and_then(|v| v.as_str())
+            {
+                if event_type == "openai:tool-input-start"
+                    && data
+                        .get("providerExecuted")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false)
+                {
+                    state
+                        .provider_executed_tool_input_ids
+                        .insert(id.to_string());
+                    return Ok(Vec::new());
+                }
+
+                if state.provider_executed_tool_input_ids.contains(id) {
+                    return Ok(Vec::new());
+                }
+            }
+
             if let Some(out) = serialize_provider_custom_event(data, &mut state)? {
                 return Ok(out);
             }
@@ -396,54 +470,115 @@ pub(super) fn serialize_event(
             };
 
             let mut out = Vec::new();
-            let mapped = part.to_best_effort_chat_events();
-            if !mapped.is_empty() {
-                for ev in mapped {
-                    out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+            match &part {
+                LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+                    state.last_v3_thinking_delta = None;
+                    state.last_v3_tool_call = None;
+                    for ev in part.to_best_effort_chat_events() {
+                        out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                    }
+                    state.last_v3_text_delta = Some(delta.clone());
+                    return Ok(out);
                 }
-                return Ok(out);
-            }
-
-            if let LanguageModelV3StreamPart::Finish {
-                usage,
-                finish_reason,
-                ..
-            } = &part
-            {
-                // Best-effort: synthesize an Anthropic message_stop sequence.
-                if state.message_id.is_none() {
-                    state.message_id = Some("msg_siumai_0".to_string());
+                LanguageModelV3StreamPart::ReasoningDelta { delta, .. } => {
+                    state.last_v3_text_delta = None;
+                    state.last_v3_tool_call = None;
+                    for ev in part.to_best_effort_chat_events() {
+                        out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                    }
+                    state.last_v3_thinking_delta = Some(delta.clone());
+                    return Ok(out);
                 }
-                if state.model.is_none() {
-                    state.model = Some("unknown".to_string());
+                LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
+                    state.last_v3_text_delta = None;
+                    state.last_v3_thinking_delta = None;
+                    for ev in part.to_best_effort_chat_events() {
+                        out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                    }
+                    state.last_v3_tool_call = Some(AnthropicToolDeltaSignature {
+                        id: id.clone(),
+                        function_name: Some(tool_name.clone()),
+                        arguments_delta: None,
+                    });
+                    return Ok(out);
                 }
+                LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+                    state.last_v3_text_delta = None;
+                    state.last_v3_thinking_delta = None;
+                    for ev in part.to_best_effort_chat_events() {
+                        out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                    }
+                    state.last_v3_tool_call = Some(AnthropicToolDeltaSignature {
+                        id: id.clone(),
+                        function_name: None,
+                        arguments_delta: Some(delta.clone()),
+                    });
+                    return Ok(out);
+                }
+                LanguageModelV3StreamPart::ToolCall(call) => {
+                    state.last_v3_text_delta = None;
+                    state.last_v3_thinking_delta = None;
+                    state.last_v3_tool_call = None;
+                    if state.seen_tool_call_ids.contains(&call.tool_call_id) {
+                        return Ok(Vec::new());
+                    }
 
-                out.extend_from_slice(&ensure_message_start_emitted(&mut state)?);
+                    for ev in part.to_best_effort_chat_events() {
+                        out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                    }
+                    state.seen_tool_call_ids.insert(call.tool_call_id.clone());
+                    return Ok(out);
+                }
+                LanguageModelV3StreamPart::Finish {
+                    usage,
+                    finish_reason,
+                    ..
+                } => {
+                    state.last_v3_text_delta = None;
+                    state.last_v3_thinking_delta = None;
+                    state.last_v3_tool_call = None;
+                    if state.terminal_emitted {
+                        return Ok(Vec::new());
+                    }
 
-                out.extend_from_slice(&close_active_block(&mut state)?);
-                reset_stream_state(&mut state);
+                    // Best-effort: synthesize an Anthropic message_stop sequence.
+                    if state.message_id.is_none() {
+                        state.message_id = Some("msg_siumai_0".to_string());
+                    }
+                    if state.model.is_none() {
+                        state.model = Some("unknown".to_string());
+                    }
 
-                let stop_reason = map_v3_finish_reason_unified(&finish_reason.unified)
-                    .map(|s| serde_json::Value::String(s.to_string()))
-                    .unwrap_or(serde_json::Value::Null);
+                    out.extend_from_slice(&ensure_message_start_emitted(&mut state)?);
 
-                let prompt = usage.input_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
-                let completion = usage.output_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
-                let usage_obj = serde_json::json!({
-                    "input_tokens": prompt,
-                    "output_tokens": completion,
-                });
+                    out.extend_from_slice(&close_active_block(&mut state)?);
 
-                let msg_delta = serde_json::json!({
-                    "type": "message_delta",
-                    "delta": { "stop_reason": stop_reason, "stop_sequence": serde_json::Value::Null },
-                    "usage": usage_obj
-                });
-                out.extend_from_slice(&sse_typed_frame(&msg_delta)?);
+                    let stop_reason = map_v3_finish_reason_unified(&finish_reason.unified)
+                        .map(|s| serde_json::Value::String(s.to_string()))
+                        .unwrap_or(serde_json::Value::Null);
 
-                let msg_stop = serde_json::json!({ "type": "message_stop" });
-                out.extend_from_slice(&sse_typed_frame(&msg_stop)?);
-                return Ok(out);
+                    let prompt = usage.input_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                    let completion =
+                        usage.output_tokens.total.unwrap_or(0).min(u32::MAX as u64) as u32;
+                    let usage_obj = serde_json::json!({
+                        "input_tokens": prompt,
+                        "output_tokens": completion,
+                    });
+
+                    let msg_delta = serde_json::json!({
+                        "type": "message_delta",
+                        "delta": { "stop_reason": stop_reason, "stop_sequence": serde_json::Value::Null },
+                        "usage": usage_obj
+                    });
+                    out.extend_from_slice(&sse_typed_frame(&msg_delta)?);
+
+                    let msg_stop = serde_json::json!({ "type": "message_stop" });
+                    out.extend_from_slice(&sse_typed_frame(&msg_stop)?);
+                    state.terminal_emitted = true;
+                    reset_stream_state(&mut state);
+                    return Ok(out);
+                }
+                _ => {}
             }
 
             if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText

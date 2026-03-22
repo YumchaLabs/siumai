@@ -143,27 +143,58 @@ fn openai_responses_web_search_transcodes_to_anthropic_messages_sse() {
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["type"] == "server_tool_use"
                 && v["content_block"]["name"] == "webSearch"
                 && v["content_block"]["id"].as_str().is_some()
         }),
-        "expected tool_use content_block_start for webSearch: {frames:?}"
+        "expected server_tool_use content_block_start for webSearch: {frames:?}"
     );
 
     assert!(
         frames.iter().any(|v| {
+            v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "webSearch_tool_result"
+                && v["content_block"]["tool_use_id"].as_str().is_some()
+        }),
+        "expected webSearch_tool_result content_block_start: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
+            v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["name"] == "webSearch"
+        }),
+        "expected provider-hosted webSearch to avoid generic tool_use duplication: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
             v["type"] == "content_block_delta"
                 && v["delta"]["type"] == "text_delta"
                 && v["delta"]["text"]
                     .as_str()
                     .is_some_and(|s| s.contains("[tool-result]"))
         }),
-        "expected lossy [tool-result] text_delta: {frames:?}"
+        "expected provider-hosted webSearch to avoid lossy [tool-result] downgrade: {frames:?}"
     );
 
     assert!(
-        frames.iter().any(|v| v["type"] == "message_stop"),
-        "expected message_stop frame: {frames:?}"
+        frames
+            .iter()
+            .filter(|v| v["type"] == "message_delta")
+            .count()
+            == 1,
+        "expected exactly one message_delta frame: {frames:?}"
+    );
+
+    assert!(
+        frames
+            .iter()
+            .filter(|v| v["type"] == "message_stop")
+            .count()
+            == 1,
+        "expected exactly one message_stop frame: {frames:?}"
     );
 }
 
@@ -195,27 +226,58 @@ fn openai_responses_mcp_transcodes_to_anthropic_messages_sse() {
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["type"] == "server_tool_use"
                 && v["content_block"]["name"] == "mcp.web_search_exa"
                 && v["content_block"]["id"].as_str().is_some()
         }),
-        "expected tool_use content_block_start for mcp.web_search_exa: {frames:?}"
+        "expected server_tool_use content_block_start for mcp.web_search_exa: {frames:?}"
     );
 
     assert!(
         frames.iter().any(|v| {
+            v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "mcp.web_search_exa_tool_result"
+                && v["content_block"]["tool_use_id"].as_str().is_some()
+        }),
+        "expected mcp.web_search_exa_tool_result content_block_start: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
+            v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["name"] == "mcp.web_search_exa"
+        }),
+        "expected provider-hosted mcp call to avoid generic tool_use duplication: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
             v["type"] == "content_block_delta"
                 && v["delta"]["type"] == "text_delta"
                 && v["delta"]["text"]
                     .as_str()
                     .is_some_and(|s| s.contains("[tool-result]"))
         }),
-        "expected lossy [tool-result] text_delta: {frames:?}"
+        "expected provider-hosted mcp call to avoid lossy [tool-result] downgrade: {frames:?}"
     );
 
     assert!(
-        frames.iter().any(|v| v["type"] == "message_stop"),
-        "expected message_stop frame: {frames:?}"
+        frames
+            .iter()
+            .filter(|v| v["type"] == "message_delta")
+            .count()
+            == 1,
+        "expected exactly one message_delta frame: {frames:?}"
+    );
+
+    assert!(
+        frames
+            .iter()
+            .filter(|v| v["type"] == "message_stop")
+            .count()
+            == 1,
+        "expected exactly one message_stop frame: {frames:?}"
     );
 }
 
@@ -247,11 +309,18 @@ fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_anthropic_tra
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "tool_use"
+                && v["content_block"]["type"] == "server_tool_use"
                 && v["content_block"]["name"].as_str().is_some()
                 && v["content_block"]["id"].as_str().is_some()
         }),
-        "expected tool_use content_block_start: {frames:?}"
+        "expected server_tool_use content_block_start: {frames:?}"
+    );
+
+    assert!(
+        !frames.iter().any(|v| {
+            v["type"] == "content_block_start" && v["content_block"]["type"] == "tool_use"
+        }),
+        "expected strict transcoding to avoid generic tool_use duplication: {frames:?}"
     );
 
     assert!(
@@ -266,8 +335,21 @@ fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_anthropic_tra
     );
 
     assert!(
-        frames.iter().any(|v| v["type"] == "message_stop"),
-        "expected message_stop frame: {frames:?}"
+        frames
+            .iter()
+            .filter(|v| v["type"] == "message_delta")
+            .count()
+            == 1,
+        "expected exactly one message_delta frame: {frames:?}"
+    );
+
+    assert!(
+        frames
+            .iter()
+            .filter(|v| v["type"] == "message_stop")
+            .count()
+            == 1,
+        "expected exactly one message_stop frame: {frames:?}"
     );
 }
 

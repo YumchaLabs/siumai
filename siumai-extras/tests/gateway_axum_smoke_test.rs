@@ -533,9 +533,9 @@ async fn gateway_route_smoke_transcodes_openai_fixture_to_anthropic_sse() {
     assert!(
         frames.iter().any(|frame| {
             frame["type"] == "content_block_start"
-                && frame["content_block"]["type"] == "tool_use"
+                && frame["content_block"]["type"] == "server_tool_use"
                 && frame["content_block"]["name"] == "webSearch"
         }),
-        "expected anthropic tool_use block for webSearch"
+        "expected anthropic server_tool_use block for webSearch"
     );
 }

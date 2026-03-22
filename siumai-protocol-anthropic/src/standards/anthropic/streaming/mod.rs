@@ -18,6 +18,7 @@ use crate::types::{
 use eventsource_stream::Event;
 use serde::Deserialize;
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -31,6 +32,12 @@ struct AnthropicSerializeState {
     next_block_index: usize,
     active_block: Option<AnthropicSerializeBlock>,
     latest_usage: Option<Usage>,
+    terminal_emitted: bool,
+    last_v3_text_delta: Option<String>,
+    last_v3_thinking_delta: Option<String>,
+    last_v3_tool_call: Option<AnthropicToolDeltaSignature>,
+    seen_tool_call_ids: HashSet<String>,
+    provider_executed_tool_input_ids: HashSet<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +51,13 @@ enum AnthropicSerializeBlockKind {
     Text,
     Thinking,
     Tool { id: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AnthropicToolDeltaSignature {
+    id: String,
+    function_name: Option<String>,
+    arguments_delta: Option<String>,
 }
 
 /// Citation document metadata extracted from the prompt (Vercel-aligned).
