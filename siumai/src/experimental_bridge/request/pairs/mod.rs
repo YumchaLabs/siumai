@@ -6,6 +6,8 @@
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 mod anthropic_messages_to_openai_responses;
 #[cfg(all(feature = "anthropic", feature = "openai"))]
+mod mcp;
+#[cfg(all(feature = "anthropic", feature = "openai"))]
 mod openai_responses_to_anthropic_messages;
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 mod tool_rules;

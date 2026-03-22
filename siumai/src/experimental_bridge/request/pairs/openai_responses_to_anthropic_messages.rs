@@ -23,6 +23,11 @@ use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageRole, Tool, ToolChoice,
 };
 
+use super::mcp::{
+    ANTHROPIC_MCP_SERVER_CHOICE_ALIAS, apply_anthropic_mcp_servers_option,
+    apply_anthropic_mcp_servers_overlay, is_anthropic_mcp_server_choice_alias,
+    map_openai_mcp_server, openai_mcp_choice_aliases,
+};
 use super::tool_rules::{
     ProviderToolTranslationRule, TargetToolNamePolicy, find_provider_tool_translation_rule,
 };
@@ -63,7 +68,7 @@ pub(crate) fn serialize_openai_responses_to_anthropic_messages(
         siumai_protocol_anthropic::standards::anthropic::transformers::AnthropicRequestTransformer::default();
     let mut body = tx.transform_chat(&prepared)?;
 
-    apply_mcp_servers_overlay(&prepared, &mut body);
+    apply_anthropic_mcp_servers_overlay(&prepared, &mut body);
     apply_effort_overlay(&prepared, &mut body);
 
     Ok(body)
@@ -135,7 +140,8 @@ fn translate_openai_tools(request: &mut ChatRequest, report: &mut BridgeReport) 
                     ToolTranslation::McpServer { server, aliases } => {
                         mcp_servers.push(server);
                         for alias in aliases {
-                            choice_aliases.insert(alias, "__anthropic_mcp_server__".to_string());
+                            choice_aliases
+                                .insert(alias, ANTHROPIC_MCP_SERVER_CHOICE_ALIAS.to_string());
                         }
                     }
                     ToolTranslation::Dropped => {}
@@ -167,7 +173,7 @@ fn translate_openai_tools(request: &mut ChatRequest, report: &mut BridgeReport) 
     }
 
     if !mcp_servers.is_empty() {
-        set_anthropic_option(request, "mcpServers", Value::Array(mcp_servers));
+        apply_anthropic_mcp_servers_option(request, mcp_servers);
     }
 
     request.tools = (!translated.is_empty()).then_some(translated);
@@ -195,10 +201,10 @@ fn map_openai_provider_tool(
     let tool_type = provider_tool.tool_type().unwrap_or_default();
 
     match tool_type {
-        "mcp" => match map_mcp_server(index, provider_tool, report) {
+        "mcp" => match map_openai_mcp_server(index, provider_tool, report) {
             Some(server) => ToolTranslation::McpServer {
                 server,
-                aliases: vec![provider_tool.name.clone(), "mcp".to_string()],
+                aliases: openai_mcp_choice_aliases(provider_tool),
             },
             None => ToolTranslation::Dropped,
         },
@@ -319,103 +325,6 @@ fn map_computer_use_args(index: usize, args: &Value, report: &mut BridgeReport) 
     Value::Object(out)
 }
 
-fn map_mcp_server(
-    index: usize,
-    provider_tool: &siumai_core::types::ProviderDefinedTool,
-    report: &mut BridgeReport,
-) -> Option<Value> {
-    let Some(obj) = provider_tool.args.as_object() else {
-        report.record_dropped_field(
-            format!("tools[{index}]"),
-            "OpenAI MCP tool is missing an args object and could not be mapped to Anthropic mcp_servers",
-        );
-        return None;
-    };
-
-    let url = obj
-        .get("serverUrl")
-        .or_else(|| obj.get("server_url"))
-        .and_then(|value| value.as_str())
-        .map(str::to_string);
-
-    let Some(url) = url else {
-        report.record_dropped_field(
-            format!("tools[{index}].args.serverUrl"),
-            "Anthropic mcp_servers requires a server URL",
-        );
-        return None;
-    };
-
-    let mut server = Map::new();
-    server.insert(
-        "serverName".to_string(),
-        Value::String(
-            obj.get("serverLabel")
-                .or_else(|| obj.get("server_label"))
-                .and_then(|value| value.as_str())
-                .unwrap_or(provider_tool.name.as_str())
-                .to_string(),
-        ),
-    );
-    server.insert("serverUrl".to_string(), Value::String(url));
-
-    if let Some(allowed_tools) = obj.get("allowedTools").or_else(|| obj.get("allowed_tools")) {
-        server.insert(
-            "toolConfiguration".to_string(),
-            json!({
-                "allowedTools": allowed_tools.clone(),
-            }),
-        );
-    }
-
-    if let Some(token) = extract_authorization_token(obj.get("headers")) {
-        server.insert("authorizationToken".to_string(), Value::String(token));
-    } else if obj.get("headers").is_some() {
-        report.record_dropped_field(
-            format!("tools[{index}].args.headers"),
-            "only Authorization bearer headers are mapped into Anthropic authorization_token",
-        );
-    }
-
-    if obj
-        .get("requireApproval")
-        .or_else(|| obj.get("require_approval"))
-        .is_some()
-    {
-        report.record_dropped_field(
-            format!("tools[{index}].args.requireApproval"),
-            "Anthropic mcp_servers does not expose OpenAI require_approval",
-        );
-    }
-
-    if obj
-        .get("serverDescription")
-        .or_else(|| obj.get("server_description"))
-        .is_some()
-    {
-        report.record_dropped_field(
-            format!("tools[{index}].args.serverDescription"),
-            "Anthropic mcp_servers does not expose OpenAI server description directly",
-        );
-    }
-
-    Some(Value::Object(server))
-}
-
-fn extract_authorization_token(headers: Option<&Value>) -> Option<String> {
-    let headers = headers?.as_object()?;
-    let value = headers
-        .get("Authorization")
-        .or_else(|| headers.get("authorization"))
-        .and_then(|value| value.as_str())?;
-
-    if let Some(token) = value.strip_prefix("Bearer ") {
-        return Some(token.to_string());
-    }
-
-    Some(value.to_string())
-}
-
 fn repair_tool_choice(
     request: &mut ChatRequest,
     available_names: &BTreeSet<String>,
@@ -432,7 +341,7 @@ fn repair_tool_choice(
         }
         Some(ToolChoice::Tool { name }) => {
             if let Some(mapped) = choice_aliases.get(&name) {
-                if mapped == "__anthropic_mcp_server__" {
+                if is_anthropic_mcp_server_choice_alias(mapped) {
                     report.record_lossy_field(
                         "tool_choice",
                         "specific MCP tool choice cannot be enforced on Anthropic mcp_servers",
@@ -621,61 +530,6 @@ fn apply_openai_reasoning_effort_policy(request: &mut ChatRequest, report: &mut 
     };
 
     set_anthropic_option(request, "effort", Value::String(mapped.to_string()));
-}
-
-fn apply_mcp_servers_overlay(request: &ChatRequest, body: &mut Value) {
-    let Some(servers) = anthropic_option(request, "mcpServers")
-        .or_else(|| anthropic_option(request, "mcp_servers"))
-        .and_then(|value| value.as_array())
-    else {
-        return;
-    };
-
-    let normalized: Vec<Value> = servers.iter().filter_map(normalize_mcp_server).collect();
-
-    if normalized.is_empty() {
-        return;
-    }
-
-    body["mcp_servers"] = Value::Array(normalized);
-}
-
-fn normalize_mcp_server(value: &Value) -> Option<Value> {
-    let obj = value.as_object()?;
-    let mut out = Map::new();
-
-    for (key, value) in obj {
-        let normalized_key = match key.as_str() {
-            "serverName" => "name",
-            "serverUrl" => "url",
-            "authorizationToken" => "authorization_token",
-            "toolConfiguration" => "tool_configuration",
-            "allowedTools" => "allowed_tools",
-            other => other,
-        };
-
-        if normalized_key == "tool_configuration" && value.is_object() {
-            let mut tool_configuration = Map::new();
-            if let Some(inner) = value.as_object() {
-                for (inner_key, inner_value) in inner {
-                    let normalized_inner = match inner_key.as_str() {
-                        "allowedTools" => "allowed_tools",
-                        other => other,
-                    };
-                    tool_configuration.insert(normalized_inner.to_string(), inner_value.clone());
-                }
-            }
-            out.insert(
-                "tool_configuration".to_string(),
-                Value::Object(tool_configuration),
-            );
-            continue;
-        }
-
-        out.insert(normalized_key.to_string(), value.clone());
-    }
-
-    Some(Value::Object(out))
 }
 
 fn apply_effort_overlay(request: &ChatRequest, body: &mut Value) {

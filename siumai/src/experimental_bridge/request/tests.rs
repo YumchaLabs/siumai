@@ -646,6 +646,108 @@ fn openai_direct_pair_bridge_maps_web_search_choice_and_parallel_policy() {
 
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 #[test]
+fn openai_direct_pair_bridge_maps_mcp_tool_to_anthropic_mcp_servers() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("use docs mcp").build())
+        .tools(vec![Tool::ProviderDefined(
+            ProviderDefinedTool::new("openai.mcp", "MCP").with_args(json!({
+                "serverLabel": "docs",
+                "serverUrl": "https://example.com/mcp",
+                "allowedTools": ["search_docs"],
+                "headers": {
+                    "Authorization": "Bearer secret_token"
+                },
+                "requireApproval": "always",
+                "serverDescription": "Docs MCP server"
+            })),
+        )])
+        .model("claude-3-5-sonnet-latest")
+        .build();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    let servers = value
+        .get("mcp_servers")
+        .and_then(|value| value.as_array())
+        .expect("anthropic mcp_servers array");
+
+    assert_eq!(servers.len(), 1);
+    assert_eq!(servers[0]["name"], serde_json::json!("docs"));
+    assert_eq!(
+        servers[0]["url"],
+        serde_json::json!("https://example.com/mcp")
+    );
+    assert_eq!(
+        servers[0]["tool_configuration"]["allowed_tools"],
+        serde_json::json!(["search_docs"])
+    );
+    assert_eq!(
+        servers[0]["authorization_token"],
+        serde_json::json!("secret_token")
+    );
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "tools[0].args.requireApproval"),
+        "expected dropped requireApproval warning"
+    );
+    assert!(
+        bridged
+            .report
+            .dropped_fields
+            .iter()
+            .any(|field| field == "tools[0].args.serverDescription"),
+        "expected dropped serverDescription warning"
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn openai_direct_pair_bridge_drops_specific_mcp_tool_choice() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("use docs mcp").build())
+        .tools(vec![Tool::ProviderDefined(
+            ProviderDefinedTool::new("openai.mcp", "MCP").with_args(json!({
+                "serverLabel": "docs",
+                "serverUrl": "https://example.com/mcp"
+            })),
+        )])
+        .tool_choice(siumai_core::types::ToolChoice::tool("MCP"))
+        .model("claude-3-5-sonnet-latest")
+        .build();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    assert!(
+        value.get("tool_choice").is_none(),
+        "specific MCP tool choice should be dropped for anthropic mcp_servers: {value:?}"
+    );
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "tool_choice"),
+        "expected lossy tool_choice warning"
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
 fn openai_direct_pair_customization_can_rewrite_provider_tool_before_anthropic_translation() {
     let request = ChatRequest::builder()
         .message(ChatMessage::user("search images").build())
