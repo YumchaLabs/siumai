@@ -406,6 +406,8 @@ That is the intended layering:
 
 - Pure bridge request customization:
   - `siumai/examples/06-extensibility/bridge-customization.rs`
+- Gateway request-normalization + backend execution with hosted-tool rewrite reuse:
+  - `siumai-extras/examples/anthropic-to-openai-responses-gateway.rs`
 - Route-local gateway closure customization:
   - `siumai-extras/examples/gateway-custom-transform.rs`
 

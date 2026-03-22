@@ -224,6 +224,9 @@ Current state:
 - runnable bridge demos now exist for:
   - Anthropic Messages request normalization -> OpenAI Responses JSON/SSE output
   - OpenAI Responses request normalization -> Anthropic Messages JSON/SSE output
+- the Anthropic Messages -> OpenAI Responses gateway example now also demonstrates request-side
+  hosted-tool rewrite through `GatewayBridgePolicy::with_customization(...)`, so the same
+  customization object flows through gateway request normalization and downstream bridge helpers
 - `gateway-loss-policy` now demonstrates:
   - default strict rejection on lossy bridge routes
   - allowlisted `BridgeLossPolicy` continuation

@@ -189,6 +189,7 @@ mod request_normalize_tests {
     use std::sync::Arc;
 
     use serde_json::json;
+    use siumai::experimental::bridge::ProviderToolRewriteCustomization;
     use siumai::prelude::unified::MessageRole;
 
     use crate::bridge::ClosureBridgeCustomization;
@@ -269,6 +270,58 @@ mod request_normalize_tests {
         assert_eq!(
             report.lossy_fields,
             vec!["request.metadata.route".to_string()]
+        );
+    }
+
+    #[test]
+    #[cfg(all(feature = "anthropic", feature = "openai"))]
+    fn request_normalize_helper_applies_provider_tool_rewrite_from_gateway_policy() {
+        let body = json!({
+            "model": "claude-3-5-haiku-20241022",
+            "max_tokens": 256,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "fetch docs",
+                }
+            ],
+            "tools": [
+                {
+                    "type": "web_fetch_20250910",
+                    "name": "web_fetch",
+                }
+            ]
+        });
+
+        let policy = GatewayBridgePolicy::new(BridgeMode::BestEffort).with_customization(Arc::new(
+            ProviderToolRewriteCustomization::new()
+                .map_provider_tool_id("anthropic.web_fetch_20250910", "openai.web_search"),
+        ));
+
+        let options = NormalizeRequestOptions::default().with_policy(policy);
+
+        let bridged = normalize_request_json_with_options(
+            &body,
+            SourceRequestFormat::AnthropicMessages,
+            &options,
+        )
+        .expect("normalize anthropic request");
+        let (request, report) = bridged.into_result().expect("accepted");
+
+        let tools = request.tools.expect("rewritten tools");
+        let first_tool = tools.first().expect("first tool");
+        let rewritten = match first_tool {
+            siumai::prelude::unified::Tool::ProviderDefined(tool) => tool,
+            other => panic!("expected provider-defined tool, got {other:?}"),
+        };
+
+        assert_eq!(rewritten.id, "openai.web_search");
+        assert!(
+            report.warnings.iter().any(|warning| warning
+                .message
+                .contains("rewrote provider-defined tool `anthropic.web_fetch_20250910`")),
+            "expected rewrite warning: {:?}",
+            report.warnings
         );
     }
 }

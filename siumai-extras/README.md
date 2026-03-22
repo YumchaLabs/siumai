@@ -231,6 +231,12 @@ If you need to customize the conversion logic, the recommended path is
 `GatewayBridgePolicy + BridgeOptions + typed bridge hooks` as demonstrated in
 `siumai-extras/examples/gateway-custom-transform.rs`.
 
+If the request-side requirement is hosted-tool compatibility across protocols, prefer
+`ProviderToolRewriteCustomization` attached through `GatewayBridgePolicy::with_customization(...)`
+or `NormalizeRequestOptions::with_bridge_customization(...)` instead of patching raw downstream
+JSON. The Anthropic -> OpenAI gateway example demonstrates that path for
+`anthropic.web_fetch_20250910 -> openai.web_search`.
+
 The two request-normalization bridge demos intentionally show a different path:
 - source protocol request JSON -> explicit request normalizer -> `ChatRequest`
 - execute on a fixed upstream model handle

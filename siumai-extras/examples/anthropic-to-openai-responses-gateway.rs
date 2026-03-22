@@ -5,6 +5,8 @@
 //! - normalize the request into `ChatRequest` via the explicit bridge API
 //! - execute the normalized request on a fixed OpenAI model handle
 //! - return OpenAI Responses JSON or SSE to the caller
+//! - reuse the same gateway bridge policy to rewrite Anthropic hosted tools into
+//!   OpenAI-compatible hosted tools before backend execution
 //!
 //! ## Setup
 //! ```bash
@@ -27,6 +29,9 @@
 //! curl -N -X POST http://127.0.0.1:3002/bridge/anthropic-to-openai/sse \
 //!   -H "content-type: application/json" \
 //!   -d '{"model":"claude-3-5-haiku-20241022","max_tokens":256,"stream":true,"messages":[{"role":"user","content":"Explain Rust ownership in one sentence."}]}'
+//! curl -X POST http://127.0.0.1:3002/bridge/anthropic-to-openai/json \
+//!   -H "content-type: application/json" \
+//!   -d '{"model":"claude-3-5-haiku-20241022","max_tokens":256,"messages":[{"role":"user","content":"Fetch docs from example.com."}],"tools":[{"type":"web_fetch_20250910","name":"web_fetch","allowed_domains":["example.com"]}]}'
 //! ```
 
 #[path = "common/gateway_bridge_common.rs"]
@@ -41,6 +46,7 @@ use axum::{
     routing::post,
 };
 use serde_json::{Value, json};
+use siumai::experimental::bridge::{ProviderToolRewriteCustomization, ProviderToolRewriteRule};
 use siumai::prelude::unified::*;
 use siumai_extras::server::{
     GatewayBridgePolicy,
@@ -62,9 +68,30 @@ struct AppState {
     policy: GatewayBridgePolicy,
 }
 
+fn anthropic_hosted_tool_rewrite() -> ProviderToolRewriteCustomization {
+    ProviderToolRewriteCustomization::new().with_rule(
+        ProviderToolRewriteRule::new("anthropic.web_fetch_20250910", "openai.web_search")
+            .with_args_mapper(Arc::new(|_ctx, tool, _report| {
+                let allowed_domains = tool
+                    .args
+                    .get("allowedDomains")
+                    .or_else(|| tool.args.get("allowed_domains"))
+                    .cloned()
+                    .unwrap_or_else(|| json!([]));
+
+                json!({
+                    "filters": {
+                        "allowedDomains": allowed_domains,
+                    }
+                })
+            })),
+    )
+}
+
 fn gateway_policy() -> GatewayBridgePolicy {
     GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
         .with_route_label("examples.gateway.anthropic-to-openai")
+        .with_customization(Arc::new(anthropic_hosted_tool_rewrite()))
         .with_bridge_headers(true)
         .with_bridge_warning_headers(true)
         .with_request_body_limit_bytes(128 * 1024)
