@@ -218,6 +218,35 @@ Implementation Steps:
 
 ---
 
+### 7. Bridge Customization
+
+File: `bridge-customization.rs`
+
+Description:
+Shows the recommended reusable bridge extension path for protocol bridging without adding parser
+forks or route-local glue. The example implements `BridgeCustomization`, attaches it through
+`BridgeOptions::with_customization(...)`, and demonstrates request mutation, target JSON overlay,
+JSON validation, and tool-name remapping in one object.
+
+Use Cases:
+- Route or tenant specific protocol bridge policy
+- Reusable request customization shared across multiple bridge routes
+- Target JSON overlays that should remain bridge-aware
+- Tool naming policy that must stay consistent across request serialization
+
+Run:
+```bash
+cargo run -p siumai --example bridge-customization --features openai
+```
+
+Key Concepts:
+1. Implement `BridgeCustomization` for reusable multi-phase policies
+2. Branch on `RequestBridgeContext` and `BridgePrimitiveContext`
+3. Use `with_customization(...)` instead of inventing parser-level traits
+4. Keep protocol parsing/serialization in protocol crates and apply custom behavior in the bridge
+
+---
+
 ## Architecture Overview
 
 ### The ProviderSpec Pattern

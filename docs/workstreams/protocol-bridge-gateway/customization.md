@@ -253,6 +253,65 @@ Gateway routes that only need partial overrides should prefer `BridgeOptionsOver
 If only one phase needs customization, keep using the smaller dedicated trait instead of forcing a
 bundle object.
 
+## Trait vs closure decision
+
+Use the struct-based `BridgeCustomization` path when:
+
+- the same policy bundle should be reused across routes, tests, or crates
+- one policy needs to coordinate request mutation, target JSON overlays, validation, and primitive
+  remapping together
+- the route should expose a named architectural policy instead of anonymous inline closures
+
+Use closure-friendly helpers from `siumai-extras::bridge` when:
+
+- the customization is route-local
+- the policy is only needed inside one gateway adapter, smoke test, or example
+- a dedicated named type would add ceremony without adding reuse
+
+That yields a simple rule:
+
+- reusable bridge policy -> `BridgeCustomization`
+- route-local bridge policy -> `ClosureBridgeCustomization`
+- one narrow lifecycle phase only -> dedicated hook trait (`RequestBridgeHook`,
+  `ResponseBridgeHook`, `StreamBridgeHook`, `BridgePrimitiveRemapper`, or `BridgeLossPolicy`)
+
+## Protocol-target JSON overlay recipe
+
+When the target protocol needs one last wire-specific adjustment, keep the semantic and wire steps
+separate:
+
+1. rewrite normalized semantics in `transform_request(...)` when the meaning of the request is
+   changing
+2. add target-only JSON overlays in `transform_request_json(...)`
+3. assert the final wire contract in `validate_request_json(...)`
+4. keep parser ownership and baseline target serialization in protocol crates
+
+That keeps bridge custom behavior auditable without reintroducing raw JSON patch glue as the main
+API.
+
+Minimal pattern:
+
+```rust
+let options = BridgeOptions::new(BridgeMode::BestEffort)
+    .with_route_label("gateway.responses")
+    .with_customization(Arc::new(MyBridgeCustomization));
+```
+
+Inside `MyBridgeCustomization`:
+
+- branch on `RequestBridgeContext.phase`
+- branch on `RequestBridgeContext.target`
+- mutate `ChatRequest` before serialization only for semantic changes
+- mutate `serde_json::Value` after serialization only for target-wire overlays
+- validate the final body before returning it to the caller
+
+## Runnable references
+
+- Pure bridge request customization:
+  - `siumai/examples/06-extensibility/bridge-customization.rs`
+- Route-local gateway closure customization:
+  - `siumai-extras/examples/gateway-custom-transform.rs`
+
 ## Current conclusion
 
 The repository already supports user-defined conversion, but it supports it in a constrained,

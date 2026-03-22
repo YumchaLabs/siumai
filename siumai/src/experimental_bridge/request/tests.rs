@@ -3,9 +3,10 @@ use std::sync::Arc;
 
 use serde_json::json;
 use siumai_core::bridge::{
-    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
-    BridgePrimitiveRemapper, BridgeTarget, BridgeWarning, BridgeWarningKind, RequestBridgeContext,
-    RequestBridgeHook, RequestBridgePhase, ResponseBridgeContext, StreamBridgeContext,
+    BridgeCustomization, BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions,
+    BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget, BridgeWarning,
+    BridgeWarningKind, RequestBridgeContext, RequestBridgeHook, RequestBridgePhase,
+    ResponseBridgeContext, StreamBridgeContext,
 };
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
 
@@ -142,6 +143,71 @@ impl RequestBridgeHook for NormalizeAuditHook {
             "custom normalize hook rewrote the normalized request",
         );
         Ok(())
+    }
+}
+
+struct CompositeRequestCustomization;
+
+impl BridgeCustomization for CompositeRequestCustomization {
+    fn transform_request(
+        &self,
+        ctx: &RequestBridgeContext,
+        request: &mut ChatRequest,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(ctx.phase, RequestBridgePhase::SerializeTarget);
+        assert_eq!(ctx.source, Some(BridgeTarget::AnthropicMessages));
+        assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);
+        assert_eq!(
+            ctx.route_label.as_deref(),
+            Some("tests.request.customization")
+        );
+        assert_eq!(ctx.path_label.as_deref(), Some("via-normalized"));
+
+        request.common_params.max_tokens = Some(88);
+        report.add_warning(BridgeWarning::new(
+            BridgeWarningKind::Custom,
+            "bundled customization rewrote normalized request",
+        ));
+        Ok(())
+    }
+
+    fn transform_request_json(
+        &self,
+        ctx: &RequestBridgeContext,
+        body: &mut serde_json::Value,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);
+        body["metadata"] = json!({
+            "customized": true,
+            "target": ctx.target.as_str()
+        });
+        report.add_warning(BridgeWarning::new(
+            BridgeWarningKind::Custom,
+            "bundled customization rewrote target json",
+        ));
+        Ok(())
+    }
+
+    fn validate_request_json(
+        &self,
+        _ctx: &RequestBridgeContext,
+        body: &serde_json::Value,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(body["metadata"]["customized"], json!(true));
+        report.add_warning(BridgeWarning::new(
+            BridgeWarningKind::Custom,
+            "bundled customization validated target json",
+        ));
+        Ok(())
+    }
+
+    fn remap_tool_name(&self, ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
+        assert_eq!(ctx.source, Some(BridgeTarget::AnthropicMessages));
+        assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);
+        Some(format!("bundle_{name}"))
     }
 }
 
@@ -723,6 +789,59 @@ fn request_bridge_hook_can_mutate_request_and_validate_target_json() {
     let value = bridged.value.expect("json body");
     assert_eq!(value["max_tokens"], json!(77));
     assert_eq!(value["metadata"]["hooked"], json!(true));
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn bridge_customization_bundle_can_drive_request_json_validation_and_remap() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage::user("hi").build())
+        .tools(vec![siumai_core::types::Tool::function(
+            "weather",
+            "Get weather",
+            json!({
+                "type": "object",
+                "properties": {
+                    "city": { "type": "string" }
+                }
+            }),
+        )])
+        .tool_choice(siumai_core::types::ToolChoice::tool("weather"))
+        .model("gpt-4.1-mini")
+        .build();
+
+    let bridged = bridge_chat_request_to_openai_chat_completions_json_with_options(
+        &request,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.request.customization")
+            .with_customization(Arc::new(CompositeRequestCustomization)),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_exact());
+    assert!(bridged.report.warnings.iter().any(|warning| {
+        warning
+            .message
+            .contains("bundled customization validated target json")
+    }));
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["max_tokens"], json!(88));
+    assert_eq!(value["metadata"]["customized"], json!(true));
+    assert_eq!(
+        value["metadata"]["target"],
+        json!(BridgeTarget::OpenAiChatCompletions.as_str())
+    );
+    assert_eq!(
+        value["tools"][0]["function"]["name"],
+        json!("bundle_weather")
+    );
+    assert_eq!(
+        value["tool_choice"]["function"]["name"],
+        json!("bundle_weather")
+    );
 }
 
 #[cfg(feature = "openai")]

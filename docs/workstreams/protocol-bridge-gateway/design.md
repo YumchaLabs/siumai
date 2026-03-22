@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Design
 
-Last updated: 2026-03-21
+Last updated: 2026-03-22
 
 ## Context
 
@@ -77,9 +77,12 @@ We will follow the architectural idea, not copy either implementation literally.
 
 ### What is missing
 
-- Bridge customization is now available, but it still needs broader examples and stricter guidance.
-  - `BridgeOptions` and typed hook traits now exist, but the public story still needs more runnable
-    examples and clearer migration guidance away from ad hoc JSON patching.
+- Bridge customization now has both reusable and route-local examples, but migration/audit guidance
+  still needs expansion.
+  - `BridgeOptions`, typed hook traits, and `BridgeCustomization` now exist.
+  - The public story now has a pure bridge request example plus gateway closure-based examples.
+  - The remaining work is clearer migration guidance and broader fixture-backed audit coverage, not
+    another parser-level plugin layer.
 - Lossy conversion policy now has a stable contract and gateway wiring, but broader example and
   audit coverage still needs work.
   - `BridgeLossPolicy` exists in `siumai-core::bridge`, and route-local closure adapters now exist

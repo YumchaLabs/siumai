@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Milestones
 
-Last updated: 2026-03-21
+Last updated: 2026-03-22
 
 This workstream is tracked by milestones with explicit acceptance criteria.
 
@@ -209,6 +209,10 @@ Current state:
 
 - `gateway-custom-transform` now demonstrates `GatewayBridgePolicy`, typed response/stream hooks,
   and primitive remappers as the primary customization path
+- `bridge-customization` now demonstrates the reusable pure bridge path with:
+  - `BridgeCustomization`
+  - `BridgeOptions::with_customization(...)`
+  - request mutation, target JSON overlay, JSON validation, and tool-name remapping in one object
 - runnable bridge demos now exist for:
   - Anthropic Messages request normalization -> OpenAI Responses JSON/SSE output
   - OpenAI Responses request normalization -> Anthropic Messages JSON/SSE output

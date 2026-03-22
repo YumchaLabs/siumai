@@ -240,12 +240,13 @@ This TODO list is intentionally organized as mergeable tracks.
   - closure-friendly wrappers in `siumai-extras`
   - no raw JSON patch as the primary API
 - [x] Document route-local closure-based customization for gateway helpers
-- [ ] Add runnable examples for:
+- [x] Add runnable examples for:
   - [x] Anthropic -> OpenAI Responses gateway
   - [x] OpenAI Responses -> Anthropic gateway
   - [x] custom lossy-policy handling
   - [x] custom tool remapper
   - [x] custom stream transform
+  - [x] pure bridge request customization bundle
 - [x] Update `docs/README.md` to include this workstream
 - [x] Add a migration note if any public gateway helpers change shape
 
@@ -318,6 +319,7 @@ This TODO list is intentionally organized as mergeable tracks.
     - normalized request mutation
     - target JSON post-transform
     - target JSON validation/reporting
+    - bundled `BridgeCustomization` request mutation + JSON overlay + validation + tool remap
   - response hook coverage now exercises:
     - response-side semantic rewrite before target serialization
   - stream customization coverage now exercises:

@@ -402,10 +402,6 @@ impl ProviderSpec for AnthropicSpec {
         _req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-
-            // 🎯 Inject structured output if configured
-
-
         None
     }
 }

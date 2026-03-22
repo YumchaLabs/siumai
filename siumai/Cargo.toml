@@ -1586,6 +1586,16 @@ path = "examples/06-extensibility/executor-testing.rs"
 
 
 
+[[example]]
+
+name = "bridge-customization"
+
+path = "examples/06-extensibility/bridge-customization.rs"
+
+required-features = ["openai"]
+
+
+
 # 07-applications
 
 [[example]]
