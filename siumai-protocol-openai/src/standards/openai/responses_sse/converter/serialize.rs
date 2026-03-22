@@ -906,8 +906,13 @@ pub(super) fn serialize_event(
             Ok(out)
         }
         crate::streaming::ChatStreamEvent::Error { error } => {
+            if state.latest_error_message.as_deref() == Some(error.as_str()) {
+                return Ok(Vec::new());
+            }
+
+            state.latest_error_message = Some(error.clone());
             let payload = serde_json::json!({
-                "type": "response.error",
+                "type": "error",
                 "sequence_number": next_sequence_number(&mut state),
                 "error": { "message": error },
             });
@@ -1285,22 +1290,35 @@ pub(super) fn serialize_event(
                     Ok(out)
                 }
                 "openai:error" => {
-                    let msg = data
+                    let source_error = data
                         .get("error")
-                        .and_then(|v| v.get("error"))
-                        .and_then(|v| v.get("message"))
-                        .and_then(|v| v.as_str())
-                        .or_else(|| {
-                            data.get("error")
-                                .and_then(|v| v.get("message"))
-                                .and_then(|v| v.as_str())
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null);
+                    let source_error_obj = source_error.as_object();
+                    let nested_error_obj = source_error
+                        .get("error")
+                        .and_then(|value| value.as_object())
+                        .cloned();
+                    let error_obj = nested_error_obj.unwrap_or_else(|| {
+                        source_error_obj.cloned().unwrap_or_else(|| {
+                            serde_json::Map::from_iter([(
+                                "message".to_string(),
+                                serde_json::Value::String("Unknown error".to_string()),
+                            )])
                         })
-                        .unwrap_or("Unknown error");
+                    });
+                    let msg = error_obj
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error")
+                        .to_string();
+
+                    state.latest_error_message = Some(msg);
 
                     let payload = serde_json::json!({
-                        "type": "response.error",
+                        "type": "error",
                         "sequence_number": next_sequence_number(&mut state),
-                        "error": { "message": msg },
+                        "error": error_obj,
                     });
                     sse_event_frame("response.error", &payload)
                 }
@@ -1432,15 +1450,33 @@ pub(super) fn serialize_event(
                         })
                     });
                     let finish_reason = openai_finish_reason_str_from_finish_payload(data);
+                    let response_status = if state.latest_error_message.is_some()
+                        && data
+                            .pointer("/finishReason/unified")
+                            .and_then(|v| v.as_str())
+                            == Some("other")
+                    {
+                        "failed"
+                    } else {
+                        openai_response_status(finish_reason)
+                    };
+                    let response_event_name = if response_status == "failed" {
+                        "response.failed"
+                    } else {
+                        "response.completed"
+                    };
 
                     let payload = serde_json::json!({
-                        "type": "response.completed",
+                        "type": response_event_name,
                         "sequence_number": next_sequence_number(&mut state),
                         "response": {
                             "id": response_id,
                             "object": "response",
                             "created_at": created_at,
-                            "status": openai_response_status(finish_reason),
+                            "status": response_status,
+                            "error": state.latest_error_message.as_ref().map(|message| serde_json::json!({
+                                "message": message,
+                            })).unwrap_or(serde_json::Value::Null),
                             "model": model_id,
                             "output": output,
                             "usage": usage_json.unwrap_or(serde_json::Value::Null),
@@ -1449,7 +1485,7 @@ pub(super) fn serialize_event(
                         }
                     });
 
-                    out.extend_from_slice(&sse_event_frame("response.completed", &payload)?);
+                    out.extend_from_slice(&sse_event_frame(response_event_name, &payload)?);
                     out.extend_from_slice(&sse_done_frame());
                     state.response_completed_emitted = true;
                     Ok(out)

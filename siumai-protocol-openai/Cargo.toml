@@ -61,3 +61,8 @@ wiremock.workspace = true
 tracing-test.workspace = true
 tempfile.workspace = true
 proptest.workspace = true
+
+[[test]]
+name = "responses_sse_feature_surface_test"
+path = "tests/responses_sse_feature_surface_test.rs"
+required-features = ["openai-standard", "openai-responses"]

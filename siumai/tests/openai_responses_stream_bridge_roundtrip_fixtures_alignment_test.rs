@@ -361,6 +361,7 @@ async fn openai_responses_stream_bridge_roundtrip_fixture_summary_cases_match() 
         "image-generation/openai-image-generation-tool.1.chunks.txt",
         "local-shell/openai-local-shell-tool.1.chunks.txt",
         "mcp/openai-mcp-tool.1.chunks.txt",
+        "misc/openai-error.1.chunks.txt",
         "misc/openai-incomplete-finish-reason.1.chunks.txt",
         "misc/openai-logprobs.1.chunks.txt",
         "shell/openai-shell-tool.1.chunks.txt",
