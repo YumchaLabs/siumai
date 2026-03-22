@@ -128,6 +128,40 @@ impl std::fmt::Debug for OpenAiClient {
 }
 
 impl OpenAiClient {
+    pub(crate) fn resolved_tts_model(&self, request_model: Option<&str>) -> String {
+        request_model
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                let configured = self.common_params.model.trim();
+                if configured.is_empty() || !is_tts_family_model(configured) {
+                    None
+                } else {
+                    Some(configured.to_string())
+                }
+            })
+            .unwrap_or_else(|| crate::providers::openai::model_constants::audio::TTS_1.to_string())
+    }
+
+    pub(crate) fn resolved_stt_model(&self, request_model: Option<&str>) -> String {
+        request_model
+            .map(str::trim)
+            .filter(|model| !model.is_empty())
+            .map(ToOwned::to_owned)
+            .or_else(|| {
+                let configured = self.common_params.model.trim();
+                if configured.is_empty() || !is_stt_family_model(configured) {
+                    None
+                } else {
+                    Some(configured.to_string())
+                }
+            })
+            .unwrap_or_else(|| {
+                crate::providers::openai::model_constants::audio::WHISPER_1.to_string()
+            })
+    }
+
     /// Get the base URL used by this client.
     ///
     /// This is primarily intended for debugging and tests. The value
@@ -713,6 +747,15 @@ impl OpenAiClient {
         self.specific_params.user = Some(user);
         self
     }
+}
+
+fn is_tts_family_model(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("tts")
+}
+
+fn is_stt_family_model(model: &str) -> bool {
+    let model = model.to_ascii_lowercase();
+    model.contains("whisper") || model.contains("transcribe")
 }
 
 impl LlmProvider for OpenAiClient {

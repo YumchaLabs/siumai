@@ -22,7 +22,8 @@ impl OpenAiClient {
         request: TtsRequest,
     ) -> Result<AudioStream, LlmError> {
         use crate::core::ProviderSpec;
-        let mut request = request.with_model_if_missing(self.common_params.model.clone());
+        let mut request = request;
+        request.model = Some(self.resolved_tts_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
 
         let wiring = self.http_wiring();

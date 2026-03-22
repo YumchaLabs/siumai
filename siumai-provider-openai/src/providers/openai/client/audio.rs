@@ -23,7 +23,8 @@ impl AudioCapability for OpenAiClient {
         use crate::execution::executors::audio::AudioExecutor;
 
         let exec = self.build_audio_executor();
-        let mut request = request.with_model_if_missing(self.common_params.model.clone());
+        let mut request = request;
+        request.model = Some(self.resolved_tts_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
 
@@ -47,7 +48,8 @@ impl AudioCapability for OpenAiClient {
         use crate::execution::executors::audio::AudioExecutor;
 
         let exec = self.build_audio_executor();
-        let mut request = request.with_model_if_missing(self.common_params.model.clone());
+        let mut request = request;
+        request.model = Some(self.resolved_stt_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let result = AudioExecutor::stt(&*exec, request).await?;
         let raw = result.raw;
@@ -218,7 +220,8 @@ impl AudioCapability for OpenAiClient {
         let config = self.http_wiring().config(spec);
 
         // Allow users to pass either raw bytes or a file path (mirrors the STT executor behavior).
-        let mut req = request.with_model_if_missing(self.common_params.model.clone());
+        let mut req = request;
+        req.model = Some(self.resolved_stt_model(req.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut req.provider_options_map);
         if req.audio_data.is_none()
             && let Some(path) = req.file_path.as_deref()
@@ -235,7 +238,7 @@ impl AudioCapability for OpenAiClient {
             )
         })?;
 
-        let model = req.model.clone().unwrap_or_else(|| "whisper-1".to_string());
+        let model = self.resolved_stt_model(req.model.as_deref());
         let ext = req.format.clone().unwrap_or_else(|| "mp3".to_string());
 
         // Provider-specific option lookup (OpenAI accepts prompt/response_format/temperature here).
@@ -282,7 +285,9 @@ impl AudioCapability for OpenAiClient {
             Ok(form)
         };
 
-        let base = config.provider_context.base_url.trim_end_matches('/');
+        let base = config
+            .provider_spec
+            .audio_base_url(&config.provider_context);
         let url = format!("{base}/audio/translations");
 
         let res =
