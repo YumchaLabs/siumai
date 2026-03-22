@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::json;
+use siumai_core::bridge::{
+    BridgeCustomization, BridgeMode, BridgeOptions, BridgePrimitiveContext,
+    BridgePrimitiveRemapper, BridgeTarget, ResponseBridgeContext, ResponseBridgeHook,
+};
 #[cfg(feature = "anthropic")]
 use siumai_core::bridge::{
     BridgeLossAction, BridgeLossPolicy, RequestBridgeContext, StreamBridgeContext,
-};
-use siumai_core::bridge::{
-    BridgeMode, BridgeOptions, BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget,
-    ResponseBridgeContext, ResponseBridgeHook,
 };
 use siumai_core::encoding::JsonEncodeOptions;
 use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent};
@@ -81,6 +81,59 @@ impl ResponseBridgeHook for RedactResponseHook {
             "response hook replaced content before target serialization",
         );
         Ok(())
+    }
+}
+
+struct CompositeResponseCustomization;
+
+impl BridgeCustomization for CompositeResponseCustomization {
+    fn transform_response(
+        &self,
+        ctx: &ResponseBridgeContext,
+        response: &mut ChatResponse,
+        report: &mut siumai_core::bridge::BridgeReport,
+    ) -> Result<(), siumai_core::LlmError> {
+        assert_eq!(ctx.source, Some(BridgeTarget::AnthropicMessages));
+        assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);
+        assert_eq!(
+            ctx.route_label.as_deref(),
+            Some("tests.response.customization")
+        );
+        assert_eq!(ctx.path_label.as_deref(), Some("normalized-response"));
+
+        let MessageContent::MultiModal(parts) = &response.content else {
+            panic!("expected multimodal response content");
+        };
+        let ContentPart::ToolCall {
+            tool_call_id,
+            tool_name,
+            ..
+        } = &parts[1]
+        else {
+            panic!("expected tool call in response content");
+        };
+        assert_eq!(tool_call_id, "bundle_call_1");
+        assert_eq!(tool_name, "bundle_weather");
+
+        response.content =
+            MessageContent::MultiModal(vec![ContentPart::text("[bundle]"), parts[1].clone()]);
+        report.record_lossy_field(
+            "response.content",
+            "bundled customization rewrote response content before serialization",
+        );
+        Ok(())
+    }
+
+    fn remap_tool_name(&self, ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
+        assert_eq!(ctx.source, Some(BridgeTarget::AnthropicMessages));
+        assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);
+        Some(format!("bundle_{name}"))
+    }
+
+    fn remap_tool_call_id(&self, ctx: &BridgePrimitiveContext, id: &str) -> Option<String> {
+        assert_eq!(ctx.source, Some(BridgeTarget::AnthropicMessages));
+        assert_eq!(ctx.target, BridgeTarget::OpenAiChatCompletions);
+        Some(format!("bundle_{id}"))
     }
 }
 
@@ -690,6 +743,46 @@ fn response_bridge_hook_can_rewrite_content_before_serialization() {
 
     let value = bridged.value.expect("json body");
     assert_eq!(value["choices"][0]["message"]["content"], json!("[hooked]"));
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn response_bridge_customization_bundle_can_rewrite_content_and_remap_tools() {
+    let response = ChatResponse::new(MessageContent::MultiModal(vec![
+        ContentPart::text("visible answer"),
+        ContentPart::tool_call("call_1", "weather", json!({ "city": "Tokyo" }), None),
+    ]));
+
+    let bridged = bridge_chat_response_to_openai_chat_completions_json_value_with_options(
+        &response,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.response.customization")
+            .with_customization(Arc::new(CompositeResponseCustomization)),
+        JsonEncodeOptions::default(),
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    assert!(bridged.report.is_lossy());
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "response.content")
+    );
+
+    let value = bridged.value.expect("json body");
+    assert_eq!(value["choices"][0]["message"]["content"], json!("[bundle]"));
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["id"],
+        json!("bundle_call_1")
+    );
+    assert_eq!(
+        value["choices"][0]["message"]["tool_calls"][0]["function"]["name"],
+        json!("bundle_weather")
+    );
 }
 
 #[cfg(feature = "google")]

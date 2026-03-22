@@ -4,9 +4,9 @@ use futures_util::{StreamExt, stream};
 #[cfg(feature = "anthropic")]
 use siumai_core::bridge::StreamBridgeHook;
 use siumai_core::bridge::{
-    BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions, BridgePrimitiveContext,
-    BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext, ResponseBridgeContext,
-    StreamBridgeContext,
+    BridgeCustomization, BridgeLossAction, BridgeLossPolicy, BridgeMode, BridgeOptions,
+    BridgePrimitiveContext, BridgePrimitiveRemapper, BridgeTarget, RequestBridgeContext,
+    ResponseBridgeContext, StreamBridgeContext,
 };
 use siumai_core::streaming::ChatByteStream;
 use siumai_core::types::{
@@ -82,6 +82,59 @@ impl BridgePrimitiveRemapper for PrefixStreamRemapper {
 
     fn remap_tool_call_id(&self, _ctx: &BridgePrimitiveContext, id: &str) -> Option<String> {
         Some(format!("gw_{id}"))
+    }
+}
+
+struct CompositeStreamCustomization;
+
+impl BridgeCustomization for CompositeStreamCustomization {
+    fn map_stream_event(
+        &self,
+        ctx: &StreamBridgeContext,
+        event: ChatStreamEvent,
+    ) -> Vec<ChatStreamEvent> {
+        assert_eq!(ctx.source, Some(BridgeTarget::OpenAiResponses));
+        assert_eq!(ctx.target, BridgeTarget::AnthropicMessages);
+        assert_eq!(
+            ctx.route_label.as_deref(),
+            Some("tests.stream.customization")
+        );
+        assert_eq!(ctx.path_label.as_deref(), Some("tests.stream.custom-path"));
+
+        match event {
+            ChatStreamEvent::ContentDelta { delta, index } => vec![ChatStreamEvent::ContentDelta {
+                delta: delta.to_uppercase(),
+                index,
+            }],
+            ChatStreamEvent::ToolCallDelta {
+                id,
+                function_name,
+                arguments_delta,
+                index,
+            } => {
+                assert_eq!(id, "bundle_call_1");
+                assert_eq!(function_name.as_deref(), Some("bundle_weather"));
+                vec![ChatStreamEvent::ToolCallDelta {
+                    id,
+                    function_name,
+                    arguments_delta,
+                    index,
+                }]
+            }
+            other => vec![other],
+        }
+    }
+
+    fn remap_tool_name(&self, ctx: &BridgePrimitiveContext, name: &str) -> Option<String> {
+        assert_eq!(ctx.source, Some(BridgeTarget::OpenAiResponses));
+        assert_eq!(ctx.target, BridgeTarget::AnthropicMessages);
+        Some(format!("bundle_{name}"))
+    }
+
+    fn remap_tool_call_id(&self, ctx: &BridgePrimitiveContext, id: &str) -> Option<String> {
+        assert_eq!(ctx.source, Some(BridgeTarget::OpenAiResponses));
+        assert_eq!(ctx.target, BridgeTarget::AnthropicMessages);
+        Some(format!("bundle_{id}"))
     }
 }
 
@@ -546,6 +599,87 @@ async fn stream_bridge_remapper_rewrites_tool_delta_and_final_response() {
     };
     assert_eq!(tool_call_id, "gw_call_1");
     assert_eq!(tool_name, "gw_weather");
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn stream_bridge_customization_bundle_can_transform_events_and_remap_tools() {
+    let response = ChatResponse {
+        id: Some("resp_1".to_string()),
+        model: Some("gpt-4.1-mini".to_string()),
+        content: MessageContent::MultiModal(vec![ContentPart::tool_call(
+            "call_1",
+            "weather",
+            serde_json::json!({ "city": "Tokyo" }),
+            None,
+        )]),
+        usage: None,
+        finish_reason: Some(FinishReason::ToolCalls),
+        audio: None,
+        system_fingerprint: None,
+        service_tier: None,
+        warnings: None,
+        provider_metadata: None,
+    };
+
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "hello".to_string(),
+            index: Some(0),
+        }),
+        Ok(ChatStreamEvent::ToolCallDelta {
+            id: "call_1".to_string(),
+            function_name: Some("weather".to_string()),
+            arguments_delta: Some(r#"{"city":"Tokyo"}"#.to_string()),
+            index: Some(0),
+        }),
+        Ok(ChatStreamEvent::StreamEnd { response }),
+    ]);
+
+    let transformed = transform_chat_stream_with_bridge_options(
+        stream,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeTarget::AnthropicMessages,
+        &BridgeOptions::new(BridgeMode::BestEffort)
+            .with_route_label("tests.stream.customization")
+            .with_customization(Arc::new(CompositeStreamCustomization)),
+        Some("tests.stream.custom-path".to_string()),
+    );
+
+    let events = transformed.collect::<Vec<_>>().await;
+
+    let ChatStreamEvent::ContentDelta { delta, index } = events[0].as_ref().expect("content delta")
+    else {
+        panic!("expected content delta");
+    };
+    assert_eq!(delta, "HELLO");
+    assert_eq!(*index, Some(0));
+
+    let ChatStreamEvent::ToolCallDelta {
+        id, function_name, ..
+    } = events[1].as_ref().expect("tool delta")
+    else {
+        panic!("expected tool delta");
+    };
+    assert_eq!(id, "bundle_call_1");
+    assert_eq!(function_name.as_deref(), Some("bundle_weather"));
+
+    let ChatStreamEvent::StreamEnd { response } = events[2].as_ref().expect("stream end") else {
+        panic!("expected stream end");
+    };
+    let MessageContent::MultiModal(parts) = &response.content else {
+        panic!("expected multimodal response");
+    };
+    let ContentPart::ToolCall {
+        tool_call_id,
+        tool_name,
+        ..
+    } = &parts[0]
+    else {
+        panic!("expected tool call part");
+    };
+    assert_eq!(tool_call_id, "bundle_call_1");
+    assert_eq!(tool_name, "bundle_weather");
 }
 
 #[cfg(feature = "openai")]

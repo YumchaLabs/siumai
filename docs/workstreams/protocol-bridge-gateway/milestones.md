@@ -151,8 +151,8 @@ Current state:
   - explicit lossy conversion paths across request / response / stream bridges
   - strict-vs-best-effort behavior on representative lossy routes
   - request hook mutation / JSON validation
-  - response hook mutation
-  - stream primitive remapping on delta and final response paths
+  - bundled response customization plus tool/call remapping
+  - bundled stream customization plus delta/final-response tool remapping
 - the customization boundary is now explicitly documented:
   - typed bridge hooks and policies are the supported user-defined conversion surface
   - inbound normalization now uses the same hook surface through explicit `with_options` entry

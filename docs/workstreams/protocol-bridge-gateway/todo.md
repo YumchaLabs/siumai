@@ -322,7 +322,9 @@ This TODO list is intentionally organized as mergeable tracks.
     - bundled `BridgeCustomization` request mutation + JSON overlay + validation + tool remap
   - response hook coverage now exercises:
     - response-side semantic rewrite before target serialization
+    - bundled `BridgeCustomization` response rewrite + tool/call remap
   - stream customization coverage now exercises:
+    - bundled `BridgeCustomization` stream event transform + tool/call remap
     - primitive remapping on `ToolCallDelta`
     - remapping propagation into `StreamEnd` response content
 - [x] Add tests for strict vs best-effort behavior
