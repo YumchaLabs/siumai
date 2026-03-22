@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Path Audit
 
-Last updated: 2026-03-21
+Last updated: 2026-03-22
 
 This note records the current explicit bridge paths, where conversion is exact or projected, and
 where behavior is still intentionally lossy or only available through adjacent legacy hooks.
@@ -65,8 +65,26 @@ The terms below are used intentionally:
 | --- | --- | --- | --- | --- |
 | Anthropic Messages | explicit | explicit | explicit | projected / lossy depending on usage + provider metadata |
 | OpenAI Responses | explicit | explicit | explicit | strongest exactness today, with a few documented lossy source-replay edges |
-| OpenAI Chat Completions | explicit | explicit | explicit | exact for core text/tool/usage/top-level fields, lossy for reasoning/tool-result-only semantics |
-| Gemini GenerateContent | explicit | explicit | explicit | request ingress now exists; response fidelity is still intentionally projected/lossy |
+| OpenAI Chat Completions | explicit | explicit | explicit | exact/projected for core text/tool/usage fields, structurally lossy for reasoning and tool-result-only semantics |
+| Gemini GenerateContent | explicit | explicit | explicit | projected for same-protocol reasoning/tool replay, lossy for finish/detail-breakdown edges |
+
+## Cross-target semantic audit
+
+This workstream's remaining fidelity questions are now concentrated in three semantic families:
+
+- reasoning
+- structured output
+- usage
+
+The table below records the current target-protocol boundary rather than raw provider-native wire
+equality.
+
+| Target protocol view | Reasoning | Structured output | Usage | Primary remaining gaps |
+| --- | --- | --- | --- | --- |
+| Anthropic Messages | projected exactness for supported thinking replay fields on non-streaming response; stream replay stays stateful/projected rather than block-for-block exact | primarily request-side via `output_format`; outbound response/stream do not add a separate schema envelope beyond normal content replay | prompt/completion totals survive where representable; detailed token breakdown is lossy | `prompt_tokens_details` / `completion_tokens_details`, non-Anthropic provider metadata, broader stream thinking fixtures |
+| OpenAI Responses | strongest target today: non-streaming response keeps modeled reasoning blocks exactly, stream keeps reasoning boundary identity semantically | primarily request-side via `text.format`; outbound response does not need a separate schema envelope beyond normalized content/items | non-streaming response keeps usage detail breakdown; stream path is currently audited at prompt/completion totals rather than every nested detail field | message-citation source replay, broader stream-level usage-detail audit |
+| OpenAI Chat Completions | structurally lossy by target design because Chat Completions has no first-class reasoning block channel in non-streaming or streaming output | primarily request-side via `response_format`; outbound response/stream are not schema-carrying targets | non-streaming response keeps usage totals/details; stream replay currently guarantees totals and finish semantics, not a richer detail envelope | reasoning loss, tool-result-only semantics, smaller finish-reason space, totals-only stream usage view |
+| Gemini GenerateContent | projected exactness for same-protocol visible reasoning partitioning, `thoughtSignature`, and provider-executed `code_execution` replay on response/stream paths | primarily request-side via `responseJsonSchema`; outbound response/stream do not carry a second schema envelope beyond content replay | aggregate totals plus `thoughtsTokenCount` / `cachedContentTokenCount` survive; richer audio/prediction breakdown does not | client tool-call `finishReason` collapse into generic `STOP`, audio/prediction-token breakdown, broader source/usage fixture expansion |
 
 ## Anthropic Messages
 
@@ -98,6 +116,8 @@ Current fidelity:
 
 - projected exactness for text, provider-hosted tool-call / tool-result replay, tool caller
   metadata, MCP server-name metadata, and supported thinking replay fields
+- structured output remains primarily a request-side Anthropic concern (`output_format`) rather
+  than a distinct response envelope problem on this target
 - lossy for `prompt_tokens_details` / `completion_tokens_details`
 - lossy for `system_fingerprint`
 - lossy for provider metadata outside the Anthropic namespace or outside the currently mapped
@@ -114,6 +134,10 @@ Current fidelity:
 
 - projected exactness for start metadata, finish reason, prompt/completion totals, and text
   reconstruction
+- reasoning/tool replay remains intentionally stateful/projected rather than block-for-block raw
+  SSE equality
+- structured output is still primarily a request-side concern on this target; no separate stream
+  schema envelope is expected
 - raw SSE frame-for-frame equality is intentionally not a goal because block framing and terminal
   events may be regenerated from normalized stream state
 
@@ -146,6 +170,8 @@ Current fidelity:
 
 - exact for core text, reasoning blocks, provider-executed tool results, tool approval requests,
   usage detail breakdown, response metadata, and supported source metadata
+- structured output is primarily expressed on the request side (`text.format`), so response-side
+  fidelity is about normalized content/items rather than replaying a second schema envelope
 - same-protocol roundtrip is now fixture-covered for exact cases, including web-search
   tool-result embedded source replay, file-search typed source projection from raw provider
   results, and tool-scoped source id / linkage preservation even when OpenAI `itemId` differs
@@ -164,6 +190,8 @@ Current fidelity:
 
 - projected exactness for response metadata, finish reason, prompt/completion totals, text
   reconstruction, and reasoning boundary identity
+- the stream path is currently audited at semantic totals/boundaries, not every nested usage-detail
+  field carried by non-streaming Responses JSON
 - raw event-for-event equality is intentionally not required
 
 ## OpenAI Chat Completions
@@ -193,6 +221,8 @@ Path:
 Current fidelity:
 
 - exact for text, tool calls, usage totals/details, `system_fingerprint`, and `service_tier`
+- structured output is still primarily request-side on this target (`response_format`) rather than
+  a distinct response envelope surface
 - same-protocol roundtrip is now covered for the normalized projection of those fields
 - lossy for reasoning blocks
 - lossy for tool-result-only content parts and tool approval request / response semantics
@@ -208,7 +238,11 @@ Path:
 
 Current fidelity:
 
-- projected exactness for final response id / model / timestamp seeding and finish chunk behavior
+- projected exactness for assistant role/text replay, tool-call argument accumulation, usage-total
+  replay, terminal finish chunk behavior, and preserving the absence of start metadata when the
+  source stream did not provide `id` / `model` / `created`
+- reasoning remains lossy because Chat Completions has no first-class reasoning stream channel
+- structured output remains a request-side concern on this target, not a stream target surface
 - cross-protocol best-effort stream routes are explicitly marked lossy so `BridgeMode::Strict`
   rejects them consistently
 
@@ -248,7 +282,10 @@ Current fidelity:
 
 - projected exactness for:
   - visible text
+  - reasoning blocks
+  - part-level `thoughtSignature`
   - tool calls
+  - provider-executed `code_execution` call/result replay
   - aggregate usage totals
   - `thoughtsTokenCount`
   - `cachedContentTokenCount`
@@ -256,7 +293,9 @@ Current fidelity:
   - `modelVersion`
   - preserved `groundingMetadata` / `urlContextMetadata`
   - re-derived source lists when grounding metadata or normalized source parts are present
-- lossy for reasoning blocks
+- structured output is primarily request-side on this target via `responseJsonSchema`, not a
+  separate response envelope
+- lossy for client tool-call `finishReason` collapse into generic `STOP`
 - lossy for `system_fingerprint` and `service_tier`
 - lossy for prompt/completion audio breakdown and prediction-token breakdown
 
@@ -269,8 +308,12 @@ Path:
 
 Current fidelity:
 
-- supported as an explicit target stream view
-- constrained by the same capability limits as the non-streaming Gemini response view
+- supported as an explicit target stream view under both `google` and `google-vertex` builds
+- projected exactness for same-protocol text replay, reasoning replay with provider-namespace
+  `thoughtSignature` preservation, provider-executed `code_execution` call/result replay, and
+  aggregate usage replay
+- constrained by the same non-aggregate usage/detail limits as the non-streaming Gemini response
+  view
 - raw event equality is not claimed
 
 ## Still implicit today
@@ -300,4 +343,5 @@ The current architecture is already coherent:
   Completions, and Gemini GenerateContent
 - response and stream serialization are explicit for all four protocol views
 - a small curated direct-pair layer exists only where it materially reduces request loss
-- remaining work is mostly fidelity auditing and broader fixture coverage
+- the remaining work is now mostly broader fixture expansion and selective gap closure, not
+  uncertainty about the current target-level reasoning / structured-output / usage boundary

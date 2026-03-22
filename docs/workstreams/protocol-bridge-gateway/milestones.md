@@ -114,11 +114,19 @@ Current state:
   - tool-call argument accumulation plus usage replay
   - multiple tool-call replay
   - Azure model-router style chunks without synthetic start metadata injection
+- target-level reasoning / structured-output / usage audit is now recorded in `audit.md`, including:
+  - structured output being primarily a request-target concern on Anthropic / OpenAI / Gemini paths
+  - OpenAI Responses as the strongest current target for modeled reasoning + usage detail fidelity
+  - OpenAI Chat Completions as structurally lossy for reasoning and totals-only on the stream
+    usage surface
+  - Gemini GenerateContent as projected-exact for modeled same-protocol reasoning +
+    `thoughtSignature` + provider-executed `code_execution`, while richer usage breakdown remains
+    lossy
 - initial same-protocol response roundtrip fixture coverage now exists for OpenAI Responses and
   Anthropic Messages, and Gemini GenerateContent
 - that coverage is intentionally split into exact, projected, and documented-lossy cases rather
   than claiming full wire-level losslessness
-- remaining work is mainly cross-target usage / reasoning / structured-output audit
+- remaining work is now mainly broader fixture expansion and selective gap closure
 
 Status: in progress
 

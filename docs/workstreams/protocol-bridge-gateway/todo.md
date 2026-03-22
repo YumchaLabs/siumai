@@ -112,7 +112,16 @@ This TODO list is intentionally organized as mergeable tracks.
 - [x] Add no-network tests for exact and lossy cases
 - [x] Preserve tool calls, provider-executed tool results, and OpenAI response sources where
   representable
-- [ ] Audit remaining reasoning / structured output / usage fidelity gaps per target
+- [x] Audit remaining reasoning / structured output / usage fidelity gaps per target
+  - `audit.md` now records a target-by-target reasoning / structured-output / usage matrix
+  - the audit now makes the boundary explicit that:
+    - structured output is primarily a request-target concern on Anthropic / OpenAI / Gemini paths
+    - OpenAI Responses remains the strongest target for modeled reasoning + usage detail fidelity
+    - OpenAI Chat Completions remains structurally lossy for reasoning and totals-only on the
+      stream usage surface
+    - Gemini same-protocol response/stream replay is now projected-exact for modeled reasoning +
+      `thoughtSignature` + provider-executed `code_execution`, while richer usage breakdown stays
+      lossy
   - OpenAI Responses same-protocol response roundtrip now has initial fixture coverage with:
     - exact cases for core text / reasoning / tool items, including web-search embedded
       tool-result source replay, file-search source extraction from raw provider results, and
