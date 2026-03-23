@@ -323,6 +323,7 @@ Current state:
 - `siumai-extras` now also has Axum router-level smoke coverage for:
   - OpenAI Responses JSON/SSE output routes
   - Anthropic Messages JSON/SSE output routes
+  - Gemini GenerateContent JSON/SSE output routes
   - fixture-backed Anthropic -> OpenAI Responses SSE route transcoding
   - fixture-backed OpenAI Responses -> Anthropic Messages SSE route transcoding
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and

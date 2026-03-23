@@ -8,12 +8,14 @@ use axum::{
     response::Response,
     routing::get,
 };
-#[cfg(feature = "anthropic")]
+#[cfg(any(feature = "anthropic", feature = "google"))]
 use eventsource_stream::Event;
 use futures::stream;
+#[cfg(any(feature = "anthropic", feature = "google"))]
+use siumai::prelude::unified::SseEventConverter;
 use siumai::prelude::unified::{ChatResponse, ChatStream, ChatStreamEvent, MessageContent};
 #[cfg(feature = "anthropic")]
-use siumai::prelude::unified::{ProviderDefinedTool, SseEventConverter, Tool};
+use siumai::prelude::unified::{ProviderDefinedTool, Tool};
 use siumai_extras::server::{
     GatewayBridgePolicy,
     axum::{
@@ -54,6 +56,20 @@ fn anthropic_app() -> Router {
     Router::new()
         .route("/json", get(anthropic_json_route))
         .route("/sse", get(anthropic_sse_route))
+        .with_state(state)
+}
+
+#[cfg(feature = "google")]
+fn gemini_app() -> Router {
+    let state = AppState {
+        policy: GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+            .with_bridge_headers(true)
+            .with_bridge_warning_headers(true),
+    };
+
+    Router::new()
+        .route("/json", get(gemini_json_route))
+        .route("/sse", get(gemini_sse_route))
         .with_state(state)
 }
 
@@ -129,6 +145,33 @@ async fn anthropic_sse_route(State(state): State<AppState>) -> Response<Body> {
     )
 }
 
+#[cfg(feature = "google")]
+async fn gemini_json_route(State(state): State<AppState>) -> Response<Body> {
+    to_transcoded_json_response(
+        ChatResponse::new(MessageContent::Text("gateway ok".to_string())),
+        TargetJsonFormat::GeminiGenerateContent,
+        TranscodeJsonOptions::default().with_policy(state.policy),
+    )
+}
+
+#[cfg(feature = "google")]
+async fn gemini_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
+    let stream: ChatStream = Box::pin(stream::iter(vec![
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "gateway ok".to_string(),
+            index: None,
+        }),
+        Ok(ChatStreamEvent::StreamEnd { response }),
+    ]));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::GeminiGenerateContent,
+        TranscodeSseOptions::default().with_policy(state.policy),
+    )
+}
+
 #[cfg(feature = "anthropic")]
 async fn anthropic_fixture_to_openai_sse_route(State(state): State<AppState>) -> Response<Body> {
     let upstream = decode_anthropic_fixture_stream(
@@ -189,7 +232,7 @@ fn read_fixture_lines(path: impl AsRef<Path>) -> Vec<String> {
         .collect()
 }
 
-#[cfg(feature = "anthropic")]
+#[cfg(any(feature = "anthropic", feature = "google"))]
 fn extract_sse_data_payload_lines(bytes: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(bytes);
     text.split("\n\n")
@@ -208,6 +251,42 @@ fn extract_sse_data_payload_lines(bytes: &[u8]) -> Vec<String> {
             Some(data.to_string())
         })
         .collect()
+}
+
+#[cfg(feature = "google")]
+fn decode_gemini_sse_body(bytes: &[u8]) -> Vec<ChatStreamEvent> {
+    let conv = siumai::protocol::gemini::streaming::GeminiEventConverter::new(
+        siumai::protocol::gemini::types::GeminiConfig::default(),
+    );
+    let mut events = Vec::new();
+
+    for (index, line) in extract_sse_data_payload_lines(bytes)
+        .into_iter()
+        .enumerate()
+    {
+        let event = Event {
+            event: "".to_string(),
+            data: line,
+            id: index.to_string(),
+            retry: None,
+        };
+        let out = futures::executor::block_on(conv.convert_event(event));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to convert gemini chunk: {err:?}"),
+            }
+        }
+    }
+
+    while let Some(item) = conv.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize gemini stream: {err:?}"),
+        }
+    }
+
+    events
 }
 
 #[cfg(feature = "anthropic")]
@@ -465,6 +544,75 @@ async fn gateway_sse_route_smoke_emits_anthropic_sse() {
     assert!(text.contains("event: content_block_delta"));
     assert!(text.contains("gateway ok"));
     assert!(text.contains("event: message_stop"));
+}
+
+#[cfg(feature = "google")]
+#[tokio::test]
+async fn gateway_json_route_smoke_emits_gemini_json() {
+    let response = gemini_app()
+        .oneshot(
+            Request::builder()
+                .uri("/json")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "gemini-generate-content"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    assert_eq!(json["candidates"][0]["content"]["role"], "model");
+    assert_eq!(
+        json["candidates"][0]["content"]["parts"][0]["text"],
+        "gateway ok"
+    );
+}
+
+#[cfg(feature = "google")]
+#[tokio::test]
+async fn gateway_sse_route_smoke_emits_gemini_sse() {
+    let response = gemini_app()
+        .oneshot(
+            Request::builder()
+                .uri("/sse")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "gemini-generate-content"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let downstream = decode_gemini_sse_body(&body);
+
+    assert!(downstream.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::ContentDelta { delta, .. } if delta == "gateway ok"
+    )));
+    assert!(downstream.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::StreamEnd { response }
+            if response.finish_reason == Some(siumai::prelude::unified::FinishReason::Stop)
+    )));
 }
 
 #[cfg(feature = "anthropic")]

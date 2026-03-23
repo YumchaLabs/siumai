@@ -438,5 +438,7 @@ This TODO list is intentionally organized as mergeable tracks.
     - OpenAI Responses SSE gateway output path
     - Anthropic Messages JSON gateway output path
     - Anthropic Messages SSE gateway output path
+    - Gemini GenerateContent JSON gateway output path
+    - Gemini GenerateContent SSE gateway output path
     - fixture-backed Anthropic -> OpenAI Responses SSE route smoke
     - fixture-backed OpenAI Responses -> Anthropic Messages SSE route smoke
