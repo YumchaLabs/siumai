@@ -326,6 +326,9 @@ Current state:
   - Gemini GenerateContent JSON/SSE output routes
   - fixture-backed Anthropic -> OpenAI Responses SSE route transcoding
   - fixture-backed OpenAI Responses -> Anthropic Messages SSE route transcoding
+  - fixture-backed Gemini -> OpenAI Responses SSE route transcoding
+  - fixture-backed OpenAI Responses -> Gemini GenerateContent SSE route transcoding
+  - Gemini target strict / best-effort bridge-decision header behavior on cross-protocol SSE
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and
   stabilization docs
 

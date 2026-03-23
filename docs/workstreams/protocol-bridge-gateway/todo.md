@@ -442,3 +442,6 @@ This TODO list is intentionally organized as mergeable tracks.
     - Gemini GenerateContent SSE gateway output path
     - fixture-backed Anthropic -> OpenAI Responses SSE route smoke
     - fixture-backed OpenAI Responses -> Anthropic Messages SSE route smoke
+    - fixture-backed Gemini -> OpenAI Responses SSE route smoke
+    - fixture-backed OpenAI Responses -> Gemini GenerateContent SSE route smoke
+    - Gemini target strict / best-effort bridge-decision header assertions for cross-protocol SSE
