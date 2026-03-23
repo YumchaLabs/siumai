@@ -113,6 +113,26 @@ fn gemini_cross_protocol_app() -> Router {
         .with_state(state)
 }
 
+#[cfg(all(feature = "anthropic", feature = "google"))]
+fn anthropic_gemini_cross_protocol_app() -> Router {
+    let state = AppState {
+        policy: GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+            .with_bridge_headers(true)
+            .with_bridge_warning_headers(true),
+    };
+
+    Router::new()
+        .route(
+            "/anthropic-to-gemini",
+            get(anthropic_fixture_to_gemini_sse_route),
+        )
+        .route(
+            "/gemini-to-anthropic",
+            get(gemini_fixture_to_anthropic_sse_route),
+        )
+        .with_state(state)
+}
+
 async fn json_route(State(state): State<AppState>) -> Response<Body> {
     to_transcoded_json_response(
         ChatResponse::new(MessageContent::Text("gateway ok".to_string())),
@@ -295,6 +315,43 @@ async fn openai_fixture_to_gemini_strict_sse_route(
     )
 }
 
+#[cfg(all(feature = "anthropic", feature = "google"))]
+async fn anthropic_fixture_to_gemini_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let upstream = decode_anthropic_fixture_stream(
+        repo_fixtures_dir()
+            .join("anthropic")
+            .join("messages-stream")
+            .join("anthropic-web-search-tool.1.chunks.txt"),
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::GeminiGenerateContent,
+        TranscodeSseOptions::default()
+            .with_bridge_source(siumai::experimental::bridge::BridgeTarget::AnthropicMessages)
+            .with_policy(state.policy),
+    )
+}
+
+#[cfg(all(feature = "anthropic", feature = "google"))]
+async fn gemini_fixture_to_anthropic_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let upstream = decode_gemini_fixture_stream(
+        repo_fixtures_dir()
+            .join("gemini")
+            .join("thought_then_text_stop.sse"),
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::AnthropicMessages,
+        TranscodeSseOptions::default()
+            .with_bridge_source(siumai::experimental::bridge::BridgeTarget::GeminiGenerateContent)
+            .with_policy(state.policy),
+    )
+}
+
 #[cfg(any(feature = "anthropic", feature = "google"))]
 fn repo_fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -474,6 +531,13 @@ fn parse_anthropic_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
                 .map(|line| line.trim_start_matches("data: ").trim())?;
             serde_json::from_str::<serde_json::Value>(data).ok()
         })
+        .collect()
+}
+
+fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
+    extract_sse_data_payload_lines(bytes)
+        .into_iter()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(&line).ok())
         .collect()
 }
 
@@ -869,7 +933,10 @@ async fn gateway_route_smoke_transcodes_openai_fixture_to_gemini_sse_with_lossy_
     let downstream = decode_gemini_sse_body(&body);
     let text = collect_text_deltas(&downstream);
 
-    assert!(text.contains("Hello, World!"), "unexpected decoded text: {text}");
+    assert!(
+        text.contains("Hello, World!"),
+        "unexpected decoded text: {text}"
+    );
     assert!(downstream.iter().any(|event| matches!(
         event,
         ChatStreamEvent::StreamEnd { response }
@@ -906,4 +973,82 @@ async fn gateway_route_smoke_rejects_openai_fixture_to_gemini_sse_in_strict_mode
     let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
     assert_eq!(json["error"], "bridge rejected");
     assert_eq!(json["report"]["lossy_fields"][0], "stream.protocol");
+}
+
+#[cfg(all(feature = "anthropic", feature = "google"))]
+#[tokio::test]
+async fn gateway_route_smoke_transcodes_anthropic_fixture_to_gemini_sse() {
+    let response = anthropic_gemini_cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/anthropic-to-gemini")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "gemini-generate-content"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-decision"], "lossy");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let frames = parse_sse_json_frames(&body);
+
+    assert!(frames.iter().any(|frame| {
+        frame["candidates"][0]["content"]["parts"][0]["functionCall"]["name"]
+            == serde_json::json!("web_search")
+    }));
+    assert!(
+        frames
+            .iter()
+            .any(|frame| { frame["candidates"][0]["finishReason"].as_str().is_some() })
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "google"))]
+#[tokio::test]
+async fn gateway_route_smoke_transcodes_gemini_fixture_to_anthropic_sse() {
+    let response = anthropic_gemini_cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/gemini-to-anthropic")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "anthropic-messages"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-decision"], "lossy");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let frames = parse_anthropic_sse_json_frames(&body);
+
+    assert!(frames.iter().any(|frame| frame["type"] == "message_stop"));
+    assert!(frames.iter().any(|frame| {
+        frame["type"] == "content_block_delta"
+            && frame["delta"]["type"] == "thinking_delta"
+            && frame["delta"]["thinking"].as_str().is_some()
+    }));
+    assert!(frames.iter().any(|frame| {
+        frame["type"] == "content_block_delta"
+            && frame["delta"]["type"] == "text_delta"
+            && frame["delta"]["text"]
+                .as_str()
+                .is_some_and(|text| text.contains("Final answer."))
+    }));
 }

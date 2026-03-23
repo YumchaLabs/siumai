@@ -444,4 +444,6 @@ This TODO list is intentionally organized as mergeable tracks.
     - fixture-backed OpenAI Responses -> Anthropic Messages SSE route smoke
     - fixture-backed Gemini -> OpenAI Responses SSE route smoke
     - fixture-backed OpenAI Responses -> Gemini GenerateContent SSE route smoke
+    - fixture-backed Anthropic Messages -> Gemini GenerateContent SSE route smoke
+    - fixture-backed Gemini GenerateContent -> Anthropic Messages SSE route smoke
     - Gemini target strict / best-effort bridge-decision header assertions for cross-protocol SSE
