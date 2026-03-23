@@ -136,6 +136,11 @@ Current fidelity:
   reconstruction
 - reasoning/tool replay remains intentionally stateful/projected rather than block-for-block raw
   SSE equality
+- the public `anthropic-standard` feature surface now has an explicit protocol-crate integration
+  test entry that exercises `AnthropicEventConverter` directly for:
+  - provider server-tool call/result SSE replay through the exported converter surface
+  - `thinking_signature` capture on decode
+  - repeated `ThinkingDelta` serialization with a single thinking block start/stop envelope
 - structured output is still primarily a request-side concern on this target; no separate stream
   schema envelope is expected
 - raw SSE frame-for-frame equality is intentionally not a goal because block framing and terminal

@@ -173,6 +173,7 @@ Current state:
   - MCP provider tool-call replay
   - finish-carried output-text logprobs replay
 - protocol-crate public feature-surface integration tests now also exist for:
+  - Anthropic Messages SSE under `anthropic-standard`
   - OpenAI Responses SSE under `openai-standard` + `openai-responses`
   - Gemini streaming under `google`
   - these tests validate the exported converter surfaces directly instead of relying only on

@@ -60,3 +60,8 @@ wiremock.workspace = true
 tracing-test.workspace = true
 tempfile.workspace = true
 proptest.workspace = true
+
+[[test]]
+name = "anthropic_streaming_feature_surface_test"
+path = "tests/anthropic_streaming_feature_surface_test.rs"
+required-features = ["anthropic-standard"]

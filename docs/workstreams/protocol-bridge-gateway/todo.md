@@ -390,6 +390,9 @@ This TODO list is intentionally organized as mergeable tracks.
     - text delta replay
     - reasoning start/end replay
   - protocol-crate public feature-surface integration tests now exist for:
+    - Anthropic Messages SSE (`anthropic-standard`) covering provider server-tool replay plus
+      thinking-signature / repeated-thinking serialization behavior through the public converter
+      surface
     - OpenAI Responses SSE (`openai-standard` + `openai-responses`) covering MCP provider tool
       stream replay through the public converter surface
     - Gemini streaming (`google`) covering provider-executed `code_execution` replay and
