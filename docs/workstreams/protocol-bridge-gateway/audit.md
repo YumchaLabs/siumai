@@ -31,6 +31,11 @@ Current explicit request-source normalization customization entry points:
 - the Axum-side ingress helpers in `siumai-extras::server::axum` now also have smoke coverage for
   the same four source formats via `normalize_request_json(...)` and
   `normalize_request_json_with_options(...)`
+- route-level Axum ingress smoke now also covers the composed path:
+  - downstream request body read under gateway policy
+  - provider-native request normalization
+  - strict rejection before downstream execution/transcode when normalization is lossy
+  - normal successful continuation into JSON gateway output
 
 Current explicit normalized response targets:
 

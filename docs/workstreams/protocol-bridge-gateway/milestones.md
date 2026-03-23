@@ -344,6 +344,11 @@ Current state:
   - Gemini GenerateContent -> `ChatRequest`
   - `GatewayBridgePolicy` strict override behavior on lossy normalization
   - provider-tool rewrite customization on inbound provider-native requests
+- `siumai-extras` now also has route-level Axum ingress smoke coverage for:
+  - POST request body read under `GatewayBridgePolicy`
+  - provider-native request normalization before response execution/transcode
+  - strict-mode request-normalization rejection on ingress routes
+  - request-body limit enforcement at the route boundary
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and
   stabilization docs
 

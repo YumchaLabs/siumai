@@ -461,3 +461,7 @@ This TODO list is intentionally organized as mergeable tracks.
     - Gemini GenerateContent -> `ChatRequest`
     - `GatewayBridgePolicy` + route-local mode override strict rejection on lossy normalization
     - provider-tool rewrite customization during inbound normalization
+  - `siumai-extras` route-level ingress Axum smoke coverage now also validates:
+    - request body read + policy enforcement + request normalization + JSON transcode in one POST route
+    - strict-mode rejection during request normalization before downstream execution/transcode
+    - request-body limit enforcement on ingress routes
