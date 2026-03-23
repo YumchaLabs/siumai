@@ -337,6 +337,13 @@ Current state:
   - Gemini target strict / best-effort bridge-decision header behavior on cross-protocol SSE
   - OpenAI Chat Completions target strict / best-effort bridge-decision header behavior on
     cross-protocol SSE
+- `siumai-extras` now also has helper-level ingress request-normalization smoke coverage for:
+  - OpenAI Responses -> `ChatRequest`
+  - OpenAI Chat Completions -> `ChatRequest`
+  - Anthropic Messages -> `ChatRequest`
+  - Gemini GenerateContent -> `ChatRequest`
+  - `GatewayBridgePolicy` strict override behavior on lossy normalization
+  - provider-tool rewrite customization on inbound provider-native requests
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and
   stabilization docs
 

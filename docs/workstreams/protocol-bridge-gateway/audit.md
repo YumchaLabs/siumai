@@ -28,6 +28,9 @@ Current explicit request-source normalization customization entry points:
 - `bridge_gemini_generate_content_json_to_chat_request_with_options(...)`
 - `bridge_openai_responses_json_to_chat_request_with_options(...)`
 - `bridge_openai_chat_completions_json_to_chat_request_with_options(...)`
+- the Axum-side ingress helpers in `siumai-extras::server::axum` now also have smoke coverage for
+  the same four source formats via `normalize_request_json(...)` and
+  `normalize_request_json_with_options(...)`
 
 Current explicit normalized response targets:
 

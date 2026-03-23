@@ -454,3 +454,10 @@ This TODO list is intentionally organized as mergeable tracks.
     - Gemini target strict / best-effort bridge-decision header assertions for cross-protocol SSE
     - OpenAI Chat Completions target strict / best-effort bridge-decision header assertions for
       cross-protocol SSE
+  - `siumai-extras` ingress request-normalization smoke coverage now also validates:
+    - OpenAI Responses -> `ChatRequest`
+    - OpenAI Chat Completions -> `ChatRequest`
+    - Anthropic Messages -> `ChatRequest`
+    - Gemini GenerateContent -> `ChatRequest`
+    - `GatewayBridgePolicy` + route-local mode override strict rejection on lossy normalization
+    - provider-tool rewrite customization during inbound normalization
