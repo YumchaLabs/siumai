@@ -175,13 +175,23 @@ impl MinimaxiClient {
         self
     }
 
-    fn merge_default_provider_options(&self, mut request: ChatRequest) -> ChatRequest {
-        if !self.config.default_provider_options_map.is_empty() {
-            let mut merged = self.config.default_provider_options_map.clone();
-            merged.merge_overrides(std::mem::take(&mut request.provider_options_map));
-            request.provider_options_map = merged;
+    fn prepare_chat_request(
+        &self,
+        request: ChatRequest,
+        stream: bool,
+    ) -> Result<ChatRequest, LlmError> {
+        let request = crate::utils::chat_request::normalize_chat_request(
+            request,
+            crate::utils::chat_request::ChatRequestDefaults::new(&self.config.common_params)
+                .with_provider_options_map(&self.config.default_provider_options_map),
+            stream,
+        );
+        if request.common_params.model.trim().is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "Model must be specified".to_string(),
+            ));
         }
-        request
+        Ok(request)
     }
 
     fn build_context(&self) -> crate::core::ProviderContext {
@@ -328,7 +338,7 @@ impl ChatCapability for MinimaxiClient {
     async fn chat_request(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let request = self.merge_default_provider_options(request);
+        let request = self.prepare_chat_request(request, false)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
     }
@@ -336,7 +346,7 @@ impl ChatCapability for MinimaxiClient {
     async fn chat_stream_request(&self, request: ChatRequest) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let request = self.merge_default_provider_options(request.with_streaming(true));
+        let request = self.prepare_chat_request(request, true)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
     }
@@ -355,8 +365,7 @@ impl ChatCapability for MinimaxiClient {
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
-        let request = self.merge_default_provider_options(builder.build());
-
+        let request = self.prepare_chat_request(builder.build(), false)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
     }
@@ -376,8 +385,7 @@ impl ChatCapability for MinimaxiClient {
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
-        let request = self.merge_default_provider_options(builder.build());
-
+        let request = self.prepare_chat_request(builder.build(), true)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
     }
@@ -851,5 +859,60 @@ mod tests {
                 "type": "json_object"
             })
         );
+    }
+
+    #[tokio::test]
+    async fn minimaxi_client_chat_request_fills_missing_common_params_from_config_defaults() {
+        let transport = CaptureTransport::default();
+        let mut config = MinimaxiConfig::new("test-key")
+            .with_base_url("https://example.com/custom")
+            .with_http_transport(Arc::new(transport.clone()));
+        config.common_params.temperature = Some(0.4);
+        config.common_params.max_tokens = Some(256);
+        let client = MinimaxiClient::from_config(config).expect("build minimaxi client");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let _ = client.chat_request(request).await;
+        let captured = transport
+            .last
+            .lock()
+            .expect("lock request")
+            .take()
+            .expect("captured");
+
+        assert_eq!(captured.body["model"], serde_json::json!("MiniMax-M2"));
+        assert_eq!(captured.body["temperature"], serde_json::json!(0.4));
+        assert_eq!(captured.body["max_tokens"], serde_json::json!(256));
+    }
+
+    #[tokio::test]
+    async fn minimaxi_client_chat_stream_request_preserves_explicit_common_params_over_defaults() {
+        let transport = CaptureTransport::default();
+        let mut config = MinimaxiConfig::new("test-key")
+            .with_base_url("https://example.com/custom")
+            .with_http_transport(Arc::new(transport.clone()));
+        config.common_params.temperature = Some(0.4);
+        config.common_params.max_tokens = Some(256);
+        let client = MinimaxiClient::from_config(config).expect("build minimaxi client");
+
+        let request = ChatRequest::builder()
+            .model("MiniMax-M2-Explicit")
+            .temperature(0.7)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let _ = client.chat_stream_request(request).await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert_eq!(
+            captured.body["model"],
+            serde_json::json!("MiniMax-M2-Explicit")
+        );
+        assert_eq!(captured.body["temperature"], serde_json::json!(0.7));
+        assert_eq!(captured.body["max_tokens"], serde_json::json!(256));
+        assert_eq!(captured.body["stream"], serde_json::json!(true));
     }
 }

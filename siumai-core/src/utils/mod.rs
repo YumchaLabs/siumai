@@ -27,6 +27,7 @@
 
 pub mod builder_helpers;
 pub mod cancel;
+pub mod chat_request;
 pub mod mime;
 pub mod model_alias;
 pub mod url;

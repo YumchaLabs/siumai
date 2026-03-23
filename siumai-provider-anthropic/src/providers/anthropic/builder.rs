@@ -338,9 +338,11 @@ impl AnthropicBuilder {
                 "Anthropic API key not provided".to_string(),
             ))?;
 
-        let base_url = self
-            .base_url
-            .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
+            self.base_url,
+            Some("ANTHROPIC_BASE_URL"),
+            "https://api.anthropic.com",
+        );
 
         let model_id = self.common_params.model.clone();
         let http_interceptors = self.core.get_http_interceptors();
@@ -405,9 +407,45 @@ impl AnthropicBuilder {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unsafe_code)]
+
     use super::*;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::Duration;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     #[test]
     fn anthropic_builder_into_config_converges_on_anthropic_config() {
@@ -564,5 +602,18 @@ mod tests {
             builder_config.model_middlewares.len(),
             manual_config.model_middlewares.len()
         );
+    }
+
+    #[test]
+    fn anthropic_builder_into_config_reads_base_url_from_env() {
+        let _lock = lock_env();
+        let _guard = EnvGuard::set("ANTHROPIC_BASE_URL", "https://example.com/env/");
+
+        let config = AnthropicBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .into_config()
+            .expect("into_config with env base url");
+
+        assert_eq!(config.base_url, "https://example.com/env");
     }
 }

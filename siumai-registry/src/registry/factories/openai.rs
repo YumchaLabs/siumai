@@ -37,8 +37,9 @@ impl OpenAIProviderFactory {
             })?
         };
 
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
             ctx.base_url.clone(),
+            Some("OPENAI_BASE_URL"),
             "https://api.openai.com/v1",
         );
 
@@ -150,8 +151,9 @@ impl ProviderFactory for OpenAIProviderFactory {
         };
 
         // Resolve base URL (context override 鈫?default).
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
             ctx.base_url.clone(),
+            Some("OPENAI_BASE_URL"),
             "https://api.openai.com/v1",
         );
 

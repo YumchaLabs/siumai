@@ -1039,9 +1039,11 @@ impl SiumaiBuilder {
             })?
         };
 
-        let default_base = "https://api.openai.com/v1".to_string();
-        let resolved_base =
-            crate::utils::builder_helpers::resolve_base_url(self.base_url.clone(), &default_base);
+        let resolved_base = crate::utils::builder_helpers::resolve_base_url_with_env(
+            self.base_url.clone(),
+            Some("OPENAI_BASE_URL"),
+            "https://api.openai.com/v1",
+        );
 
         let http_client = if let Some(c) = self.http_client.clone() {
             c

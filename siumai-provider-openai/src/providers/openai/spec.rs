@@ -1399,7 +1399,10 @@ mod tests {
             Some("KEY".to_string()),
             std::collections::HashMap::new(),
         );
-        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+        let req = ChatRequest::builder()
+            .model("gpt-5")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build()
             .with_provider_option(
                 "openai",
                 serde_json::json!({

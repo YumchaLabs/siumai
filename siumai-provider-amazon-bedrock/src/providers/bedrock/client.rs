@@ -170,15 +170,16 @@ impl BedrockClient {
         mut request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
-        if request.common_params.model.trim().is_empty() {
-            request.common_params.model = self.config.common_params.model.clone();
-        }
+        request = crate::utils::chat_request::normalize_chat_request(
+            request,
+            crate::utils::chat_request::ChatRequestDefaults::new(&self.config.common_params),
+            stream,
+        );
         if request.common_params.model.trim().is_empty() {
             return Err(LlmError::ConfigurationError(
                 "Bedrock chat request requires a non-empty model id".to_string(),
             ));
         }
-        request.stream = stream;
         Ok(request)
     }
 
@@ -497,5 +498,34 @@ mod tests {
 
         assert!(!prepared.stream);
         assert_eq!(prepared.common_params.model, "amazon.nova-pro-v1:0");
+    }
+
+    #[test]
+    fn prepare_chat_request_merges_missing_common_params_from_config() {
+        let mut config = BedrockConfig::new()
+            .with_model("anthropic.claude-3-5-sonnet")
+            .with_http_config(crate::types::HttpConfig::default());
+        config.common_params.temperature = Some(0.2);
+        config.common_params.max_tokens = Some(256);
+        config.common_params.top_p = Some(0.9);
+        let client = BedrockClient::from_config(config).expect("client");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(crate::types::CommonParams {
+                temperature: Some(0.7),
+                ..Default::default()
+            })
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, true)
+            .expect("prepare stream request");
+
+        assert!(prepared.stream);
+        assert_eq!(prepared.common_params.model, "anthropic.claude-3-5-sonnet");
+        assert_eq!(prepared.common_params.temperature, Some(0.7));
+        assert_eq!(prepared.common_params.max_tokens, Some(256));
+        assert_eq!(prepared.common_params.top_p, Some(0.9));
     }
 }

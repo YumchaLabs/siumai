@@ -76,51 +76,22 @@ fn wrap_handle_with_responses_remote_cancel(
 }
 
 impl OpenAiClient {
-    fn merge_common_params(
-        &self,
-        request_params: crate::types::CommonParams,
-    ) -> crate::types::CommonParams {
-        let defaults = &self.common_params;
-
-        crate::types::CommonParams {
-            model: if request_params.model.trim().is_empty() {
-                defaults.model.clone()
-            } else {
-                request_params.model
-            },
-            temperature: request_params.temperature.or(defaults.temperature),
-            max_tokens: request_params.max_tokens.or(defaults.max_tokens),
-            max_completion_tokens: request_params
-                .max_completion_tokens
-                .or(defaults.max_completion_tokens),
-            top_p: request_params.top_p.or(defaults.top_p),
-            top_k: request_params.top_k.or(defaults.top_k),
-            stop_sequences: request_params
-                .stop_sequences
-                .or_else(|| defaults.stop_sequences.clone()),
-            seed: request_params.seed.or(defaults.seed),
-            frequency_penalty: request_params
-                .frequency_penalty
-                .or(defaults.frequency_penalty),
-            presence_penalty: request_params
-                .presence_penalty
-                .or(defaults.presence_penalty),
-        }
-    }
-
     fn prepare_chat_request(
         &self,
-        mut request: ChatRequest,
+        request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
-        request.common_params = self.merge_common_params(request.common_params);
+        let request = crate::utils::chat_request::normalize_chat_request(
+            request,
+            crate::utils::chat_request::ChatRequestDefaults::new(&self.common_params)
+                .with_provider_options_map(&self.default_provider_options_map),
+            stream,
+        );
         if request.common_params.model.trim().is_empty() {
             return Err(LlmError::InvalidParameter(
                 "OpenAI request requires a model".to_string(),
             ));
         }
-        request.stream = stream;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
         Ok(request)
     }
 
@@ -129,21 +100,13 @@ impl OpenAiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatResponse, LlmError> {
-        use crate::execution::executors::chat::ChatExecutor;
-
         let mut builder = ChatRequest::builder()
             .messages(messages)
             .common_params(self.common_params.clone());
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
-        let request = builder.build();
-
-        let mut request = request;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
-
-        let exec = self.build_chat_executor(&request);
-        ChatExecutor::execute(&*exec, request).await
+        self.chat_request_via_spec(builder.build()).await
     }
 
     // Stream chat via ProviderSpec (unified path)
@@ -152,8 +115,6 @@ impl OpenAiClient {
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
     ) -> Result<ChatStream, LlmError> {
-        use crate::execution::executors::chat::ChatExecutor;
-
         let mut builder = ChatRequest::builder()
             .messages(messages)
             .common_params(self.common_params.clone())
@@ -161,13 +122,7 @@ impl OpenAiClient {
         if let Some(ts) = tools {
             builder = builder.tools(ts);
         }
-        let request = builder.build();
-
-        let mut request = request;
-        self.merge_default_provider_options_map(&mut request.provider_options_map);
-
-        let exec = self.build_chat_executor(&request);
-        ChatExecutor::execute_stream(&*exec, request).await
+        self.chat_stream_request_via_spec(builder.build()).await
     }
 
     // Execute chat (non-stream) via ProviderSpec with a fully-formed ChatRequest
@@ -361,7 +316,10 @@ mod tests {
             Some("gpt-4-test")
         );
         assert_eq!(body.get("temperature").and_then(|v| v.as_f64()), Some(0.7));
-        assert_eq!(body.get("max_tokens").and_then(|v| v.as_u64()), Some(256));
+        assert_eq!(
+            body.get("max_output_tokens").and_then(|v| v.as_u64()),
+            Some(256)
+        );
     }
 
     async fn write_chunk(tcp: &mut tokio::net::TcpStream, bytes: &[u8]) -> tokio::io::Result<()> {

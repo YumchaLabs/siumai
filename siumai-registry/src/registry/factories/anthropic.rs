@@ -49,9 +49,10 @@ impl ProviderFactory for AnthropicProviderFactory {
             })?
         };
 
-        // Resolve base URL (context override 鈫?default).
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        // Resolve base URL (context override 鈫?env 鈫?default).
+        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
             ctx.base_url.clone(),
+            Some("ANTHROPIC_BASE_URL"),
             "https://api.anthropic.com",
         );
 
@@ -99,8 +100,9 @@ impl ProviderFactory for AnthropicProviderFactory {
             })?
         };
 
-        let base_url = crate::utils::builder_helpers::resolve_base_url(
+        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
             ctx.base_url.clone(),
+            Some("ANTHROPIC_BASE_URL"),
             "https://api.anthropic.com",
         );
 

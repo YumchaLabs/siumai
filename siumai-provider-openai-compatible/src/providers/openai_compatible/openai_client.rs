@@ -344,51 +344,23 @@ impl OpenAiCompatibleClient {
         );
         self.build_chat_executor_with_spec(request, spec)
     }
-    fn merge_common_params(&self, request_params: CommonParams) -> CommonParams {
-        let defaults = &self.config.common_params;
-
-        CommonParams {
-            model: if request_params.model.trim().is_empty() {
-                defaults.model.clone()
-            } else {
-                request_params.model
-            },
-            temperature: request_params.temperature.or(defaults.temperature),
-            max_tokens: request_params.max_tokens.or(defaults.max_tokens),
-            max_completion_tokens: request_params
-                .max_completion_tokens
-                .or(defaults.max_completion_tokens),
-            top_p: request_params.top_p.or(defaults.top_p),
-            top_k: request_params.top_k.or(defaults.top_k),
-            stop_sequences: request_params
-                .stop_sequences
-                .or_else(|| defaults.stop_sequences.clone()),
-            seed: request_params.seed.or(defaults.seed),
-            frequency_penalty: request_params
-                .frequency_penalty
-                .or(defaults.frequency_penalty),
-            presence_penalty: request_params
-                .presence_penalty
-                .or(defaults.presence_penalty),
-        }
-    }
-
     fn prepare_chat_request(
         &self,
-        mut request: ChatRequest,
+        request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
         self.ensure_chat_surface(stream)?;
-        request.common_params = self.merge_common_params(request.common_params);
+        let request = crate::utils::chat_request::normalize_chat_request(
+            request,
+            crate::utils::chat_request::ChatRequestDefaults::new(&self.config.common_params)
+                .with_http_config(&self.config.http_config),
+            stream,
+        );
         if request.common_params.model.trim().is_empty() {
             return Err(LlmError::InvalidParameter(
                 "OpenAI-compatible request requires a model".to_string(),
             ));
         }
-        if request.http_config.is_none() {
-            request.http_config = Some(self.config.http_config.clone());
-        }
-        request.stream = stream;
         Ok(request)
     }
     fn build_embedding_executor(&self, request: &EmbeddingRequest) -> Arc<HttpEmbeddingExecutor> {
@@ -1620,6 +1592,43 @@ mod tests {
 
         assert!(!prepared.stream);
         assert_eq!(prepared.common_params.model, "compat-explicit-model");
+        assert!(prepared.http_config.is_some());
+    }
+
+    #[tokio::test]
+    async fn prepare_chat_request_merges_missing_common_params_and_http_config_defaults() {
+        let mut cfg = OpenAiCompatibleConfig::new(
+            "compat-chat",
+            "test-key",
+            "https://api.test.com/v1",
+            make_text_streaming_adapter(),
+        )
+        .with_model("compat-default-model")
+        .with_http_config(crate::types::HttpConfig::default());
+        cfg.common_params.temperature = Some(0.7);
+        cfg.common_params.max_tokens = Some(256);
+        cfg.common_params.top_p = Some(0.9);
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(CommonParams {
+                temperature: Some(0.2),
+                ..Default::default()
+            })
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, true)
+            .expect("prepare stream request");
+
+        assert!(prepared.stream);
+        assert_eq!(prepared.common_params.model, "compat-default-model");
+        assert_eq!(prepared.common_params.temperature, Some(0.2));
+        assert_eq!(prepared.common_params.max_tokens, Some(256));
+        assert_eq!(prepared.common_params.top_p, Some(0.9));
         assert!(prepared.http_config.is_some());
     }
 

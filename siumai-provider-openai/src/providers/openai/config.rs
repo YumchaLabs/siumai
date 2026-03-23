@@ -104,6 +104,17 @@ impl std::fmt::Debug for OpenAiConfig {
 }
 
 impl OpenAiConfig {
+    fn default_provider_options_map() -> ProviderOptionsMap {
+        let mut provider_options_map = ProviderOptionsMap::default();
+        provider_options_map.insert(
+            "openai",
+            serde_json::json!({
+                "responsesApi": { "enabled": true }
+            }),
+        );
+        provider_options_map
+    }
+
     /// Create a new `OpenAI` configuration with the given API key.
     ///
     /// # Arguments
@@ -119,7 +130,9 @@ impl OpenAiConfig {
             project: None,
             common_params: CommonParams::default(),
             openai_params: OpenAiParams::default(),
-            provider_options_map: ProviderOptionsMap::default(),
+            // Align config-first construction with the builder and Vercel AI SDK:
+            // chat text generation defaults to the Responses API unless explicitly disabled.
+            provider_options_map: Self::default_provider_options_map(),
             http_config: HttpConfig::default(),
             http_transport: None,
             http_interceptors: Vec::new(),
@@ -449,7 +462,7 @@ impl Default for OpenAiConfig {
             project: None,
             common_params: CommonParams::default(),
             openai_params: OpenAiParams::default(),
-            provider_options_map: ProviderOptionsMap::default(),
+            provider_options_map: Self::default_provider_options_map(),
             http_config: HttpConfig::default(),
             http_transport: None,
             http_interceptors: Vec::new(),
@@ -468,6 +481,12 @@ mod tests {
         let config = OpenAiConfig::new("test-key");
         assert_eq!(config.api_key.expose_secret(), "test-key");
         assert_eq!(config.base_url, "https://api.openai.com/v1");
+        assert_eq!(
+            config.provider_options_map.get("openai"),
+            Some(&serde_json::json!({
+                "responsesApi": { "enabled": true }
+            }))
+        );
     }
 
     #[test]

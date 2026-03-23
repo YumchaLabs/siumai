@@ -250,21 +250,17 @@ impl AzureOpenAiClient {
         mut request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
-        if !self.config.provider_options_map.is_empty() {
-            let mut merged = self.config.provider_options_map.clone();
-            merged.merge_overrides(std::mem::take(&mut request.provider_options_map));
-            request.provider_options_map = merged;
-        }
-
-        if request.common_params.model.trim().is_empty() {
-            request.common_params.model = self.config.common_params.model.clone();
-        }
+        request = crate::utils::chat_request::normalize_chat_request(
+            request,
+            crate::utils::chat_request::ChatRequestDefaults::new(&self.config.common_params)
+                .with_provider_options_map(&self.config.provider_options_map),
+            stream,
+        );
         if request.common_params.model.trim().is_empty() {
             return Err(LlmError::InvalidParameter(
                 "Azure OpenAI request requires a model (deployment id)".to_string(),
             ));
         }
-        request.stream = stream;
         Ok(request)
     }
 
@@ -590,5 +586,45 @@ mod tests {
 
         assert!(!prepared.stream);
         assert_eq!(prepared.common_params.model, "explicit-deployment-id");
+    }
+
+    #[test]
+    fn prepare_chat_request_merges_common_params_and_provider_defaults() {
+        let mut cfg = AzureOpenAiConfig::new("test-key")
+            .with_base_url("https://example.openai.azure.com/openai")
+            .with_model("deployment-id");
+        cfg.common_params.temperature = Some(0.2);
+        cfg.common_params.max_tokens = Some(256);
+        cfg.common_params.top_p = Some(0.9);
+        cfg.provider_options_map
+            .insert("azure", serde_json::json!({ "reasoning_effort": "medium" }));
+        let client = AzureOpenAiClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .common_params(crate::types::CommonParams {
+                model: String::new(),
+                temperature: Some(0.7),
+                max_tokens: None,
+                top_p: None,
+                ..Default::default()
+            })
+            .provider_option("azure", serde_json::json!({ "strict_json_schema": true }))
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, false)
+            .expect("prepare request");
+
+        assert_eq!(prepared.common_params.model, "deployment-id");
+        assert_eq!(prepared.common_params.temperature, Some(0.7));
+        assert_eq!(prepared.common_params.max_tokens, Some(256));
+        assert_eq!(prepared.common_params.top_p, Some(0.9));
+        let options = prepared
+            .provider_options_map
+            .get("azure")
+            .expect("azure options present");
+        assert_eq!(options["reasoning_effort"], serde_json::json!("medium"));
+        assert_eq!(options["strict_json_schema"], serde_json::json!(true));
     }
 }

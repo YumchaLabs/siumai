@@ -186,11 +186,79 @@ pub fn resolve_base_url(custom_url: Option<String>, default_url: &str) -> String
     url.trim_end_matches('/').to_string()
 }
 
+/// Resolve base URL with environment variable fallback semantics.
+///
+/// Priority:
+/// - explicit `custom_url`
+/// - environment variable named by `env_name`
+/// - `default_url`
+///
+/// The resolved value is normalized the same way as [`resolve_base_url`]
+/// (currently trimming a trailing `/`).
+pub fn resolve_base_url_with_env(
+    custom_url: Option<String>,
+    env_name: Option<&str>,
+    default_url: &str,
+) -> String {
+    let env_url = env_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .and_then(|name| std::env::var(name).ok())
+        .filter(|value| !value.trim().is_empty());
+
+    resolve_base_url(custom_url.or(env_url), default_url)
+}
+
 // Note: ProviderAdapter-based helpers are provider-owned and should live outside
 // `siumai-core` to avoid protocol coupling.
 #[cfg(test)]
 mod tests {
+    #![allow(unsafe_code)]
+
     use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     #[test]
     fn test_get_api_key_with_env() {
@@ -277,5 +345,47 @@ mod tests {
             "https://api.moonshot.cn/v1",
         );
         assert_eq!(url, "https://my-server.com");
+    }
+
+    #[test]
+    fn test_resolve_base_url_with_env_prefers_explicit_url() {
+        let _lock = lock_env();
+        let _guard = EnvGuard::set("SIUMAI_TEST_BASE_URL", "https://env.example.com/v1/");
+
+        let url = resolve_base_url_with_env(
+            Some("https://explicit.example.com/v1/".to_string()),
+            Some("SIUMAI_TEST_BASE_URL"),
+            "https://default.example.com/v1",
+        );
+
+        assert_eq!(url, "https://explicit.example.com/v1");
+    }
+
+    #[test]
+    fn test_resolve_base_url_with_env_falls_back_to_env() {
+        let _lock = lock_env();
+        let _guard = EnvGuard::set("SIUMAI_TEST_BASE_URL", "https://env.example.com/v1/");
+
+        let url = resolve_base_url_with_env(
+            None,
+            Some("SIUMAI_TEST_BASE_URL"),
+            "https://default.example.com/v1",
+        );
+
+        assert_eq!(url, "https://env.example.com/v1");
+    }
+
+    #[test]
+    fn test_resolve_base_url_with_env_falls_back_to_default() {
+        let _lock = lock_env();
+        let _guard = EnvGuard::remove("SIUMAI_TEST_BASE_URL");
+
+        let url = resolve_base_url_with_env(
+            None,
+            Some("SIUMAI_TEST_BASE_URL"),
+            "https://default.example.com/v1/",
+        );
+
+        assert_eq!(url, "https://default.example.com/v1");
     }
 }

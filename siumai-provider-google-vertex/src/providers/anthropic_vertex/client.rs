@@ -338,23 +338,22 @@ impl VertexAnthropicClient {
         mut request: ChatRequest,
         stream: bool,
     ) -> Result<ChatRequest, LlmError> {
-        if request.common_params.model.trim().is_empty() {
-            request.common_params.model = self.config.model.clone();
-        }
+        let defaults = crate::types::CommonParams {
+            model: self.config.model.clone(),
+            ..Default::default()
+        };
+        request = crate::utils::chat_request::normalize_chat_request(
+            request,
+            crate::utils::chat_request::ChatRequestDefaults::new(&defaults)
+                .with_provider_options_map(&self.config.default_provider_options_map)
+                .with_http_config(&self.config.http_config),
+            stream,
+        );
         if request.common_params.model.trim().is_empty() {
             return Err(LlmError::ConfigurationError(
                 "Vertex Anthropic request requires a non-empty model id".to_string(),
             ));
         }
-        if request.http_config.is_none() {
-            request.http_config = Some(self.config.http_config.clone());
-        }
-        if !self.config.default_provider_options_map.is_empty() {
-            let mut merged = self.config.default_provider_options_map.clone();
-            merged.merge_overrides(std::mem::take(&mut request.provider_options_map));
-            request.provider_options_map = merged;
-        }
-        request.stream = stream;
         Ok(request)
     }
 
@@ -1281,6 +1280,44 @@ mod tests {
         assert!(!prepared.stream);
         assert_eq!(prepared.common_params.model, "claude-3-7-sonnet-20250219");
         assert!(prepared.http_config.is_some());
+    }
+
+    #[test]
+    fn prepare_chat_request_merges_missing_common_params_and_vertex_defaults() {
+        let cfg =
+            VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-20241022")
+                .with_http_config(crate::types::HttpConfig::default())
+                .with_provider_options_map({
+                    let mut map = crate::types::ProviderOptionsMap::new();
+                    map.insert("anthropic", serde_json::json!({ "send_reasoning": false }));
+                    map
+                });
+        let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("hi").build()])
+            .provider_option(
+                "anthropic",
+                serde_json::json!({ "disable_parallel_tool_use": true }),
+            )
+            .build();
+
+        let prepared = client
+            .prepare_chat_request(request, true)
+            .expect("prepare stream request");
+
+        assert!(prepared.stream);
+        assert_eq!(prepared.common_params.model, "claude-3-5-sonnet-20241022");
+        assert!(prepared.http_config.is_some());
+        let options = prepared
+            .provider_options_map
+            .get("anthropic")
+            .expect("anthropic options present");
+        assert_eq!(options["send_reasoning"], serde_json::json!(false));
+        assert_eq!(
+            options["disable_parallel_tool_use"],
+            serde_json::json!(true)
+        );
     }
 
     #[tokio::test]

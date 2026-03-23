@@ -2604,6 +2604,33 @@ mod openai_contract {
     }
 
     #[tokio::test]
+    async fn openai_factory_uses_env_base_url_when_ctx_missing() {
+        let _lock = lock_env();
+
+        let _key = EnvGuard::set("OPENAI_API_KEY", "env-key");
+        let _base = EnvGuard::set("OPENAI_BASE_URL", "https://example.com/env/v1/");
+
+        let factory = OpenAIProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("openai".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("gpt-4o", &ctx)
+            .await
+            .expect("build client via env base url");
+
+        let _ = client.chat_request(make_chat_request()).await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer env-key");
+        assert_eq!(req.url, "https://example.com/env/v1/responses");
+    }
+
+    #[tokio::test]
     async fn openai_factory_prefers_ctx_api_key_over_env() {
         let _lock = lock_env();
 
@@ -7984,6 +8011,34 @@ mod anthropic_contract {
         let req = transport.take().expect("captured request");
         assert_eq!(req.headers.get("x-api-key").unwrap(), "env-key");
         assert!(req.url.starts_with("https://example.com"));
+    }
+
+    #[tokio::test]
+    async fn anthropic_factory_uses_env_base_url_when_ctx_missing() {
+        let _lock = lock_env();
+
+        let _key = EnvGuard::set("ANTHROPIC_API_KEY", "env-key");
+        let _base = EnvGuard::set("ANTHROPIC_BASE_URL", "https://example.com/env");
+        let factory = crate::registry::factories::AnthropicProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("anthropic".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("claude-3-5-sonnet-20241022", &ctx)
+            .await
+            .expect("build client via env base url");
+
+        let _ = client
+            .chat_request(make_chat_request_with_model("claude-3-5-sonnet-20241022"))
+            .await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get("x-api-key").unwrap(), "env-key");
+        assert_eq!(req.url, "https://example.com/env/v1/messages");
     }
 
     #[tokio::test]

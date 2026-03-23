@@ -358,16 +358,6 @@ impl OpenAiClient {
         self.forced_responses_api = cfg;
     }
 
-    fn merge_default_provider_options_map(&self, request_map: &mut ProviderOptionsMap) {
-        if self.default_provider_options_map.is_empty() {
-            return;
-        }
-
-        let mut merged = self.default_provider_options_map.clone();
-        merged.merge_overrides(std::mem::take(request_map));
-        *request_map = merged;
-    }
-
     fn merge_default_provider_options_map_non_chat(&self, request_map: &mut ProviderOptionsMap) {
         let mut merged = self.default_provider_options_map.clone();
         merged.merge_overrides(std::mem::take(request_map));

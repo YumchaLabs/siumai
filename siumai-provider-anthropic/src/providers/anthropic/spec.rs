@@ -399,10 +399,23 @@ impl ProviderSpec for AnthropicSpec {
 
     fn chat_before_send(
         &self,
-        _req: &ChatRequest,
+        req: &ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        None
+        if !crate::standards::anthropic::request_options::anthropic_request_body_overlays_needed(
+            req,
+        ) {
+            return None;
+        }
+
+        let req = req.clone();
+        Some(std::sync::Arc::new(move |body: &serde_json::Value| {
+            let mut out = body.clone();
+            crate::standards::anthropic::request_options::apply_anthropic_request_body_overlays(
+                &req, &mut out,
+            );
+            Ok(out)
+        }))
     }
 }
 

@@ -99,11 +99,16 @@ impl AnthropicConfig {
         }
     }
 
-    /// Create config from `ANTHROPIC_API_KEY`.
+    /// Create config from `ANTHROPIC_API_KEY`, optionally honoring `ANTHROPIC_BASE_URL`.
     pub fn from_env() -> Result<Self, LlmError> {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .map_err(|_| LlmError::MissingApiKey("Anthropic API key not provided".to_string()))?;
-        Ok(Self::new(api_key))
+        let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
+            None,
+            Some("ANTHROPIC_BASE_URL"),
+            "https://api.anthropic.com",
+        );
+        Ok(Self::new(api_key).with_base_url(base_url))
     }
 
     pub fn with_base_url<S: Into<String>>(mut self, url: S) -> Self {
@@ -286,9 +291,50 @@ impl AnthropicConfig {
 
 #[cfg(test)]
 mod tests {
+    #![allow(unsafe_code)]
+
     use super::*;
     use crate::execution::middleware::LanguageModelMiddleware;
-    use std::{collections::HashMap, sync::Arc, time::Duration};
+    use secrecy::ExposeSecret;
+    use std::{
+        collections::HashMap,
+        sync::{Arc, Mutex, MutexGuard},
+        time::Duration,
+    };
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     #[test]
     fn anthropic_config_provider_specific_fluent_setters() {
@@ -420,5 +466,17 @@ mod tests {
             Some(&serde_json::json!(false))
         );
         assert_eq!(options.get("effort"), Some(&serde_json::json!("high")));
+    }
+
+    #[test]
+    fn anthropic_config_from_env_reads_base_url() {
+        let _lock = lock_env();
+        let _key = EnvGuard::set("ANTHROPIC_API_KEY", "env-key");
+        let _base = EnvGuard::set("ANTHROPIC_BASE_URL", "https://example.com/env/");
+
+        let config = AnthropicConfig::from_env().expect("config from env");
+
+        assert_eq!(config.api_key.expose_secret(), "env-key");
+        assert_eq!(config.base_url, "https://example.com/env");
     }
 }

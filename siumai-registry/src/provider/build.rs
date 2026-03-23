@@ -348,11 +348,28 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         .clone()
         .ok_or_else(|| LlmError::ConfigurationError("Provider id not specified".to_string()))?;
 
+    let anthropic_base_url_override = match provider_id.as_str() {
+        ids::ANTHROPIC | ids::ANTHROPIC_VERTEX => builder
+            .base_url
+            .clone()
+            .or_else(|| {
+                std::env::var("ANTHROPIC_BASE_URL")
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+            })
+            .map(|base_url| {
+                crate::utils::builder_helpers::resolve_base_url(
+                    Some(base_url),
+                    "https://api.anthropic.com",
+                )
+            }),
+        _ => None,
+    };
+
     // Some routing decisions depend on base_url (Anthropic on Vertex).
     let mut effective_provider_id = provider_id.clone();
     if effective_provider_id == ids::ANTHROPIC {
-        let base_url = builder.base_url.clone();
-        let is_vertex = base_url
+        let is_vertex = anthropic_base_url_override
             .as_ref()
             .map(|u| u.contains("aiplatform.googleapis.com"))
             .unwrap_or(false);
@@ -544,12 +561,18 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     let user_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>> =
         builder.model_middlewares.clone();
 
+    let effective_base_url = if effective_provider_id == ids::ANTHROPIC_VERTEX {
+        anthropic_base_url_override.clone()
+    } else {
+        builder.base_url.clone()
+    };
+
     let base_ctx = BuildContext {
         http_client: Some(built_http_client.clone()),
         http_transport: builder.http_transport.clone(),
         http_config: Some(http_config.clone()),
         api_key: builder.api_key.clone(),
-        base_url: builder.base_url.clone(),
+        base_url: effective_base_url,
         organization: builder.organization.clone(),
         project: builder.project.clone(),
         tracing_config: builder.tracing_config.clone(),

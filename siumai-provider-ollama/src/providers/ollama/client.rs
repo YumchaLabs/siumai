@@ -395,6 +395,24 @@ impl OllamaClient {
         )
     }
 
+    fn prepare_chat_request(
+        &self,
+        request: ChatRequest,
+        stream: bool,
+    ) -> Result<ChatRequest, LlmError> {
+        let request = crate::utils::chat_request::normalize_chat_request(
+            request,
+            crate::utils::chat_request::ChatRequestDefaults::new(&self.common_params),
+            stream,
+        );
+        if request.common_params.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Model is required".to_string(),
+            ));
+        }
+        Ok(request)
+    }
+
     fn http_wiring(&self) -> crate::execution::wiring::HttpExecutionWiring {
         let mut wiring = crate::execution::wiring::HttpExecutionWiring::new(
             "ollama",
@@ -455,6 +473,7 @@ impl OllamaClient {
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
+        let request = self.prepare_chat_request(request, false)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute(&*exec, request).await
     }
@@ -466,7 +485,7 @@ impl OllamaClient {
     ) -> Result<ChatStream, LlmError> {
         use crate::execution::executors::chat::ChatExecutor;
 
-        let request = request.with_streaming(true);
+        let request = self.prepare_chat_request(request, true)?;
         let exec = self.build_chat_executor(&request);
         ChatExecutor::execute_stream(&*exec, request).await
     }
@@ -672,7 +691,7 @@ mod tests {
             Ok(HttpTransportResponse {
                 status: 200,
                 headers,
-                body: br#"{"model":"llama3.2","message":{"role":"assistant","content":"ok"},"done":true}"#
+                body: br#"{"model":"llama3.2","created_at":"2026-03-23T00:00:00Z","message":{"role":"assistant","content":"ok"},"done":true}"#
                     .to_vec(),
             })
         }
@@ -708,7 +727,7 @@ mod tests {
             Ok(HttpTransportResponse {
                 status: 200,
                 headers,
-                body: br#"{"model":"llama3.2","message":{"role":"assistant","content":"ok"},"done":true}"#
+                body: br#"{"model":"llama3.2","created_at":"2026-03-23T00:00:00Z","message":{"role":"assistant","content":"ok"},"done":true}"#
                     .to_vec(),
             })
         }
@@ -937,5 +956,80 @@ mod tests {
         assert!(matches!(err, LlmError::UnsupportedOperation(_)));
         assert!(transport.json_calls().is_empty());
         assert!(transport.stream_calls().is_empty());
+    }
+
+    #[tokio::test]
+    async fn chat_request_fills_missing_common_params_from_client_defaults() {
+        let transport = RecordingTransport::default();
+        let config = OllamaConfig::builder()
+            .base_url("http://localhost:11434/custom/")
+            .model("llama3.2")
+            .temperature(0.6)
+            .max_tokens(128)
+            .http_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("build ollama config");
+        let client = OllamaClient::from_config(config).expect("client ok");
+
+        let request = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .build();
+
+        let _response = client.chat_request(request).await.expect("request ok");
+        let calls = transport.json_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].body["model"], serde_json::json!("llama3.2"));
+        assert_eq!(
+            calls[0].body["options"]["temperature"],
+            serde_json::json!(0.6)
+        );
+        assert_eq!(
+            calls[0].body["options"]["num_predict"],
+            serde_json::json!(128)
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_preserves_explicit_common_params_over_client_defaults() {
+        let transport = RecordingTransport::default();
+        let config = OllamaConfig::builder()
+            .base_url("http://localhost:11434/custom/")
+            .model("llama3.2")
+            .temperature(0.6)
+            .max_tokens(128)
+            .http_transport(Arc::new(transport.clone()))
+            .build()
+            .expect("build ollama config");
+        let client = OllamaClient::from_config(config).expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("qwen3:latest")
+            .temperature(0.2)
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .build();
+
+        let mut stream = client
+            .chat_stream_request(request)
+            .await
+            .expect("stream request ok");
+        while let Some(event) = stream.next().await {
+            let event = event.expect("stream event ok");
+            if matches!(event, crate::types::ChatStreamEvent::StreamEnd { .. }) {
+                break;
+            }
+        }
+
+        let calls = transport.stream_calls();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].body["model"], serde_json::json!("qwen3:latest"));
+        assert_eq!(calls[0].body["stream"], serde_json::json!(true));
+        assert_eq!(
+            calls[0].body["options"]["temperature"],
+            serde_json::json!(0.2)
+        );
+        assert_eq!(
+            calls[0].body["options"]["num_predict"],
+            serde_json::json!(128)
+        );
     }
 }
