@@ -354,6 +354,12 @@ Current state:
   - provider-native request normalization before downstream SSE emission
   - customization on Anthropic ingress before OpenAI Responses SSE output
   - strict-mode request-normalization rejection before opening the downstream stream
+- `siumai-extras` now also has route-level Axum runtime/proxy smoke coverage for:
+  - upstream body/json read under `GatewayBridgePolicy`
+  - downstream JSON transcode after upstream read succeeds
+  - `upstream_read_limit_bytes` enforcement
+  - masked invalid-upstream-json behavior
+  - SSE keepalive and idle-timeout runtime policy behavior on route output
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and
   stabilization docs
 

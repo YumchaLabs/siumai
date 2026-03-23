@@ -41,6 +41,11 @@ Current explicit request-source normalization customization entry points:
   - provider-native request normalization
   - normal successful continuation into downstream SSE output
   - strict rejection before opening the downstream stream when normalization is lossy
+- route-level Axum runtime/proxy smoke now also covers the composed path:
+  - upstream body/json read under gateway policy
+  - normal successful continuation into downstream JSON output after upstream read
+  - `BAD_GATEWAY` error mapping for upstream read-limit and invalid-json failures
+  - keepalive / idle-timeout policy effects on downstream SSE output
 
 Current explicit normalized response targets:
 
