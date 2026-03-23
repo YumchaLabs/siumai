@@ -1,3 +1,13 @@
+//! Shared helpers for explicit request-normalization gateway examples.
+//!
+//! These helpers intentionally implement the route shape documented in
+//! `docs/workstreams/protocol-bridge-gateway/route-recipes.md` Recipe 1:
+//!
+//! 1. read the downstream body under `GatewayBridgePolicy`
+//! 2. normalize provider-native request JSON into `ChatRequest`
+//! 3. pin the normalized request to one concrete backend model handle
+//! 4. let the route execute the unified request and transcode the result
+
 use axum::{body::Body, extract::Request, response::Response};
 use serde::Deserialize;
 use serde_json::Value;
@@ -17,6 +27,7 @@ pub struct GatewayQuery {
     pub prompt: Option<String>,
 }
 
+/// Convert a unified execution failure into a simple example response.
 pub fn internal_error_response(error: &LlmError) -> Response {
     let body = format!("gateway execution failed: {}", error.user_message());
     Response::builder()
@@ -34,6 +45,7 @@ pub fn bad_request_response(message: impl Into<String>) -> Response {
         .unwrap_or_else(|_| Response::new(Body::from("bad request")))
 }
 
+/// Convert a rejected request-normalization report into a readable example response.
 pub fn rejected_normalize_response(source_name: &str, report: &BridgeReport) -> Response {
     let detail = report
         .warnings
@@ -45,6 +57,8 @@ pub fn rejected_normalize_response(source_name: &str, report: &BridgeReport) -> 
     ))
 }
 
+/// Read a downstream request body under policy, falling back to a prompt-derived request body
+/// when the body is empty.
 pub async fn read_source_request_json_or_prompt<F>(
     request: Request,
     policy: &GatewayBridgePolicy,
@@ -72,6 +86,7 @@ where
     })
 }
 
+/// Normalize provider-native request JSON into a backend-pinned unified `ChatRequest`.
 pub fn normalize_source_request_for_backend(
     body: &Value,
     source: SourceRequestFormat,
@@ -103,6 +118,7 @@ pub fn normalize_source_request_for_backend(
     ))
 }
 
+/// Pin a normalized request to one concrete backend model handle used by the example route.
 pub fn pin_request_to_backend_model(
     mut request: ChatRequest,
     backend_model_id: &str,

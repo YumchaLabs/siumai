@@ -7,6 +7,10 @@
 //! - Apply a simple transcoding policy (strict drop vs lossy text fallback)
 //! - Serve the result over HTTP using Axum
 //!
+//! Route recipe:
+//! - Recipe 3 from `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+//! - unified upstream stream -> explicit target JSON/SSE transcode
+//!
 //! ## Setup
 //! ```bash
 //! export GOOGLE_API_KEY="your-key"

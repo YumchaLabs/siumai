@@ -8,6 +8,11 @@
 //! - reuse the same gateway bridge policy to rewrite Anthropic hosted tools into
 //!   OpenAI-compatible hosted tools before backend execution
 //!
+//! Route recipe:
+//! - Recipe 1 from `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+//! - downstream Anthropic request -> explicit normalization -> unified execution ->
+//!   OpenAI Responses JSON/SSE output
+//!
 //! ## Setup
 //! ```bash
 //! export OPENAI_API_KEY="your-key"
@@ -89,6 +94,8 @@ fn anthropic_hosted_tool_rewrite() -> ProviderToolRewriteCustomization {
 }
 
 fn gateway_policy() -> GatewayBridgePolicy {
+    // Keep route defaults, ingress limits, runtime timers, and hosted-tool rewrite
+    // in one policy object instead of scattering route-local glue.
     GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
         .with_route_label("examples.gateway.anthropic-to-openai")
         .with_customization(Arc::new(anthropic_hosted_tool_rewrite()))
@@ -118,6 +125,8 @@ fn normalize_request(
     stream: bool,
     policy: &GatewayBridgePolicy,
 ) -> Result<ChatRequest, Response> {
+    // Normalize the downstream Anthropic request first, then pin the request to the
+    // backend OpenAI model selected by this example.
     normalize_source_request_for_backend(
         body,
         SourceRequestFormat::AnthropicMessages,
@@ -136,6 +145,7 @@ async fn json_route(
     let prompt = query
         .prompt
         .unwrap_or_else(|| "Explain Rust ownership in one sentence.".to_string());
+    // Phase 1: downstream body read under gateway policy.
     let body = match read_source_request_json_or_prompt(
         request,
         &state.policy,
@@ -148,17 +158,20 @@ async fn json_route(
         Err(response) => return response,
     };
 
+    // Phase 2: explicit source normalization into `ChatRequest`.
     let request = match normalize_request(&body, &state.backend_model_id, false, &state.policy) {
         Ok(request) => request,
         Err(response) => return response,
     };
 
+    // Phase 3: unified backend execution.
     let response =
         match text::generate(&*state.client, request, text::GenerateOptions::default()).await {
             Ok(response) => response,
             Err(error) => return internal_error_response(&error),
         };
 
+    // Phase 4: explicit target transcode.
     to_transcoded_json_response(
         response,
         TargetJsonFormat::OpenAiResponses,
@@ -174,6 +187,7 @@ async fn sse_route(
     let prompt = query
         .prompt
         .unwrap_or_else(|| "Explain Rust ownership in one sentence.".to_string());
+    // Phase 1: downstream body read under gateway policy.
     let body = match read_source_request_json_or_prompt(
         request,
         &state.policy,
@@ -186,16 +200,19 @@ async fn sse_route(
         Err(response) => return response,
     };
 
+    // Phase 2: explicit source normalization into `ChatRequest`.
     let request = match normalize_request(&body, &state.backend_model_id, true, &state.policy) {
         Ok(request) => request,
         Err(response) => return response,
     };
 
+    // Phase 3: unified backend streaming execution.
     let stream = match text::stream(&*state.client, request, text::StreamOptions::default()).await {
         Ok(stream) => stream,
         Err(error) => return internal_error_response(&error),
     };
 
+    // Phase 4: explicit target SSE transcode.
     to_transcoded_sse_response(
         stream,
         TargetSseFormat::OpenAiResponses,

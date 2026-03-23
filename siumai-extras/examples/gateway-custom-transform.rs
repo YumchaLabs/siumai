@@ -10,6 +10,10 @@
 //! Upstream backend: Gemini.
 //! Downstream surface: OpenAI Responses (SSE + JSON).
 //!
+//! Route recipe:
+//! - Recipe 3 from `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+//! - unified execution -> typed bridge customization -> explicit target JSON/SSE transcode
+//!
 //! ## Setup
 //! ```bash
 //! export GOOGLE_API_KEY="your-key"

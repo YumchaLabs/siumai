@@ -294,6 +294,9 @@ This TODO list is intentionally organized as mergeable tracks.
   pair translation
 - [x] Update `docs/README.md` to include this workstream
 - [x] Add a migration note if any public gateway helpers change shape
+- [x] Add a route-recipes note that turns the current gateway surface into copyable route shapes
+- [x] Align gateway examples with the recipes note so each example makes its intended route shape
+  explicit
 
 ## 9) Validation
 

@@ -294,6 +294,15 @@ Current state:
     core stream bridge wiring
 - gateway migration guidance now exists at:
   - `docs/workstreams/protocol-bridge-gateway/migration.md`
+- a route-recipes note now exists at:
+  - `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+  - this compresses the current recommended gateway compositions into:
+    - provider-native ingress -> normalized runtime -> downstream JSON/SSE
+    - buffered upstream proxy/runtime routes
+    - source-aware cross-protocol SSE routes
+    - hosted-tool rewrite on ingress through typed customization
+- gateway examples now explicitly call out which route recipe they implement, and the shared
+  example helper module now documents the Recipe 1 shape directly
 - the customization note now documents:
   - curated in-tree hosted-tool translations in direct pair bridges
   - user-defined hosted-tool rewrite via `ProviderToolRewriteCustomization`
@@ -360,7 +369,7 @@ Current state:
   - `upstream_read_limit_bytes` enforcement
   - masked invalid-upstream-json behavior
   - SSE keepalive and idle-timeout runtime policy behavior on route output
-- remaining work is mainly second-route examples, broader cross-target fixture expansion, and
-  stabilization docs
+- remaining work is mainly broader cross-target fixture expansion and any optional extra runnable
+  routes beyond the current recipe set
 
 Status: in progress

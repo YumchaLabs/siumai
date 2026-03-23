@@ -248,6 +248,15 @@ protocol translation inside route-local JSON glue.
 Migration guidance for gateway routes now lives at:
 - `docs/workstreams/protocol-bridge-gateway/migration.md`
 
+Recommended route shapes now live at:
+- `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+
+That recipes note covers the currently recommended and test-backed gateway compositions for:
+- provider-native ingress -> normalized runtime -> downstream JSON/SSE
+- buffered upstream proxy/runtime routes
+- cross-protocol SSE with inspected strict rejection
+- hosted-tool compatibility via typed request customization
+
 The raw event-transform helper is still available as an escape hatch:
 
 ```rust

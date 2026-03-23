@@ -9,6 +9,10 @@
 //!
 //! This example is fully local and does not require any provider API key.
 //!
+//! Route recipe:
+//! - Recipe 3 from `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+//! - source-aware target transcode with explicit strict-vs-custom-loss-policy behavior
+//!
 //! ## Run
 //! ```bash
 //! cargo run -p siumai-extras --example gateway-loss-policy --features "server,openai,anthropic"

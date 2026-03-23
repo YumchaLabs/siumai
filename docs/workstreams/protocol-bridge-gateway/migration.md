@@ -5,6 +5,10 @@ Last updated: 2026-03-20
 This note explains how gateway code should migrate toward the explicit bridge surface now that
 `BridgeOptions`, `BridgeOptionsOverride`, and `GatewayBridgePolicy` exist.
 
+If you want concrete route shapes instead of migration principles, pair this note with:
+
+- `docs/workstreams/protocol-bridge-gateway/route-recipes.md`
+
 ## Recommended migration path
 
 ### 1) Route-local JSON patching is no longer the primary story
