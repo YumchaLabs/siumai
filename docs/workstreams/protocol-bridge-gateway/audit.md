@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Path Audit
 
-Last updated: 2026-03-22
+Last updated: 2026-03-23
 
 This note records the current explicit bridge paths, where conversion is exact or projected, and
 where behavior is still intentionally lossy or only available through adjacent legacy hooks.
@@ -326,6 +326,12 @@ Current fidelity:
 - projected exactness for same-protocol text replay, reasoning replay with provider-namespace
   `thoughtSignature` preservation, provider-executed `code_execution` call/result replay, and
   aggregate usage replay
+- the public `google` feature surface now has an explicit protocol-crate integration test entry
+  that exercises `GeminiEventConverter` directly for:
+  - provider-executed `code_execution` call/result re-serialization
+  - reasoning `thoughtSignature` preservation through the paired
+    `reasoning-start` / `reasoning-delta` / `ThinkingDelta` path
+  - no duplicate standalone reasoning chunk emission before the visible thinking frame
 - constrained by the same non-aggregate usage/detail limits as the non-streaming Gemini response
   view
 - raw event equality is not claimed

@@ -52,3 +52,8 @@ google = ["siumai-core/google"]
 # Optional JSON repair utilities used by Gemini streaming helpers.
 json-repair = ["siumai-core/json-repair"]
 
+[[test]]
+name = "gemini_streaming_feature_surface_test"
+path = "tests/gemini_streaming_feature_surface_test.rs"
+required-features = ["google"]
+

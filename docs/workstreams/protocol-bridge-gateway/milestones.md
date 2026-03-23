@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - Milestones
 
-Last updated: 2026-03-22
+Last updated: 2026-03-23
 
 This workstream is tracked by milestones with explicit acceptance criteria.
 
@@ -172,6 +172,11 @@ Current state:
   replay gaps:
   - MCP provider tool-call replay
   - finish-carried output-text logprobs replay
+- protocol-crate public feature-surface integration tests now also exist for:
+  - OpenAI Responses SSE under `openai-standard` + `openai-responses`
+  - Gemini streaming under `google`
+  - these tests validate the exported converter surfaces directly instead of relying only on
+    internal module tests
 
 Status: completed
 

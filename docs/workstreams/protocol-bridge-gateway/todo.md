@@ -1,6 +1,6 @@
 # Protocol Bridge + Gateway Runtime - TODO
 
-Last updated: 2026-03-22
+Last updated: 2026-03-23
 
 This TODO list is intentionally organized as mergeable tracks.
 
@@ -389,6 +389,11 @@ This TODO list is intentionally organized as mergeable tracks.
   - OpenAI Responses stream roundtrip now has initial semantic-summary fixture coverage for:
     - text delta replay
     - reasoning start/end replay
+  - protocol-crate public feature-surface integration tests now exist for:
+    - OpenAI Responses SSE (`openai-standard` + `openai-responses`) covering MCP provider tool
+      stream replay through the public converter surface
+    - Gemini streaming (`google`) covering provider-executed `code_execution` replay and
+      reasoning `thoughtSignature` preservation without duplicate thinking-chunk emission
   - Anthropic Messages stream roundtrip now has initial semantic-summary fixture coverage for:
     - JSON output text replay
     - reserved json-tool replay
