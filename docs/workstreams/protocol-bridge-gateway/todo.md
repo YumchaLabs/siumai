@@ -436,14 +436,21 @@ This TODO list is intentionally organized as mergeable tracks.
   - `siumai-extras` Axum integration now has router-level smoke coverage for:
     - OpenAI Responses JSON gateway output path
     - OpenAI Responses SSE gateway output path
+    - OpenAI Chat Completions JSON gateway output path
+    - OpenAI Chat Completions SSE gateway output path
     - Anthropic Messages JSON gateway output path
     - Anthropic Messages SSE gateway output path
     - Gemini GenerateContent JSON gateway output path
     - Gemini GenerateContent SSE gateway output path
     - fixture-backed Anthropic -> OpenAI Responses SSE route smoke
     - fixture-backed OpenAI Responses -> Anthropic Messages SSE route smoke
+    - fixture-backed OpenAI Responses -> OpenAI Chat Completions SSE route smoke
+    - fixture-backed Anthropic Messages -> OpenAI Chat Completions SSE route smoke
+    - fixture-backed Gemini GenerateContent -> OpenAI Chat Completions SSE route smoke
     - fixture-backed Gemini -> OpenAI Responses SSE route smoke
     - fixture-backed OpenAI Responses -> Gemini GenerateContent SSE route smoke
     - fixture-backed Anthropic Messages -> Gemini GenerateContent SSE route smoke
     - fixture-backed Gemini GenerateContent -> Anthropic Messages SSE route smoke
     - Gemini target strict / best-effort bridge-decision header assertions for cross-protocol SSE
+    - OpenAI Chat Completions target strict / best-effort bridge-decision header assertions for
+      cross-protocol SSE

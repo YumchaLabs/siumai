@@ -8,14 +8,11 @@ use axum::{
     response::Response,
     routing::get,
 };
-#[cfg(any(feature = "anthropic", feature = "google"))]
 use eventsource_stream::Event;
 use futures::stream;
 #[cfg(feature = "anthropic")]
 use siumai::prelude::unified::ProviderDefinedTool;
-#[cfg(any(feature = "anthropic", feature = "google"))]
 use siumai::prelude::unified::SseEventConverter;
-#[cfg(any(feature = "anthropic", feature = "google"))]
 use siumai::prelude::unified::Tool;
 use siumai::prelude::unified::{ChatResponse, ChatStream, ChatStreamEvent, MessageContent};
 use siumai_extras::server::{
@@ -25,7 +22,6 @@ use siumai_extras::server::{
         to_transcoded_json_response, to_transcoded_sse_response,
     },
 };
-#[cfg(any(feature = "anthropic", feature = "google"))]
 use std::path::{Path, PathBuf};
 use tower::ServiceExt;
 
@@ -44,6 +40,19 @@ fn openai_app() -> Router {
     Router::new()
         .route("/json", get(json_route))
         .route("/sse", get(sse_route))
+        .with_state(state)
+}
+
+fn openai_chat_app() -> Router {
+    let state = AppState {
+        policy: GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+            .with_bridge_headers(true)
+            .with_bridge_warning_headers(true),
+    };
+
+    Router::new()
+        .route("/json", get(chat_json_route))
+        .route("/sse", get(chat_sse_route))
         .with_state(state)
 }
 
@@ -95,6 +104,30 @@ fn cross_protocol_app() -> Router {
         .with_state(state)
 }
 
+fn openai_chat_cross_protocol_app() -> Router {
+    let state = AppState {
+        policy: GatewayBridgePolicy::new(siumai::experimental::bridge::BridgeMode::BestEffort)
+            .with_bridge_headers(true)
+            .with_bridge_warning_headers(true),
+    };
+
+    let router = Router::new()
+        .route("/responses-to-chat", get(openai_fixture_to_chat_sse_route))
+        .route(
+            "/responses-to-chat-strict",
+            get(openai_fixture_to_chat_strict_sse_route),
+        );
+    #[cfg(feature = "anthropic")]
+    let router = router.route(
+        "/anthropic-to-chat",
+        get(anthropic_fixture_to_chat_sse_route),
+    );
+    #[cfg(feature = "google")]
+    let router = router.route("/gemini-to-chat", get(gemini_fixture_to_chat_sse_route));
+
+    router.with_state(state)
+}
+
 #[cfg(feature = "google")]
 fn gemini_cross_protocol_app() -> Router {
     let state = AppState {
@@ -141,6 +174,14 @@ async fn json_route(State(state): State<AppState>) -> Response<Body> {
     )
 }
 
+async fn chat_json_route(State(state): State<AppState>) -> Response<Body> {
+    to_transcoded_json_response(
+        ChatResponse::new(MessageContent::Text("gateway ok".to_string())),
+        TargetJsonFormat::OpenAiChatCompletions,
+        TranscodeJsonOptions::default().with_policy(state.policy),
+    )
+}
+
 async fn sse_route(State(state): State<AppState>) -> Response<Body> {
     let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
     let stream: ChatStream = Box::pin(stream::iter(vec![
@@ -154,6 +195,23 @@ async fn sse_route(State(state): State<AppState>) -> Response<Body> {
     to_transcoded_sse_response(
         stream,
         TargetSseFormat::OpenAiResponses,
+        TranscodeSseOptions::default().with_policy(state.policy),
+    )
+}
+
+async fn chat_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let response = ChatResponse::new(MessageContent::Text("gateway ok".to_string()));
+    let stream: ChatStream = Box::pin(stream::iter(vec![
+        Ok(ChatStreamEvent::ContentDelta {
+            delta: "gateway ok".to_string(),
+            index: None,
+        }),
+        Ok(ChatStreamEvent::StreamEnd { response }),
+    ]));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiChatCompletions,
         TranscodeSseOptions::default().with_policy(state.policy),
     )
 }
@@ -315,6 +373,47 @@ async fn openai_fixture_to_gemini_strict_sse_route(
     )
 }
 
+async fn openai_fixture_to_chat_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let upstream = decode_openai_fixture_stream(
+        repo_fixtures_dir()
+            .join("openai")
+            .join("responses-stream")
+            .join("text")
+            .join("openai-text-deltas.1.chunks.txt"),
+        Vec::new(),
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiChatCompletions,
+        TranscodeSseOptions::default()
+            .with_bridge_source(siumai::experimental::bridge::BridgeTarget::OpenAiResponses)
+            .with_policy(state.policy),
+    )
+}
+
+async fn openai_fixture_to_chat_strict_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let upstream = decode_openai_fixture_stream(
+        repo_fixtures_dir()
+            .join("openai")
+            .join("responses-stream")
+            .join("text")
+            .join("openai-text-deltas.1.chunks.txt"),
+        Vec::new(),
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiChatCompletions,
+        TranscodeSseOptions::default()
+            .with_bridge_source(siumai::experimental::bridge::BridgeTarget::OpenAiResponses)
+            .with_policy(state.policy)
+            .with_bridge_mode_override(siumai::experimental::bridge::BridgeMode::Strict),
+    )
+}
+
 #[cfg(all(feature = "anthropic", feature = "google"))]
 async fn anthropic_fixture_to_gemini_sse_route(State(state): State<AppState>) -> Response<Body> {
     let upstream = decode_anthropic_fixture_stream(
@@ -328,6 +427,25 @@ async fn anthropic_fixture_to_gemini_sse_route(State(state): State<AppState>) ->
     to_transcoded_sse_response(
         stream,
         TargetSseFormat::GeminiGenerateContent,
+        TranscodeSseOptions::default()
+            .with_bridge_source(siumai::experimental::bridge::BridgeTarget::AnthropicMessages)
+            .with_policy(state.policy),
+    )
+}
+
+#[cfg(feature = "anthropic")]
+async fn anthropic_fixture_to_chat_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let upstream = decode_anthropic_fixture_stream(
+        repo_fixtures_dir()
+            .join("anthropic")
+            .join("messages-stream")
+            .join("anthropic-message-delta-input-tokens.chunks.txt"),
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiChatCompletions,
         TranscodeSseOptions::default()
             .with_bridge_source(siumai::experimental::bridge::BridgeTarget::AnthropicMessages)
             .with_policy(state.policy),
@@ -352,7 +470,24 @@ async fn gemini_fixture_to_anthropic_sse_route(State(state): State<AppState>) ->
     )
 }
 
-#[cfg(any(feature = "anthropic", feature = "google"))]
+#[cfg(feature = "google")]
+async fn gemini_fixture_to_chat_sse_route(State(state): State<AppState>) -> Response<Body> {
+    let upstream = decode_gemini_fixture_stream(
+        repo_fixtures_dir()
+            .join("gemini")
+            .join("simple_text_then_finish.sse"),
+    );
+    let stream: ChatStream = Box::pin(stream::iter(upstream.into_iter().map(Ok)));
+
+    to_transcoded_sse_response(
+        stream,
+        TargetSseFormat::OpenAiChatCompletions,
+        TranscodeSseOptions::default()
+            .with_bridge_source(siumai::experimental::bridge::BridgeTarget::GeminiGenerateContent)
+            .with_policy(state.policy),
+    )
+}
+
 fn repo_fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -362,7 +497,6 @@ fn repo_fixtures_dir() -> PathBuf {
         .join("fixtures")
 }
 
-#[cfg(any(feature = "anthropic", feature = "google"))]
 fn read_fixture_lines(path: impl AsRef<Path>) -> Vec<String> {
     std::fs::read_to_string(path)
         .expect("read fixture file")
@@ -387,7 +521,6 @@ fn read_gemini_sse_data_lines(path: impl AsRef<Path>) -> Vec<String> {
         .collect()
 }
 
-#[cfg(any(feature = "anthropic", feature = "google"))]
 fn extract_sse_data_payload_lines(bytes: &[u8]) -> Vec<String> {
     let text = String::from_utf8_lossy(bytes);
     text.split("\n\n")
@@ -484,7 +617,6 @@ fn decode_anthropic_fixture_stream(path: impl AsRef<Path>) -> Vec<ChatStreamEven
     events
 }
 
-#[cfg(any(feature = "anthropic", feature = "google"))]
 fn decode_openai_fixture_stream(path: impl AsRef<Path>, tools: Vec<Tool>) -> Vec<ChatStreamEvent> {
     let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new()
         .with_request_tools(&tools);
@@ -541,7 +673,6 @@ fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
         .collect()
 }
 
-#[cfg(any(feature = "anthropic", feature = "google"))]
 fn decode_openai_responses_sse_body(bytes: &[u8]) -> Vec<ChatStreamEvent> {
     let conv = siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter::new();
     let mut events = Vec::new();
@@ -569,6 +700,65 @@ fn decode_openai_responses_sse_body(bytes: &[u8]) -> Vec<ChatStreamEvent> {
         match item {
             Ok(evt) => events.push(evt),
             Err(err) => panic!("failed to finalize decoded openai response body: {err:?}"),
+        }
+    }
+
+    events
+}
+
+fn decode_openai_chat_completions_sse_body(bytes: &[u8]) -> Vec<ChatStreamEvent> {
+    use siumai::protocol::openai::compat::openai_config::OpenAiCompatibleConfig;
+    use siumai::protocol::openai::compat::provider_registry::{
+        ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+    };
+    use siumai::protocol::openai::compat::streaming::OpenAiCompatibleEventConverter;
+
+    let adapter = std::sync::Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "openai".to_string(),
+        name: "OpenAI".to_string(),
+        base_url: "https://api.openai.com/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec!["tools".to_string()],
+        default_model: Some("gpt-4o-mini".to_string()),
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+
+    let cfg = OpenAiCompatibleConfig::new(
+        "openai",
+        "sk-siumai-decoding-only",
+        "https://api.openai.com/v1",
+        adapter.clone(),
+    )
+    .with_model("gpt-4o-mini");
+
+    let conv = OpenAiCompatibleEventConverter::new(cfg, adapter);
+    let mut events = Vec::new();
+
+    for (index, line) in extract_sse_data_payload_lines(bytes)
+        .into_iter()
+        .enumerate()
+    {
+        let event = Event {
+            event: "".to_string(),
+            data: line,
+            id: index.to_string(),
+            retry: None,
+        };
+        let out = futures::executor::block_on(conv.convert_event(event));
+        for item in out {
+            match item {
+                Ok(evt) => events.push(evt),
+                Err(err) => panic!("failed to decode openai chat completion body: {err:?}"),
+            }
+        }
+    }
+
+    while let Some(item) = conv.handle_stream_end() {
+        match item {
+            Ok(evt) => events.push(evt),
+            Err(err) => panic!("failed to finalize openai chat completion body: {err:?}"),
         }
     }
 
@@ -663,6 +853,66 @@ async fn gateway_sse_route_smoke_emits_provider_sse() {
     assert!(text.contains("gateway ok"));
     assert!(text.contains("event: response.completed"));
     assert!(text.contains("data: [DONE]"));
+}
+
+#[tokio::test]
+async fn gateway_json_route_smoke_emits_openai_chat_completions_json() {
+    let response = openai_chat_app()
+        .oneshot(
+            Request::builder()
+                .uri("/json")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "openai-chat-completions"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    assert_eq!(json["object"], "chat.completion");
+    assert_eq!(json["choices"][0]["message"]["role"], "assistant");
+    assert_eq!(json["choices"][0]["message"]["content"], "gateway ok");
+}
+
+#[tokio::test]
+async fn gateway_sse_route_smoke_emits_openai_chat_completions_sse() {
+    let response = openai_chat_app()
+        .oneshot(
+            Request::builder()
+                .uri("/sse")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "openai-chat-completions"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let raw = String::from_utf8(body.to_vec()).expect("utf8");
+    let downstream = decode_openai_chat_completions_sse_body(&body);
+
+    assert_eq!(collect_text_deltas(&downstream), "gateway ok");
+    assert!(raw.contains("\"object\":\"chat.completion.chunk\""));
+    assert!(raw.contains("data: [DONE]"));
 }
 
 #[cfg(feature = "anthropic")]
@@ -973,6 +1223,146 @@ async fn gateway_route_smoke_rejects_openai_fixture_to_gemini_sse_in_strict_mode
     let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
     assert_eq!(json["error"], "bridge rejected");
     assert_eq!(json["report"]["lossy_fields"][0], "stream.protocol");
+}
+
+#[tokio::test]
+async fn gateway_route_smoke_transcodes_openai_responses_fixture_to_chat_sse_with_lossy_headers() {
+    let response = openai_chat_cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/responses-to-chat")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "openai-chat-completions"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "best-effort");
+    assert_eq!(response.headers()["x-siumai-bridge-decision"], "lossy");
+    assert_eq!(response.headers()["x-siumai-bridge-warnings"], "1");
+    assert_eq!(response.headers()["x-siumai-bridge-lossy-fields"], "1");
+    assert_eq!(response.headers()["x-siumai-bridge-dropped-fields"], "0");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let downstream = decode_openai_chat_completions_sse_body(&body);
+    let text = collect_text_deltas(&downstream);
+
+    assert!(
+        text.contains("Hello, World!"),
+        "unexpected decoded text: {text}"
+    );
+    assert!(downstream.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::StreamEnd { response }
+            if response.finish_reason == Some(siumai::prelude::unified::FinishReason::Stop)
+    )));
+}
+
+#[tokio::test]
+async fn gateway_route_smoke_rejects_openai_responses_fixture_to_chat_sse_in_strict_mode() {
+    let response = openai_chat_cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/responses-to-chat-strict")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(response.headers()["content-type"], "application/json");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "openai-chat-completions"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-mode"], "strict");
+    assert_eq!(response.headers()["x-siumai-bridge-decision"], "rejected");
+    assert_eq!(response.headers()["x-siumai-bridge-lossy-fields"], "1");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("json body");
+    assert_eq!(json["error"], "bridge rejected");
+    assert_eq!(json["report"]["lossy_fields"][0], "stream.protocol");
+}
+
+#[cfg(feature = "anthropic")]
+#[tokio::test]
+async fn gateway_route_smoke_transcodes_anthropic_fixture_to_chat_sse() {
+    let response = openai_chat_cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/anthropic-to-chat")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "openai-chat-completions"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-decision"], "lossy");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let downstream = decode_openai_chat_completions_sse_body(&body);
+    let text = collect_text_deltas(&downstream);
+
+    assert!(text.contains("pong"), "unexpected decoded text: {text}");
+    assert!(downstream.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::StreamEnd { response }
+            if response.finish_reason == Some(siumai::prelude::unified::FinishReason::Stop)
+    )));
+}
+
+#[cfg(feature = "google")]
+#[tokio::test]
+async fn gateway_route_smoke_transcodes_gemini_fixture_to_chat_sse() {
+    let response = openai_chat_cross_protocol_app()
+        .oneshot(
+            Request::builder()
+                .uri("/gemini-to-chat")
+                .body(Body::empty())
+                .expect("request"),
+        )
+        .await
+        .expect("router response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.headers()["content-type"], "text/event-stream");
+    assert_eq!(
+        response.headers()["x-siumai-bridge-target"],
+        "openai-chat-completions"
+    );
+    assert_eq!(response.headers()["x-siumai-bridge-decision"], "lossy");
+
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("body bytes");
+    let downstream = decode_openai_chat_completions_sse_body(&body);
+
+    assert_eq!(collect_text_deltas(&downstream), "Hello world");
+    assert!(downstream.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::StreamEnd { response }
+            if response.finish_reason == Some(siumai::prelude::unified::FinishReason::Stop)
+    )));
 }
 
 #[cfg(all(feature = "anthropic", feature = "google"))]

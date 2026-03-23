@@ -322,15 +322,21 @@ Current state:
   for OpenAI Responses, Anthropic Messages, and Gemini GenerateContent
 - `siumai-extras` now also has Axum router-level smoke coverage for:
   - OpenAI Responses JSON/SSE output routes
+  - OpenAI Chat Completions JSON/SSE output routes
   - Anthropic Messages JSON/SSE output routes
   - Gemini GenerateContent JSON/SSE output routes
   - fixture-backed Anthropic -> OpenAI Responses SSE route transcoding
   - fixture-backed OpenAI Responses -> Anthropic Messages SSE route transcoding
+  - fixture-backed OpenAI Responses -> OpenAI Chat Completions SSE route transcoding
+  - fixture-backed Anthropic Messages -> OpenAI Chat Completions SSE route transcoding
+  - fixture-backed Gemini GenerateContent -> OpenAI Chat Completions SSE route transcoding
   - fixture-backed Gemini -> OpenAI Responses SSE route transcoding
   - fixture-backed OpenAI Responses -> Gemini GenerateContent SSE route transcoding
   - fixture-backed Anthropic Messages -> Gemini GenerateContent SSE route transcoding
   - fixture-backed Gemini GenerateContent -> Anthropic Messages SSE route transcoding
   - Gemini target strict / best-effort bridge-decision header behavior on cross-protocol SSE
+  - OpenAI Chat Completions target strict / best-effort bridge-decision header behavior on
+    cross-protocol SSE
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and
   stabilization docs
 
