@@ -465,3 +465,7 @@ This TODO list is intentionally organized as mergeable tracks.
     - request body read + policy enforcement + request normalization + JSON transcode in one POST route
     - strict-mode rejection during request normalization before downstream execution/transcode
     - request-body limit enforcement on ingress routes
+  - `siumai-extras` route-level ingress Axum SSE smoke coverage now also validates:
+    - request body read + policy enforcement + request normalization + SSE transcode in one POST route
+    - Anthropic ingress customization before downstream OpenAI Responses SSE emission
+    - strict-mode request-normalization rejection before opening a downstream SSE body

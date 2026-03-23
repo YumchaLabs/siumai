@@ -349,6 +349,11 @@ Current state:
   - provider-native request normalization before response execution/transcode
   - strict-mode request-normalization rejection on ingress routes
   - request-body limit enforcement at the route boundary
+- `siumai-extras` now also has route-level Axum ingress SSE smoke coverage for:
+  - POST request body read under `GatewayBridgePolicy`
+  - provider-native request normalization before downstream SSE emission
+  - customization on Anthropic ingress before OpenAI Responses SSE output
+  - strict-mode request-normalization rejection before opening the downstream stream
 - remaining work is mainly second-route examples, broader cross-target fixture expansion, and
   stabilization docs
 
