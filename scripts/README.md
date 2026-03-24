@@ -55,14 +55,15 @@ Notes:
 
 ### `test-env-smoke.sh` / `test-env-smoke.bat`
 
-Runs focused live smoke tests for environment-driven OpenAI and Anthropic setup.
+Runs focused live smoke tests for environment-driven provider setup.
 
 Coverage:
 - Builder non-streaming chat
 - Builder streaming chat
 - Registry non-streaming chat
 - Registry streaming chat
-- Explicit `.base_url(...)` when `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` are set
+- OpenAI / Anthropic explicit `.base_url(...)` when `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` are set
+- Providers covered by default: OpenAI, Anthropic, Gemini, DeepSeek, Groq
 
 ```bash
 ./scripts/test-env-smoke.sh

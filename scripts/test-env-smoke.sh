@@ -8,7 +8,7 @@ Usage:
 
 Environment:
   SIUMAI_ENV_SMOKE_FEATURES   Cargo features for crate `siumai`.
-                             Default: openai,anthropic
+                             Default: openai,anthropic,google,deepseek,groq
 
   SIUMAI_TEST_PROXY          Optional proxy URL. When set, the script exports:
                              HTTP_PROXY / HTTPS_PROXY / ALL_PROXY
@@ -20,6 +20,15 @@ Environment:
   ANTHROPIC_API_KEY          Optional. Enables Anthropic live smoke.
   ANTHROPIC_BASE_URL         Optional. Also exercises explicit Anthropic base_url.
   ANTHROPIC_MODEL            Optional. Override Anthropic smoke model.
+
+  GEMINI_API_KEY             Optional. Enables Gemini live smoke.
+  GEMINI_MODEL               Optional. Override Gemini smoke model.
+
+  DEEPSEEK_API_KEY           Optional. Enables DeepSeek live smoke.
+  DEEPSEEK_MODEL             Optional. Override DeepSeek smoke model.
+
+  GROQ_API_KEY               Optional. Enables Groq live smoke.
+  GROQ_MODEL                 Optional. Override Groq smoke model.
 
 Notes:
   - Tests are ignored by default and make real API calls.
@@ -38,7 +47,7 @@ if [[ -n "${SIUMAI_TEST_PROXY:-}" ]]; then
   export ALL_PROXY="${SIUMAI_TEST_PROXY}"
 fi
 
-features="${SIUMAI_ENV_SMOKE_FEATURES:-openai,anthropic}"
+features="${SIUMAI_ENV_SMOKE_FEATURES:-openai,anthropic,google,deepseek,groq}"
 
 echo "[test-env-smoke] features: ${features}"
 if [[ -n "${HTTP_PROXY:-}" ]]; then

@@ -1,4 +1,10 @@
-#![cfg(any(feature = "openai", feature = "anthropic"))]
+#![cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "deepseek",
+    feature = "groq"
+))]
 
 use futures::StreamExt;
 use siumai::Provider;
@@ -11,6 +17,15 @@ const OPENAI_DEFAULT_MODEL: &str = "gpt-4o-mini";
 
 #[cfg(feature = "anthropic")]
 const ANTHROPIC_DEFAULT_MODEL: &str = "claude-3-5-haiku-20241022";
+
+#[cfg(feature = "google")]
+const GEMINI_DEFAULT_MODEL: &str = "gemini-2.5-flash";
+
+#[cfg(feature = "deepseek")]
+const DEEPSEEK_DEFAULT_MODEL: &str = "deepseek-chat";
+
+#[cfg(feature = "groq")]
+const GROQ_DEFAULT_MODEL: &str = "llama-3.1-8b-instant";
 
 #[cfg(feature = "anthropic")]
 const ANTHROPIC_FALLBACK_MODELS: &[&str] = &[
@@ -127,6 +142,21 @@ fn anthropic_model_candidates() -> Vec<String> {
     }
 
     models
+}
+
+#[cfg(feature = "google")]
+fn gemini_model() -> String {
+    env::var("GEMINI_MODEL").unwrap_or_else(|_| GEMINI_DEFAULT_MODEL.to_string())
+}
+
+#[cfg(feature = "deepseek")]
+fn deepseek_model() -> String {
+    env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEEPSEEK_DEFAULT_MODEL.to_string())
+}
+
+#[cfg(feature = "groq")]
+fn groq_model() -> String {
+    env::var("GROQ_MODEL").unwrap_or_else(|_| GROQ_DEFAULT_MODEL.to_string())
 }
 
 #[cfg(feature = "openai")]
@@ -288,6 +318,144 @@ async fn anthropic_registry_stream() -> Result<String, String> {
     Err(errors.join(" | "))
 }
 
+#[cfg(feature = "google")]
+async fn gemini_builder_generate() -> Result<String, String> {
+    let model = gemini_model();
+    let client = Provider::gemini()
+        .model(&model)
+        .max_tokens(24)
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(20))
+        .build()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    generate_text(&client, ChatRequest::new(prompt_messages())).await
+}
+
+#[cfg(feature = "google")]
+async fn gemini_builder_stream() -> Result<String, String> {
+    let model = gemini_model();
+    let client = Provider::gemini()
+        .model(&model)
+        .max_tokens(24)
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(20))
+        .build()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
+}
+
+#[cfg(feature = "google")]
+async fn gemini_registry_generate() -> Result<String, String> {
+    let model = registry::global()
+        .language_model(&format!("gemini:{}", gemini_model()))
+        .map_err(|err| format!("registry build failed: {err}"))?;
+    generate_text(&model, ChatRequest::new(prompt_messages())).await
+}
+
+#[cfg(feature = "google")]
+async fn gemini_registry_stream() -> Result<String, String> {
+    let model = registry::global()
+        .language_model(&format!("gemini:{}", gemini_model()))
+        .map_err(|err| format!("registry build failed: {err}"))?;
+    collect_stream_text(&model, ChatRequest::new(stream_prompt_messages())).await
+}
+
+#[cfg(feature = "deepseek")]
+async fn deepseek_builder_generate() -> Result<String, String> {
+    let model = deepseek_model();
+    let client = Provider::deepseek()
+        .model(&model)
+        .max_tokens(24)
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(20))
+        .build()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    generate_text(&client, ChatRequest::new(prompt_messages())).await
+}
+
+#[cfg(feature = "deepseek")]
+async fn deepseek_builder_stream() -> Result<String, String> {
+    let model = deepseek_model();
+    let client = Provider::deepseek()
+        .model(&model)
+        .max_tokens(24)
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(20))
+        .build()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
+}
+
+#[cfg(feature = "deepseek")]
+async fn deepseek_registry_generate() -> Result<String, String> {
+    let model = registry::global()
+        .language_model(&format!("deepseek:{}", deepseek_model()))
+        .map_err(|err| format!("registry build failed: {err}"))?;
+    generate_text(&model, ChatRequest::new(prompt_messages())).await
+}
+
+#[cfg(feature = "deepseek")]
+async fn deepseek_registry_stream() -> Result<String, String> {
+    let model = registry::global()
+        .language_model(&format!("deepseek:{}", deepseek_model()))
+        .map_err(|err| format!("registry build failed: {err}"))?;
+    collect_stream_text(&model, ChatRequest::new(stream_prompt_messages())).await
+}
+
+#[cfg(feature = "groq")]
+async fn groq_builder_generate() -> Result<String, String> {
+    let model = groq_model();
+    let client = Provider::groq()
+        .model(&model)
+        .max_tokens(24)
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(20))
+        .build()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    generate_text(&client, ChatRequest::new(prompt_messages())).await
+}
+
+#[cfg(feature = "groq")]
+async fn groq_builder_stream() -> Result<String, String> {
+    let model = groq_model();
+    let client = Provider::groq()
+        .model(&model)
+        .max_tokens(24)
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(20))
+        .build()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    collect_stream_text(&client, ChatRequest::new(stream_prompt_messages())).await
+}
+
+#[cfg(feature = "groq")]
+async fn groq_registry_generate() -> Result<String, String> {
+    let model = registry::global()
+        .language_model(&format!("groq:{}", groq_model()))
+        .map_err(|err| format!("registry build failed: {err}"))?;
+    generate_text(&model, ChatRequest::new(prompt_messages())).await
+}
+
+#[cfg(feature = "groq")]
+async fn groq_registry_stream() -> Result<String, String> {
+    let model = registry::global()
+        .language_model(&format!("groq:{}", groq_model()))
+        .map_err(|err| format!("registry build failed: {err}"))?;
+    collect_stream_text(&model, ChatRequest::new(stream_prompt_messages())).await
+}
+
 #[cfg(feature = "openai")]
 #[tokio::test]
 #[ignore = "requires OPENAI_API_KEY and live network access"]
@@ -406,4 +574,126 @@ async fn anthropic_env_builder_and_registry_smoke() {
             "expected STREAM_OK via explicit ANTHROPIC_BASE_URL, got: {explicit_stream}"
         );
     }
+}
+
+#[cfg(feature = "google")]
+#[tokio::test]
+#[ignore = "requires GEMINI_API_KEY and live network access"]
+async fn gemini_env_builder_and_registry_smoke() {
+    if !is_present("GEMINI_API_KEY") {
+        eprintln!("[skip] GEMINI_API_KEY not set, skipping live Gemini env smoke");
+        return;
+    }
+
+    let non_stream = gemini_builder_generate()
+        .await
+        .expect("gemini builder non-stream");
+    assert!(
+        non_stream.contains("SIUMAI_OK"),
+        "expected SIUMAI_OK in Gemini builder response, got: {non_stream}"
+    );
+
+    let stream = gemini_builder_stream()
+        .await
+        .expect("gemini builder stream");
+    assert!(
+        stream.contains("STREAM_OK"),
+        "expected STREAM_OK in Gemini builder stream, got: {stream}"
+    );
+
+    let registry_non_stream = gemini_registry_generate()
+        .await
+        .expect("gemini registry non-stream");
+    assert!(
+        registry_non_stream.contains("SIUMAI_OK"),
+        "expected SIUMAI_OK in Gemini registry response, got: {registry_non_stream}"
+    );
+
+    let registry_stream = gemini_registry_stream()
+        .await
+        .expect("gemini registry stream");
+    assert!(
+        registry_stream.contains("STREAM_OK"),
+        "expected STREAM_OK in Gemini registry stream, got: {registry_stream}"
+    );
+}
+
+#[cfg(feature = "deepseek")]
+#[tokio::test]
+#[ignore = "requires DEEPSEEK_API_KEY and live network access"]
+async fn deepseek_env_builder_and_registry_smoke() {
+    if !is_present("DEEPSEEK_API_KEY") {
+        eprintln!("[skip] DEEPSEEK_API_KEY not set, skipping live DeepSeek env smoke");
+        return;
+    }
+
+    let non_stream = deepseek_builder_generate()
+        .await
+        .expect("deepseek builder non-stream");
+    assert!(
+        non_stream.contains("SIUMAI_OK"),
+        "expected SIUMAI_OK in DeepSeek builder response, got: {non_stream}"
+    );
+
+    let stream = deepseek_builder_stream()
+        .await
+        .expect("deepseek builder stream");
+    assert!(
+        stream.contains("STREAM_OK"),
+        "expected STREAM_OK in DeepSeek builder stream, got: {stream}"
+    );
+
+    let registry_non_stream = deepseek_registry_generate()
+        .await
+        .expect("deepseek registry non-stream");
+    assert!(
+        registry_non_stream.contains("SIUMAI_OK"),
+        "expected SIUMAI_OK in DeepSeek registry response, got: {registry_non_stream}"
+    );
+
+    let registry_stream = deepseek_registry_stream()
+        .await
+        .expect("deepseek registry stream");
+    assert!(
+        registry_stream.contains("STREAM_OK"),
+        "expected STREAM_OK in DeepSeek registry stream, got: {registry_stream}"
+    );
+}
+
+#[cfg(feature = "groq")]
+#[tokio::test]
+#[ignore = "requires GROQ_API_KEY and live network access"]
+async fn groq_env_builder_and_registry_smoke() {
+    if !is_present("GROQ_API_KEY") {
+        eprintln!("[skip] GROQ_API_KEY not set, skipping live Groq env smoke");
+        return;
+    }
+
+    let non_stream = groq_builder_generate()
+        .await
+        .expect("groq builder non-stream");
+    assert!(
+        non_stream.contains("SIUMAI_OK"),
+        "expected SIUMAI_OK in Groq builder response, got: {non_stream}"
+    );
+
+    let stream = groq_builder_stream().await.expect("groq builder stream");
+    assert!(
+        stream.contains("STREAM_OK"),
+        "expected STREAM_OK in Groq builder stream, got: {stream}"
+    );
+
+    let registry_non_stream = groq_registry_generate()
+        .await
+        .expect("groq registry non-stream");
+    assert!(
+        registry_non_stream.contains("SIUMAI_OK"),
+        "expected SIUMAI_OK in Groq registry response, got: {registry_non_stream}"
+    );
+
+    let registry_stream = groq_registry_stream().await.expect("groq registry stream");
+    assert!(
+        registry_stream.contains("STREAM_OK"),
+        "expected STREAM_OK in Groq registry stream, got: {registry_stream}"
+    );
 }

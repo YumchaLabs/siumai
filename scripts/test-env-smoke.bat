@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 set "FEATURES=%SIUMAI_ENV_SMOKE_FEATURES%"
-if "%FEATURES%"=="" set "FEATURES=openai,anthropic"
+if "%FEATURES%"=="" set "FEATURES=openai,anthropic,google,deepseek,groq"
 
 if not "%SIUMAI_TEST_PROXY%"=="" (
     set "HTTP_PROXY=%SIUMAI_TEST_PROXY%"

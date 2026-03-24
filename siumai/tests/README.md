@@ -31,7 +31,7 @@ tests/
 │   └── siliconflow_rerank_test.rs    # SiliconFlow rerank integration tests
 ├── integration_tests.rs              # Core integration tests
 ├── real_llm_integration_test.rs       # Tests with real LLM providers (requires API keys)
-├── provider_env_smoke_test.rs         # Focused OpenAI/Anthropic env-driven live smoke
+├── provider_env_smoke_test.rs         # Focused env-driven live smoke for key providers
 ├── request_builder_integration_test.rs # Request builder integration tests
 ├── request_builder_consistency.rs     # Request builder consistency tests
 ├── siumai_unified_interface_test.rs   # Unified interface tests
