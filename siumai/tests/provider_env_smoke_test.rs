@@ -61,6 +61,7 @@ fn is_present(env_name: &str) -> bool {
     )
 }
 
+#[cfg(any(feature = "google", feature = "groq"))]
 fn is_truthy_env(env_name: &str) -> bool {
     matches!(
         env::var(env_name),
@@ -72,6 +73,7 @@ fn is_truthy_env(env_name: &str) -> bool {
     )
 }
 
+#[cfg(any(feature = "google", feature = "groq"))]
 fn is_known_live_access_restriction(provider: &str, err: &str) -> bool {
     if is_truthy_env("SIUMAI_ENV_SMOKE_STRICT") {
         return false;
@@ -87,6 +89,7 @@ fn is_known_live_access_restriction(provider: &str, err: &str) -> bool {
     }
 }
 
+#[cfg(any(feature = "google", feature = "groq"))]
 fn unwrap_live_step(provider: &str, step: &str, result: Result<String, String>) -> Option<String> {
     match result {
         Ok(value) => Some(value),
@@ -114,7 +117,7 @@ where
     if content.trim().is_empty() {
         Err("response content was empty".to_string())
     } else {
-        Ok(compact(&content))
+        Ok(compact(content))
     }
 }
 

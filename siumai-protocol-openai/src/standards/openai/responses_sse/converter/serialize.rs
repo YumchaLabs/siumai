@@ -233,10 +233,10 @@ pub(super) fn serialize_event(
             return (item_id.to_string(), output_index);
         }
 
-        if let Some(item_id) = state.latest_reasoning_item_id.clone() {
-            if let Some(existing) = state.reasoning_items_by_item_id.get(&item_id) {
-                return (item_id, existing.output_index);
-            }
+        if let Some(item_id) = state.latest_reasoning_item_id.clone()
+            && let Some(existing) = state.reasoning_items_by_item_id.get(&item_id)
+        {
+            return (item_id, existing.output_index);
         }
 
         if let Some(item_id) = state.fallback_reasoning_item_id.clone() {

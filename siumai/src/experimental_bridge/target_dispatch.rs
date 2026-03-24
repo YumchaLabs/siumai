@@ -3,15 +3,43 @@
 use futures_util::Stream;
 use siumai_core::LlmError;
 use siumai_core::bridge::BridgeTarget;
-use siumai_core::encoding::{JsonEncodeOptions, encode_chat_response_as_json};
+use siumai_core::encoding::JsonEncodeOptions;
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex"
+))]
+use siumai_core::encoding::encode_chat_response_as_json;
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex"
+))]
 use siumai_core::execution::transformers::request::RequestTransformer;
-use siumai_core::streaming::{ChatByteStream, ChatStreamEvent, encode_chat_stream_as_sse};
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex"
+))]
+use siumai_core::streaming::encode_chat_stream_as_sse;
+use siumai_core::streaming::{ChatByteStream, ChatStreamEvent};
 use siumai_core::types::{ChatRequest, ChatResponse};
 
 pub(crate) fn transform_chat_request_to_json(
     request: &ChatRequest,
     target: BridgeTarget,
 ) -> Result<serde_json::Value, LlmError> {
+    #[cfg(not(any(
+        feature = "openai",
+        feature = "anthropic",
+        feature = "google",
+        feature = "google-vertex"
+    )))]
+    let _ = request;
+
     match target {
         BridgeTarget::OpenAiResponses => {
             #[cfg(feature = "openai")]
@@ -80,6 +108,14 @@ pub(crate) fn encode_chat_response_to_json_bytes(
     target: BridgeTarget,
     opts: JsonEncodeOptions,
 ) -> Result<Vec<u8>, LlmError> {
+    #[cfg(not(any(
+        feature = "openai",
+        feature = "anthropic",
+        feature = "google",
+        feature = "google-vertex"
+    )))]
+    let _ = (response, opts);
+
     match target {
         BridgeTarget::OpenAiResponses => {
             #[cfg(feature = "openai")]
@@ -155,6 +191,14 @@ pub(crate) fn encode_chat_stream_for_target<S>(
 where
     S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + 'static,
 {
+    #[cfg(not(any(
+        feature = "openai",
+        feature = "anthropic",
+        feature = "google",
+        feature = "google-vertex"
+    )))]
+    let _ = stream;
+
     match target {
         BridgeTarget::OpenAiResponses => {
             #[cfg(feature = "openai")]

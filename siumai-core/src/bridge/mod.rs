@@ -293,6 +293,7 @@ impl<T> BridgeResult<T> {
         (self.value, self.report)
     }
 
+    #[allow(clippy::result_large_err)]
     pub fn into_result(self) -> Result<(T, BridgeReport), BridgeReport> {
         match (self.value, self.report) {
             (Some(value), report) if !report.is_rejected() => Ok((value, report)),

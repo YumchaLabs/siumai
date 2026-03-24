@@ -1007,6 +1007,7 @@ impl BuildContext {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_registry_context(
     provider_id: &str,
     http_interceptors: &[Arc<dyn HttpInterceptor>],

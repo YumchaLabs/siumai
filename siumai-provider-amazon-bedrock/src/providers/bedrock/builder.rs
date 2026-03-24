@@ -126,10 +126,10 @@ impl BedrockBuilder {
     }
 
     pub fn into_config(mut self) -> Result<BedrockConfig, LlmError> {
-        if self.config.api_key.is_none() {
-            if let Ok(api_key) = std::env::var("BEDROCK_API_KEY") {
-                self.config = self.config.with_api_key(api_key);
-            }
+        if self.config.api_key.is_none()
+            && let Ok(api_key) = std::env::var("BEDROCK_API_KEY")
+        {
+            self.config = self.config.with_api_key(api_key);
         }
 
         let default_runtime =
@@ -144,10 +144,10 @@ impl BedrockBuilder {
                 if !region.trim().is_empty() {
                     self.config = self.config.with_region(region);
                 }
-            } else if let Ok(region) = std::env::var("AWS_DEFAULT_REGION") {
-                if !region.trim().is_empty() {
-                    self.config = self.config.with_region(region);
-                }
+            } else if let Ok(region) = std::env::var("AWS_DEFAULT_REGION")
+                && !region.trim().is_empty()
+            {
+                self.config = self.config.with_region(region);
             }
         }
 

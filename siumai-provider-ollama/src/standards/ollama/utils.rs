@@ -721,10 +721,10 @@ pub fn build_chat_request(
         extra_params.remove("think");
     }
 
-    let response_format_value = match &request.response_format {
-        Some(crate::types::chat::ResponseFormat::Json { schema, .. }) => Some(schema.clone()),
-        None => None,
-    };
+    let response_format_value = request
+        .response_format
+        .as_ref()
+        .map(|crate::types::chat::ResponseFormat::Json { schema, .. }| schema.clone());
 
     // Build options: common params + runtime options + custom maps
     let mut options = build_model_options(

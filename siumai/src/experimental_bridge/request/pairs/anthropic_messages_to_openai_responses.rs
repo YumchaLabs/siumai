@@ -317,16 +317,15 @@ fn annotate_anthropic_reasoning_for_openai(request: &mut ChatRequest, report: &m
                 json!(format!("anthropic_reasoning_{message_index}_{part_index}"))
             });
 
-            if let Some(redacted_payload) = redacted_payload.as_ref() {
-                if !openai.contains_key("reasoningEncryptedContent")
-                    && !openai.contains_key("reasoning_encrypted_content")
-                {
-                    openai.insert(
-                        "reasoningEncryptedContent".to_string(),
-                        redacted_payload.clone(),
-                    );
-                    carried_redacted_payload = true;
-                }
+            if let Some(redacted_payload) = redacted_payload.as_ref()
+                && !openai.contains_key("reasoningEncryptedContent")
+                && !openai.contains_key("reasoning_encrypted_content")
+            {
+                openai.insert(
+                    "reasoningEncryptedContent".to_string(),
+                    redacted_payload.clone(),
+                );
+                carried_redacted_payload = true;
             }
         }
     }

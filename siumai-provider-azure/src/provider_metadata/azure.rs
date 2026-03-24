@@ -55,9 +55,9 @@ impl AzureSourceExt for AzureSource {
     }
 }
 
-fn content_part_metadata<'a>(
-    part: &'a crate::types::ContentPart,
-) -> Option<&'a std::collections::HashMap<String, serde_json::Value>> {
+fn content_part_metadata(
+    part: &crate::types::ContentPart,
+) -> Option<&std::collections::HashMap<String, serde_json::Value>> {
     use crate::types::ContentPart;
 
     match part {

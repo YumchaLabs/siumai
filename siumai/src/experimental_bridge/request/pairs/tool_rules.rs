@@ -26,9 +26,7 @@ impl ProviderToolTranslationRule {
             return false;
         };
 
-        self.source_tool_types
-            .iter()
-            .any(|candidate| *candidate == tool_type)
+        self.source_tool_types.contains(&tool_type)
     }
 
     pub(crate) fn translate_tool(

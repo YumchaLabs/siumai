@@ -4,6 +4,7 @@
 //! Each provider gets its own method that sets the appropriate provider id.
 
 use crate::provider::SiumaiBuilder;
+#[cfg(feature = "builtins")]
 use crate::provider::ids;
 #[cfg(any(feature = "openai", feature = "deepseek"))]
 use siumai_provider_openai_compatible::siumai_for_each_openai_compatible_provider;

@@ -1,5 +1,7 @@
 //! Request bridge normalization from protocol JSON into `ChatRequest`.
 
+#![allow(dead_code)]
+
 use crate::experimental_bridge::customize::apply_request_remapper;
 use crate::experimental_bridge::lifecycle::{
     new_bridge_report, new_request_normalize_context, reject_if_needed,

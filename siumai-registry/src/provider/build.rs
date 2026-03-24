@@ -1,4 +1,5 @@
 use crate::error::LlmError;
+#[cfg(feature = "builtins")]
 use crate::provider::ids;
 #[cfg(feature = "azure")]
 use crate::registry::entry::ProviderFactory;
@@ -587,7 +588,6 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         google_token_provider: builder.google_token_provider.clone(),
         #[cfg(any(feature = "google", feature = "google-vertex"))]
         gemini_token_provider: builder.google_token_provider.clone(),
-        ..Default::default()
     };
 
     #[cfg(feature = "azure")]

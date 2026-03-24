@@ -4,7 +4,10 @@ mod inspect;
 mod serialize;
 mod target_caps;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(feature = "openai", feature = "anthropic", feature = "google")
+))]
 mod tests;
 
 pub use inspect::inspect_chat_response_bridge;

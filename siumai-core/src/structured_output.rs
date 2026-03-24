@@ -110,20 +110,20 @@ pub fn extract_json_value(text: &str) -> Result<serde_json::Value, LlmError> {
         ));
     }
 
-    if let Some(fenced) = extract_first_markdown_fenced_block(trimmed) {
-        if let Ok(v) = parse_json_value_candidate(fenced) {
-            return Ok(v);
-        }
+    if let Some(fenced) = extract_first_markdown_fenced_block(trimmed)
+        && let Ok(v) = parse_json_value_candidate(fenced)
+    {
+        return Ok(v);
     }
 
     if let Ok(v) = parse_json_value_candidate(trimmed) {
         return Ok(v);
     }
 
-    if let Some(slice) = extract_braced_slice(trimmed) {
-        if let Ok(v) = parse_json_value_candidate(slice) {
-            return Ok(v);
-        }
+    if let Some(slice) = extract_braced_slice(trimmed)
+        && let Ok(v) = parse_json_value_candidate(slice)
+    {
+        return Ok(v);
     }
 
     Err(LlmError::ParseError(
@@ -139,20 +139,20 @@ fn extract_json_value_strict(text: &str) -> Result<serde_json::Value, LlmError> 
         ));
     }
 
-    if let Some(fenced) = extract_first_markdown_fenced_block(trimmed) {
-        if let Ok(v) = parse_json_value_candidate_strict(fenced) {
-            return Ok(v);
-        }
+    if let Some(fenced) = extract_first_markdown_fenced_block(trimmed)
+        && let Ok(v) = parse_json_value_candidate_strict(fenced)
+    {
+        return Ok(v);
     }
 
     if let Ok(v) = parse_json_value_candidate_strict(trimmed) {
         return Ok(v);
     }
 
-    if let Some(slice) = extract_braced_slice(trimmed) {
-        if let Ok(v) = parse_json_value_candidate_strict(slice) {
-            return Ok(v);
-        }
+    if let Some(slice) = extract_braced_slice(trimmed)
+        && let Ok(v) = parse_json_value_candidate_strict(slice)
+    {
+        return Ok(v);
     }
 
     Err(LlmError::ParseError(

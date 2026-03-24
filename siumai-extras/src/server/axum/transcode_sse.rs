@@ -433,6 +433,7 @@ fn apply_bridge_stream_options(
     )
 }
 
+#[allow(clippy::result_large_err)]
 fn inspect_stream_bridge_for_response(
     target: TargetSseFormat,
     opts: &TranscodeSseOptions,

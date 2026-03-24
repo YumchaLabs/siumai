@@ -666,6 +666,7 @@ fn parse_anthropic_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+#[cfg(any(feature = "anthropic", feature = "google"))]
 fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
     extract_sse_data_payload_lines(bytes)
         .into_iter()
@@ -673,6 +674,7 @@ fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
         .collect()
 }
 
+#[cfg(any(feature = "anthropic", feature = "google"))]
 fn decode_openai_responses_sse_body(bytes: &[u8]) -> Vec<ChatStreamEvent> {
     let conv = siumai::protocol::openai::responses_sse::OpenAiResponsesEventConverter::new();
     let mut events = Vec::new();

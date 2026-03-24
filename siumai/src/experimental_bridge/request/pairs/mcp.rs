@@ -108,7 +108,7 @@ pub(crate) fn apply_anthropic_mcp_servers_option(request: &mut ChatRequest, serv
     anthropic.insert("mcpServers".to_string(), Value::Array(servers));
     request
         .provider_options_map
-        .insert("anthropic".to_string(), Value::Object(anthropic));
+        .insert("anthropic", Value::Object(anthropic));
 }
 
 pub(crate) fn apply_anthropic_mcp_servers_overlay(request: &ChatRequest, body: &mut Value) {

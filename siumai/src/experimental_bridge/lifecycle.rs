@@ -8,6 +8,12 @@ use siumai_core::bridge::{
 use super::planner::{RequestBridgePath, RequestBridgePlan};
 
 pub(crate) const NORMALIZED_RESPONSE_PATH_LABEL: &str = "normalized-response";
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex"
+))]
 pub(crate) const SOURCE_NORMALIZE_PATH_LABEL: &str = "source-normalize";
 
 pub(crate) fn request_path_label(plan: &RequestBridgePlan) -> String {
@@ -33,6 +39,12 @@ pub(crate) fn new_request_context(
     )
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex"
+))]
 pub(crate) fn new_request_normalize_context(
     source: BridgeTarget,
     options: &BridgeOptions,

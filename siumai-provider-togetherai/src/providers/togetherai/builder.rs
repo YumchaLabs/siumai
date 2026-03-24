@@ -112,10 +112,10 @@ impl TogetherAiBuilder {
     }
 
     pub fn into_config(mut self) -> Result<TogetherAiConfig, LlmError> {
-        if self.config.api_key.expose_secret().trim().is_empty() {
-            if let Ok(api_key) = std::env::var("TOGETHER_API_KEY") {
-                self.config = self.config.with_api_key(api_key);
-            }
+        if self.config.api_key.expose_secret().trim().is_empty()
+            && let Ok(api_key) = std::env::var("TOGETHER_API_KEY")
+        {
+            self.config = self.config.with_api_key(api_key);
         }
 
         let mut config = self.config;

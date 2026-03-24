@@ -1,13 +1,27 @@
 //! Request bridge implementation.
 
 mod inspect;
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "google-vertex"
+))]
 mod normalize;
 pub mod pairs;
 mod primitives;
 mod serialize;
 mod target_caps;
 
-#[cfg(test)]
+#[cfg(all(
+    test,
+    any(
+        feature = "openai",
+        feature = "anthropic",
+        feature = "google",
+        feature = "google-vertex"
+    )
+))]
 mod tests;
 
 pub use inspect::inspect_chat_request_bridge;

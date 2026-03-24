@@ -267,6 +267,7 @@ impl From<LlmError> for TranscodeJsonError {
     }
 }
 
+#[allow(clippy::result_large_err)]
 fn transcode_chat_response_to_json_bytes(
     response: &ChatResponse,
     target: TargetJsonFormat,

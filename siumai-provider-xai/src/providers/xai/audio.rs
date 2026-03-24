@@ -115,9 +115,7 @@ fn provider_value<'a>(req: &'a TtsRequest, key: &str) -> Option<&'a serde_json::
     req.extra_params.get(key)
 }
 
-fn output_format_object<'a>(
-    req: &'a TtsRequest,
-) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+fn output_format_object(req: &TtsRequest) -> Option<&serde_json::Map<String, serde_json::Value>> {
     provider_value(req, "output_format").and_then(|value| value.as_object())
 }
 

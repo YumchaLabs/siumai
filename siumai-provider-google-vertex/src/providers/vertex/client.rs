@@ -803,11 +803,9 @@ impl EmbeddingExtensions for GoogleVertexClient {
 
         if let Some((merged_request, lengths)) =
             coalesce_batch_requests(&requests.requests, &self.common_params.model, 2048)
+            && let Ok(response) = self.embed_with_config(merged_request).await
         {
-            match self.embed_with_config(merged_request).await {
-                Ok(response) => return split_coalesced_response(response, &lengths),
-                Err(_) => {}
-            }
+            return split_coalesced_response(response, &lengths);
         }
 
         let mut responses = Vec::new();

@@ -13,6 +13,7 @@
     feature = "google",
     feature = "google-vertex"
 ))]
+#![allow(dead_code)]
 #![allow(deprecated)]
 
 use async_trait::async_trait;
@@ -1647,7 +1648,7 @@ mod openai_public_path {
 
         let siumai_audio = collect_tts_audio(
             siumai::provider_ext::openai::ext::speech_streaming::tts_sse_stream(
-                &siumai_client,
+                siumai_client,
                 request.clone(),
             )
             .await
@@ -1795,7 +1796,7 @@ mod openai_public_path {
 
         let siumai_text = collect_transcript_text(
             siumai::provider_ext::openai::ext::transcription_streaming::stt_sse_stream(
-                &siumai_client,
+                siumai_client,
                 request.clone(),
             )
             .await
@@ -9572,11 +9573,9 @@ data: [DONE]
     #[tokio::test]
     async fn deepseek_structured_output_synthetic_unknown_stream_end_fails_consistently_across_public_paths()
      {
-        let stream_body = concat!(
-            "data: {\"id\":\"1\",\"model\":\"deepseek-chat\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
-        )
-        .as_bytes()
-        .to_vec();
+        let stream_body = "data: {\"id\":\"1\",\"model\":\"deepseek-chat\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+            .as_bytes()
+            .to_vec();
 
         let siumai_transport = SseSuccessTransport::new(stream_body.clone());
         let provider_transport = SseSuccessTransport::new(stream_body.clone());
@@ -16539,11 +16538,9 @@ data: [DONE]
     #[tokio::test]
     async fn perplexity_structured_output_synthetic_unknown_stream_end_fails_consistently_across_public_paths()
      {
-        let stream_body = concat!(
-            "data: {\"id\":\"1\",\"model\":\"sonar\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
-        )
-        .as_bytes()
-        .to_vec();
+        let stream_body = "data: {\"id\":\"1\",\"model\":\"sonar\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+            .as_bytes()
+            .to_vec();
 
         let siumai_transport = SseSuccessTransport::new(stream_body.clone());
         let provider_transport = SseSuccessTransport::new(stream_body.clone());
@@ -17212,10 +17209,9 @@ data: [DONE]
             .model(model)
             .messages(vec![ChatMessage::user("hi").build()])
             .build();
-        request.provider_options_map.insert(
-            "openrouter".to_string(),
-            serde_json::json!({ "logprobs": 3 }),
-        );
+        request
+            .provider_options_map
+            .insert("openrouter", serde_json::json!({ "logprobs": 3 }));
 
         let siumai_resp = siumai_client
             .chat_request(request.clone())
@@ -17442,10 +17438,9 @@ data: [DONE]
             .model(model)
             .messages(vec![ChatMessage::user("hi").build()])
             .build();
-        request.provider_options_map.insert(
-            "openrouter".to_string(),
-            serde_json::json!({ "logprobs": 3 }),
-        );
+        request
+            .provider_options_map
+            .insert("openrouter", serde_json::json!({ "logprobs": 3 }));
 
         let mut siumai_stream = siumai_client
             .chat_stream_request(request.clone())
@@ -18328,11 +18323,9 @@ data: [DONE]
     #[tokio::test]
     async fn openrouter_structured_output_synthetic_unknown_stream_end_fails_consistently_across_public_paths()
      {
-        let stream_body = concat!(
-            "data: {\"id\":\"1\",\"model\":\"openai/gpt-4o\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
-        )
-        .as_bytes()
-        .to_vec();
+        let stream_body = "data: {\"id\":\"1\",\"model\":\"openai/gpt-4o\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+            .as_bytes()
+            .to_vec();
 
         let siumai_transport = SseSuccessTransport::new(stream_body.clone());
         let provider_transport = SseSuccessTransport::new(stream_body.clone());
@@ -20848,11 +20841,9 @@ data: [DONE]
     #[tokio::test]
     async fn groq_structured_output_synthetic_unknown_stream_end_fails_consistently_across_public_paths()
      {
-        let stream_body = concat!(
-            "data: {\"id\":\"1\",\"model\":\"llama-3.3-70b-versatile\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
-        )
-        .as_bytes()
-        .to_vec();
+        let stream_body = "data: {\"id\":\"1\",\"model\":\"llama-3.3-70b-versatile\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+            .as_bytes()
+            .to_vec();
 
         let siumai_transport = SseSuccessTransport::new(stream_body.clone());
         let provider_transport = SseSuccessTransport::new(stream_body.clone());
@@ -24596,7 +24587,7 @@ mod ollama_public_path {
 
     #[tokio::test]
     async fn ollama_structured_output_stream_extraction_matches_across_public_paths() {
-        let mut stream_body = vec![
+        let mut stream_body = [
             serde_json::json!({
                 "model": "llama3.2",
                 "message": {
@@ -24741,17 +24732,15 @@ mod ollama_public_path {
 
     #[tokio::test]
     async fn ollama_structured_output_interrupted_stream_fails_consistently_across_public_paths() {
-        let mut stream_body = vec![
-            serde_json::json!({
-                "model": "llama3.2",
-                "message": {
-                    "role": "assistant",
-                    "content": "{\"summary\":"
-                },
-                "done": false
-            })
-            .to_string(),
-        ]
+        let mut stream_body = [serde_json::json!({
+            "model": "llama3.2",
+            "message": {
+                "role": "assistant",
+                "content": "{\"summary\":"
+            },
+            "done": false
+        })
+        .to_string()]
         .join("\n")
         .into_bytes();
         stream_body.push(b'\n');
@@ -32826,11 +32815,9 @@ mod vertex_public_path {
     }
 
     fn vertex_structured_output_interrupted_stream_body() -> Vec<u8> {
-        concat!(
-            "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"answer\\\":\"}]}}]}\n\n"
-        )
-        .as_bytes()
-        .to_vec()
+        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"{\\\"answer\\\":\"}]}}]}\n\n"
+            .as_bytes()
+            .to_vec()
     }
 
     fn custom_events_by_type(
@@ -39426,11 +39413,9 @@ data: [DONE]
     #[tokio::test]
     async fn xai_structured_output_synthetic_unknown_stream_end_fails_consistently_across_public_paths()
      {
-        let stream_body = concat!(
-            "data: {\"id\":\"1\",\"model\":\"grok-4\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
-        )
-        .as_bytes()
-        .to_vec();
+        let stream_body = "data: {\"id\":\"1\",\"model\":\"grok-4\",\"created\":1718345013,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"{\\\"answer\\\":\" ,\"role\":\"assistant\"},\"finish_reason\":null}]}\n\n"
+            .as_bytes()
+            .to_vec();
 
         let siumai_transport = SseSuccessTransport::new(stream_body.clone());
         let provider_transport = SseSuccessTransport::new(stream_body.clone());

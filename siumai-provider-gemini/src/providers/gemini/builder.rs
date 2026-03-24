@@ -480,9 +480,7 @@ impl GeminiBuilder {
         }
 
         let mut has_generation_config = self.generation_config.is_some();
-        let mut generation_config = self
-            .generation_config
-            .unwrap_or_else(crate::providers::gemini::GenerationConfig::new);
+        let mut generation_config = self.generation_config.unwrap_or_default();
 
         if let Some(top_k) = self.top_k {
             generation_config = generation_config.with_top_k(top_k);

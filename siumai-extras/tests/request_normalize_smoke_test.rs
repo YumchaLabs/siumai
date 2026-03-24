@@ -3,7 +3,9 @@
 use std::sync::Arc;
 
 use serde_json::json;
-use siumai::experimental::bridge::{BridgeMode, BridgeTarget, ProviderToolRewriteCustomization};
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+use siumai::experimental::bridge::ProviderToolRewriteCustomization;
+use siumai::experimental::bridge::{BridgeMode, BridgeTarget};
 use siumai::prelude::unified::{MessageRole, ResponseFormat, Tool, ToolChoice};
 use siumai_extras::bridge::ClosureBridgeCustomization;
 use siumai_extras::server::{

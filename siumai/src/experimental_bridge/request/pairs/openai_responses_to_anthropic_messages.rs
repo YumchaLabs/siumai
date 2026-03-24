@@ -578,7 +578,7 @@ fn openai_instruction_text(request: &ChatRequest) -> Option<String> {
         })
 }
 
-fn openai_response_format_value<'a>(request: &'a ChatRequest) -> Option<&'a Value> {
+fn openai_response_format_value(request: &ChatRequest) -> Option<&Value> {
     let root = request.provider_options_map.get("openai")?.as_object()?;
 
     root.get("responseFormat")
@@ -614,7 +614,7 @@ fn openai_parallel_tool_calls(request: &ChatRequest) -> Option<bool> {
         })
 }
 
-fn openai_reasoning_effort<'a>(request: &'a ChatRequest) -> Option<&'a str> {
+fn openai_reasoning_effort(request: &ChatRequest) -> Option<&str> {
     let root = request.provider_options_map.get("openai")?.as_object()?;
     root.get("reasoningEffort")
         .or_else(|| root.get("reasoning_effort"))

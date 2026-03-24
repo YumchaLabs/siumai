@@ -11,9 +11,9 @@ use axum::{
     routing::post,
 };
 use serde_json::{Value, json};
-use siumai::experimental::bridge::{
-    BridgeMode, BridgeReport, BridgeTarget, ProviderToolRewriteCustomization,
-};
+#[cfg(feature = "anthropic")]
+use siumai::experimental::bridge::ProviderToolRewriteCustomization;
+use siumai::experimental::bridge::{BridgeMode, BridgeReport, BridgeTarget};
 use siumai::prelude::unified::{ChatRequest, ChatResponse, MessageContent, Tool};
 use siumai_extras::bridge::ClosureBridgeCustomization;
 use siumai_extras::server::{

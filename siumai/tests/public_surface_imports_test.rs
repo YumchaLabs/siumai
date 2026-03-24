@@ -63,20 +63,24 @@ fn public_family_helpers_compile_against_stable_family_models() {
 
     fn _assert_text_surface<M: LanguageModel + ?Sized>(model: &M) {
         let request = TextRequest::new(vec![ChatMessage::user("hi").build()]);
-        let _ = text::generate(model, request.clone(), Default::default());
-        let _ = text::stream(model, request.clone(), Default::default());
-        let _ = text::stream_with_cancel(model, request, Default::default());
+        std::mem::drop(text::generate(model, request.clone(), Default::default()));
+        std::mem::drop(text::stream(model, request.clone(), Default::default()));
+        std::mem::drop(text::stream_with_cancel(model, request, Default::default()));
     }
 
     fn _assert_embedding_surface<M: EmbeddingModel + ?Sized>(model: &M) {
         let request = EmbeddingRequest::new(vec!["hello".to_string()]);
         let batch = BatchEmbeddingRequest::new(vec![request.clone()]);
-        let _ = embedding::embed(model, request, Default::default());
-        let _ = embedding::embed_many(model, batch, Default::default());
+        std::mem::drop(embedding::embed(model, request, Default::default()));
+        std::mem::drop(embedding::embed_many(model, batch, Default::default()));
     }
 
     fn _assert_image_surface<M: ImageModel + ?Sized>(model: &M) {
-        let _ = image::generate(model, ImageGenerationRequest::default(), Default::default());
+        std::mem::drop(image::generate(
+            model,
+            ImageGenerationRequest::default(),
+            Default::default(),
+        ));
     }
 
     fn _assert_rerank_surface<M: RerankingModel + ?Sized>(model: &M) {
@@ -85,23 +89,23 @@ fn public_family_helpers_compile_against_stable_family_models() {
             "hello".to_string(),
             vec!["a".to_string(), "b".to_string()],
         );
-        let _ = rerank::rerank(model, request, Default::default());
+        std::mem::drop(rerank::rerank(model, request, Default::default()));
     }
 
     fn _assert_speech_surface<M: SpeechModel + ?Sized>(model: &M) {
-        let _ = speech::synthesize(
+        std::mem::drop(speech::synthesize(
             model,
             TtsRequest::new("hello".to_string()),
             Default::default(),
-        );
+        ));
     }
 
     fn _assert_transcription_surface<M: TranscriptionModel + ?Sized>(model: &M) {
-        let _ = transcription::transcribe(
+        std::mem::drop(transcription::transcribe(
             model,
             SttRequest::from_audio(Vec::new()),
             Default::default(),
-        );
+        ));
     }
 
     let _: fn(&LanguageModelHandle) = _assert_text_surface::<LanguageModelHandle>;

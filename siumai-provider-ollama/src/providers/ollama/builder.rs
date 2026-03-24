@@ -119,11 +119,11 @@ impl OllamaBuilder {
             self.ollama_params.format = Some(format);
         }
         for (key, value) in options.extra_params {
-            if key == "think" {
-                if let Some(think) = value.as_bool() {
-                    self.ollama_params.think = Some(think);
-                    continue;
-                }
+            if key == "think"
+                && let Some(think) = value.as_bool()
+            {
+                self.ollama_params.think = Some(think);
+                continue;
             }
             let mut merged = self.ollama_params.options.unwrap_or_default();
             merged.insert(key, value);

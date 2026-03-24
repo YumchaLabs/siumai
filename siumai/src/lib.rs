@@ -1102,7 +1102,11 @@ pub mod prelude {
                 feature = "ollama",
                 feature = "xai",
                 feature = "groq",
-                feature = "minimaxi"
+                feature = "minimaxi",
+                feature = "deepseek",
+                feature = "cohere",
+                feature = "togetherai",
+                feature = "bedrock"
             ))]
             pub use crate::registry::{create_registry_with_defaults, global};
         }

@@ -1,5 +1,13 @@
+#![cfg(any(
+    feature = "openai",
+    feature = "xai",
+    feature = "groq",
+    feature = "minimaxi"
+))]
+
 use siumai::Provider;
 use siumai::experimental::client::LlmClient;
+#[cfg(feature = "openai")]
 use siumai::extensions::{SpeechExtras, TranscriptionExtras};
 
 #[cfg(feature = "openai")]

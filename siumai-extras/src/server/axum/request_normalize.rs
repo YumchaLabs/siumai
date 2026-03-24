@@ -189,6 +189,7 @@ mod request_normalize_tests {
     use std::sync::Arc;
 
     use serde_json::json;
+    #[cfg(all(feature = "anthropic", feature = "openai"))]
     use siumai::experimental::bridge::ProviderToolRewriteCustomization;
     use siumai::prelude::unified::MessageRole;
 

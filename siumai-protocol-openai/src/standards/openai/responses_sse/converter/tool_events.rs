@@ -110,6 +110,7 @@ impl OpenAiResponsesEventConverter {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn openai_tool_call_event(
         &self,
         tool_call_id: &str,
@@ -133,6 +134,7 @@ impl OpenAiResponsesEventConverter {
         self.attach_event_extras(event, extras)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn openai_tool_result_event(
         &self,
         tool_call_id: &str,

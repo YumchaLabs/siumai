@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 //! Provider id constants and explicit variant parsing.
 //!
 //! Centralizing ids avoids "stringly-typed" routing scattered across multiple layers.

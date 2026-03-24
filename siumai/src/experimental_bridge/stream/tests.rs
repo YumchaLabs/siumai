@@ -1,3 +1,5 @@
+#![allow(dead_code, unused_imports)]
+
 use std::sync::Arc;
 
 use futures_util::{StreamExt, stream};

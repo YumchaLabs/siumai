@@ -5,6 +5,7 @@
 //! The canonical builtin source-of-truth lives in `config.rs`:
 //! - provider `default_model` for the primary builder/config shortcut default
 //! - explicit family defaults for embedding/image/rerank (and audio families)
+//!
 //! This module remains as the historical read API for callers that still expect
 //! `default_models::*` helpers.
 

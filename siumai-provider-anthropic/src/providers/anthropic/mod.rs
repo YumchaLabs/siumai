@@ -65,7 +65,7 @@ pub(crate) fn specific_params_from_legacy_params(
             .map(|_cc| crate::providers::anthropic::cache::CacheControl::ephemeral()),
         thinking_config: params
             .thinking_budget
-            .map(|budget| crate::providers::anthropic::thinking::ThinkingConfig::enabled(budget)),
+            .map(crate::providers::anthropic::thinking::ThinkingConfig::enabled),
         metadata: params.metadata.as_ref().map(|m| {
             let mut json_map = serde_json::Map::new();
             for (k, v) in m {

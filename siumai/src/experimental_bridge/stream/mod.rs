@@ -4,7 +4,7 @@ mod inspect;
 mod profile;
 mod serialize;
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "openai", feature = "anthropic")))]
 mod tests;
 
 pub use inspect::inspect_chat_stream_bridge;
