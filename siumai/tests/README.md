@@ -132,7 +132,8 @@ SIUMAI_ENV_SMOKE_PROFILE=all-providers SIUMAI_ENV_SMOKE_STRICT=1 ./scripts/test-
 
 Use this first when validating refactors to env wiring, request merging, or stream/non-stream reachability.
 `real_llm_integration_test.rs` is broader and more manual: it also covers reasoning, embeddings,
-model listing, and provider-specific account capability drift.
+model listing, and provider-specific account capability drift. Its runtime output now summarizes
+each provider as `ok / warn / fail / skip`; only `fail` marks a hard failure.
 
 ## Mock Testing
 

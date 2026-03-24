@@ -27,6 +27,8 @@
 //! how real providers behave across extended capabilities. Some sub-checks intentionally log
 //! warnings instead of failing hard because provider entitlements, quotas, and model availability
 //! vary significantly across accounts.
+//! The runtime output now prints per-provider `ok / warn / fail / skip` summaries so optional
+//! capability drift is visible without being confused with core regressions.
 //!
 //! These tests are ignored by default to prevent accidental API usage during normal testing.
 //!
@@ -124,6 +126,195 @@ struct ProviderTestConfig {
     reasoning_model: Option<&'static str>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LiveCheckStatus {
+    Pass,
+    Warn,
+    Fail,
+    Skip,
+}
+
+impl LiveCheckStatus {
+    const fn label(self) -> &'static str {
+        match self {
+            Self::Pass => "ok",
+            Self::Warn => "warn",
+            Self::Fail => "error",
+            Self::Skip => "skip",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct LiveCheckOutcome {
+    check: &'static str,
+    status: LiveCheckStatus,
+    detail: String,
+}
+
+impl LiveCheckOutcome {
+    fn pass(check: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            check,
+            status: LiveCheckStatus::Pass,
+            detail: detail.into(),
+        }
+    }
+
+    fn warn(check: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            check,
+            status: LiveCheckStatus::Warn,
+            detail: detail.into(),
+        }
+    }
+
+    fn fail(check: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            check,
+            status: LiveCheckStatus::Fail,
+            detail: detail.into(),
+        }
+    }
+
+    fn skip(check: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            check,
+            status: LiveCheckStatus::Skip,
+            detail: detail.into(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct ProviderRunSummary {
+    provider: &'static str,
+    outcomes: Vec<LiveCheckOutcome>,
+}
+
+impl ProviderRunSummary {
+    fn new(provider: &'static str) -> Self {
+        Self {
+            provider,
+            outcomes: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, outcome: LiveCheckOutcome) {
+        println!(
+            "    [{}] {}: {}",
+            outcome.status.label(),
+            outcome.check,
+            outcome.detail
+        );
+        self.outcomes.push(outcome);
+    }
+
+    fn counts(&self) -> (usize, usize, usize, usize) {
+        let mut passed = 0;
+        let mut warned = 0;
+        let mut failed = 0;
+        let mut skipped = 0;
+
+        for outcome in &self.outcomes {
+            match outcome.status {
+                LiveCheckStatus::Pass => passed += 1,
+                LiveCheckStatus::Warn => warned += 1,
+                LiveCheckStatus::Fail => failed += 1,
+                LiveCheckStatus::Skip => skipped += 1,
+            }
+        }
+
+        (passed, warned, failed, skipped)
+    }
+
+    fn has_failures(&self) -> bool {
+        self.outcomes
+            .iter()
+            .any(|outcome| outcome.status == LiveCheckStatus::Fail)
+    }
+
+    fn failure_summary(&self) -> String {
+        self.outcomes
+            .iter()
+            .filter(|outcome| outcome.status == LiveCheckStatus::Fail)
+            .map(|outcome| format!("{}: {}", outcome.check, outcome.detail))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    fn print_summary(&self) {
+        let (passed, warned, failed, skipped) = self.counts();
+        println!(
+            "  [summary] {} => ok: {}, warn: {}, fail: {}, skip: {}",
+            self.provider, passed, warned, failed, skipped
+        );
+    }
+}
+
+fn preview_text(text: &str) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = compact.chars();
+    let preview: String = chars.by_ref().take(96).collect();
+
+    if chars.next().is_some() {
+        format!("{preview}...")
+    } else {
+        preview
+    }
+}
+
+fn response_reasoning_chars(response: &ChatResponse) -> usize {
+    response.reasoning().iter().map(|chunk| chunk.len()).sum()
+}
+
+fn assert_provider_summary_clean(summary: &ProviderRunSummary) {
+    summary.print_summary();
+    assert!(
+        !summary.has_failures(),
+        "{} live suite failed: {}",
+        summary.provider,
+        summary.failure_summary()
+    );
+}
+
+fn print_manual_suite_summary(
+    title: &str,
+    summaries: &[ProviderRunSummary],
+    skipped_providers: &[&'static str],
+) {
+    let mut passed = 0;
+    let mut warned = 0;
+    let mut failed = 0;
+    let mut skipped = 0;
+
+    for summary in summaries {
+        let (provider_passed, provider_warned, provider_failed, provider_skipped) =
+            summary.counts();
+        passed += provider_passed;
+        warned += provider_warned;
+        failed += provider_failed;
+        skipped += provider_skipped;
+    }
+
+    println!("\n[info] {} summary:", title);
+    println!("   Providers checked: {}", summaries.len());
+    println!("   Provider env-skips: {:?}", skipped_providers);
+    println!("   Check totals => ok: {passed}, warn: {warned}, fail: {failed}, skip: {skipped}");
+}
+
+async fn probe_ollama(base_url: &str) -> Result<(), String> {
+    match reqwest::Client::new()
+        .get(format!("{}/api/tags", base_url))
+        .send()
+        .await
+    {
+        Ok(response) if response.status().is_success() => Ok(()),
+        Ok(response) => Err(format!("HTTP {}", response.status())),
+        Err(err) => Err(err.to_string()),
+    }
+}
+
 /// Get all provider configurations
 fn get_provider_configs() -> Vec<ProviderTestConfig> {
     vec![
@@ -205,7 +396,9 @@ fn is_provider_available(config: &ProviderTestConfig) -> bool {
 }
 
 /// Generic provider integration test
-async fn test_provider_integration(config: &ProviderTestConfig) {
+async fn test_provider_integration(config: &ProviderTestConfig) -> ProviderRunSummary {
+    let mut summary = ProviderRunSummary::new(config.name);
+
     match config.name {
         "OpenAI" => {
             let api_key = env::var(config.api_key_env).unwrap();
@@ -214,31 +407,50 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
                 .api_key(api_key)
                 .model(config.default_model);
 
-            // Only set base URL if environment variable exists
             if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
                 builder = builder.base_url(base_url);
             }
 
-            let client = builder
-                .build()
-                .await
-                .expect("Failed to build OpenAI client");
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            let client = match builder.build().await {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("OpenAI client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
+
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
+
             if config.supports_embedding {
-                // Create a separate client with embedding model for OpenAI
-                let embedding_client = Siumai::builder()
+                let mut embedding_builder = Siumai::builder()
                     .openai()
                     .api_key(env::var(config.api_key_env).unwrap())
-                    .model("text-embedding-3-small")
-                    .build()
-                    .await
-                    .expect("Failed to build OpenAI embedding client");
-                test_embedding(&embedding_client, config.name).await;
+                    .model("text-embedding-3-small");
+                if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
+                    embedding_builder = embedding_builder.base_url(base_url);
+                }
+                match embedding_builder.build().await {
+                    Ok(embedding_client) => {
+                        summary.push(test_embedding(&embedding_client, config.name).await)
+                    }
+                    Err(err) => summary.push(LiveCheckOutcome::warn(
+                        "embedding",
+                        format!("OpenAI embedding client build failed: {err}"),
+                    )),
+                }
             }
+
             if config.supports_reasoning && config.reasoning_model.is_some() {
-                test_reasoning_openai(config).await;
+                summary.push(test_reasoning_openai(config).await);
             }
         }
         "Anthropic" => {
@@ -248,162 +460,280 @@ async fn test_provider_integration(config: &ProviderTestConfig) {
                 .api_key(api_key)
                 .model(config.default_model);
 
-            // Only set base URL if environment variable exists
             if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
                 builder = builder.base_url(base_url);
             }
 
-            let client = builder
-                .build()
-                .await
-                .expect("Failed to build Anthropic client");
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            let client = match builder.build().await {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("Anthropic client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
+
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
+
             if config.supports_reasoning && config.reasoning_model.is_some() {
-                test_reasoning_anthropic(config).await;
+                summary.push(test_reasoning_anthropic(config).await);
             }
         }
         "Gemini" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = Siumai::builder()
+            let client = match Siumai::builder()
                 .gemini()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
                 .await
-                .expect("Failed to build Gemini client");
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("Gemini client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
 
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
+
             if config.supports_embedding {
-                // Create a separate client with embedding model for Gemini
-                let embedding_client = Siumai::builder()
+                match Siumai::builder()
                     .gemini()
                     .api_key(env::var(config.api_key_env).unwrap())
                     .model("text-embedding-004")
                     .build()
                     .await
-                    .expect("Failed to build Gemini embedding client");
-                test_embedding(&embedding_client, config.name).await;
+                {
+                    Ok(embedding_client) => {
+                        summary.push(test_embedding(&embedding_client, config.name).await)
+                    }
+                    Err(err) => summary.push(LiveCheckOutcome::warn(
+                        "embedding",
+                        format!("Gemini embedding client build failed: {err}"),
+                    )),
+                }
             }
+
             if config.supports_reasoning && config.reasoning_model.is_some() {
-                test_reasoning_gemini(config).await;
+                summary.push(test_reasoning_gemini(config).await);
             }
         }
         "DeepSeek" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = Siumai::builder()
+            let client = match Siumai::builder()
                 .openai()
                 .deepseek()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
                 .await
-                .expect("Failed to build DeepSeek client");
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("DeepSeek client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
 
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
+
             if config.supports_reasoning && config.reasoning_model.is_some() {
-                test_reasoning_deepseek(config).await;
+                summary.push(test_reasoning_deepseek(config).await);
             }
         }
         "OpenRouter" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = Siumai::builder()
+            let client = match Siumai::builder()
                 .openai()
                 .openrouter()
                 .api_key(api_key)
                 .model(config.default_model)
-                // Cap tokens to avoid provider-specific context errors
                 .max_tokens(1024)
                 .build()
                 .await
-                .expect("Failed to build OpenRouter client");
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("OpenRouter client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
 
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
+
             if config.supports_reasoning && config.reasoning_model.is_some() {
-                test_reasoning_openrouter(config).await;
+                summary.push(test_reasoning_openrouter(config).await);
             }
         }
         "Groq" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = Siumai::builder()
+            let client = match Siumai::builder()
                 .groq()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
                 .await
-                .expect("Failed to build Groq client");
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("Groq client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
 
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
         }
         "xAI" => {
             let api_key = env::var(config.api_key_env).unwrap();
-            let client = Siumai::builder()
+            let client = match Siumai::builder()
                 .xai()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
                 .await
-                .expect("Failed to build xAI client");
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("xAI client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
 
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
+
             if config.supports_reasoning && config.reasoning_model.is_some() {
-                test_reasoning_xai(config).await;
+                summary.push(test_reasoning_xai(config).await);
             }
         }
         "Ollama" => {
             let base_url = env::var(config.api_key_env)
                 .unwrap_or_else(|_| "http://localhost:11434".to_string());
 
-            let client = Siumai::builder()
+            if let Err(err) = probe_ollama(&base_url).await {
+                summary.push(LiveCheckOutcome::skip(
+                    "availability",
+                    format!("Ollama not reachable at {base_url}: {err}"),
+                ));
+                return summary;
+            }
+
+            let client = match Siumai::builder()
                 .ollama()
                 .base_url(&base_url)
                 .model(config.default_model)
                 .build()
                 .await
-                .expect("Failed to build Ollama client");
+            {
+                Ok(client) => client,
+                Err(err) => {
+                    summary.push(LiveCheckOutcome::fail(
+                        "build",
+                        format!("Ollama client build failed: {err}"),
+                    ));
+                    return summary;
+                }
+            };
 
-            test_non_streaming_chat(&client, config.name).await;
-            test_streaming_chat(&client, config.name).await;
-            test_model_listing(&client, config.name).await;
+            summary.push(LiveCheckOutcome::pass(
+                "build",
+                format!("model={} base_url={base_url}", config.default_model),
+            ));
+            summary.push(test_non_streaming_chat(&client, config.name).await);
+            summary.push(test_streaming_chat(&client, config.name).await);
+            summary.push(test_model_listing(&client, config.name).await);
 
             if config.supports_embedding {
-                // Create a separate client with embedding model for Ollama
-                let embedding_client = Siumai::builder()
+                match Siumai::builder()
                     .ollama()
                     .base_url(&base_url)
-                    .model("nomic-embed-text") // Common Ollama embedding model
+                    .model("nomic-embed-text")
                     .build()
                     .await
-                    .expect("Failed to build Ollama embedding client");
-                test_embedding(&embedding_client, config.name).await;
+                {
+                    Ok(embedding_client) => {
+                        summary.push(test_embedding(&embedding_client, config.name).await)
+                    }
+                    Err(err) => summary.push(LiveCheckOutcome::warn(
+                        "embedding",
+                        format!("Ollama embedding client build failed: {err}"),
+                    )),
+                }
             }
 
             if config.supports_reasoning && config.reasoning_model.is_some() {
-                test_reasoning_ollama(config).await;
+                summary.push(test_reasoning_ollama(config).await);
             }
         }
-        _ => println!("[warn] Unknown provider: {}", config.name),
+        _ => {
+            summary.push(LiveCheckOutcome::fail(
+                "provider",
+                format!("Unknown provider: {}", config.name),
+            ));
+        }
     }
+
+    summary
 }
 
 /// Test non-streaming chat functionality
-async fn test_non_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str) {
-    println!(
-        "  [info] Testing non-streaming chat for {}...",
-        provider_name
-    );
-
+async fn test_non_streaming_chat<T: ChatCapability>(
+    client: &T,
+    provider_name: &str,
+) -> LiveCheckOutcome {
     let messages = vec![
         system!("You are a helpful assistant. Keep responses brief."),
         user!("What is 2+2? Answer with just the number."),
@@ -411,30 +741,38 @@ async fn test_non_streaming_chat<T: ChatCapability>(client: &T, provider_name: &
 
     match client.chat(messages).await {
         Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(!content.is_empty(), "Response should not be empty");
-            println!("    [ok] Non-streaming chat successful: {}", content.trim());
-
-            // Check usage statistics if available
-            if let Some(usage) = response.usage {
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+            let content = response.content_text().unwrap_or_default().to_string();
+            if content.trim().is_empty() {
+                return LiveCheckOutcome::fail(
+                    "chat.non_stream",
+                    format!("{provider_name} returned empty response content"),
                 );
             }
+
+            let detail = if let Some(usage) = response.usage {
+                format!(
+                    "content='{}' total_tokens={}",
+                    preview_text(content.trim()),
+                    usage.total_tokens
+                )
+            } else {
+                format!("content='{}'", preview_text(content.trim()))
+            };
+
+            LiveCheckOutcome::pass("chat.non_stream", detail)
         }
-        Err(e) => {
-            println!("    [warn] Non-streaming chat failed: {}", e);
-            println!("    [note] Note: This may indicate API key issues or model unavailability");
-            // Skip remaining tests for this provider
-        }
+        Err(e) => LiveCheckOutcome::warn(
+            "chat.non_stream",
+            format!("{provider_name} request failed: {e}"),
+        ),
     }
 }
 
 /// Test streaming chat functionality
-async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str) {
-    println!("  [info] Testing streaming chat for {}...", provider_name);
-
+async fn test_streaming_chat<T: ChatCapability>(
+    client: &T,
+    provider_name: &str,
+) -> LiveCheckOutcome {
     let messages = vec![
         system!("You are a helpful assistant. Keep responses brief."),
         user!("Count from 1 to 5, one number per line."),
@@ -444,6 +782,9 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
         Ok(mut stream) => {
             let mut content_chunks = Vec::new();
             let mut thinking_chunks = Vec::new();
+            let mut final_content = String::new();
+            let mut saw_stream_end = false;
+            let mut total_tokens = None;
 
             while let Some(event_result) = stream.next().await {
                 match event_result {
@@ -455,73 +796,73 @@ async fn test_streaming_chat<T: ChatCapability>(client: &T, provider_name: &str)
                             thinking_chunks.push(delta);
                         }
                         ChatStreamEvent::StreamEnd { response } => {
-                            let final_content = response.content_text().unwrap_or_default();
-
-                            println!("    [ok] Streaming chat successful");
-                            if !final_content.is_empty() {
-                                println!("    [info] Final content: {}", final_content.trim());
-                            } else {
-                                // For streaming, content might be accumulated in chunks
-                                let accumulated_content: String = content_chunks.join("");
-                                if !accumulated_content.is_empty() {
-                                    println!(
-                                        "    [info] Accumulated content: {}",
-                                        accumulated_content.trim()
-                                    );
-                                }
-                            }
-
-                            if !thinking_chunks.is_empty() {
-                                let thinking_content: String = thinking_chunks.join("");
-                                println!(
-                                    "    [info] Thinking content length: {} chars",
-                                    thinking_content.len()
-                                );
-                            }
-
-                            if let Some(usage) = response.usage {
-                                println!(
-                                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                                    usage.prompt_tokens,
-                                    usage.completion_tokens,
-                                    usage.total_tokens
-                                );
-                            }
+                            final_content = response.content_text().unwrap_or_default().to_string();
+                            total_tokens = response.usage.map(|usage| usage.total_tokens);
+                            saw_stream_end = true;
                             break;
                         }
                         ChatStreamEvent::Error { error } => {
-                            println!("    [error] Stream error: {}", error);
-                            panic!("Streaming chat error for {}: {}", provider_name, error);
+                            return LiveCheckOutcome::fail(
+                                "chat.stream",
+                                format!("{provider_name} stream error: {error}"),
+                            );
                         }
                         _ => {
                             // Handle other events like tool calls, etc.
                         }
                     },
                     Err(e) => {
-                        println!("    [error] Stream error: {}", e);
-                        panic!("Streaming chat error for {}: {}", provider_name, e);
+                        return LiveCheckOutcome::fail(
+                            "chat.stream",
+                            format!("{provider_name} stream transport error: {e}"),
+                        );
                     }
                 }
             }
 
-            let total_content: String = content_chunks.join("");
-            assert!(
-                !total_content.is_empty(),
-                "Streamed content should not be empty"
-            );
+            if !saw_stream_end {
+                return LiveCheckOutcome::fail(
+                    "chat.stream",
+                    format!("{provider_name} stream ended without StreamEnd"),
+                );
+            }
+
+            let streamed_content = if final_content.trim().is_empty() {
+                content_chunks.join("")
+            } else {
+                final_content
+            };
+
+            if streamed_content.trim().is_empty() {
+                return LiveCheckOutcome::fail(
+                    "chat.stream",
+                    format!("{provider_name} stream produced empty content"),
+                );
+            }
+
+            let thinking_chars: usize = thinking_chunks.iter().map(|chunk| chunk.len()).sum();
+            let mut detail = format!("content='{}'", preview_text(streamed_content.trim()));
+            if thinking_chars > 0 {
+                detail.push_str(&format!(" thinking_chars={thinking_chars}"));
+            }
+            if let Some(total_tokens) = total_tokens {
+                detail.push_str(&format!(" total_tokens={total_tokens}"));
+            }
+
+            LiveCheckOutcome::pass("chat.stream", detail)
         }
-        Err(e) => {
-            println!("    [warn] Streaming chat failed: {}", e);
-            println!("    [note] Note: This may indicate API key issues or model unavailability");
-            // Skip remaining tests for this provider
-        }
+        Err(e) => LiveCheckOutcome::warn(
+            "chat.stream",
+            format!("{provider_name} stream setup failed: {e}"),
+        ),
     }
 }
 
 /// Test embedding functionality
-async fn test_embedding<T: EmbeddingCapability>(client: &T, provider_name: &str) {
-    println!("  [info] Testing embedding for {}...", provider_name);
-
+async fn test_embedding<T: EmbeddingCapability>(
+    client: &T,
+    provider_name: &str,
+) -> LiveCheckOutcome {
     let texts = vec![
         "Hello world".to_string(),
         "Artificial intelligence".to_string(),
@@ -529,37 +870,92 @@ async fn test_embedding<T: EmbeddingCapability>(client: &T, provider_name: &str)
 
     match client.embed(texts.clone()).await {
         Ok(response) => {
-            assert_eq!(
-                response.embeddings.len(),
-                texts.len(),
-                "Should have embedding for each text"
-            );
-
-            for (i, embedding) in response.embeddings.iter().enumerate() {
-                assert!(!embedding.is_empty(), "Embedding {} should not be empty", i);
+            if response.embeddings.len() != texts.len() {
+                return LiveCheckOutcome::fail(
+                    "embedding",
+                    format!(
+                        "{provider_name} returned {} embeddings for {} texts",
+                        response.embeddings.len(),
+                        texts.len()
+                    ),
+                );
             }
 
-            println!(
-                "    [ok] Embedding successful: {} embeddings with {} dimensions",
-                response.embeddings.len(),
-                response.embeddings[0].len()
-            );
-
-            if let Some(usage) = response.usage {
-                println!("    [info] Usage: {} total tokens", usage.total_tokens);
+            let dimension = response
+                .embeddings
+                .first()
+                .map(|embedding| embedding.len())
+                .unwrap_or(0);
+            if dimension == 0
+                || response
+                    .embeddings
+                    .iter()
+                    .any(|embedding| embedding.is_empty())
+            {
+                return LiveCheckOutcome::fail(
+                    "embedding",
+                    format!("{provider_name} returned empty embedding vectors"),
+                );
             }
+
+            let detail = if let Some(usage) = response.usage {
+                format!(
+                    "vectors={} dimensions={} total_tokens={}",
+                    response.embeddings.len(),
+                    dimension,
+                    usage.total_tokens
+                )
+            } else {
+                format!(
+                    "vectors={} dimensions={}",
+                    response.embeddings.len(),
+                    dimension
+                )
+            };
+
+            LiveCheckOutcome::pass("embedding", detail)
         }
-        Err(e) => {
-            println!("    [warn] Embedding failed (this may be expected): {}", e);
-            println!("    [note] Note: Some API keys may not have embedding permissions");
-        }
+        Err(e) => LiveCheckOutcome::warn(
+            "embedding",
+            format!("{provider_name} embedding unavailable: {e}"),
+        ),
     }
 }
 
-/// Test OpenAI reasoning functionality (o1 models)
-async fn test_reasoning_openai(config: &ProviderTestConfig) {
-    println!("  [info] Testing OpenAI reasoning for {}...", config.name);
+fn reasoning_pass_outcome(model: &str, response: ChatResponse) -> LiveCheckOutcome {
+    let content = response.content_text().unwrap_or_default().to_string();
+    if content.trim().is_empty() {
+        return LiveCheckOutcome::fail(
+            "reasoning",
+            format!("model={model} returned empty reasoning content"),
+        );
+    }
 
+    let reasoning_chars = response_reasoning_chars(&response);
+    let mut detail = format!("model={model} content='{}'", preview_text(content.trim()));
+    if reasoning_chars > 0 {
+        detail.push_str(&format!(" reasoning_chars={reasoning_chars}"));
+    }
+    if let Some(usage) = response.usage {
+        detail.push_str(&format!(" total_tokens={}", usage.total_tokens));
+    }
+
+    LiveCheckOutcome::pass("reasoning", detail)
+}
+
+fn reasoning_warn_outcome(
+    provider_name: &str,
+    model: &str,
+    err: impl std::fmt::Display,
+) -> LiveCheckOutcome {
+    LiveCheckOutcome::warn(
+        "reasoning",
+        format!("{provider_name} reasoning unavailable for model {model}: {err}"),
+    )
+}
+
+/// Test OpenAI reasoning functionality (o1 models)
+async fn test_reasoning_openai(config: &ProviderTestConfig) -> LiveCheckOutcome {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
@@ -576,53 +972,21 @@ async fn test_reasoning_openai(config: &ProviderTestConfig) {
         builder = builder.base_url(base_url);
     }
 
-    let client = builder
-        .build()
-        .await
-        .expect("Failed to build OpenAI reasoning client");
+    let client = match builder.build().await {
+        Ok(client) => client,
+        Err(err) => return reasoning_warn_outcome(config.name, reasoning_model, err),
+    };
 
     let messages = vec![user!("What is 3 + 5? Show your work.")];
 
     match client.chat(messages).await {
-        Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(
-                !content.is_empty(),
-                "Reasoning response should not be empty"
-            );
-
-            println!("    [ok] OpenAI reasoning successful");
-            println!("    [info] Response: {}", content.trim());
-
-            // Check for reasoning tokens in usage
-            if let Some(usage) = response.usage {
-                if let Some(reasoning_tokens) = usage
-                    .completion_tokens_details
-                    .as_ref()
-                    .and_then(|d| d.reasoning_tokens)
-                {
-                    println!("    [info] Reasoning tokens: {}", reasoning_tokens);
-                }
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                );
-            }
-        }
-        Err(e) => {
-            println!(
-                "    [warn] OpenAI reasoning failed (this may be expected): {}",
-                e
-            );
-            println!("    [note] Note: o1 models may not be available for all API keys");
-        }
+        Ok(response) => reasoning_pass_outcome(reasoning_model, response),
+        Err(err) => reasoning_warn_outcome(config.name, reasoning_model, err),
     }
 }
 
 /// Test Anthropic thinking functionality
-async fn test_reasoning_anthropic(config: &ProviderTestConfig) {
-    println!("  [info] Testing Anthropic thinking for {}...", config.name);
-
+async fn test_reasoning_anthropic(config: &ProviderTestConfig) -> LiveCheckOutcome {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
@@ -637,174 +1001,75 @@ async fn test_reasoning_anthropic(config: &ProviderTestConfig) {
         builder = builder.base_url(base_url);
     }
 
-    let client = builder
-        .build()
-        .await
-        .expect("Failed to build Anthropic thinking client");
+    let client = match builder.build().await {
+        Ok(client) => client,
+        Err(err) => return reasoning_warn_outcome(config.name, reasoning_model, err),
+    };
 
     let messages = vec![user!("What is 4  3? Think step by step.")];
 
     match client.chat(messages).await {
-        Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(!content.is_empty(), "Thinking response should not be empty");
-
-            println!("    [ok] Anthropic thinking successful");
-            println!("    [info] Response: {}", content.trim());
-
-            // Check for thinking content
-            let reasoning = response.reasoning();
-            if !reasoning.is_empty() {
-                println!(
-                    "    [info] Thinking content length: {} chars",
-                    reasoning[0].len()
-                );
-            }
-
-            if let Some(usage) = response.usage {
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                );
-            }
-        }
-        Err(e) => {
-            println!(
-                "    [warn] Anthropic thinking failed (this may be expected): {}",
-                e
-            );
-            println!("    [note] Note: Thinking feature may not be available for all models/keys");
-        }
+        Ok(response) => reasoning_pass_outcome(reasoning_model, response),
+        Err(err) => reasoning_warn_outcome(config.name, reasoning_model, err),
     }
 }
 
 /// Test Gemini thinking functionality
-async fn test_reasoning_gemini(config: &ProviderTestConfig) {
-    println!("   Testing Gemini thinking for {}...", config.name);
-
+async fn test_reasoning_gemini(config: &ProviderTestConfig) -> LiveCheckOutcome {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    println!("     Using model: {}", reasoning_model);
-
-    let client = Siumai::builder()
+    let client = match Siumai::builder()
         .gemini()
         .api_key(api_key)
         .model(reasoning_model)
         .reasoning_budget(-1) // Dynamic thinking (automatically enables thought summaries)
         .build()
         .await
-        .expect("Failed to build Gemini thinking client");
+    {
+        Ok(client) => client,
+        Err(err) => return reasoning_warn_outcome(config.name, reasoning_model, err),
+    };
 
     let messages = vec![user!("What is 10  2? Show your reasoning.")];
 
     match client.chat(messages).await {
-        Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(
-                !content.is_empty(),
-                "Gemini thinking response should not be empty"
-            );
-
-            println!("    [ok] Gemini thinking successful");
-            println!("    [info] Response: {}", content.trim());
-
-            // Check for thinking content
-            let reasoning = response.reasoning();
-            if !reasoning.is_empty() {
-                println!("     Thinking content length: {} chars", reasoning[0].len());
-            } else {
-                println!(
-                    "     No thinking content returned (this may be normal for simple questions)"
-                );
-            }
-
-            if let Some(usage) = response.usage {
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                );
-            }
-        }
-        Err(e) => {
-            println!(
-                "    [warn] Gemini thinking failed (this may be expected): {}",
-                e
-            );
-            println!("    [note] Note: Thinking feature may not be available for all models");
-            println!(
-                "    [note] Suggestion: Check if your API key has access to Gemini 2.5 models"
-            );
-            println!(
-                "    [note] Try running: curl \"https://generativelanguage.googleapis.com/v1beta/models?key=$GEMINI_API_KEY\""
-            );
-        }
+        Ok(response) => reasoning_pass_outcome(reasoning_model, response),
+        Err(err) => reasoning_warn_outcome(config.name, reasoning_model, err),
     }
 }
 
 /// Test DeepSeek reasoning functionality
-async fn test_reasoning_deepseek(config: &ProviderTestConfig) {
-    println!("   Testing DeepSeek reasoning for {}...", config.name);
-
+async fn test_reasoning_deepseek(config: &ProviderTestConfig) -> LiveCheckOutcome {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = Siumai::builder()
+    let client = match Siumai::builder()
         .openai()
         .deepseek()
         .api_key(api_key)
         .model(reasoning_model)
         .build()
         .await
-        .expect("Failed to build DeepSeek reasoning client");
+    {
+        Ok(client) => client,
+        Err(err) => return reasoning_warn_outcome(config.name, reasoning_model, err),
+    };
 
     let messages = vec![user!("What is 7 - 3? Explain briefly.")];
 
     match client.chat(messages).await {
-        Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(
-                !content.is_empty(),
-                "DeepSeek reasoning response should not be empty"
-            );
-
-            println!("    [ok] DeepSeek reasoning successful");
-            println!("    [info] Response: {}", content.trim());
-
-            // Check for reasoning content
-            let reasoning = response.reasoning();
-            if !reasoning.is_empty() {
-                println!(
-                    "     Reasoning content length: {} chars",
-                    reasoning[0].len()
-                );
-            }
-
-            if let Some(usage) = response.usage {
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                );
-            }
-        }
-        Err(e) => {
-            println!(
-                "    [warn] DeepSeek reasoning failed (this may be expected): {}",
-                e
-            );
-            println!("    [note] Note: Reasoner models may not be available for all API keys");
-        }
+        Ok(response) => reasoning_pass_outcome(reasoning_model, response),
+        Err(err) => reasoning_warn_outcome(config.name, reasoning_model, err),
     }
 }
 
 /// Test OpenRouter reasoning functionality (using o1 models)
-async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
-    println!("   Testing OpenRouter reasoning for {}...", config.name);
-
+async fn test_reasoning_openrouter(config: &ProviderTestConfig) -> LiveCheckOutcome {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = Siumai::builder()
+    let client = match Siumai::builder()
         .openai()
         .openrouter()
         .api_key(api_key)
@@ -813,243 +1078,124 @@ async fn test_reasoning_openrouter(config: &ProviderTestConfig) {
         .max_tokens(1024)
         .build()
         .await
-        .expect("Failed to build OpenRouter reasoning client");
+    {
+        Ok(client) => client,
+        Err(err) => return reasoning_warn_outcome(config.name, reasoning_model, err),
+    };
 
     let messages = vec![user!("What is 6 + 4? Explain your answer.")];
 
     match client.chat(messages).await {
-        Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(
-                !content.is_empty(),
-                "OpenRouter reasoning response should not be empty"
-            );
-
-            println!("    [ok] OpenRouter reasoning successful");
-            println!("    [info] Response: {}", content.trim());
-
-            // Check for reasoning tokens (if using o1 models through OpenRouter)
-            if let Some(usage) = response.usage {
-                if let Some(reasoning_tokens) = usage
-                    .completion_tokens_details
-                    .as_ref()
-                    .and_then(|d| d.reasoning_tokens)
-                {
-                    println!("    [info] Reasoning tokens: {}", reasoning_tokens);
-                }
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                );
-            }
-        }
-        Err(e) => {
-            println!(
-                "    [warn] OpenRouter reasoning failed (this may be expected): {}",
-                e
-            );
-            println!(
-                "    [note] Note: o1 models may not be available through OpenRouter for all keys"
-            );
-        }
+        Ok(response) => reasoning_pass_outcome(reasoning_model, response),
+        Err(err) => reasoning_warn_outcome(config.name, reasoning_model, err),
     }
 }
 
 /// Test xAI reasoning functionality
-async fn test_reasoning_xai(config: &ProviderTestConfig) {
-    println!("   Testing xAI reasoning for {}...", config.name);
-
+async fn test_reasoning_xai(config: &ProviderTestConfig) -> LiveCheckOutcome {
     let api_key = env::var(config.api_key_env).unwrap();
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = Siumai::builder()
+    let client = match Siumai::builder()
         .xai()
         .api_key(api_key)
         .model(reasoning_model)
         .build()
         .await
-        .expect("Failed to build xAI reasoning client");
+    {
+        Ok(client) => client,
+        Err(err) => return reasoning_warn_outcome(config.name, reasoning_model, err),
+    };
 
     let messages = vec![user!("What is 8 - 5? Think about it step by step.")];
 
     match client.chat(messages).await {
-        Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(
-                !content.is_empty(),
-                "xAI reasoning response should not be empty"
-            );
-
-            println!("    [ok] xAI reasoning successful");
-            println!("    [info] Response: {}", content.trim());
-
-            // Check for reasoning content
-            let reasoning = response.reasoning();
-            if !reasoning.is_empty() {
-                println!(
-                    "     Reasoning content length: {} chars",
-                    reasoning[0].len()
-                );
-            }
-
-            if let Some(usage) = response.usage {
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                );
-            }
-        }
-        Err(e) => {
-            println!(
-                "    [warn] xAI reasoning failed (this may be expected): {}",
-                e
-            );
-            println!("    [note] Note: Grok models may not be available for all API keys");
-        }
+        Ok(response) => reasoning_pass_outcome(reasoning_model, response),
+        Err(err) => reasoning_warn_outcome(config.name, reasoning_model, err),
     }
 }
 
 /// Test Ollama reasoning functionality
-async fn test_reasoning_ollama(config: &ProviderTestConfig) {
-    println!("   Testing Ollama reasoning for {}...", config.name);
-
+async fn test_reasoning_ollama(config: &ProviderTestConfig) -> LiveCheckOutcome {
     let base_url =
         env::var(config.api_key_env).unwrap_or_else(|_| "http://localhost:11434".to_string());
     let reasoning_model = config.reasoning_model.unwrap();
 
-    let client = Siumai::builder()
+    let client = match Siumai::builder()
         .ollama()
         .base_url(&base_url)
         .model(reasoning_model)
         .reasoning(true) // Enable reasoning mode
         .build()
         .await
-        .expect("Failed to build Ollama reasoning client");
+    {
+        Ok(client) => client,
+        Err(err) => return reasoning_warn_outcome(config.name, reasoning_model, err),
+    };
 
     let messages = vec![user!("What is 2+2? Think step by step.")];
 
     match client.chat(messages).await {
-        Ok(response) => {
-            let content = response.content_text().unwrap_or_default();
-            assert!(
-                !content.is_empty(),
-                "Ollama reasoning response should not be empty"
-            );
-
-            println!("    [ok] Ollama reasoning successful");
-            println!("    [info] Response: {}", content.trim());
-
-            // Check for thinking content
-            let reasoning = response.reasoning();
-            if !reasoning.is_empty() {
-                println!(
-                    "    [info] Thinking content length: {} chars",
-                    reasoning[0].len()
-                );
-            }
-
-            if let Some(usage) = response.usage {
-                println!(
-                    "    [info] Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
-                );
-            }
-        }
-        Err(e) => {
-            println!(
-                "    [warn] Ollama reasoning failed (this may be expected): {}",
-                e
-            );
-            println!(
-                "    [note] Note: Make sure Ollama is running and the reasoning model is available"
-            );
-            println!("    [note] Try: ollama pull {}", reasoning_model);
-        }
+        Ok(response) => reasoning_pass_outcome(reasoning_model, response),
+        Err(err) => reasoning_warn_outcome(config.name, reasoning_model, err),
     }
 }
 
 /// Test model listing capability
-async fn test_model_listing<T>(client: &T, provider_name: &str)
+async fn test_model_listing<T>(client: &T, provider_name: &str) -> LiveCheckOutcome
 where
     T: ModelListingCapability + Send + Sync,
 {
-    println!("   Testing model listing for {}...", provider_name);
-
     // Test list_models
     match client.list_models().await {
         Ok(models) => {
-            println!("    [ok] Successfully listed {} models", models.len());
-
-            if !models.is_empty() {
-                println!("     Available models:");
-                for (i, model) in models.iter().take(5).enumerate() {
-                    let name = model.name.as_ref().unwrap_or(&model.id);
-                    let capabilities = if model.capabilities.is_empty() {
-                        "none specified".to_string()
-                    } else {
-                        model.capabilities.join(", ")
-                    };
-                    println!("      {}. {} - capabilities: {}", i + 1, name, capabilities);
-
-                    if let Some(context_window) = model.context_window {
-                        println!("         Context window: {} tokens", context_window);
-                    }
-                    if let Some(max_output) = model.max_output_tokens {
-                        println!("         Max output: {} tokens", max_output);
-                    }
-                }
-
-                if models.len() > 5 {
-                    println!("      ... and {} more models", models.len() - 5);
-                }
-
-                // Test get_model with the first model
-                let first_model_id = &models[0].id;
-                println!("     Testing get_model with '{}'...", first_model_id);
-
-                match client.get_model(first_model_id.clone()).await {
-                    Ok(model_info) => {
-                        println!("    [ok] Successfully retrieved model info");
-                        println!("       ID: {}", model_info.id);
-                        if let Some(name) = &model_info.name {
-                            println!("       Name: {}", name);
-                        }
-                        if !model_info.owned_by.is_empty() {
-                            println!("       Owner: {}", model_info.owned_by);
-                        }
-                        if !model_info.capabilities.is_empty() {
-                            println!(
-                                "       Capabilities: {}",
-                                model_info.capabilities.join(", ")
-                            );
-                        }
-                    }
-                    Err(e) => {
-                        println!("    [warn] Failed to get model info: {}", e);
-                    }
-                }
-            } else {
-                println!(
-                    "    [warn] No models returned (this might be expected for some providers)"
+            if models.is_empty() {
+                return LiveCheckOutcome::warn(
+                    "models",
+                    format!("{provider_name} returned zero models"),
                 );
             }
+
+            let first_model_id = models[0].id.clone();
+            match client.get_model(first_model_id.clone()).await {
+                Ok(model_info) => {
+                    let sample_name = model_info.name.unwrap_or_else(|| model_info.id.clone());
+                    let detail = format!(
+                        "listed={} sample='{}' capabilities={}",
+                        models.len(),
+                        sample_name,
+                        if model_info.capabilities.is_empty() {
+                            "none".to_string()
+                        } else {
+                            model_info.capabilities.join(", ")
+                        }
+                    );
+                    LiveCheckOutcome::pass("models", detail)
+                }
+                Err(e) => LiveCheckOutcome::warn(
+                    "models",
+                    format!(
+                        "{provider_name} listed {} models but get_model('{}') failed: {e}",
+                        models.len(),
+                        first_model_id
+                    ),
+                ),
+            }
         }
-        Err(e) => {
-            println!("    [warn] Failed to list models: {}", e);
-            println!(
-                "    [note] This might be expected if the provider doesn't support model listing"
-            );
-        }
+        Err(e) => LiveCheckOutcome::warn(
+            "models",
+            format!("{provider_name} model listing unavailable: {e}"),
+        ),
     }
 }
 
 /// Test model listing for a specific provider
-async fn test_provider_model_listing(
-    config: &ProviderTestConfig,
-) -> Result<(), Box<dyn std::error::Error>> {
+async fn test_provider_model_listing(config: &ProviderTestConfig) -> ProviderRunSummary {
+    let mut summary = ProviderRunSummary::new(config.name);
+
     match config.name {
         "OpenAI" => {
-            let api_key = env::var(config.api_key_env)?;
+            let api_key = env::var(config.api_key_env).unwrap();
             let mut builder = Siumai::builder()
                 .openai()
                 .api_key(api_key)
@@ -1059,11 +1205,22 @@ async fn test_provider_model_listing(
                 builder = builder.base_url(base_url);
             }
 
-            let client = builder.build().await?;
-            test_model_listing(&client, config.name).await;
+            match builder.build().await {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("OpenAI client build failed: {err}"),
+                )),
+            }
         }
         "Anthropic" => {
-            let api_key = env::var(config.api_key_env)?;
+            let api_key = env::var(config.api_key_env).unwrap();
             let mut builder = Siumai::builder()
                 .anthropic()
                 .api_key(api_key)
@@ -1073,419 +1230,240 @@ async fn test_provider_model_listing(
                 builder = builder.base_url(base_url);
             }
 
-            let client = builder.build().await?;
-            test_model_listing(&client, config.name).await;
+            match builder.build().await {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("Anthropic client build failed: {err}"),
+                )),
+            }
         }
         "Gemini" => {
-            let api_key = env::var(config.api_key_env)?;
-            let client = Siumai::builder()
+            let api_key = env::var(config.api_key_env).unwrap();
+            match Siumai::builder()
                 .gemini()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
-                .await?;
-            test_model_listing(&client, config.name).await;
+                .await
+            {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("Gemini client build failed: {err}"),
+                )),
+            }
         }
         "DeepSeek" => {
-            let api_key = env::var(config.api_key_env)?;
-            let client = Siumai::builder()
+            let api_key = env::var(config.api_key_env).unwrap();
+            match Siumai::builder()
                 .openai()
                 .deepseek()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
-                .await?;
-            test_model_listing(&client, config.name).await;
+                .await
+            {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("DeepSeek client build failed: {err}"),
+                )),
+            }
         }
         "OpenRouter" => {
-            let api_key = env::var(config.api_key_env)?;
-            let client = Siumai::builder()
+            let api_key = env::var(config.api_key_env).unwrap();
+            match Siumai::builder()
                 .openai()
                 .openrouter()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
-                .await?;
-            test_model_listing(&client, config.name).await;
+                .await
+            {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("OpenRouter client build failed: {err}"),
+                )),
+            }
         }
         "Groq" => {
-            let api_key = env::var(config.api_key_env)?;
-            let client = Siumai::builder()
+            let api_key = env::var(config.api_key_env).unwrap();
+            match Siumai::builder()
                 .groq()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
-                .await?;
-            test_model_listing(&client, config.name).await;
+                .await
+            {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("Groq client build failed: {err}"),
+                )),
+            }
         }
         "xAI" => {
-            let api_key = env::var(config.api_key_env)?;
-            let client = Siumai::builder()
+            let api_key = env::var(config.api_key_env).unwrap();
+            match Siumai::builder()
                 .xai()
                 .api_key(api_key)
                 .model(config.default_model)
                 .build()
-                .await?;
-            test_model_listing(&client, config.name).await;
+                .await
+            {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("xAI client build failed: {err}"),
+                )),
+            }
         }
         "Ollama" => {
             let base_url = env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string());
-            let client = Siumai::builder()
+            if let Err(err) = probe_ollama(&base_url).await {
+                summary.push(LiveCheckOutcome::skip(
+                    "availability",
+                    format!("Ollama not reachable at {base_url}: {err}"),
+                ));
+                return summary;
+            }
+            match Siumai::builder()
                 .ollama()
                 .base_url(&base_url)
                 .model(config.default_model)
                 .build()
-                .await?;
-            test_model_listing(&client, config.name).await;
+                .await
+            {
+                Ok(client) => {
+                    summary.push(LiveCheckOutcome::pass(
+                        "build",
+                        format!("model={} base_url={base_url}", config.default_model),
+                    ));
+                    summary.push(test_model_listing(&client, config.name).await);
+                }
+                Err(err) => summary.push(LiveCheckOutcome::fail(
+                    "build",
+                    format!("Ollama client build failed: {err}"),
+                )),
+            }
         }
         _ => {
-            return Err(format!("Unknown provider: {}", config.name).into());
+            summary.push(LiveCheckOutcome::fail(
+                "provider",
+                format!("Unknown provider: {}", config.name),
+            ));
         }
     }
 
-    Ok(())
+    summary
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
-    async fn test_openai_integration() {
-        let config = &get_provider_configs()[0]; // OpenAI
+    async fn run_single_provider_integration(index: usize) {
+        let configs = get_provider_configs();
+        let config = &configs[index];
 
         if !is_provider_available(config) {
-            println!(" Skipping OpenAI test: {} not set", config.api_key_env);
+            println!(
+                "[skip] Skipping {} test: {} not set",
+                config.name, config.api_key_env
+            );
             return;
         }
 
-        let api_key = env::var(config.api_key_env).unwrap();
+        println!("[info] Testing {} provider...", config.name);
+        let summary = test_provider_integration(config).await;
+        assert_provider_summary_clean(&summary);
+    }
 
-        // Build client with optional base URL override
-        let mut builder = Siumai::builder()
-            .openai()
-            .api_key(api_key)
-            .model(config.default_model);
-
-        // Only set base URL if environment variable exists
-        if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
-            builder = builder.base_url(base_url);
-        }
-
-        let client = builder
-            .build()
-            .await
-            .expect("Failed to build OpenAI client");
-
-        // Test non-streaming chat
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Test embedding if supported
-        if config.supports_embedding {
-            // Create a separate client with embedding model for OpenAI
-            let mut embedding_builder = Siumai::builder()
-                .openai()
-                .api_key(env::var(config.api_key_env).unwrap())
-                .model("text-embedding-3-small");
-
-            // Only set base URL if environment variable exists
-            if let Ok(base_url) = env::var("OPENAI_BASE_URL") {
-                embedding_builder = embedding_builder.base_url(base_url);
-            }
-
-            let embedding_client = embedding_builder
-                .build()
-                .await
-                .expect("Failed to build OpenAI embedding client");
-            test_embedding(&embedding_client, config.name).await;
-        }
-
-        // Test reasoning if supported
-        if config.supports_reasoning && config.reasoning_model.is_some() {
-            test_reasoning_openai(config).await;
-        }
+    #[tokio::test]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
+    async fn test_openai_integration() {
+        run_single_provider_integration(0).await;
     }
 
     #[tokio::test]
     #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_anthropic_integration() {
-        let config = &get_provider_configs()[1]; // Anthropic
-
-        if !is_provider_available(config) {
-            println!(" Skipping Anthropic test: {} not set", config.api_key_env);
-            return;
-        }
-
-        let api_key = env::var(config.api_key_env).unwrap();
-
-        // Build client with optional base URL override
-        let mut builder = Siumai::builder()
-            .anthropic()
-            .api_key(api_key)
-            .model(config.default_model);
-
-        // Only set base URL if environment variable exists
-        if let Ok(base_url) = env::var("ANTHROPIC_BASE_URL") {
-            builder = builder.base_url(base_url);
-        }
-
-        let client = builder
-            .build()
-            .await
-            .expect("Failed to build Anthropic client");
-
-        // Test non-streaming chat
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Test reasoning if supported
-        if config.supports_reasoning && config.reasoning_model.is_some() {
-            test_reasoning_anthropic(config).await;
-        }
+        run_single_provider_integration(1).await;
     }
 
     #[tokio::test]
     #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_gemini_integration() {
-        let config = &get_provider_configs()[2]; // Gemini
-
-        if !is_provider_available(config) {
-            println!(" Skipping Gemini test: {} not set", config.api_key_env);
-            return;
-        }
-
-        let api_key = env::var(config.api_key_env).unwrap();
-
-        let client = Siumai::builder()
-            .gemini()
-            .api_key(api_key)
-            .model(config.default_model)
-            .build()
-            .await
-            .expect("Failed to build Gemini client");
-
-        // Test non-streaming chat
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Test embedding if supported
-        if config.supports_embedding {
-            // Create a separate client with embedding model for Gemini
-            let embedding_client = Siumai::builder()
-                .gemini()
-                .api_key(env::var(config.api_key_env).unwrap())
-                .model("text-embedding-004")
-                .build()
-                .await
-                .expect("Failed to build Gemini embedding client");
-            test_embedding(&embedding_client, config.name).await;
-        }
-
-        // Test reasoning if supported
-        if config.supports_reasoning && config.reasoning_model.is_some() {
-            test_reasoning_gemini(config).await;
-        }
+        run_single_provider_integration(2).await;
     }
 
     #[tokio::test]
     #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_deepseek_integration() {
-        let config = &get_provider_configs()[3]; // DeepSeek
-
-        if !is_provider_available(config) {
-            println!(" Skipping DeepSeek test: {} not set", config.api_key_env);
-            return;
-        }
-
-        let api_key = env::var(config.api_key_env).unwrap();
-
-        let client = Siumai::builder()
-            .openai()
-            .deepseek()
-            .api_key(api_key)
-            .model(config.default_model)
-            .build()
-            .await
-            .expect("Failed to build DeepSeek client");
-
-        // Test non-streaming chat
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Test reasoning if supported
-        if config.supports_reasoning && config.reasoning_model.is_some() {
-            test_reasoning_deepseek(config).await;
-        }
+        run_single_provider_integration(3).await;
     }
 
     #[tokio::test]
     #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_openrouter_integration() {
-        let config = &get_provider_configs()[4]; // OpenRouter
-
-        if !is_provider_available(config) {
-            println!(" Skipping OpenRouter test: {} not set", config.api_key_env);
-            return;
-        }
-
-        let api_key = env::var(config.api_key_env).unwrap();
-
-        let client = Siumai::builder()
-            .openai()
-            .openrouter()
-            .api_key(api_key)
-            .model(config.default_model)
-            // Cap tokens to avoid provider-specific context errors
-            .max_tokens(1024)
-            .build()
-            .await
-            .expect("Failed to build OpenRouter client");
-
-        // Test non-streaming chat
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Test reasoning if supported
-        if config.supports_reasoning && config.reasoning_model.is_some() {
-            test_reasoning_openrouter(config).await;
-        }
+        run_single_provider_integration(4).await;
     }
 
     #[tokio::test]
     #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_groq_integration() {
-        let config = &get_provider_configs()[5]; // Groq
-
-        if !is_provider_available(config) {
-            println!(" Skipping Groq test: {} not set", config.api_key_env);
-            return;
-        }
-
-        let api_key = env::var(config.api_key_env).unwrap();
-
-        let client = Siumai::builder()
-            .groq()
-            .api_key(api_key)
-            .model(config.default_model)
-            .build()
-            .await
-            .expect("Failed to build Groq client");
-
-        // Test non-streaming chat
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Note: Groq doesn't support reasoning models
+        run_single_provider_integration(5).await;
     }
 
     #[tokio::test]
     #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_xai_integration() {
-        let config = &get_provider_configs()[6]; // xAI
-
-        if !is_provider_available(config) {
-            println!(" Skipping xAI test: {} not set", config.api_key_env);
-            return;
-        }
-
-        let api_key = env::var(config.api_key_env).unwrap();
-
-        let client = Siumai::builder()
-            .xai()
-            .api_key(api_key)
-            .model(config.default_model)
-            .build()
-            .await
-            .expect("Failed to build xAI client");
-
-        // Test non-streaming chat
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Test reasoning if supported
-        if config.supports_reasoning && config.reasoning_model.is_some() {
-            test_reasoning_xai(config).await;
-        }
+        run_single_provider_integration(6).await;
     }
 
     #[tokio::test]
     #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_ollama_integration() {
-        let config = &get_provider_configs()[7]; // Ollama
-
-        // For Ollama, we check if it's available by trying to connect
-        let base_url =
-            env::var(config.api_key_env).unwrap_or_else(|_| "http://localhost:11434".to_string());
-
-        // Try to connect to Ollama to see if it's available
-        let test_client = reqwest::Client::new();
-        match test_client
-            .get(format!("{}/api/tags", base_url))
-            .send()
-            .await
-        {
-            Ok(response) if response.status().is_success() => {
-                println!("[ok] Ollama is available at {}", base_url);
-            }
-            _ => {
-                println!(
-                    " Skipping Ollama test: Ollama not available at {}",
-                    base_url
-                );
-                println!("[note] Make sure Ollama is running: ollama serve");
-                return;
-            }
-        }
-
-        println!(" Testing Ollama provider...");
-
-        // Test non-streaming chat
-        let client = Siumai::builder()
-            .ollama()
-            .base_url(&base_url)
-            .model(config.default_model)
-            .build()
-            .await
-            .expect("Failed to build Ollama client");
-
-        test_non_streaming_chat(&client, config.name).await;
-
-        // Test streaming chat
-        test_streaming_chat(&client, config.name).await;
-
-        // Test embedding if supported
-        if config.supports_embedding {
-            let embedding_client = Siumai::builder()
-                .ollama()
-                .base_url(&base_url)
-                .model("nomic-embed-text")
-                .build()
-                .await
-                .expect("Failed to build Ollama embedding client");
-            test_embedding(&embedding_client, config.name).await;
-        }
-
-        // Test reasoning if supported
-        if config.supports_reasoning && config.reasoning_model.is_some() {
-            test_reasoning_ollama(config).await;
-        }
+        run_single_provider_integration(7).await;
     }
 
     /// Run all available provider tests
@@ -1495,55 +1473,33 @@ mod tests {
         println!(" Running integration tests for all available providers...\n");
 
         let configs = get_provider_configs();
-        let mut tested_providers = Vec::new();
+        let mut summaries = Vec::new();
         let mut skipped_providers = Vec::new();
 
         for config in &configs {
             if is_provider_available(config) {
-                tested_providers.push(config.name);
-                println!("[ok] Testing {} provider...", config.name);
-
-                // Test each provider individually
-                match config.name {
-                    "OpenAI" => {
-                        test_provider_integration(config).await;
-                    }
-                    "Anthropic" => {
-                        test_provider_integration(config).await;
-                    }
-                    "Gemini" => {
-                        test_provider_integration(config).await;
-                    }
-                    "DeepSeek" => {
-                        test_provider_integration(config).await;
-                    }
-                    "OpenRouter" => {
-                        test_provider_integration(config).await;
-                    }
-                    "Groq" => {
-                        test_provider_integration(config).await;
-                    }
-                    "xAI" => {
-                        test_provider_integration(config).await;
-                    }
-                    "Ollama" => {
-                        test_provider_integration(config).await;
-                    }
-                    _ => println!("[warn] Unknown provider: {}", config.name),
-                }
+                println!("[info] Testing {} provider...", config.name);
+                let summary = test_provider_integration(config).await;
+                summary.print_summary();
+                summaries.push(summary);
             } else {
                 skipped_providers.push(config.name);
-                println!(" Skipping {} (no API key)", config.name);
+                println!("[skip] Skipping {} (no API key)", config.name);
             }
         }
 
-        println!("\n[info] Test Summary:");
-        println!("   Tested providers: {:?}", tested_providers);
-        println!("   Skipped providers: {:?}", skipped_providers);
-        println!(
-            "   Total providers tested: {}/{}",
-            tested_providers.len(),
-            configs.len()
+        print_manual_suite_summary("provider integration", &summaries, &skipped_providers);
+
+        let failures = summaries
+            .iter()
+            .filter(|summary| summary.has_failures())
+            .map(|summary| format!("{} => {}", summary.provider, summary.failure_summary()))
+            .collect::<Vec<_>>();
+
+        assert!(
+            failures.is_empty(),
+            "manual provider integration suite had failing checks: {}",
+            failures.join(" || ")
         );
     }
 
@@ -1554,44 +1510,33 @@ mod tests {
         println!(" Testing model listing for all available providers...");
 
         let configs = get_provider_configs();
-        let mut tested_providers = Vec::new();
-        let mut failed_providers = Vec::new();
+        let mut summaries = Vec::new();
+        let mut skipped_providers = Vec::new();
 
         for config in &configs {
-            // Check if API key is available
-            if env::var(config.api_key_env).is_ok() {
-                println!("\n Testing model listing for {}...", config.name);
-
-                match test_provider_model_listing(config).await {
-                    Ok(()) => {
-                        tested_providers.push(config.name);
-                        println!("  [ok] {} model listing test passed", config.name);
-                    }
-                    Err(e) => {
-                        failed_providers.push((config.name, e));
-                        println!("  [error] {} model listing test failed", config.name);
-                    }
-                }
+            if is_provider_available(config) {
+                println!("\n[info] Testing model listing for {}...", config.name);
+                let summary = test_provider_model_listing(config).await;
+                summary.print_summary();
+                summaries.push(summary);
             } else {
-                println!("   Skipping {} (no API key found)", config.name);
+                println!("[skip] Skipping {} (no API key found)", config.name);
+                skipped_providers.push(config.name);
             }
         }
 
-        println!("\n[info] Model Listing Test Summary:");
-        println!("   [ok] Passed: {}", tested_providers.len());
-        println!("   [error] Failed: {}", failed_providers.len());
+        print_manual_suite_summary("model listing", &summaries, &skipped_providers);
 
-        if !failed_providers.is_empty() {
-            println!("   Failed providers:");
-            for (name, error) in &failed_providers {
-                println!("     - {}: {}", name, error);
-            }
-        }
+        let failures = summaries
+            .iter()
+            .filter(|summary| summary.has_failures())
+            .map(|summary| format!("{} => {}", summary.provider, summary.failure_summary()))
+            .collect::<Vec<_>>();
 
-        println!(
-            "   Total providers tested: {}/{}",
-            tested_providers.len() + failed_providers.len(),
-            configs.len()
+        assert!(
+            failures.is_empty(),
+            "manual model listing suite had failing checks: {}",
+            failures.join(" || ")
         );
     }
 }
