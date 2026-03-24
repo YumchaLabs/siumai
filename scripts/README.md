@@ -63,13 +63,17 @@ Coverage:
 - Registry non-streaming chat
 - Registry streaming chat
 - OpenAI / Anthropic explicit `.base_url(...)` when `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` are set
-- Providers covered by default: OpenAI, Anthropic, Gemini, DeepSeek, Groq
+- Default profile `core-default`: OpenAI, Anthropic, DeepSeek
+- Full profile `all-providers`: OpenAI, Anthropic, Gemini, DeepSeek, Groq
 
 ```bash
 ./scripts/test-env-smoke.sh
 
 # Optional: use a local proxy
 SIUMAI_TEST_PROXY="http://127.0.0.1:10809" ./scripts/test-env-smoke.sh
+
+# Optional: run the full provider matrix
+SIUMAI_ENV_SMOKE_PROFILE=all-providers ./scripts/test-env-smoke.sh
 ```
 
 ```bat
@@ -77,6 +81,10 @@ scripts\test-env-smoke.bat
 
 REM Optional: use a local proxy
 set SIUMAI_TEST_PROXY=http://127.0.0.1:10809
+scripts\test-env-smoke.bat
+
+REM Optional: run the full provider matrix
+set SIUMAI_ENV_SMOKE_PROFILE=all-providers
 scripts\test-env-smoke.bat
 ```
 

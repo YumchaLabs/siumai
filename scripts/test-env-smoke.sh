@@ -7,8 +7,15 @@ Usage:
   ./scripts/test-env-smoke.sh
 
 Environment:
+  SIUMAI_ENV_SMOKE_PROFILE    Optional preset for the live provider set.
+                             Values:
+                               - core-default (default)
+                               - openai
+                               - all-providers
+                               - custom (use SIUMAI_ENV_SMOKE_FEATURES)
+
   SIUMAI_ENV_SMOKE_FEATURES   Cargo features for crate `siumai`.
-                             Default: openai,anthropic,google,deepseek,groq
+                             Default: depends on SIUMAI_ENV_SMOKE_PROFILE
 
   SIUMAI_TEST_PROXY          Optional proxy URL. When set, the script exports:
                              HTTP_PROXY / HTTPS_PROXY / ALL_PROXY
@@ -33,6 +40,7 @@ Environment:
 Notes:
   - Tests are ignored by default and make real API calls.
   - If a provider API key is absent, the corresponding test self-skips.
+  - `core-default` avoids providers that are commonly blocked by account or region.
 EOF
 }
 
@@ -47,8 +55,32 @@ if [[ -n "${SIUMAI_TEST_PROXY:-}" ]]; then
   export ALL_PROXY="${SIUMAI_TEST_PROXY}"
 fi
 
-features="${SIUMAI_ENV_SMOKE_FEATURES:-openai,anthropic,google,deepseek,groq}"
+profile="${SIUMAI_ENV_SMOKE_PROFILE:-core-default}"
+case "${profile}" in
+  core-default)
+    : "${SIUMAI_ENV_SMOKE_FEATURES:=openai,anthropic,deepseek}"
+    ;;
+  openai)
+    : "${SIUMAI_ENV_SMOKE_FEATURES:=openai}"
+    ;;
+  all-providers)
+    : "${SIUMAI_ENV_SMOKE_FEATURES:=openai,anthropic,google,deepseek,groq}"
+    ;;
+  custom)
+    if [[ -z "${SIUMAI_ENV_SMOKE_FEATURES:-}" ]]; then
+      echo "[test-env-smoke] custom profile requires SIUMAI_ENV_SMOKE_FEATURES"
+      exit 2
+    fi
+    ;;
+  *)
+    echo "[test-env-smoke] Unknown SIUMAI_ENV_SMOKE_PROFILE='${profile}'. Use -h for help."
+    exit 2
+    ;;
+esac
 
+features="${SIUMAI_ENV_SMOKE_FEATURES}"
+
+echo "[test-env-smoke] profile: ${profile}"
 echo "[test-env-smoke] features: ${features}"
 if [[ -n "${HTTP_PROXY:-}" ]]; then
   echo "[test-env-smoke] proxy: ${HTTP_PROXY}"

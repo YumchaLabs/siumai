@@ -122,6 +122,9 @@ Some tests require environment variables:
 Focused env smoke:
 ```bash
 ./scripts/test-env-smoke.sh
+
+# Full live matrix when the account/region supports every provider
+SIUMAI_ENV_SMOKE_PROFILE=all-providers ./scripts/test-env-smoke.sh
 ```
 
 ## Mock Testing
