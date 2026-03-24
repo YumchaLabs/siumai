@@ -30,8 +30,8 @@ tests/
 ├── integration/                       # Integration tests
 │   └── siliconflow_rerank_test.rs    # SiliconFlow rerank integration tests
 ├── integration_tests.rs              # Core integration tests
-├── real_llm_integration_test.rs       # Tests with real LLM providers (requires API keys)
-├── provider_env_smoke_test.rs         # Focused env-driven live smoke for key providers
+├── real_llm_integration_test.rs       # Manual extended live suite (capabilities/model listing)
+├── provider_env_smoke_test.rs         # Focused env-driven live regression smoke
 ├── request_builder_integration_test.rs # Request builder integration tests
 ├── request_builder_consistency.rs     # Request builder consistency tests
 ├── siumai_unified_interface_test.rs   # Unified interface tests
@@ -129,6 +129,10 @@ SIUMAI_ENV_SMOKE_PROFILE=all-providers ./scripts/test-env-smoke.sh
 # Strict mode keeps known Gemini/Groq access denials as hard failures
 SIUMAI_ENV_SMOKE_PROFILE=all-providers SIUMAI_ENV_SMOKE_STRICT=1 ./scripts/test-env-smoke.sh
 ```
+
+Use this first when validating refactors to env wiring, request merging, or stream/non-stream reachability.
+`real_llm_integration_test.rs` is broader and more manual: it also covers reasoning, embeddings,
+model listing, and provider-specific account capability drift.
 
 ## Mock Testing
 

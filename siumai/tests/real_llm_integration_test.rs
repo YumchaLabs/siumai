@@ -10,26 +10,48 @@
 #![allow(deprecated)]
 //! Real LLM Integration Tests
 //!
-//! These tests use real API keys to test actual LLM provider functionality.
-//! They are ignored by default to prevent accidental API usage during normal testing.
+//! This file is the broad, manual live-provider suite.
+//! It intentionally goes beyond the focused env smoke by probing optional capabilities such as:
+//! - model listing
+//! - embeddings
+//! - reasoning / thinking
+//! - wider provider coverage such as OpenRouter, xAI, and Ollama
+//!
+//! Prefer `provider_env_smoke_test.rs` plus `scripts/test-env-smoke.{sh,bat}` for refactor
+//! regression checks around:
+//! - environment-driven builder / registry wiring
+//! - default model and provider-option merge behavior
+//! - basic non-streaming / streaming reachability
+//!
+//! Keep using this file for slower, broader, more exploratory manual checks when you want to see
+//! how real providers behave across extended capabilities. Some sub-checks intentionally log
+//! warnings instead of failing hard because provider entitlements, quotas, and model availability
+//! vary significantly across accounts.
+//!
+//! These tests are ignored by default to prevent accidental API usage during normal testing.
 //!
 //! ## Running Tests
+//!
+//! ### Recommended First Step For Refactors
+//! ```bash
+//! ./scripts/test-env-smoke.sh
+//! ```
 //!
 //! ### Individual Provider Tests
 //! ```bash
 //! # Test specific provider (set corresponding API key first)
 //! export OPENAI_API_KEY="your-key"
-//! cargo test test_openai_integration -- --ignored
+//! cargo test --test real_llm_integration_test test_openai_integration -- --ignored --nocapture
 //!
 //! export ANTHROPIC_API_KEY="your-key"
-//! cargo test test_anthropic_integration -- --ignored
+//! cargo test --test real_llm_integration_test test_anthropic_integration -- --ignored --nocapture
 //!
 //! export GEMINI_API_KEY="your-key"
-//! cargo test test_gemini_integration -- --ignored
+//! cargo test --test real_llm_integration_test test_gemini_integration -- --ignored --nocapture
 //!
 //! # For Ollama (make sure Ollama is running locally)
 //! export OLLAMA_BASE_URL="http://localhost:11434"
-//! cargo test test_ollama_integration -- --ignored
+//! cargo test --test real_llm_integration_test test_ollama_integration -- --ignored --nocapture
 //! ```
 //!
 //! ### All Available Providers
@@ -39,8 +61,8 @@
 //! export ANTHROPIC_API_KEY="your-anthropic-key"
 //! # ... set other keys as needed
 //!
-//! # Run all available provider tests
-//! cargo test test_all_available_providers -- --ignored
+//! # Run the broad manual sweep
+//! cargo test --test real_llm_integration_test test_all_available_providers -- --ignored --nocapture
 //! ```
 //!
 //! ## Environment Variables
@@ -61,11 +83,17 @@
 //!
 //! ## Test Coverage
 //!
-//! Each provider test includes:
+//! Typical coverage in this extended suite:
 //! - **Non-streaming chat**: Basic request/response functionality
 //! - **Streaming chat**: Real-time response streaming
 //! - **Embeddings**: Text embedding generation (if supported)
 //! - **Reasoning**: Advanced reasoning/thinking capabilities (if supported)
+//! - **Model listing**: Provider metadata surface checks
+//!
+//! Important:
+//! - This suite is not the primary env-wiring regression gate.
+//! - Capability sub-checks may downgrade provider/account limitations into warnings.
+//! - Focused `provider_env_smoke_test.rs` remains the preferred first-line live regression check.
 //!
 //! ### Provider Capabilities Matrix
 //! | Provider   | Chat | Streaming | Embeddings | Reasoning |
@@ -1124,7 +1152,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_openai_integration() {
         let config = &get_provider_configs()[0]; // OpenAI
 
@@ -1184,7 +1212,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_anthropic_integration() {
         let config = &get_provider_configs()[1]; // Anthropic
 
@@ -1224,7 +1252,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_gemini_integration() {
         let config = &get_provider_configs()[2]; // Gemini
 
@@ -1269,7 +1297,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_deepseek_integration() {
         let config = &get_provider_configs()[3]; // DeepSeek
 
@@ -1302,7 +1330,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_openrouter_integration() {
         let config = &get_provider_configs()[4]; // OpenRouter
 
@@ -1337,7 +1365,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_groq_integration() {
         let config = &get_provider_configs()[5]; // Groq
 
@@ -1366,7 +1394,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_xai_integration() {
         let config = &get_provider_configs()[6]; // xAI
 
@@ -1398,7 +1426,7 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_ollama_integration() {
         let config = &get_provider_configs()[7]; // Ollama
 
@@ -1462,7 +1490,7 @@ mod tests {
 
     /// Run all available provider tests
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_all_available_providers() {
         println!(" Running integration tests for all available providers...\n");
 
@@ -1521,7 +1549,7 @@ mod tests {
 
     /// Test model listing capability for all available providers
     #[tokio::test]
-    #[ignore]
+    #[ignore = "manual extended live suite; prefer provider_env_smoke_test for env wiring regressions"]
     async fn test_model_listing_all_providers() {
         println!(" Testing model listing for all available providers...");
 

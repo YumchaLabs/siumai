@@ -66,6 +66,11 @@ Coverage:
 - Default profile `core-default`: OpenAI, Anthropic, DeepSeek
 - Full profile `all-providers`: OpenAI, Anthropic, Gemini, DeepSeek, Groq
 
+Recommended usage:
+- Use this as the first live regression gate after provider/refactor changes.
+- Keep `siumai/tests/real_llm_integration_test.rs` for broader manual capability sweeps
+  such as reasoning, embeddings, model listing, and non-core providers.
+
 ```bash
 ./scripts/test-env-smoke.sh
 
