@@ -5,29 +5,50 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 ## [Unreleased]
 
 
-## [0.11.0-beta.6] - 2026-03-02
+## [0.11.0-beta.6] - 2026-03-24
 
 ### Highlights
 
-- Fearless Refactor V3: add Rust-first model-family APIs (`siumai::{text,embedding,image,rerank,speech,transcription}`) and keep method-style APIs behind an explicit compatibility module (`siumai::compat`).
-- Orchestrator routes internal calls through `siumai::text::*` (family API) to decouple from chat-centric traits.
-- Construction guidance flips: prefer registry + config-first provider clients; builder-style entry points remain as compatibility conveniences.
-- Family call options are now more complete: per-call `timeout`/`headers` across families, and (for text) per-call `tools`/`tool_choice`/`telemetry`.
-- Config-first provider constructors can wire HTTP interceptors and model middlewares directly from `*_Config` (runtime-only; not serialized).
+- Fearless Refactor V3 introduces family-first Rust APIs (`siumai::{text,embedding,image,rerank,speech,transcription}`) while moving legacy method-style entry points into an explicit compatibility module (`siumai::compat`).
+- The recommended construction path now clearly favors registry/config-first provider clients; builder-style entry points remain available as migration-friendly compatibility conveniences.
+- Advanced bridge/gateway support becomes much more usable, with request normalization plus cross-protocol request/response/stream transcoding for proxy and gateway scenarios.
+- Provider parity improved across native and OpenAI-compatible integrations, so facade, registry, and direct provider clients behave more consistently.
+- Family calls now support richer per-call overrides, and config-first providers can attach interceptors and model middlewares directly from `*_Config`.
 
 ### Added
 
-- Model-family V3 traits in `siumai-core` (text/embedding/image/rerank/speech/transcription).
-- Family API modules in the `siumai` facade: `siumai::{text,embedding,image,rerank,speech,transcription}`.
-- Tool runtime surface that binds schema + execution (`siumai::tooling`) for orchestrator/tool-loop workflows.
-- Explicit compatibility module: `siumai::compat`.
-- Orchestrator tool-loop contract tests (no network) in `siumai-extras`.
-- Per-request `HttpConfig` overrides (headers + timeout) applied at the HTTP executor layer (including streaming requests).
-- Convenience methods on `dyn LlmClient` for full chat requests (`chat_request`, `chat_stream_request`).
+- Model-family V3 traits in `siumai-core` for text, embedding, image, rerank, speech, and transcription.
+- New family API modules in the `siumai` facade: `siumai::{text,embedding,image,rerank,speech,transcription}`.
+- `siumai::tooling`, a runtime tool surface that binds tool schemas to executable handlers for orchestrator/tool-loop workflows.
+- `siumai::compat`, an explicit home for legacy compatibility entry points.
+- Per-request `HttpConfig` overrides (headers + timeout), including streaming requests.
+- Convenience methods on `dyn LlmClient` for full chat requests: `chat_request` and `chat_stream_request`.
+- Experimental bridge APIs for inbound request normalization and outbound response/stream transcoding, with customization hooks for hosted tools and gateway adapters.
+- Axum gateway runtime and policy helpers, plus reference examples for OpenAI, Anthropic, Gemini, and cross-protocol proxy flows.
+- Broader config-first constructors/helper aliases across native and OpenAI-compatible providers, with more consistent exposure of provider params and metadata on the facade.
+- OpenAI Responses WebSocket session helpers, including incremental sessions, remote cancellation, and recovery/fallback controls.
+- Public batch embedding helpers for Gemini and Vertex models.
 
 ### Changed
 
-- Documentation/examples now prefer registry + config-first construction (builders remain available as compatibility conveniences) and prefer calling family APIs for inference (e.g. `text::generate`).
+- Documentation and examples now consistently prefer registry/config-first construction and family APIs for inference (for example, `text::generate`).
+- Focused provider wrapper packages, provider factories, and handle routing were aligned so text/image/rerank/embedding flows behave more consistently across registry, facade, and direct provider construction paths.
+- Provider request normalization and default base URL behavior are more consistent across facade, registry, and gateway paths.
+
+### Deprecated
+
+- `Siumai::builder()` remains available, but is deprecated as the primary construction style. Prefer `registry::global().language_model("provider:model")` or `*Client::from_config(...)` for new code.
+
+### Fixed
+
+- Streaming and bridge fidelity across OpenAI Responses/Chat, Anthropic, Gemini, and Vertex now preserves more wire-level details, including finish reasons, citations, reasoning metadata, approval items, provider tool results, and web/file search source identity.
+- Structured output mapping and JSON-repair/content-filter handling are more reliable across both provider-native and bridged responses.
+- OpenAI defaults no longer leak Responses-only settings into non-chat requests; audio fallback defaults and chat default backfilling were corrected.
+- Family-model and registry paths now preserve per-request config, capability forwarding, and parity for embedding/image/rerank flows more reliably.
+
+### Migration guide
+
+- Full guide: `docs/migration/migration-0.11.0-beta.6.md`
 
 ## [0.11.0-beta.5] - 2026-01-15
 
