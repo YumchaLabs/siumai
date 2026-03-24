@@ -53,6 +53,32 @@ Notes:
 - The `all-providers` smoke/test-fast presets now also include the focused provider packages
   `deepseek`, `cohere`, `togetherai`, and `bedrock`.
 
+### `test-env-smoke.sh` / `test-env-smoke.bat`
+
+Runs focused live smoke tests for environment-driven OpenAI and Anthropic setup.
+
+Coverage:
+- Builder non-streaming chat
+- Builder streaming chat
+- Registry non-streaming chat
+- Registry streaming chat
+- Explicit `.base_url(...)` when `OPENAI_BASE_URL` / `ANTHROPIC_BASE_URL` are set
+
+```bash
+./scripts/test-env-smoke.sh
+
+# Optional: use a local proxy
+SIUMAI_TEST_PROXY="http://127.0.0.1:10809" ./scripts/test-env-smoke.sh
+```
+
+```bat
+scripts\test-env-smoke.bat
+
+REM Optional: use a local proxy
+set SIUMAI_TEST_PROXY=http://127.0.0.1:10809
+scripts\test-env-smoke.bat
+```
+
 ### `test-provider-contracts.sh`
 
 Runs the provider-scoped no-network contract matrix for the top-level `siumai` facade.
