@@ -125,6 +125,9 @@ Focused env smoke:
 
 # Full live matrix when the account/region supports every provider
 SIUMAI_ENV_SMOKE_PROFILE=all-providers ./scripts/test-env-smoke.sh
+
+# Strict mode keeps known Gemini/Groq access denials as hard failures
+SIUMAI_ENV_SMOKE_PROFILE=all-providers SIUMAI_ENV_SMOKE_STRICT=1 ./scripts/test-env-smoke.sh
 ```
 
 ## Mock Testing

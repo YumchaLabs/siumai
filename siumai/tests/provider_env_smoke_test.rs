@@ -61,6 +61,43 @@ fn is_present(env_name: &str) -> bool {
     )
 }
 
+fn is_truthy_env(env_name: &str) -> bool {
+    matches!(
+        env::var(env_name),
+        Ok(value)
+            if matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+    )
+}
+
+fn is_known_live_access_restriction(provider: &str, err: &str) -> bool {
+    if is_truthy_env("SIUMAI_ENV_SMOKE_STRICT") {
+        return false;
+    }
+
+    match provider {
+        "gemini" => err.contains("User location is not supported for the API use."),
+        "groq" => {
+            let lower = err.to_ascii_lowercase();
+            lower.contains("api error: 403") && lower.contains("groq api error: forbidden")
+        }
+        _ => false,
+    }
+}
+
+fn unwrap_live_step(provider: &str, step: &str, result: Result<String, String>) -> Option<String> {
+    match result {
+        Ok(value) => Some(value),
+        Err(err) if is_known_live_access_restriction(provider, &err) => {
+            eprintln!("[skip] {provider} live smoke unavailable at step '{step}': {err}");
+            None
+        }
+        Err(err) => panic!("{provider} {step}: {err}"),
+    }
+}
+
 async fn generate_text<M>(model: &M, request: ChatRequest) -> Result<String, String>
 where
     M: ChatCapability + ?Sized,
@@ -585,33 +622,44 @@ async fn gemini_env_builder_and_registry_smoke() {
         return;
     }
 
-    let non_stream = gemini_builder_generate()
-        .await
-        .expect("gemini builder non-stream");
+    let Some(non_stream) = unwrap_live_step(
+        "gemini",
+        "builder non-stream",
+        gemini_builder_generate().await,
+    ) else {
+        return;
+    };
     assert!(
         non_stream.contains("SIUMAI_OK"),
         "expected SIUMAI_OK in Gemini builder response, got: {non_stream}"
     );
 
-    let stream = gemini_builder_stream()
-        .await
-        .expect("gemini builder stream");
+    let Some(stream) = unwrap_live_step("gemini", "builder stream", gemini_builder_stream().await)
+    else {
+        return;
+    };
     assert!(
         stream.contains("STREAM_OK"),
         "expected STREAM_OK in Gemini builder stream, got: {stream}"
     );
 
-    let registry_non_stream = gemini_registry_generate()
-        .await
-        .expect("gemini registry non-stream");
+    let Some(registry_non_stream) = unwrap_live_step(
+        "gemini",
+        "registry non-stream",
+        gemini_registry_generate().await,
+    ) else {
+        return;
+    };
     assert!(
         registry_non_stream.contains("SIUMAI_OK"),
         "expected SIUMAI_OK in Gemini registry response, got: {registry_non_stream}"
     );
 
-    let registry_stream = gemini_registry_stream()
-        .await
-        .expect("gemini registry stream");
+    let Some(registry_stream) =
+        unwrap_live_step("gemini", "registry stream", gemini_registry_stream().await)
+    else {
+        return;
+    };
     assert!(
         registry_stream.contains("STREAM_OK"),
         "expected STREAM_OK in Gemini registry stream, got: {registry_stream}"
@@ -669,29 +717,42 @@ async fn groq_env_builder_and_registry_smoke() {
         return;
     }
 
-    let non_stream = groq_builder_generate()
-        .await
-        .expect("groq builder non-stream");
+    let Some(non_stream) =
+        unwrap_live_step("groq", "builder non-stream", groq_builder_generate().await)
+    else {
+        return;
+    };
     assert!(
         non_stream.contains("SIUMAI_OK"),
         "expected SIUMAI_OK in Groq builder response, got: {non_stream}"
     );
 
-    let stream = groq_builder_stream().await.expect("groq builder stream");
+    let Some(stream) = unwrap_live_step("groq", "builder stream", groq_builder_stream().await)
+    else {
+        return;
+    };
     assert!(
         stream.contains("STREAM_OK"),
         "expected STREAM_OK in Groq builder stream, got: {stream}"
     );
 
-    let registry_non_stream = groq_registry_generate()
-        .await
-        .expect("groq registry non-stream");
+    let Some(registry_non_stream) = unwrap_live_step(
+        "groq",
+        "registry non-stream",
+        groq_registry_generate().await,
+    ) else {
+        return;
+    };
     assert!(
         registry_non_stream.contains("SIUMAI_OK"),
         "expected SIUMAI_OK in Groq registry response, got: {registry_non_stream}"
     );
 
-    let registry_stream = groq_registry_stream().await.expect("groq registry stream");
+    let Some(registry_stream) =
+        unwrap_live_step("groq", "registry stream", groq_registry_stream().await)
+    else {
+        return;
+    };
     assert!(
         registry_stream.contains("STREAM_OK"),
         "expected STREAM_OK in Groq registry stream, got: {registry_stream}"

@@ -57,9 +57,13 @@ echo                            Values: core-default ^(default^), openai, all-pr
 echo   SIUMAI_ENV_SMOKE_FEATURES Optional custom feature list for crate siumai.
 echo                            Used directly when PROFILE=custom.
 echo   SIUMAI_TEST_PROXY         Optional proxy URL mirrored into HTTP_PROXY/HTTPS_PROXY/ALL_PROXY.
+echo   SIUMAI_ENV_SMOKE_STRICT   Optional strict mode. Set to 1/true/yes/on to
+echo                            fail instead of self-skipping known access denials.
 echo.
 echo Notes:
 echo   - Tests are ignored by default and make real API calls.
 echo   - If a provider API key is absent, the corresponding test self-skips.
 echo   - core-default avoids providers commonly blocked by account or region.
+echo   - Gemini/Groq also self-skip on known region/account access denials unless
+echo     SIUMAI_ENV_SMOKE_STRICT is enabled.
 exit /b 0

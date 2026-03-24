@@ -19,6 +19,8 @@ Environment:
 
   SIUMAI_TEST_PROXY          Optional proxy URL. When set, the script exports:
                              HTTP_PROXY / HTTPS_PROXY / ALL_PROXY
+  SIUMAI_ENV_SMOKE_STRICT    Optional. Set to 1/true/yes/on to fail instead of
+                             self-skipping known provider access restrictions.
 
   OPENAI_API_KEY             Optional. Enables OpenAI live smoke.
   OPENAI_BASE_URL            Optional. Also exercises explicit OpenAI base_url.
@@ -41,6 +43,8 @@ Notes:
   - Tests are ignored by default and make real API calls.
   - If a provider API key is absent, the corresponding test self-skips.
   - `core-default` avoids providers that are commonly blocked by account or region.
+  - Gemini/Groq also self-skip on known region/account access denials unless
+    `SIUMAI_ENV_SMOKE_STRICT=1`.
 EOF
 }
 
