@@ -33,6 +33,7 @@ struct AnthropicSerializeState {
     active_block: Option<AnthropicSerializeBlock>,
     latest_usage: Option<Usage>,
     terminal_emitted: bool,
+    ignore_next_stream_end: bool,
     last_v3_text_delta: Option<String>,
     last_v3_thinking_delta: Option<String>,
     last_v3_tool_call: Option<AnthropicToolDeltaSignature>,

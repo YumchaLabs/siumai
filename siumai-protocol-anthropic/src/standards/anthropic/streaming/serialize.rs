@@ -25,11 +25,7 @@ pub(super) fn serialize_event(
     }
 
     fn reset_stream_state(state: &mut AnthropicSerializeState) {
-        let terminal_emitted = state.terminal_emitted;
-        *state = AnthropicSerializeState {
-            terminal_emitted,
-            ..AnthropicSerializeState::default()
-        };
+        *state = AnthropicSerializeState::default();
     }
 
     fn ensure_message_metadata(state: &mut AnthropicSerializeState) {
@@ -283,6 +279,10 @@ pub(super) fn serialize_event(
                 state.last_v3_text_delta = None;
                 state.last_v3_thinking_delta = None;
                 state.last_v3_tool_call = None;
+                if state.ignore_next_stream_end {
+                    state.ignore_next_stream_end = false;
+                    return Ok(Vec::new());
+                }
                 if state.terminal_emitted {
                     return Ok(Vec::new());
                 }
@@ -576,6 +576,7 @@ pub(super) fn serialize_event(
                     out.extend_from_slice(&sse_typed_frame(&msg_stop)?);
                     state.terminal_emitted = true;
                     reset_stream_state(&mut state);
+                    state.ignore_next_stream_end = true;
                     return Ok(out);
                 }
                 _ => {}
