@@ -7,6 +7,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0-beta.6](https://github.com/YumchaLabs/siumai/compare/siumai-extras-v0.11.0-beta.5...siumai-extras-v0.11.0-beta.6) - 2026-03-25
+
+### Added
+
+- add gateway hosted tool rewrite example
+- add gateway request normalization helpers
+- unify bridge customization for gateway adapters
+- align axum sse bridge loss policy handling
+- add gateway loss policy example
+- add bridge gateway examples
+- add bridge option overrides
+- *(stream)* finalize clean eof in bridge encoders
+- *(gateway)* add axum policy runtime helpers
+- *(bridge)* add customizable hooks and gateway policy
+- *(siumai)* align examples tests and integration surface
+- *(orchestrator)* support ExecutableTools resolver
+
+### Fixed
+
+- resolve workspace clippy warnings
+- dedupe anthropic transcoding for provider tools
+- *(streaming)* align anthropic sse and openai finish chunks
+
+### Other
+
+- add gateway route recipes and align examples
+- add gateway runtime proxy smoke coverage
+- add gateway ingress sse smoke coverage
+- add gateway ingress route smoke coverage
+- add request normalize smoke coverage
+- add openai chat gateway smoke coverage
+- add anthropic gemini gateway smoke coverage
+- add gemini cross-protocol gateway smoke coverage
+- add gemini gateway smoke coverage
+- extract reusable bridge closure adapters
+- align gateway examples with inbound bridge options
+- extract gateway bridge policy helpers
+- add cross-protocol gateway smoke coverage
+- add gateway axum smoke coverage
+- *(extras)* add orchestrator tool-loop contract suite
+- *(extras)* accept TextModelV3 in object helpers
+- *(extras)* prefer registry in docs and examples
+- *(orchestrator)* route calls through text APIs
+- *(changelog)* release 0.11.0-beta.5
+
 ### Added
 
 - Runnable loss-policy bridge example:
