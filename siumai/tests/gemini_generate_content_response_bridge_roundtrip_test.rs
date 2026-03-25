@@ -95,12 +95,12 @@ fn gemini_generate_content_response_bridge_roundtrip_preserves_projected_visible
     assert!(!bridged.is_rejected());
     assert!(bridged.report.is_lossy());
     assert!(
-        bridged
+        !bridged
             .report
             .dropped_fields
             .iter()
             .any(|field| field == "content[0]"),
-        "expected reasoning block drop during Gemini roundtrip"
+        "expected Gemini reasoning block to survive roundtrip bridge"
     );
 
     let bridged_json = bridged.value.expect("bridged json");
@@ -130,7 +130,7 @@ fn gemini_generate_content_response_bridge_roundtrip_preserves_projected_visible
         .expect("transform bridged gemini response");
 
     assert_eq!(roundtripped.content_text(), Some("visible answer"));
-    assert_eq!(count_reasoning_parts(&roundtripped.content), 0);
+    assert_eq!(count_reasoning_parts(&roundtripped.content), 1);
     assert_eq!(roundtripped.finish_reason, Some(FinishReason::ToolCalls));
 
     let calls = roundtripped.tool_calls();

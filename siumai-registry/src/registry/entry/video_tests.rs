@@ -85,7 +85,9 @@ impl ProviderFactory for BridgeVideoFactory {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new().with_custom_feature("video", true)
+        ProviderCapabilities::new()
+            .with_chat()
+            .with_custom_feature("video", true)
     }
 }
 

@@ -96,6 +96,21 @@ fn normalize_tool_json_arguments_strict(
     }
 }
 
+fn looks_like_json_candidate(candidate: &str) -> bool {
+    let trimmed = candidate.trim_start();
+    matches!(
+        trimmed.chars().next(),
+        Some('{')
+            | Some('[')
+            | Some('"')
+            | Some('-')
+            | Some('0'..='9')
+            | Some('t')
+            | Some('f')
+            | Some('n')
+    )
+}
+
 /// Best-effort parse of a JSON value from a model output string.
 ///
 /// This attempts candidates in order:
@@ -110,20 +125,33 @@ pub fn extract_json_value(text: &str) -> Result<serde_json::Value, LlmError> {
         ));
     }
 
-    if let Some(fenced) = extract_first_markdown_fenced_block(trimmed)
-        && let Ok(v) = parse_json_value_candidate(fenced)
+    if let Some(fenced) = extract_first_markdown_fenced_block(trimmed) {
+        if let Ok(v) = parse_json_value_candidate_strict(fenced) {
+            return Ok(v);
+        }
+        if looks_like_json_candidate(fenced)
+            && let Ok(v) = parse_json_value_candidate(fenced)
+        {
+            return Ok(v);
+        }
+    }
+
+    if let Ok(v) = parse_json_value_candidate_strict(trimmed) {
+        return Ok(v);
+    }
+    if looks_like_json_candidate(trimmed)
+        && let Ok(v) = parse_json_value_candidate(trimmed)
     {
         return Ok(v);
     }
 
-    if let Ok(v) = parse_json_value_candidate(trimmed) {
-        return Ok(v);
-    }
-
-    if let Some(slice) = extract_braced_slice(trimmed)
-        && let Ok(v) = parse_json_value_candidate(slice)
-    {
-        return Ok(v);
+    if let Some(slice) = extract_braced_slice(trimmed) {
+        if let Ok(v) = parse_json_value_candidate_strict(slice) {
+            return Ok(v);
+        }
+        if let Ok(v) = parse_json_value_candidate(slice) {
+            return Ok(v);
+        }
     }
 
     Err(LlmError::ParseError(

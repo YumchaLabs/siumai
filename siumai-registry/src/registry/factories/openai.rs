@@ -57,7 +57,8 @@ impl OpenAIProviderFactory {
 
         let mut config = siumai_provider_openai::providers::openai::OpenAiConfig::new(api_key)
             .with_base_url(base_url)
-            .with_model(common_params.model.clone());
+            .with_model(common_params.model.clone())
+            .with_use_responses_api(mode == crate::registry::factory::OpenAiChatApiMode::Responses);
 
         if let Some(temp) = common_params.temperature {
             config = config.with_temperature(temp);
@@ -73,17 +74,6 @@ impl OpenAIProviderFactory {
         }
         if let Some(transport) = ctx.http_transport.clone() {
             config = config.with_http_transport(transport);
-        }
-
-        if mode == crate::registry::factory::OpenAiChatApiMode::Responses {
-            let mut overrides = crate::types::ProviderOptionsMap::new();
-            overrides.insert(
-                "openai",
-                serde_json::json!({
-                    "responsesApi": { "enabled": true }
-                }),
-            );
-            config.provider_options_map.merge_overrides(overrides);
         }
 
         let mut client =

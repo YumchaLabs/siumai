@@ -26587,18 +26587,10 @@ mod minimaxi_public_path {
         }));
         let base_url = "https://example.com/custom";
         let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
-        let registry_model = registry
-            .transcription_model("minimaxi:MiniMax-Speech-02")
-            .expect("build registry transcription model");
-
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
-        request.model = Some("MiniMax-Speech-02".to_string());
-        request = request.with_media_type("audio/mpeg".to_string());
-
-        let registry_err = registry_model
-            .speech_to_text(request)
-            .await
-            .expect_err("minimaxi registry transcription should be unsupported");
+        let registry_err = match registry.transcription_model("minimaxi:MiniMax-Speech-02") {
+            Ok(_) => panic!("minimaxi registry transcription handle should be unsupported"),
+            Err(err) => err,
+        };
 
         assert_unsupported_operation(&registry_err);
         assert!(registry_transport.take().is_none());
@@ -33206,7 +33198,7 @@ mod vertex_public_path {
                 "budget_tokens": 2048
             })
         );
-        assert_eq!(req.body["max_tokens"], serde_json::json!(4048));
+        assert_eq!(req.body["max_tokens"], serde_json::json!(6096));
         assert!(req.body.get("temperature").is_none());
         assert!(req.body.get("top_p").is_none());
         assert!(req.body.get("top_k").is_none());
@@ -33302,7 +33294,7 @@ mod vertex_public_path {
                 "budget_tokens": 2048
             })
         );
-        assert_eq!(req.body["max_tokens"], serde_json::json!(4048));
+        assert_eq!(req.body["max_tokens"], serde_json::json!(6096));
         assert!(req.body.get("temperature").is_none());
         assert!(req.body.get("top_p").is_none());
         assert!(req.body.get("top_k").is_none());

@@ -825,12 +825,12 @@ fn gemini_response_bridge_reports_reasoning_finish_reason_and_usage_breakdown_lo
     assert!(!bridged.is_rejected());
     assert!(bridged.report.is_lossy());
     assert!(
-        bridged
+        !bridged
             .report
             .dropped_fields
             .iter()
             .any(|field| field == "content[0]"),
-        "expected reasoning block drop"
+        "expected Gemini reasoning block to survive bridge"
     );
     assert!(
         bridged
@@ -868,10 +868,18 @@ fn gemini_response_bridge_reports_reasoning_finish_reason_and_usage_breakdown_lo
     let value = bridged.value.expect("json body");
     assert_eq!(
         value["candidates"][0]["content"]["parts"][0]["text"],
+        json!("internal thinking")
+    );
+    assert_eq!(
+        value["candidates"][0]["content"]["parts"][0]["thought"],
+        json!(true)
+    );
+    assert_eq!(
+        value["candidates"][0]["content"]["parts"][1]["text"],
         json!("visible answer")
     );
     assert_eq!(
-        value["candidates"][0]["content"]["parts"][1]["functionCall"]["name"],
+        value["candidates"][0]["content"]["parts"][2]["functionCall"]["name"],
         json!("search")
     );
     assert_eq!(value["candidates"][0]["finishReason"], json!("STOP"));

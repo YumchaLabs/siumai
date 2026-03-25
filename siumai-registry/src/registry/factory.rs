@@ -119,7 +119,8 @@ async fn build_openai_client_with_mode(
 ) -> Result<Arc<dyn LlmClient>, LlmError> {
     let mut config = siumai_provider_openai::providers::openai::OpenAiConfig::new(api_key)
         .with_base_url(base_url)
-        .with_model(common_params.model.clone());
+        .with_model(common_params.model.clone())
+        .with_use_responses_api(mode == OpenAiChatApiMode::Responses);
 
     if let Some(temp) = common_params.temperature {
         config = config.with_temperature(temp);
@@ -135,18 +136,6 @@ async fn build_openai_client_with_mode(
     }
     if let Some(transport) = http_transport {
         config = config.with_http_transport(transport);
-    }
-
-    // Default to Responses API for OpenAI (Vercel-aligned). Request-level overrides still work.
-    if mode == OpenAiChatApiMode::Responses {
-        let mut overrides = crate::types::ProviderOptionsMap::new();
-        overrides.insert(
-            "openai",
-            serde_json::json!({
-                "responsesApi": { "enabled": true }
-            }),
-        );
-        config.provider_options_map.merge_overrides(overrides);
     }
 
     let mut client =

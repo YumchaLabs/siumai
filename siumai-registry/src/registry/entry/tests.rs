@@ -76,6 +76,10 @@ impl ProviderFactory for ContextCapturingFactory {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed(self.id)
     }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_chat()
+    }
 }
 
 #[cfg(any(feature = "google", feature = "google-vertex"))]
@@ -234,8 +238,20 @@ impl ProviderFactory for TestRerankProviderFactory {
         Ok(Arc::new(TestProvRerankClient))
     }
 
+    async fn reranking_model_with_ctx(
+        &self,
+        _model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(TestProvRerankClient))
+    }
+
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Borrowed("testprov_rerank")
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities::new().with_rerank()
     }
 }
 
@@ -514,7 +530,7 @@ async fn language_model_handle_preserves_chat_request_fields() {
         }
 
         fn capabilities(&self) -> ProviderCapabilities {
-            ProviderCapabilities::new().with_chat()
+            ProviderCapabilities::new().with_chat().with_streaming()
         }
     }
 
@@ -811,6 +827,10 @@ async fn embedding_and_image_handles_inherit_interceptors() {
         "testprov_embed".to_string(),
         Arc::new(TestProviderFactory::new("testprov_embed")) as Arc<dyn ProviderFactory>,
     );
+    providers.insert(
+        "testprov_image".to_string(),
+        Arc::new(TestImageProviderFactory) as Arc<dyn ProviderFactory>,
+    );
     let reg = create_provider_registry(
         providers,
         Some(RegistryOptions {
@@ -836,8 +856,7 @@ async fn embedding_and_image_handles_inherit_interceptors() {
     // Call embed to ensure path runs without panic
     let _ = eh.embed(vec!["hello".into()]).await.unwrap();
 
-    // Image handle still inherits vector even if TestProviderFactory returns chat-only client
-    let ih = reg.image_model("testprov:model").unwrap();
+    let ih = reg.image_model("testprov_image:model").unwrap();
     assert_eq!(ih.http_interceptors.len(), 1);
 }
 

@@ -41,8 +41,7 @@ mod minimaxi_tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
-            .and(header("x-api-key", "test-api-key"))
-            .and(header("anthropic-version", "2023-06-01"))
+            .and(header("authorization", "Bearer test-api-key"))
             .and(header("content-type", "application/json"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response))
             .expect(1)
@@ -104,8 +103,7 @@ mod minimaxi_tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
-            .and(header("x-api-key", "test-api-key"))
-            .and(header("anthropic-version", "2023-06-01"))
+            .and(header("authorization", "Bearer test-api-key"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response))
             .expect(1)
             .mount(&mock_server)
@@ -180,8 +178,7 @@ mod minimaxi_tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
-            .and(header("x-api-key", "test-api-key"))
-            .and(header("anthropic-version", "2023-06-01"))
+            .and(header("authorization", "Bearer test-api-key"))
             .respond_with(
                 ResponseTemplate::new(200)
                     .set_body_string(sse_data)
@@ -253,7 +250,7 @@ mod minimaxi_tests {
 
         // Expect at least 1 request (may be more due to retry)
         Mock::given(method("POST"))
-            .and(path("/chat/completions"))
+            .and(path("/v1/messages"))
             .respond_with(ResponseTemplate::new(401).set_body_json(error_response))
             .mount(&mock_server)
             .await;
@@ -307,8 +304,7 @@ mod minimaxi_tests {
 
         Mock::given(method("POST"))
             .and(path("/v1/messages"))
-            .and(header("x-api-key", "test-key"))
-            .and(header("anthropic-version", "2023-06-01"))
+            .and(header("authorization", "Bearer test-key"))
             .respond_with(ResponseTemplate::new(200).set_body_json(mock_response))
             .mount(&mock_server)
             .await;

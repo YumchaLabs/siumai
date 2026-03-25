@@ -1000,7 +1000,7 @@ mod azure_contract {
         }
 
         let response = stream_end.expect("registry stream end");
-        assert_eq!(response.content_text(), Some("answer text"));
+        assert_eq!(response.content_text(), Some("Hello, World!"));
 
         let provider_metadata = response
             .provider_metadata

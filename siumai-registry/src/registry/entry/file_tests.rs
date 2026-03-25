@@ -114,7 +114,9 @@ impl ProviderFactory for BridgeFilesFactory {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new().with_file_management()
+        ProviderCapabilities::new()
+            .with_chat()
+            .with_file_management()
     }
 }
 

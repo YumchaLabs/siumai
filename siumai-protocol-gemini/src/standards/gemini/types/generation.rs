@@ -279,10 +279,10 @@ impl Default for ThinkingConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptFeedback {
     /// Optional. If set, the prompt was blocked and no candidates are returned.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", rename = "blockReason")]
     pub block_reason: Option<BlockReason>,
     /// Ratings for safety of the prompt.
-    #[serde(default)]
+    #[serde(default, rename = "safetyRatings")]
     pub safety_ratings: Vec<super::SafetyRating>,
 }
 

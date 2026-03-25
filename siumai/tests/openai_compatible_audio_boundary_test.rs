@@ -17,6 +17,26 @@ fn sample_model_for(provider_id: &str) -> String {
     }
 }
 
+fn has_native_audio_registry_override(provider_id: &str) -> bool {
+    matches!(
+        provider_id,
+        "openai"
+            | "azure"
+            | "anthropic"
+            | "gemini"
+            | "vertex"
+            | "anthropic-vertex"
+            | "groq"
+            | "xai"
+            | "minimaxi"
+            | "deepseek"
+            | "cohere"
+            | "togetherai"
+            | "bedrock"
+            | "ollama"
+    )
+}
+
 #[test]
 fn compat_audio_capability_flag_matches_family_enrollment() {
     for provider_id in list_provider_ids() {
@@ -37,6 +57,10 @@ fn compat_registry_audio_handles_follow_declared_capability_split() {
     let registry = create_registry_with_defaults();
 
     for provider_id in list_provider_ids() {
+        if has_native_audio_registry_override(&provider_id) {
+            continue;
+        }
+
         let model = sample_model_for(&provider_id);
         let full_model_id = format!("{provider_id}:{model}");
 

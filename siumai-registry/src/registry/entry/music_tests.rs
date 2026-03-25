@@ -77,7 +77,9 @@ impl ProviderFactory for BridgeMusicFactory {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::new().with_custom_feature("music", true)
+        ProviderCapabilities::new()
+            .with_chat()
+            .with_custom_feature("music", true)
     }
 }
 
