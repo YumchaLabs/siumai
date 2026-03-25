@@ -814,6 +814,7 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                     }
                 }
             }
+            #[cfg(feature = "structured-messages")]
             crate::types::MessageContent::Json(value) => {
                 content.push(text_block(
                     serde_json::to_string(value).unwrap_or_default(),

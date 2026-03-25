@@ -943,6 +943,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                     _ => None,
                 })
                 .collect(),
+            #[cfg(feature = "structured-messages")]
             crate::types::MessageContent::Json(value) => {
                 vec![OpenAiResponseMessageContent::OutputText {
                     text: serde_json::to_string(value).unwrap_or_default(),
