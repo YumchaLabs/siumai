@@ -37,6 +37,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the default response path: provider-defined tools remain filtered out of Chat Completions
   requests, and successful chat responses now emit `unsupported { feature: "provider-defined tool
   <id>" }` warnings without extra user-installed middleware.
+- OpenAI-compatible chat runtime now also installs the AI SDK deprecation warning for legacy
+  `providerOptions['openai-compatible']`: the deprecated key still works for audited compat chat
+  options, and successful chat responses now emit `other { message: "The 'openai-compatible' key
+  in providerOptions is deprecated. Use 'openaiCompatible' instead." }` on the default response
+  path.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

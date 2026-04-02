@@ -10,6 +10,7 @@ use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder, Ht
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::providers::openai_compatible::middleware::OpenAiCompatibleDeprecatedProviderOptionsWarningMiddleware;
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleStructuredOutputsWarningMiddleware;
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleToolWarningsMiddleware;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
@@ -128,6 +129,10 @@ fn compat_model_middlewares(
     config: &OpenAiCompatibleConfig,
 ) -> Vec<Arc<dyn LanguageModelMiddleware>> {
     let mut middlewares = config.model_middlewares.clone();
+
+    middlewares.push(Arc::new(
+        OpenAiCompatibleDeprecatedProviderOptionsWarningMiddleware::new(),
+    ));
 
     if config.supports_structured_outputs != Some(true) {
         middlewares.push(Arc::new(
@@ -3179,6 +3184,76 @@ mod tests {
             Some(vec![crate::types::Warning::unsupported(
                 "provider-defined tool openai.web_search",
                 None::<String>,
+            )])
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_deprecated_openai_compatible_key_emits_warning() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl_deprecated_key",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "ok"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option(
+                "openai-compatible",
+                serde_json::json!({ "user": "compat-user-legacy" }),
+            );
+
+        let response = client.chat_request(request).await.expect("response ok");
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["user"],
+            serde_json::json!("compat-user-legacy")
+        );
+        assert_eq!(
+            response.warnings,
+            Some(vec![crate::types::Warning::other(
+                "The 'openai-compatible' key in providerOptions is deprecated. Use 'openaiCompatible' instead.",
             )])
         );
     }

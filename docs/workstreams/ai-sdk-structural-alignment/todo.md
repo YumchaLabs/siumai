@@ -114,6 +114,8 @@ Status legend:
   - provider-defined tools now also emit AI SDK-style
     `unsupported { feature: "provider-defined tool <id>" }` warnings on the default compat
     runtime response path while still being filtered from Chat Completions requests
+  - legacy `providerOptions['openai-compatible']` now also emits the AI SDK-style deprecation
+    warning while preserving the audited compatibility lane for known compat chat options
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.
