@@ -151,8 +151,8 @@ impl VideoGenerationInput {
 /// Video generation request
 ///
 /// This type is designed to be extensible across different video generation providers.
-/// Provider-specific fields (like `prompt_optimizer`, `aigc_watermark`) are optional,
-/// and additional parameters can be passed via `extra_params`.
+/// Provider-owned knobs should flow through `provider_options_map`, while generic overflow fields
+/// can still be carried through `extra_params`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoGenerationRequest {
     /// Model name (e.g., "hailuo-2.3", "gen-3-alpha", "sora-2")
@@ -203,22 +203,6 @@ pub struct VideoGenerationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video: Option<VideoGenerationInput>,
 
-    /// Whether to automatically optimize prompt (MiniMaxi-specific)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt_optimizer: Option<bool>,
-
-    /// Whether to shorten prompt optimization time (MiniMaxi-specific)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fast_pretreatment: Option<bool>,
-
-    /// Callback URL for task status updates
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub callback_url: Option<String>,
-
-    /// Whether to add watermark to generated video (MiniMaxi-specific)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aigc_watermark: Option<bool>,
-
     /// Additional provider-specific parameters
     ///
     /// Use this for provider-specific features not covered by standard fields.
@@ -266,10 +250,6 @@ impl VideoGenerationRequest {
             seed: None,
             image: None,
             video: None,
-            prompt_optimizer: None,
-            fast_pretreatment: None,
-            callback_url: None,
-            aigc_watermark: None,
             extra_params: None,
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
@@ -326,30 +306,6 @@ impl VideoGenerationRequest {
     /// Attach a video input for provider-conditional video editing flows.
     pub fn with_video(mut self, video: VideoGenerationInput) -> Self {
         self.video = Some(video);
-        self
-    }
-
-    /// Set prompt optimizer
-    pub fn with_prompt_optimizer(mut self, enabled: bool) -> Self {
-        self.prompt_optimizer = Some(enabled);
-        self
-    }
-
-    /// Set fast pretreatment
-    pub fn with_fast_pretreatment(mut self, enabled: bool) -> Self {
-        self.fast_pretreatment = Some(enabled);
-        self
-    }
-
-    /// Set callback URL
-    pub fn with_callback_url(mut self, url: impl Into<String>) -> Self {
-        self.callback_url = Some(url.into());
-        self
-    }
-
-    /// Set watermark
-    pub fn with_watermark(mut self, enabled: bool) -> Self {
-        self.aigc_watermark = Some(enabled);
         self
     }
 
@@ -538,8 +494,7 @@ mod tests {
             .with_fps(24)
             .with_seed(7)
             .with_resolution("1080P")
-            .with_image(VideoGenerationInput::url("https://example.com/start.png"))
-            .with_prompt_optimizer(true);
+            .with_image(VideoGenerationInput::url("https://example.com/start.png"));
 
         assert_eq!(req.model, "hailuo-2.3");
         assert_eq!(req.prompt, "A beautiful sunset");
@@ -553,7 +508,6 @@ mod tests {
             req.image.as_ref().and_then(VideoGenerationInput::as_url),
             Some("https://example.com/start.png")
         );
-        assert_eq!(req.prompt_optimizer, Some(true));
     }
 
     #[test]

@@ -25634,7 +25634,7 @@ mod minimaxi_public_path {
     use siumai::provider_ext::minimaxi::ext::video::MinimaxiVideoRequestBuilder;
     use siumai::provider_ext::minimaxi::{
         MinimaxiChatRequestExt, MinimaxiChatResponseExt, MinimaxiOptions, MinimaxiTtsOptions,
-        MinimaxiTtsRequestExt,
+        MinimaxiTtsRequestExt, MinimaxiVideoOptions, MinimaxiVideoRequestExt,
     };
     use siumai::registry::ProviderBuildOverrides;
     use std::collections::HashMap;
@@ -27626,15 +27626,19 @@ mod minimaxi_public_path {
             .language_model("minimaxi:hailuo-2.3")
             .expect("build registry language model");
 
-        let request =
-            MinimaxiVideoRequestBuilder::new("hailuo-2.3", "a tiny robot walking in rain")
-                .duration(10)
-                .resolution("1080P")
-                .prompt_optimizer(true)
-                .fast_pretreatment(false)
-                .callback_url("https://example.com/callback")
-                .watermark(false)
-                .build();
+        let request = siumai::prelude::extensions::types::VideoGenerationRequest::new(
+            "hailuo-2.3",
+            "a tiny robot walking in rain",
+        )
+        .with_duration(10)
+        .with_resolution("1080P")
+        .with_minimaxi_video_options(
+            MinimaxiVideoOptions::new()
+                .with_prompt_optimizer(true)
+                .with_fast_pretreatment(false)
+                .with_callback_url("https://example.com/callback")
+                .with_aigc_watermark(false),
+        );
 
         let siumai_resp = siumai_client
             .create_video_task(request.clone())

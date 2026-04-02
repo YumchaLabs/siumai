@@ -776,18 +776,20 @@ pub mod provider_ext {
         pub mod options {
             pub use siumai_provider_minimaxi::provider_options::{
                 MinimaxiOptions, MinimaxiResponseFormat, MinimaxiThinkingModeConfig,
-                MinimaxiTtsOptions,
+                MinimaxiTtsOptions, MinimaxiVideoOptions,
             };
-            pub use siumai_provider_minimaxi::providers::minimaxi::ext::MinimaxiChatRequestExt;
             pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts::MinimaxiTtsRequestBuilder;
             pub use siumai_provider_minimaxi::providers::minimaxi::ext::tts_options::MinimaxiTtsRequestExt;
+            pub use siumai_provider_minimaxi::providers::minimaxi::ext::{
+                MinimaxiChatRequestExt, MinimaxiVideoRequestExt,
+            };
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
         pub use options::{
             MinimaxiChatRequestExt, MinimaxiOptions, MinimaxiResponseFormat,
             MinimaxiThinkingModeConfig, MinimaxiTtsOptions, MinimaxiTtsRequestBuilder,
-            MinimaxiTtsRequestExt,
+            MinimaxiTtsRequestExt, MinimaxiVideoOptions, MinimaxiVideoRequestExt,
         };
 
         /// Non-unified MiniMaxi extension APIs (escape hatches).

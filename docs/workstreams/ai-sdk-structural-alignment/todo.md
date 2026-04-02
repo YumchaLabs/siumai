@@ -155,9 +155,14 @@ Status legend:
       warnings for unsupported URL/FPS cases
     - MiniMaxi now filters unsupported generic/shared video fields instead of serializing the
       entire shared request object blindly
-  - [ ] Decide whether the remaining MiniMaxi-centric top-level video request fields
-    (`prompt_optimizer`, `fast_pretreatment`, `callback_url`, `aigc_watermark`) should be moved
-    fully behind provider-owned typed options/builders.
+  - [x] Move the remaining MiniMaxi-centric top-level video request fields behind provider-owned
+    typed options/builders.
+    - shared `VideoGenerationRequest` no longer carries `prompt_optimizer`,
+      `fast_pretreatment`, `callback_url`, or `aigc_watermark`
+    - provider-owned `MinimaxiVideoOptions` now carries those knobs through
+      `providerOptions["minimaxi"]`
+    - MiniMaxi video request/body shaping and public provider-owned builder helpers were updated to
+      use that provider-owned lane instead of shared top-level fields
 
 ## Track C - Finish V4-capable prompt/content modeling
 

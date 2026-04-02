@@ -6,6 +6,7 @@ use crate::error::LlmError;
 use crate::execution::executors::common::{HttpBody, execute_get_request, execute_json_request};
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::wiring::HttpExecutionWiring;
+use crate::provider_options::MinimaxiVideoOptions;
 use crate::retry_api::RetryOptions;
 use crate::types::HttpConfig;
 use crate::types::video::{
@@ -15,7 +16,22 @@ use std::sync::Arc;
 
 use super::spec::MinimaxiVideoSpec;
 
-fn build_request_body(request: VideoGenerationRequest) -> serde_json::Value {
+fn parse_video_options(
+    map: &crate::types::ProviderOptionsMap,
+) -> Result<MinimaxiVideoOptions, LlmError> {
+    let Some(value) = map.get("minimaxi") else {
+        return Ok(MinimaxiVideoOptions::default());
+    };
+
+    serde_json::from_value(value.clone()).map_err(|err| {
+        LlmError::InvalidParameter(format!(
+            "Invalid MiniMaxi video options in providerOptions.minimaxi: {err}"
+        ))
+    })
+}
+
+fn build_request_body(request: VideoGenerationRequest) -> Result<serde_json::Value, LlmError> {
+    let options = parse_video_options(&request.provider_options_map)?;
     let mut body = serde_json::Map::new();
     body.insert("model".to_string(), serde_json::json!(request.model));
     body.insert("prompt".to_string(), serde_json::json!(request.prompt));
@@ -26,26 +42,30 @@ fn build_request_body(request: VideoGenerationRequest) -> serde_json::Value {
     if let Some(resolution) = request.resolution {
         body.insert("resolution".to_string(), serde_json::json!(resolution));
     }
-    if let Some(prompt_optimizer) = request.prompt_optimizer {
+    if let Some(prompt_optimizer) = options.prompt_optimizer {
         body.insert(
             "prompt_optimizer".to_string(),
             serde_json::json!(prompt_optimizer),
         );
     }
-    if let Some(fast_pretreatment) = request.fast_pretreatment {
+    if let Some(fast_pretreatment) = options.fast_pretreatment {
         body.insert(
             "fast_pretreatment".to_string(),
             serde_json::json!(fast_pretreatment),
         );
     }
-    if let Some(callback_url) = request.callback_url {
+    if let Some(callback_url) = options.callback_url {
         body.insert("callback_url".to_string(), serde_json::json!(callback_url));
     }
-    if let Some(aigc_watermark) = request.aigc_watermark {
+    if let Some(aigc_watermark) = options.aigc_watermark {
         body.insert(
             "aigc_watermark".to_string(),
             serde_json::json!(aigc_watermark),
         );
+    }
+
+    for (key, value) in options.extra_fields {
+        body.entry(key).or_insert(value);
     }
 
     if let Some(extra_params) = request.extra_params {
@@ -54,7 +74,7 @@ fn build_request_body(request: VideoGenerationRequest) -> serde_json::Value {
         }
     }
 
-    serde_json::Value::Object(body)
+    Ok(serde_json::Value::Object(body))
 }
 
 fn build_wiring(
@@ -105,7 +125,7 @@ pub(super) async fn create_video_task(
     let config = wiring.config(Arc::new(MinimaxiVideoSpec::new()));
     let url = MinimaxiVideoSpec::new().video_generation_url(&config.provider_context);
 
-    let body = build_request_body(request);
+    let body = build_request_body(request)?;
     let res = execute_json_request(&config, &url, HttpBody::Json(body), None, false).await?;
     serde_json::from_value(res.json).map_err(|e| {
         LlmError::ParseError(format!("Failed to parse video generation response: {}", e))

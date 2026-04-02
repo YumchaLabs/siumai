@@ -65,6 +65,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   typed image input onto the provider body and surfaces warnings for unsupported URL/FPS cases, and
   MiniMaxi no longer serializes the entire shared request struct blindly on its provider-owned video
   path.
+- MiniMaxi video request shaping now fully leaves the shared boundary for vendor-only knobs:
+  `prompt_optimizer`, `fast_pretreatment`, `callback_url`, and `aigc_watermark` moved off the
+  shared `VideoGenerationRequest` shape into provider-owned typed `MinimaxiVideoOptions` carried via
+  `providerOptions["minimaxi"]`, while the MiniMaxi video builder keeps those fluent helpers on the
+  provider-owned extension surface.
 - Stable prompt/content request boundaries now expose first-class `providerOptions` on messages, request-capable content parts, and tool-result output/content shapes. OpenAI-compatible, OpenAI Chat, OpenAI Responses, and Anthropic request conversion now read those canonical fields for the main user-visible request paths instead of request-side `providerMetadata` / `message.metadata.custom`, with the remaining legacy compatibility shims explicitly narrowed to audited edge cases only.
 - `ProviderOptionsMap` serde now normalizes provider ids during JSON decode and restores the canonical `openaiCompatible` wire key during encode, so JSON-fed requests and builder-constructed requests no longer diverge on provider-option lookup semantics.
 - Public-path parity coverage now locks that corrected request boundary on the real entrypoints too: OpenAI Chat builder/provider/config/registry paths all agree on canonical part `providerOptions.openai.imageDetail`, and OpenAI-compatible builder/provider/config/registry paths all agree on canonical message/part/tool-result `providerOptions.openaiCompatible` while ignoring the removed request-side metadata input channels.

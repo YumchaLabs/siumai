@@ -211,21 +211,33 @@ mod minimaxi_tests {
 
     #[test]
     fn test_video_request_builder() {
+        use crate::provider_options::MinimaxiVideoOptions;
+        use crate::providers::minimaxi::ext::video_options::MinimaxiVideoRequestExt;
         use crate::types::video::VideoGenerationRequest;
 
         let request =
             VideoGenerationRequest::new("MiniMax-Hailuo-2.3", "A beautiful sunset over the ocean")
                 .with_duration(6)
                 .with_resolution("1080P")
-                .with_prompt_optimizer(true)
-                .with_watermark(false);
+                .with_minimaxi_video_options(
+                    MinimaxiVideoOptions::new()
+                        .with_prompt_optimizer(true)
+                        .with_aigc_watermark(false),
+                );
 
         assert_eq!(request.model, "MiniMax-Hailuo-2.3");
         assert_eq!(request.prompt, "A beautiful sunset over the ocean");
         assert_eq!(request.duration, Some(6));
         assert_eq!(request.resolution, Some("1080P".to_string()));
-        assert_eq!(request.prompt_optimizer, Some(true));
-        assert_eq!(request.aigc_watermark, Some(false));
+        let minimaxi_options = request
+            .provider_options_map
+            .get("minimaxi")
+            .expect("minimaxi video options");
+        assert_eq!(
+            minimaxi_options["prompt_optimizer"],
+            serde_json::json!(true)
+        );
+        assert_eq!(minimaxi_options["aigc_watermark"], serde_json::json!(false));
     }
 
     #[test]

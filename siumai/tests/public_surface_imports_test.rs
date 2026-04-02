@@ -1068,6 +1068,7 @@ fn public_surface_minimaxi_provider_ext_compiles() {
     let _ = size_of::<MinimaxiResponseFormat>();
     let _ = size_of::<MinimaxiThinkingModeConfig>();
     let _ = size_of::<MinimaxiTtsOptions>();
+    let _ = size_of::<MinimaxiVideoOptions>();
     let _ = size_of::<MinimaxiTtsRequestBuilder>();
     let _ = size_of::<music::MinimaxiMusicRequestBuilder>();
     let _ = size_of::<video::MinimaxiVideoRequestBuilder>();
@@ -1079,10 +1080,12 @@ fn public_surface_minimaxi_provider_ext_compiles() {
 
     fn _assert_chat_req_ext<T: MinimaxiChatRequestExt>() {}
     fn _assert_req_ext<T: MinimaxiTtsRequestExt>() {}
+    fn _assert_video_req_ext<T: MinimaxiVideoRequestExt>() {}
     fn _assert_resp_ext<T: MinimaxiChatResponseExt>() {}
     fn _assert_part_ext<T: MinimaxiContentPartExt>() {}
     _assert_chat_req_ext::<ChatRequest>();
     _assert_req_ext::<siumai::prelude::unified::TtsRequest>();
+    _assert_video_req_ext::<siumai::prelude::extensions::types::VideoGenerationRequest>();
     _assert_resp_ext::<ChatResponse>();
     _assert_part_ext::<ContentPart>();
     let _ = structured_output::chat_with_json_object::<MinimaxiClient>;

@@ -10,5 +10,7 @@ pub mod thinking;
 pub mod tts;
 pub mod tts_options;
 pub mod video;
+pub mod video_options;
 
 pub use request_options::MinimaxiChatRequestExt;
+pub use video_options::MinimaxiVideoRequestExt;

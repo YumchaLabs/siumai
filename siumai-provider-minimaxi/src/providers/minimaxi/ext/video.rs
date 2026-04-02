@@ -3,7 +3,10 @@
 //! MiniMaxi video generation uses a task-based API. This module provides a thin,
 //! type-safe builder around `VideoGenerationRequest` with MiniMaxi-flavored knobs.
 
+use crate::provider_options::MinimaxiVideoOptions;
 use crate::types::video::VideoGenerationRequest;
+
+use super::video_options::MinimaxiVideoRequestExt;
 
 /// Type-safe builder for MiniMaxi video generation requests.
 #[derive(Debug, Clone)]
@@ -31,27 +34,41 @@ impl MinimaxiVideoRequestBuilder {
         self
     }
 
+    /// Attach provider-owned MiniMaxi video options directly.
+    pub fn options(mut self, options: MinimaxiVideoOptions) -> Self {
+        self.request = self.request.with_minimaxi_video_options(options);
+        self
+    }
+
     /// Enable prompt optimization (MiniMaxi-specific).
     pub fn prompt_optimizer(mut self, enabled: bool) -> Self {
-        self.request = self.request.with_prompt_optimizer(enabled);
+        self.request = self.request.with_minimaxi_video_options(
+            MinimaxiVideoOptions::new().with_prompt_optimizer(enabled),
+        );
         self
     }
 
     /// Enable fast pretreatment for prompt optimization (MiniMaxi-specific).
     pub fn fast_pretreatment(mut self, enabled: bool) -> Self {
-        self.request = self.request.with_fast_pretreatment(enabled);
+        self.request = self.request.with_minimaxi_video_options(
+            MinimaxiVideoOptions::new().with_fast_pretreatment(enabled),
+        );
         self
     }
 
     /// Set callback URL for task status updates.
     pub fn callback_url(mut self, url: impl Into<String>) -> Self {
-        self.request = self.request.with_callback_url(url);
+        self.request = self
+            .request
+            .with_minimaxi_video_options(MinimaxiVideoOptions::new().with_callback_url(url));
         self
     }
 
     /// Enable watermark (MiniMaxi-specific).
     pub fn watermark(mut self, enabled: bool) -> Self {
-        self.request = self.request.with_watermark(enabled);
+        self.request = self
+            .request
+            .with_minimaxi_video_options(MinimaxiVideoOptions::new().with_watermark(enabled));
         self
     }
 

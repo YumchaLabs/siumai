@@ -65,6 +65,7 @@ pub mod video;
 // Re-export main types for convenience
 pub use crate::provider_options::{
     MinimaxiOptions, MinimaxiResponseFormat, MinimaxiThinkingModeConfig, MinimaxiTtsOptions,
+    MinimaxiVideoOptions,
 };
 pub use builder::MinimaxiBuilder;
 pub use client::MinimaxiClient;

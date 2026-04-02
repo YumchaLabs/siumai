@@ -66,6 +66,12 @@ Current state:
     `GET /videos/{request_id}`
   - registry/native metadata/public-path parity now expose xAI image generation and video task
     support as first-class provider-owned capabilities instead of intentional unsupported paths
+- MiniMaxi video request shaping now follows that same provider-owned split too:
+  - shared `VideoGenerationRequest` no longer carries MiniMaxi-only top-level knobs
+  - typed `MinimaxiVideoOptions` now owns `prompt_optimizer`, `fast_pretreatment`,
+    `callback_url`, and `aigc_watermark` under `providerOptions["minimaxi"]`
+  - the provider-owned MiniMaxi video builder keeps matching fluent helpers while routing them
+    through that namespaced option lane instead of the shared request type
 - The xAI chat typed surface was re-audited against `repo-ref/ai/packages/xai/src/xai-chat-options.ts`:
   `parallel_function_calling` is now exposed end-to-end, deprecated `xHandles` now normalizes to
   wire `included_x_handles`, and `with_default_search()` now matches the upstream
