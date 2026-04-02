@@ -10,7 +10,7 @@ use siumai::experimental::execution::transformers::{
     request::{ImageHttpBody, RequestTransformer},
     response::ResponseTransformer,
 };
-use siumai::extensions::types::{ImageEditRequest, ImageVariationRequest};
+use siumai::extensions::types::{ImageEditInput, ImageEditRequest, ImageVariationRequest};
 use siumai::prelude::unified::{
     ChatRequest, GeneratedImage, ImageGenerationRequest, ImageGenerationResponse, LlmError,
     ProviderCapabilities,
@@ -262,6 +262,8 @@ async fn image_executor_retries_on_401() {
             model: None,
             count: None,
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: None,
             extra_params: Default::default(),
             provider_options_map: Default::default(),
@@ -274,10 +276,12 @@ async fn image_executor_retries_on_401() {
     // variation
     let out = exec
         .execute_variation(ImageVariationRequest {
-            image: vec![],
+            image: ImageEditInput::file(vec![]),
             model: None,
             count: None,
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: None,
             extra_params: Default::default(),
             provider_options_map: Default::default(),

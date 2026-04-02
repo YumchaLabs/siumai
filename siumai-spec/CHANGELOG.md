@@ -19,6 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add first-class V4 `custom` / `reasoning-file` content parts plus explicit tool-result content variants (`file-data`, `file-url`, `file-id`, `image-data`, `image-url`, `image-file-id`) and a stable provider-keyed `ToolResultFileId`.
 - Add first-class runtime `ChatStreamPart` semantics and `ChatStreamEvent::Part`, so the stable streaming surface can carry AI SDK V4 stream-part concepts such as `source`, `response-metadata`, `stream-start warnings`, `finish`, `custom`, `file`, and `reasoning-file`.
 - Add runtime-only `ChatStreamReplay` plus `ChatStreamEvent::PartWithReplay`, so protocol serializers can carry same-protocol replay hints such as OpenAI Responses `rawItem` / `outputIndex` without widening `ChatStreamPart` or overloading generic `providerMetadata`.
+- Extend the shared image request family with top-level `aspectRatio` across generation/edit/variation
+  plus shared `seed` on edit/variation, including builder/helper methods for the new canonical
+  image call-option fields.
+- Refactor `ImageVariationRequest` to carry a typed `ImageEditInput` file/url source image instead
+  of a raw byte-only field, bringing the shared variation surface closer to AI SDK
+  `ImageModelV4File`.
+- Extend typed `ImageEditInput` file/url inputs with first-class per-input `providerOptions`,
+  further aligning the shared image file shape with AI SDK `ImageModelV4File`.
+- Extend typed `VideoGenerationInput` file/url inputs with first-class per-input
+  `providerOptions`, aligning the shared video file shape more closely with AI SDK
+  `VideoModelV4File`.
 
 ### Fixed
 

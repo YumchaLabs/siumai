@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Vertex content-part metadata helpers now cover stable `reasoning-file` and `custom` parts
   alongside the older multimodal variants.
+- Vertex Imagen request shaping now consumes canonical top-level `aspectRatio` / `seed` on both
+  generation and edit paths, instead of requiring those controls to flow through provider-owned
+  option maps or extra params.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

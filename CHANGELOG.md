@@ -9,9 +9,19 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Stable prompt/content modeling now includes Vercel-aligned `custom`, `reasoning-file`, and explicit tool-result content variants (`file-data`, `file-url`, `file-id`, `image-data`, `image-url`, `image-file-id`) with provider-keyed file-id support.
 - Shared image edit typing now exposes AI SDK-style multi-input `images[]` + `mask` semantics through
   public `ImageEditInput` and `ImageEditFileData` types on the extensions/facade surface.
+- Shared image request typing now exposes top-level `aspectRatio` across generation/edit/variation
+  plus shared `seed` support across the same request family, bringing the stable image call-option
+  surface much closer to AI SDK `ImageModelV4CallOptions`.
+- Shared image variation typing now also uses a typed file/url image input instead of a raw
+  byte-only field, aligning the stable variation request shape more closely with AI SDK
+  `ImageModelV4File`.
+- Shared image edit/variation input typing now also exposes per-input `providerOptions` on typed
+  file/url image inputs, closing another structural gap against AI SDK `ImageModelV4File`.
 - Shared video generation typing now exposes AI SDK-style typed file/url inputs through public
   `VideoGenerationInput`, plus canonical `count` (`n`), `fps`, and `seed` request knobs in place
   of the older raw `seed_image` / `seed_video` byte fields.
+- Shared video input typing now also exposes per-input `providerOptions` on typed file/url inputs,
+  bringing the stable `VideoGenerationInput` shape closer to AI SDK `VideoModelV4File`.
 
 ### Fixed
 
@@ -45,6 +55,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - OpenAI-compatible public config/builder/runtime surfaces now also expose an explicit provider-level `supportsStructuredOutputs` policy aligned with AI SDK semantics: compat chat now defaults to downgrading JSON Schema outputs to `response_format = { "type": "json_object" }` while emitting a stable `unsupported { feature: "responseFormat" }` warning on chat responses, and callers can opt back into wire-level `json_schema` by setting `supportsStructuredOutputs = true`.
 - OpenAI-compatible chat request shaping now also honors AI SDK-style known compat provider options from both canonical `providerOptions.openaiCompatible` and provider-owned keys: `user`, `reasoningEffort`, `textVerbosity`, and `strictJsonSchema` are mapped onto the final wire body (`user`, `reasoning_effort`, `verbosity`, `response_format.json_schema.strict`) instead of leaking through as raw compatibility keys.
 - OpenAI-compatible image request shaping now follows the AI SDK image provider-options lane more closely: compat image generation/edit/variation no longer hardcode `providerOptions.openai|azure`, provider-owned image options now merge from deprecated `openai-compatible`, canonical `openaiCompatible`, and provider-owned keys, and image generation now surfaces a stable `unsupported { feature: "seed" }` warning instead of silently dropping `seed`.
+- OpenAI and OpenAI-compatible image warning semantics now also cover top-level `aspectRatio` /
+  `seed` consistently across generation, edit, and variation requests, matching the AI SDK-style
+  unsupported-warning lane instead of leaving edit/variation as silent drops.
 - OpenAI-compatible chat responses now also surface AI SDK-style warnings for provider-defined tools on the default runtime path: provider-defined tools are still filtered out of Chat Completions requests, and successful chat responses now include `unsupported { feature: "provider-defined tool <id>" }` warnings without requiring callers to install a custom middleware.
 - OpenAI-compatible chat responses now also surface the AI SDK deprecation warning for legacy `providerOptions['openai-compatible']`: the deprecated key still works for audited compat chat options, but successful chat responses now include `other { message: "The 'openai-compatible' key in providerOptions is deprecated. Use 'openaiCompatible' instead." }` on the default runtime path.
 - Unified warnings now expose AI SDK-style `unsupported` / `compatibility` shapes through a compatibility-superset model, and `systemMessageMode=remove` is reported through the `compatibility` warning type instead of a generic message.
@@ -54,6 +67,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - OpenAI/Azure Responses non-stream response parsing now matches AI SDK response content shape more closely: assistant `message.content[*].output_text` is always preserved as structured text parts on the stable boundary, including plain and empty text, so typed `providerMetadata.{openai|azure}.itemId` is no longer lost behind the single-text fast path, and the canonical OpenAI Responses JSON encoder now uses that text-part metadata instead of consuming or duplicating a legacy top-level response `itemId`. The same OpenAI Responses response-side alignment sweep also preserves `responseId` / `serviceTier`, text-part `phase` / raw `annotations`, and document citation `type` / `index` across exact JSON and SSE roundtrips.
 - xAI Responses now follows the audited `repo-ref/ai` boundary more closely: non-stream text/source parts stay metadata-free, reasoning parts use `providerMetadata.xai.itemId` instead of the shared OpenAI namespace, top-level response `provider_metadata` is omitted, and xAI SSE reasoning parts now also carry `providerMetadata.xai.itemId` while `text-*` / `finish` remain metadata-free. The xAI SSE converter also backfills a missing `reasoning-start` before `reasoning-end` when upstream closes a reasoning item without an earlier start event.
 - xAI request-side parity moved closer to the audited AI SDK split as well: the shared Responses request transformer now maps xAI `reasoningEffort` / `reasoningSummary`, `topLogprobs -> logprobs=true`, `previousResponseId`, and `store=false -> include += reasoning.encrypted_content`, assistant xAI message ids no longer collapse into OpenAI-style `item_reference`, assistant xAI tool calls now emit stable ids plus `status: "completed"`, and the OpenAI-compatible xAI chat path now normalizes supported chat fields while stripping Responses-only knobs (`reasoningSummary`, `previousResponseId`, `include`, `store`) before hitting `/chat/completions`.
+- xAI's compat-backed chat configuration now opts into structured outputs by default, so JSON Schema
+  response formats stay on the canonical `json_schema` wire shape instead of being downgraded to
+  `json_object` through the generic OpenAI-compatible fallback policy.
 - xAI chat typed options now also align more closely with `repo-ref/ai`: `parallel_function_calling` is exposed end-to-end on the typed surface, deprecated `xHandles` input now normalizes to wire `included_x_handles` instead of leaking as `x_handles`, and `with_default_search()` now matches the upstream `maxSearchResults=20` default.
 - The provider-owned xAI option model is now split to match the audited AI SDK structure more closely: chat-only knobs live on `XaiChatOptions`, Responses-only knobs live on `XaiResponsesOptions`, and the main reasoning/include slots now use enum-backed typed wrappers instead of raw `String` / `Vec<String>` bags while preserving forward-compatible string passthrough for newly introduced upstream values.
 - xAI search-source typing now follows the AI SDK structure more closely: `SearchSource` is modeled as a discriminated union over `web` / `news` / `x` / `rss` instead of a single permissive field bag, while deprecated `xHandles` input still normalizes to `included_x_handles`.
@@ -68,6 +84,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   plus Vertex inline edit now accept multiple file-backed source images. URL-backed edit inputs are
   already supported on xAI and are explicitly rejected on multipart/inline provider paths until a
   shared async materialization layer exists.
+- Gemini / Google Imagen, Vertex Imagen, and xAI native image request shaping now also consume the
+  canonical shared top-level `aspectRatio` / `seed` fields on their supported paths, reducing the
+  remaining provider-specific image gaps to runtime materialization and a few incomplete variation
+  edges rather than missing shared request structure.
 - Shared/provider video request shaping now follows the audited AI SDK split more closely as well:
   xAI video creation warns-and-filters unsupported `n` / `fps` / `seed` knobs while consuming
   typed `VideoGenerationInput` image/video inputs, Gemini/Veo now maps canonical `count` / `seed` /

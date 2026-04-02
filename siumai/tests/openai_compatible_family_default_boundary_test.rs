@@ -462,6 +462,7 @@ async fn compat_together_image_missing_request_model_uses_family_default_across_
         prompt: "a tiny purple robot".to_string(),
         negative_prompt: Some("blurry".to_string()),
         size: Some("1024x1024".to_string()),
+        aspect_ratio: None,
         count: 1,
         model: None,
         quality: None,

@@ -60,8 +60,10 @@ fn u64_from_extra(
 
 fn input_to_url(input: &VideoGenerationInput, default_mime: &str) -> Result<String, LlmError> {
     match input {
-        VideoGenerationInput::Url { url } => Ok(url.clone()),
-        VideoGenerationInput::File { data, media_type } => {
+        VideoGenerationInput::Url { url, .. } => Ok(url.clone()),
+        VideoGenerationInput::File {
+            data, media_type, ..
+        } => {
             let mime = if let Some(media_type) = media_type {
                 media_type.clone()
             } else {

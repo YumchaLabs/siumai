@@ -12,7 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI Responses and OpenAI-compatible usage parsing/serialization now converge on the shared AI SDK-style `inputTokens` / `outputTokens` / `raw` model, preserving provider-native `raw` usage plus `input_tokens_details.cached_tokens` and `output_tokens_details.reasoning_tokens` during JSON and SSE replay.
 - OpenAI Responses request conversion now forwards `tool-approval-response.reason` on MCP approval items instead of dropping it.
 - OpenAI Image request shaping now supports adapter-owned provider-options lookup hooks, so OpenAI-compatible image generation/edit/variation can merge provider-owned request fields from deprecated `openai-compatible`, canonical `openaiCompatible`, and provider-owned keys instead of hardcoding `providerOptions.openai|azure`.
-- OpenAI-compatible image specs now also surface the AI SDK-style `unsupported { feature: "seed" }` warning on image generation requests instead of silently dropping `seed`.
+- OpenAI and OpenAI-compatible image specs now surface AI SDK-style unsupported `aspectRatio` / `seed`
+  warnings across generation, edit, and variation requests instead of only covering the generation
+  seed case.
+- OpenAI image variation multipart shaping now consumes the shared typed variation image input and
+  explicitly rejects URL-backed variation inputs on the multipart path instead of assuming raw
+  bytes only.
 - OpenAI Responses request conversion now uses stable message/part/tool-result `providerOptions` as the canonical request-time lane for item ids, reasoning payloads, and image detail; assistant tool-call ids no longer read request-side `providerMetadata.openai`.
 - OpenAI Responses request conversion now matches the stricter canonical provider boundary more closely: reasoning and compaction items no longer read request-side `provider_metadata`, encrypted reasoning without `itemId` is forwarded as a first-class reasoning item, tool-result approval-id skipping reads only output `providerOptions.openai`, image detail reads only part/tool-result `providerOptions`, and assistant tool-call ids now also stay on canonical `providerOptions`.
 - OpenAI Responses request normalization now writes request-side `itemId`, `reasoningEncryptedContent`, and `imageDetail` back into canonical `providerOptions.openai` slots instead of response-style `provider_metadata.openai`, and `input_image` normalization now restores AI-SDK-shaped user image file parts rather than collapsing them into the older image-only shape.

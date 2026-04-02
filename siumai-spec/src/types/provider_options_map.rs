@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 ///
 /// - Key: provider id (e.g. `"openai"`, `"google"`, `"anthropic"`)
 /// - Value: provider-specific JSON object (recommended), but any JSON value is accepted.
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProviderOptionsMap(pub BTreeMap<String, serde_json::Value>);
 
 fn normalize_provider_id(provider_id: &str) -> String {

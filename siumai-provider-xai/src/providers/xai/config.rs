@@ -470,6 +470,7 @@ impl XaiConfig {
             &self.base_url,
             adapter,
         )
+        .with_supports_structured_outputs(true)
         .with_common_params(self.common_params.clone())
         .with_model(&self.common_params.model)
         .with_http_config(self.http_config.clone())
@@ -528,6 +529,7 @@ mod tests {
             .expect("transform request params");
 
         assert_eq!(compat.model, "grok-4");
+        assert_eq!(compat.supports_structured_outputs, Some(true));
         assert_eq!(compat.http_config.timeout, Some(Duration::from_secs(9)));
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(4096));

@@ -15,6 +15,14 @@ pub struct ImageGenerationRequest {
     pub negative_prompt: Option<String>,
     /// Image size (e.g., "1024x1024")
     pub size: Option<String>,
+    /// Aspect ratio (e.g., "16:9")
+    #[serde(
+        default,
+        rename = "aspectRatio",
+        alias = "aspect_ratio",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub aspect_ratio: Option<String>,
     /// Number of images to generate
     pub count: u32,
     /// Model to use for generation
@@ -48,6 +56,18 @@ pub struct ImageGenerationRequest {
 }
 
 impl ImageGenerationRequest {
+    /// Set the aspect ratio for the request.
+    pub fn with_aspect_ratio(mut self, aspect_ratio: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(aspect_ratio.into());
+        self
+    }
+
+    /// Set the random seed for the request.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
     /// Replace the full provider options map (open JSON map).
     pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
         self.provider_options_map = map;
@@ -124,11 +144,25 @@ pub enum ImageEditInput {
             skip_serializing_if = "Option::is_none"
         )]
         media_type: Option<String>,
+        /// Optional provider-specific metadata for this file input.
+        #[serde(
+            default,
+            rename = "providerOptions",
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options_map: ProviderOptionsMap,
     },
     /// URL-like image input.
     Url {
         /// URL or data URL.
         url: String,
+        /// Optional provider-specific metadata for this URL input.
+        #[serde(
+            default,
+            rename = "providerOptions",
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options_map: ProviderOptionsMap,
     },
 }
 
@@ -138,6 +172,7 @@ impl ImageEditInput {
         Self::File {
             data: ImageEditFileData::binary(data),
             media_type: None,
+            provider_options_map: ProviderOptionsMap::default(),
         }
     }
 
@@ -151,6 +186,7 @@ impl ImageEditInput {
         Self::File {
             data: ImageEditFileData::base64(data),
             media_type: None,
+            provider_options_map: ProviderOptionsMap::default(),
         }
     }
 
@@ -161,7 +197,10 @@ impl ImageEditInput {
 
     /// Create a URL input.
     pub fn url(url: impl Into<String>) -> Self {
-        Self::Url { url: url.into() }
+        Self::Url {
+            url: url.into(),
+            provider_options_map: ProviderOptionsMap::default(),
+        }
     }
 
     /// Set the media type for file inputs.
@@ -172,6 +211,44 @@ impl ImageEditInput {
         } = &mut self
         {
             *current = Some(media_type.into());
+        }
+        self
+    }
+
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        match &mut self {
+            Self::File {
+                provider_options_map,
+                ..
+            }
+            | Self::Url {
+                provider_options_map,
+                ..
+            } => {
+                *provider_options_map = map;
+            }
+        }
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        match &mut self {
+            Self::File {
+                provider_options_map,
+                ..
+            }
+            | Self::Url {
+                provider_options_map,
+                ..
+            } => {
+                provider_options_map.insert(provider_id, options);
+            }
         }
         self
     }
@@ -187,8 +264,22 @@ impl ImageEditInput {
     /// Return the URL when this input is URL-backed.
     pub fn as_url(&self) -> Option<&str> {
         match self {
-            Self::Url { url } => Some(url.as_str()),
+            Self::Url { url, .. } => Some(url.as_str()),
             Self::File { .. } => None,
+        }
+    }
+
+    /// Return the provider options map attached to this input.
+    pub fn provider_options_map(&self) -> &ProviderOptionsMap {
+        match self {
+            Self::File {
+                provider_options_map,
+                ..
+            }
+            | Self::Url {
+                provider_options_map,
+                ..
+            } => provider_options_map,
         }
     }
 
@@ -211,7 +302,7 @@ impl ImageEditInput {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ImageEditRequest {
     /// Input images for image editing.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -230,6 +321,16 @@ pub struct ImageEditRequest {
     pub count: Option<u32>,
     /// Image size
     pub size: Option<String>,
+    /// Aspect ratio (e.g., "16:9")
+    #[serde(
+        default,
+        rename = "aspectRatio",
+        alias = "aspect_ratio",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub aspect_ratio: Option<String>,
+    /// Random seed for reproducibility
+    pub seed: Option<u64>,
     /// Response format
     pub response_format: Option<String>,
     /// Additional parameters
@@ -274,6 +375,18 @@ impl ImageEditRequest {
         self
     }
 
+    /// Set the aspect ratio for the request.
+    pub fn with_aspect_ratio(mut self, aspect_ratio: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(aspect_ratio.into());
+        self
+    }
+
+    /// Set the random seed for the request.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
     /// Replace the full provider options map (open JSON map).
     pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
         self.provider_options_map = map;
@@ -300,8 +413,8 @@ impl ImageEditRequest {
 /// Image variation request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageVariationRequest {
-    /// Original image data
-    pub image: Vec<u8>,
+    /// Original image input aligned with AI SDK image model files.
+    pub image: ImageEditInput,
     /// Model to use for variations (provider-specific; optional).
     ///
     /// This is required by some providers where the model is part of the request URL.
@@ -310,6 +423,16 @@ pub struct ImageVariationRequest {
     pub count: Option<u32>,
     /// Image size
     pub size: Option<String>,
+    /// Aspect ratio (e.g., "16:9")
+    #[serde(
+        default,
+        rename = "aspectRatio",
+        alias = "aspect_ratio",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub aspect_ratio: Option<String>,
+    /// Random seed for reproducibility
+    pub seed: Option<u64>,
     /// Response format
     pub response_format: Option<String>,
     /// Additional parameters
@@ -326,7 +449,42 @@ pub struct ImageVariationRequest {
     pub http_config: Option<HttpConfig>,
 }
 
+impl Default for ImageVariationRequest {
+    fn default() -> Self {
+        Self {
+            image: ImageEditInput::file(Vec::<u8>::new()),
+            model: None,
+            count: None,
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: None,
+            extra_params: HashMap::new(),
+            provider_options_map: ProviderOptionsMap::default(),
+            http_config: None,
+        }
+    }
+}
+
 impl ImageVariationRequest {
+    /// Set the source image input.
+    pub fn with_image(mut self, image: ImageEditInput) -> Self {
+        self.image = image;
+        self
+    }
+
+    /// Set the aspect ratio for the request.
+    pub fn with_aspect_ratio(mut self, aspect_ratio: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(aspect_ratio.into());
+        self
+    }
+
+    /// Set the random seed for the request.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
     /// Replace the full provider options map (open JSON map).
     pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
         self.provider_options_map = map;
@@ -405,3 +563,96 @@ pub type VisionRequest = ();
     note = "Deprecated with VisionCapability; use multimodal Chat messages instead."
 )]
 pub type VisionResponse = ();
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_image_edit_input_helpers_and_provider_options() {
+        let file = ImageEditInput::file(vec![1, 2, 3])
+            .with_media_type("image/png")
+            .with_provider_option("openaiCompatible", serde_json::json!({ "detail": "high" }));
+
+        assert!(file.is_file());
+        assert!(!file.is_url());
+        assert_eq!(file.media_type(), Some("image/png"));
+        assert_eq!(
+            file.file_data()
+                .expect("file data")
+                .as_bytes()
+                .expect("bytes"),
+            vec![1, 2, 3]
+        );
+        assert_eq!(
+            file.provider_options_map()
+                .get("openaicompatible")
+                .and_then(|value| value.get("detail"))
+                .and_then(|value| value.as_str()),
+            Some("high")
+        );
+
+        let url = ImageEditInput::url("https://example.com/input.png")
+            .with_provider_option("google", serde_json::json!({ "mimeHint": "image/png" }));
+
+        assert!(url.is_url());
+        assert!(!url.is_file());
+        assert_eq!(url.as_url(), Some("https://example.com/input.png"));
+        assert!(url.file_data().is_none());
+        assert_eq!(
+            url.provider_options_map()
+                .get("google")
+                .and_then(|value| value.get("mimeHint"))
+                .and_then(|value| value.as_str()),
+            Some("image/png")
+        );
+    }
+
+    #[test]
+    fn test_image_edit_input_provider_options_serde_roundtrip() {
+        let value = serde_json::to_value(
+            ImageEditInput::file(vec![1, 2, 3])
+                .with_provider_option("openaiCompatible", serde_json::json!({ "detail": "low" })),
+        )
+        .expect("serialize image input");
+
+        assert_eq!(
+            value.get("type").and_then(|value| value.as_str()),
+            Some("file")
+        );
+        assert!(value.get("providerOptions").is_some());
+        assert!(
+            value
+                .get("providerOptions")
+                .and_then(|value| value.get("openaiCompatible"))
+                .is_some()
+        );
+        assert!(
+            value
+                .get("providerOptions")
+                .and_then(|value| value.get("openaicompatible"))
+                .is_none()
+        );
+
+        let input: ImageEditInput = serde_json::from_value(serde_json::json!({
+            "type": "url",
+            "url": "https://example.com/input.png",
+            "providerOptions": {
+                "OpenAICompatible": {
+                    "detail": "high"
+                }
+            }
+        }))
+        .expect("deserialize image input");
+
+        assert_eq!(input.as_url(), Some("https://example.com/input.png"));
+        assert_eq!(
+            input
+                .provider_options_map()
+                .get("openaicompatible")
+                .and_then(|value| value.get("detail"))
+                .and_then(|value| value.as_str()),
+            Some("high")
+        );
+    }
+}

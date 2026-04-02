@@ -195,14 +195,24 @@ Status legend:
     - xAI already accepts URL-backed edit inputs directly
     - OpenAI/OpenAI-compatible/Vertex currently reject URL-backed edit inputs until an async
       prefetch/materialization layer exists
-  - [~] Close the remaining shared image call-option structure gaps against AI SDK V4.
-    - shared Rust image requests still do not expose top-level `aspectRatio`
-    - split `ImageEditRequest` / `ImageVariationRequest` still do not expose a shared `seed`
-      knob comparable to `ImageModelV4CallOptions`
+  - [x] Close the shared image call-option structure gaps against AI SDK V4.
+    - shared Rust image requests now expose top-level `aspectRatio` across generation/edit/variation
+    - shared Rust image requests now expose `seed` across generation/edit/variation rather than
+      only on generation
+    - typed `ImageEditInput` file/url inputs now also expose per-input `providerOptions`
+    - `ImageVariationRequest` now carries a typed file/url image input instead of a raw byte-only
+      field, bringing it closer to AI SDK `ImageModelV4File`
+  - [~] Finish the remaining provider/runtime adoption of the shared image call-option surface.
+    - OpenAI/OpenAI-compatible now surface AI SDK-style unsupported `aspectRatio` / `seed`
+      warnings on generation/edit/variation
+    - xAI/Google/Vertex supported image paths now consume canonical top-level `aspectRatio` / `seed`
+    - Vertex Imagen variation-specific request transformation and URL-backed edit materialization
+      remain open follow-ups
   - [x] Stabilize the shared AI SDK-style video knob/input surface instead of leaving it as an
     open design question.
     - `VideoGenerationRequest` now carries canonical `count` (`n`), `fps`, `seed`, and typed
       `VideoGenerationInput` image/video inputs
+    - typed `VideoGenerationInput` file/url inputs now also expose per-input `providerOptions`
     - the older raw `seed_image` / `seed_video` byte fields were removed during the refactor
     - xAI now warns-and-filters unsupported `n` / `fps` / `seed` knobs on the provider-owned path
     - Gemini/Veo now consumes canonical `count` / `seed` / typed image input and surfaces
@@ -217,6 +227,12 @@ Status legend:
       `providerOptions["minimaxi"]`
     - MiniMaxi video request/body shaping and public provider-owned builder helpers were updated to
       use that provider-owned lane instead of shared top-level fields
+  - [ ] Refactor the shared transcription/audio-input surface toward AI SDK V4.
+    - AI SDK `TranscriptionModelV4CallOptions` uses canonical `audio + mediaType + providerOptions`
+      instead of the current Rust `audio_data | file_path` split
+    - `file_path` loading should likely move behind a compatibility/helper lane instead of living on
+      the stable request shape
+    - `AudioTranslationRequest` should be reviewed in the same pass so STT/translation stay aligned
 
 ## Track C - Finish V4-capable prompt/content modeling
 

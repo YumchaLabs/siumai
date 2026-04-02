@@ -20,7 +20,11 @@ fn openai_image_edit_part(input: &ImageEditInput, file_name: &str) -> Result<Par
         ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(
             "OpenAI-compatible image edit multipart requests do not support URL-backed image inputs yet. Provide file/base64 image data instead.".to_string(),
         )),
-        ImageEditInput::File { data, media_type } => {
+        ImageEditInput::File {
+            data,
+            media_type,
+            ..
+        } => {
             let bytes = data.as_bytes().map_err(|err| {
                 LlmError::InvalidParameter(format!("Invalid OpenAI image edit file data: {err}"))
             })?;
@@ -29,6 +33,36 @@ fn openai_image_edit_part(input: &ImageEditInput, file_name: &str) -> Result<Par
                 .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
             Part::bytes(bytes)
                 .file_name(file_name.to_string())
+                .mime_str(&mime)
+                .map_err(|e| {
+                    LlmError::InvalidParameter(format!(
+                        "Invalid image MIME type '{mime}': {e}"
+                    ))
+                })
+        }
+    }
+}
+
+fn openai_image_variation_part(input: &ImageEditInput) -> Result<Part, LlmError> {
+    match input {
+        ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(
+            "OpenAI-compatible image variation multipart requests do not support URL-backed image inputs yet. Provide file/base64 image data instead.".to_string(),
+        )),
+        ImageEditInput::File {
+            data,
+            media_type,
+            ..
+        } => {
+            let bytes = data.as_bytes().map_err(|err| {
+                LlmError::InvalidParameter(format!(
+                    "Invalid OpenAI image variation file data: {err}"
+                ))
+            })?;
+            let mime = media_type
+                .clone()
+                .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
+            Part::bytes(bytes)
+                .file_name("image")
                 .mime_str(&mime)
                 .map_err(|e| {
                     LlmError::InvalidParameter(format!(
@@ -365,13 +399,7 @@ impl RequestTransformer for OpenAiRequestTransformer {
     ) -> Result<ImageHttpBody, LlmError> {
         // Build multipart form for OpenAI Images Variation
         let mut form = Form::new();
-        let image_mime = crate::utils::guess_mime(Some(&req.image), None);
-        let image_part = Part::bytes(req.image.clone())
-            .file_name("image")
-            .mime_str(&image_mime)
-            .map_err(|e| {
-                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
-            })?;
+        let image_part = openai_image_variation_part(&req.image)?;
         form = form.part("image", image_part);
         if let Some(size) = &req.size {
             form = form.text("size", size.clone());

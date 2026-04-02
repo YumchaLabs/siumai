@@ -61,11 +61,25 @@ pub enum VideoGenerationInput {
             skip_serializing_if = "Option::is_none"
         )]
         media_type: Option<String>,
+        /// Optional provider-specific metadata for this file input.
+        #[serde(
+            default,
+            rename = "providerOptions",
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options_map: ProviderOptionsMap,
     },
     /// URL-like input.
     Url {
         /// URL or data URL.
         url: String,
+        /// Optional provider-specific metadata for this URL input.
+        #[serde(
+            default,
+            rename = "providerOptions",
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options_map: ProviderOptionsMap,
     },
 }
 
@@ -75,6 +89,7 @@ impl VideoGenerationInput {
         Self::File {
             data: VideoGenerationFileData::binary(data),
             media_type: None,
+            provider_options_map: ProviderOptionsMap::default(),
         }
     }
 
@@ -88,6 +103,7 @@ impl VideoGenerationInput {
         Self::File {
             data: VideoGenerationFileData::base64(data),
             media_type: None,
+            provider_options_map: ProviderOptionsMap::default(),
         }
     }
 
@@ -98,7 +114,10 @@ impl VideoGenerationInput {
 
     /// Create a URL input.
     pub fn url(url: impl Into<String>) -> Self {
-        Self::Url { url: url.into() }
+        Self::Url {
+            url: url.into(),
+            provider_options_map: ProviderOptionsMap::default(),
+        }
     }
 
     /// Set the media type for file inputs.
@@ -109,6 +128,44 @@ impl VideoGenerationInput {
         } = &mut self
         {
             *current = Some(media_type.into());
+        }
+        self
+    }
+
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        match &mut self {
+            Self::File {
+                provider_options_map,
+                ..
+            }
+            | Self::Url {
+                provider_options_map,
+                ..
+            } => {
+                *provider_options_map = map;
+            }
+        }
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        match &mut self {
+            Self::File {
+                provider_options_map,
+                ..
+            }
+            | Self::Url {
+                provider_options_map,
+                ..
+            } => {
+                provider_options_map.insert(provider_id, options);
+            }
         }
         self
     }
@@ -124,8 +181,22 @@ impl VideoGenerationInput {
     /// Return the URL when this input is URL-backed.
     pub fn as_url(&self) -> Option<&str> {
         match self {
-            Self::Url { url } => Some(url.as_str()),
+            Self::Url { url, .. } => Some(url.as_str()),
             Self::File { .. } => None,
+        }
+    }
+
+    /// Return the provider options map attached to this input.
+    pub fn provider_options_map(&self) -> &ProviderOptionsMap {
+        match self {
+            Self::File {
+                provider_options_map,
+                ..
+            }
+            | Self::Url {
+                provider_options_map,
+                ..
+            } => provider_options_map,
         }
     }
 
@@ -512,7 +583,9 @@ mod tests {
 
     #[test]
     fn test_video_generation_input_helpers() {
-        let file = VideoGenerationInput::file(vec![1, 2, 3]).with_media_type("image/png");
+        let file = VideoGenerationInput::file(vec![1, 2, 3])
+            .with_media_type("image/png")
+            .with_provider_option("openaiCompatible", serde_json::json!({ "detail": "high" }));
         assert!(file.is_file());
         assert!(!file.is_url());
         assert_eq!(file.media_type(), Some("image/png"));
@@ -523,12 +596,75 @@ mod tests {
                 .expect("bytes"),
             vec![1, 2, 3]
         );
+        assert_eq!(
+            file.provider_options_map()
+                .get("openaicompatible")
+                .and_then(|value| value.get("detail"))
+                .and_then(|value| value.as_str()),
+            Some("high")
+        );
 
-        let url = VideoGenerationInput::url("https://example.com/video.mp4");
+        let url = VideoGenerationInput::url("https://example.com/video.mp4")
+            .with_provider_option("xai", serde_json::json!({ "mode": "fast" }));
         assert!(url.is_url());
         assert!(!url.is_file());
         assert_eq!(url.as_url(), Some("https://example.com/video.mp4"));
         assert!(url.file_data().is_none());
+        assert_eq!(
+            url.provider_options_map()
+                .get("xai")
+                .and_then(|value| value.get("mode"))
+                .and_then(|value| value.as_str()),
+            Some("fast")
+        );
+    }
+
+    #[test]
+    fn test_video_generation_input_provider_options_serde_roundtrip() {
+        let value = serde_json::to_value(
+            VideoGenerationInput::file(vec![1, 2, 3])
+                .with_provider_option("openaiCompatible", serde_json::json!({ "detail": "low" })),
+        )
+        .expect("serialize video input");
+
+        assert_eq!(
+            value.get("type").and_then(|value| value.as_str()),
+            Some("file")
+        );
+        assert!(value.get("providerOptions").is_some());
+        assert!(
+            value
+                .get("providerOptions")
+                .and_then(|value| value.get("openaiCompatible"))
+                .is_some()
+        );
+        assert!(
+            value
+                .get("providerOptions")
+                .and_then(|value| value.get("openaicompatible"))
+                .is_none()
+        );
+
+        let input: VideoGenerationInput = serde_json::from_value(serde_json::json!({
+            "type": "url",
+            "url": "https://example.com/video.mp4",
+            "providerOptions": {
+                "XAI": {
+                    "mode": "fast"
+                }
+            }
+        }))
+        .expect("deserialize video input");
+
+        assert_eq!(input.as_url(), Some("https://example.com/video.mp4"));
+        assert_eq!(
+            input
+                .provider_options_map()
+                .get("xai")
+                .and_then(|value| value.get("mode"))
+                .and_then(|value| value.as_str()),
+            Some("fast")
+        );
     }
 
     #[test]

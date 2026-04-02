@@ -26,8 +26,11 @@ fn parse_xai_image_options(
         })
 }
 
-fn push_warning(warnings: &mut Vec<Warning>, feature: &str, details: &'static str) {
-    warnings.push(Warning::unsupported(feature, Some(details)));
+fn push_warning(warnings: &mut Vec<Warning>, feature: &str, details: Option<&'static str>) {
+    warnings.push(match details {
+        Some(details) => Warning::unsupported(feature, Some(details)),
+        None => Warning::unsupported(feature, Option::<String>::None),
+    });
 }
 
 fn object_string(
@@ -74,8 +77,10 @@ fn image_data_url(bytes: &[u8]) -> String {
 
 fn image_edit_input_url(input: &ImageEditInput) -> Result<String, LlmError> {
     match input {
-        ImageEditInput::Url { url } => Ok(url.clone()),
-        ImageEditInput::File { data, media_type } => {
+        ImageEditInput::Url { url, .. } => Ok(url.clone()),
+        ImageEditInput::File {
+            data, media_type, ..
+        } => {
             let bytes = data.as_bytes().map_err(|err| {
                 LlmError::InvalidParameter(format!("Invalid xAI image edit file data: {err}"))
             })?;
@@ -97,12 +102,15 @@ fn resolve_model(request_model: Option<&str>, fallback_model: &str) -> String {
 }
 
 fn resolve_image_options(
+    request_aspect_ratio: Option<&str>,
     extra_params: &HashMap<String, serde_json::Value>,
     provider_options: Option<XaiImageOptions>,
 ) -> Result<XaiImageOptions, LlmError> {
     let mut options = provider_options.unwrap_or_default();
 
-    if options.aspect_ratio.is_none() {
+    if let Some(aspect_ratio) = request_aspect_ratio {
+        options.aspect_ratio = Some(aspect_ratio.to_string());
+    } else if options.aspect_ratio.is_none() {
         options.aspect_ratio = object_string(extra_params, "aspect_ratio", "aspectRatio")?;
     }
     if options.output_format.is_none() {
@@ -133,56 +141,56 @@ fn build_generation_body(
     request: &ImageGenerationRequest,
 ) -> Result<(serde_json::Value, Vec<Warning>), LlmError> {
     let provider_options = parse_xai_image_options(&request.provider_options_map)?;
-    let xai_options = resolve_image_options(&request.extra_params, provider_options)?;
+    let xai_options = resolve_image_options(
+        request.aspect_ratio.as_deref(),
+        &request.extra_params,
+        provider_options,
+    )?;
     let mut warnings = Vec::new();
 
     if request.size.is_some() {
         push_warning(
             &mut warnings,
             "size",
-            "xAI image models do not support the generic `size` option. Use `providerOptions.xai.aspectRatio` instead.",
+            Some("This model does not support the `size` option. Use `aspectRatio` instead."),
         );
     }
     if request.seed.is_some() {
-        push_warning(
-            &mut warnings,
-            "seed",
-            "xAI image models do not support the generic `seed` option.",
-        );
+        push_warning(&mut warnings, "seed", None);
     }
     if request.negative_prompt.is_some() {
         push_warning(
             &mut warnings,
             "negative_prompt",
-            "xAI image models do not support `negative_prompt` on the provider-owned path.",
+            Some("xAI image models do not support `negative_prompt` on the provider-owned path."),
         );
     }
     if request.style.is_some() {
         push_warning(
             &mut warnings,
             "style",
-            "xAI image models do not support the generic `style` option.",
+            Some("xAI image models do not support the generic `style` option."),
         );
     }
     if request.steps.is_some() {
         push_warning(
             &mut warnings,
             "steps",
-            "xAI image models do not expose `steps` on the provider-owned path.",
+            Some("xAI image models do not expose `steps` on the provider-owned path."),
         );
     }
     if request.guidance_scale.is_some() {
         push_warning(
             &mut warnings,
             "guidance_scale",
-            "xAI image models do not expose `guidance_scale` on the provider-owned path.",
+            Some("xAI image models do not expose `guidance_scale` on the provider-owned path."),
         );
     }
     if request.enhance_prompt.is_some() {
         push_warning(
             &mut warnings,
             "enhance_prompt",
-            "xAI image models do not expose `enhance_prompt` on the provider-owned path.",
+            Some("xAI image models do not expose `enhance_prompt` on the provider-owned path."),
         );
     }
     if request
@@ -193,7 +201,9 @@ fn build_generation_body(
         push_warning(
             &mut warnings,
             "response_format",
-            "xAI image models on the provider-owned path always request `b64_json` responses.",
+            Some(
+                "xAI image models on the provider-owned path always request `b64_json` responses.",
+            ),
         );
     }
 
@@ -251,22 +261,25 @@ fn build_edit_body(
     }
 
     let provider_options = parse_xai_image_options(&request.provider_options_map)?;
-    let xai_options = resolve_image_options(&request.extra_params, provider_options)?;
+    let xai_options = resolve_image_options(
+        request.aspect_ratio.as_deref(),
+        &request.extra_params,
+        provider_options,
+    )?;
     let mut warnings = Vec::new();
 
     if request.mask.is_some() {
-        push_warning(
-            &mut warnings,
-            "mask",
-            "xAI image editing does not support `mask` on the provider-owned path.",
-        );
+        push_warning(&mut warnings, "mask", None);
     }
     if request.size.is_some() {
         push_warning(
             &mut warnings,
             "size",
-            "xAI image editing does not support the generic `size` option. Use `providerOptions.xai.aspectRatio` instead.",
+            Some("This model does not support the `size` option. Use `aspectRatio` instead."),
         );
+    }
+    if request.seed.is_some() {
+        push_warning(&mut warnings, "seed", None);
     }
     if request
         .response_format
@@ -276,7 +289,9 @@ fn build_edit_body(
         push_warning(
             &mut warnings,
             "response_format",
-            "xAI image editing on the provider-owned path always requests `b64_json` responses.",
+            Some(
+                "xAI image editing on the provider-owned path always requests `b64_json` responses.",
+            ),
         );
     }
 
@@ -462,6 +477,7 @@ pub(super) async fn generate_images(
     let (body, warnings) = build_generation_body(client, &request)?;
     let model = resolve_model(request.model.as_deref(), client.inner().model());
     let output_format = resolve_image_options(
+        request.aspect_ratio.as_deref(),
         &request.extra_params,
         parse_xai_image_options(&request.provider_options_map)?,
     )?
@@ -497,8 +513,12 @@ pub(super) async fn edit_image(
 ) -> Result<ImageGenerationResponse, LlmError> {
     client.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
     let provider_options = parse_xai_image_options(&request.provider_options_map)?;
-    let output_format =
-        resolve_image_options(&request.extra_params, provider_options.clone())?.output_format;
+    let output_format = resolve_image_options(
+        request.aspect_ratio.as_deref(),
+        &request.extra_params,
+        provider_options.clone(),
+    )?
+    .output_format;
     let (body, warnings) = build_edit_body(client, &request)?;
     let model = resolve_model(request.model.as_deref(), client.inner().model());
     let config = build_http_execution_config(client);
@@ -530,4 +550,126 @@ pub(super) async fn create_variation(
     Err(LlmError::UnsupportedOperation(
         "xAI does not expose image variations on the provider-owned path".to_string(),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::xai::{XaiClient, XaiConfig};
+
+    async fn test_client() -> XaiClient {
+        let cfg = XaiConfig::new("test-key")
+            .with_model("grok-2-image")
+            .with_base_url("https://example.com/v1");
+        XaiClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("build xai client")
+    }
+
+    #[test]
+    fn resolve_image_options_prefers_top_level_aspect_ratio_over_provider_options_and_extra_params()
+    {
+        let extra_params = HashMap::from([
+            ("aspectRatio".to_string(), serde_json::json!("1:1")),
+            ("outputFormat".to_string(), serde_json::json!("jpeg")),
+        ]);
+
+        let options = resolve_image_options(
+            Some("16:9"),
+            &extra_params,
+            Some(
+                XaiImageOptions::new()
+                    .with_aspect_ratio("4:3")
+                    .with_output_format("png"),
+            ),
+        )
+        .expect("resolve image options");
+
+        assert_eq!(options.aspect_ratio.as_deref(), Some("16:9"));
+        assert_eq!(options.output_format.as_deref(), Some("png"));
+    }
+
+    #[tokio::test]
+    async fn build_generation_body_prefers_canonical_aspect_ratio_and_surfaces_ai_sdk_warnings() {
+        let client = test_client().await;
+        let mut req = ImageGenerationRequest {
+            prompt: "a landscape".to_string(),
+            size: Some("1024x1024".to_string()),
+            aspect_ratio: Some("16:9".to_string()),
+            seed: Some(7),
+            ..Default::default()
+        };
+        req.extra_params
+            .insert("aspectRatio".to_string(), serde_json::json!("1:1"));
+        let req = req.with_provider_option(
+            "xai",
+            serde_json::json!({
+                "aspectRatio": "4:3",
+                "outputFormat": "png"
+            }),
+        );
+
+        let (body, warnings) = build_generation_body(&client, &req).expect("build generation");
+
+        assert_eq!(body["aspect_ratio"], serde_json::json!("16:9"));
+        assert_eq!(body["output_format"], serde_json::json!("png"));
+        assert_eq!(
+            warnings,
+            vec![
+                Warning::unsupported(
+                    "size",
+                    Some(
+                        "This model does not support the `size` option. Use `aspectRatio` instead."
+                    ),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn build_edit_body_prefers_canonical_aspect_ratio_and_surfaces_ai_sdk_seed_warning() {
+        let client = test_client().await;
+        let mut req = ImageEditRequest {
+            images: vec![ImageEditInput::file(vec![1, 2, 3])],
+            mask: None,
+            prompt: "edit".to_string(),
+            model: None,
+            count: Some(2),
+            size: Some("1024x1024".to_string()),
+            aspect_ratio: Some("3:4".to_string()),
+            seed: Some(9),
+            response_format: None,
+            extra_params: HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+        req.extra_params
+            .insert("aspectRatio".to_string(), serde_json::json!("1:1"));
+        let req = req.with_provider_option(
+            "xai",
+            serde_json::json!({
+                "aspectRatio": "4:3",
+                "outputFormat": "png"
+            }),
+        );
+
+        let (body, warnings) = build_edit_body(&client, &req).expect("build edit");
+
+        assert_eq!(body["aspect_ratio"], serde_json::json!("3:4"));
+        assert_eq!(body["output_format"], serde_json::json!("png"));
+        assert_eq!(body["n"], serde_json::json!(2));
+        assert_eq!(
+            warnings,
+            vec![
+                Warning::unsupported(
+                    "size",
+                    Some(
+                        "This model does not support the `size` option. Use `aspectRatio` instead."
+                    ),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ]
+        );
+    }
 }

@@ -655,6 +655,11 @@ impl RequestTransformer for GeminiRequestTransformer {
                     let mut parameters = serde_json::Map::new();
                     parameters.insert("sampleCount".to_string(), serde_json::json!(sample_count));
 
+                    if let Some(aspect_ratio) = req.aspect_ratio.as_deref() {
+                        parameters
+                            .insert("aspectRatio".to_string(), serde_json::json!(aspect_ratio));
+                    }
+
                     // Prefer providerOptions for Vercel parity, then fall back to extra_params.
                     if let Some(opts) = get_provider_options(req) {
                         let aspect_ratio = get_string_opt(opts, "aspectRatio")
@@ -672,6 +677,11 @@ impl RequestTransformer for GeminiRequestTransformer {
 
                     if parameters.get("aspectRatio").is_none()
                         && let Some(v) = req.extra_params.get("aspectRatio")
+                    {
+                        parameters.insert("aspectRatio".to_string(), v.clone());
+                    }
+                    if parameters.get("aspectRatio").is_none()
+                        && let Some(v) = req.extra_params.get("aspect_ratio")
                     {
                         parameters.insert("aspectRatio".to_string(), v.clone());
                     }
@@ -706,6 +716,14 @@ impl RequestTransformer for GeminiRequestTransformer {
                 let mut gcfg = self.0.generation_config.clone().unwrap_or_default();
                 if req.count > 0 {
                     gcfg.candidate_count = Some(req.count as i32);
+                }
+                if let Some(seed) = req.seed {
+                    if seed > i32::MAX as u64 {
+                        return Err(LlmError::InvalidParameter(
+                            "seed must be <= i32::MAX for Gemini".to_string(),
+                        ));
+                    }
+                    gcfg.seed = Some(seed as i32);
                 }
 
                 // Allow `mediaResolution` / `imageConfig` from providerOptions on image requests.
@@ -759,6 +777,15 @@ impl RequestTransformer for GeminiRequestTransformer {
                             image_size,
                         });
                     }
+                }
+
+                if let Some(aspect_ratio) = req.aspect_ratio.clone() {
+                    gcfg.image_config
+                        .get_or_insert(ImageConfig {
+                            aspect_ratio: None,
+                            image_size: None,
+                        })
+                        .aspect_ratio = Some(aspect_ratio);
                 }
 
                 // Default to requesting both TEXT + IMAGE modalities (Vercel cookbook alignment).
@@ -1416,6 +1443,77 @@ mod tests_gemini_rules {
         assert_eq!(
             body["generationConfig"]["responseJsonSchema"]["properties"]["legacy"]["type"],
             serde_json::json!("number")
+        );
+    }
+
+    #[test]
+    fn imagen_image_request_allows_provider_options_to_override_top_level_aspect_ratio() {
+        let cfg = GeminiConfig::default()
+            .with_model("imagen-3.0-generate-002".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = crate::types::ImageGenerationRequest {
+            prompt: "a sunset".to_string(),
+            aspect_ratio: Some("1:1".to_string()),
+            ..Default::default()
+        };
+        req.extra_params
+            .insert("aspectRatio".to_string(), serde_json::json!("9:16"));
+        let req = req.with_provider_option(
+            "google",
+            serde_json::json!({
+                "aspectRatio": "16:9",
+                "personGeneration": "allow_all"
+            }),
+        );
+
+        let body = tx.transform_image(&req).expect("transform image");
+
+        assert_eq!(body["parameters"]["aspectRatio"], serde_json::json!("16:9"));
+        assert_eq!(
+            body["parameters"]["personGeneration"],
+            serde_json::json!("allow_all")
+        );
+    }
+
+    #[test]
+    fn gemini_image_request_maps_top_level_seed_and_aspect_ratio_into_generation_config() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash-image-preview".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let req = crate::types::ImageGenerationRequest {
+            prompt: "a robot painter".to_string(),
+            aspect_ratio: Some("16:9".to_string()),
+            seed: Some(42),
+            ..Default::default()
+        }
+        .with_provider_option(
+            "google",
+            serde_json::json!({
+                "mediaResolution": "MEDIA_RESOLUTION_MEDIUM",
+                "imageConfig": {
+                    "imageSize": "1536x1024"
+                }
+            }),
+        );
+
+        let body = tx.transform_image(&req).expect("transform image");
+
+        assert_eq!(body["generationConfig"]["seed"], serde_json::json!(42));
+        assert_eq!(
+            body["generationConfig"]["mediaResolution"],
+            serde_json::json!("MEDIA_RESOLUTION_MEDIUM")
+        );
+        assert_eq!(
+            body["generationConfig"]["imageConfig"]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(
+            body["generationConfig"]["imageConfig"]["imageSize"],
+            serde_json::json!("1536x1024")
         );
     }
 }

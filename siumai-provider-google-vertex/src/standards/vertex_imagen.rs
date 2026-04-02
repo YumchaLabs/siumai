@@ -191,9 +191,13 @@ fn vertex_imagen_edit_options(
 }
 
 fn vertex_imagen_aspect_ratio(
+    request_aspect_ratio: Option<&str>,
     extra_params: &HashMap<String, serde_json::Value>,
     provider_opts: Option<&serde_json::Value>,
 ) -> Option<String> {
+    if let Some(v) = request_aspect_ratio {
+        return Some(v.to_string());
+    }
     if let Some(v) = extra_params.get("aspectRatio").and_then(|v| v.as_str()) {
         return Some(v.to_string());
     }
@@ -253,7 +257,11 @@ impl RequestTransformer for VertexImagenRequestTransformer {
         if let Some(seed) = req.seed {
             parameters.insert("seed".to_string(), serde_json::json!(seed));
         }
-        if let Some(ar) = vertex_imagen_aspect_ratio(&req.extra_params, provider_opts.as_ref()) {
+        if let Some(ar) = vertex_imagen_aspect_ratio(
+            req.aspect_ratio.as_deref(),
+            &req.extra_params,
+            provider_opts.as_ref(),
+        ) {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
         }
         if let Some(neg) = vertex_imagen_negative_prompt(
@@ -366,8 +374,15 @@ impl RequestTransformer for VertexImagenRequestTransformer {
         if let Some(n) = req.count {
             parameters.insert("sampleCount".to_string(), serde_json::json!(n));
         }
-        if let Some(ar) = vertex_imagen_aspect_ratio(&req.extra_params, provider_opts.as_ref()) {
+        if let Some(ar) = vertex_imagen_aspect_ratio(
+            req.aspect_ratio.as_deref(),
+            &req.extra_params,
+            provider_opts.as_ref(),
+        ) {
             parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
+        }
+        if let Some(seed) = req.seed {
+            parameters.insert("seed".to_string(), serde_json::json!(seed));
         }
 
         // Match Vercel AI SDK: editing always sends an editMode, defaulting to insertion.
@@ -722,6 +737,8 @@ mod tests {
             model: Some("imagen-4.0-generate-001".to_string()),
             count: None,
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: None,
             extra_params: HashMap::new(),
             provider_options_map: Default::default(),
@@ -733,10 +750,12 @@ mod tests {
         );
 
         let variation = ImageVariationRequest {
-            image: vec![1, 2, 3],
+            image: ImageEditInput::file(vec![1, 2, 3]),
             model: Some("imagen-4.0-generate-001".to_string()),
             count: None,
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: None,
             extra_params: HashMap::new(),
             provider_options_map: Default::default(),
@@ -765,5 +784,59 @@ mod tests {
             spec.image_url(&img_req, &ctx),
             "https://aiplatform.googleapis.com/v1/publishers/google/models/imagen-4.0-generate-001:predict"
         );
+    }
+
+    #[test]
+    fn imagen_generation_transformer_maps_top_level_aspect_ratio_and_seed() {
+        let transformer = VertexImagenRequestTransformer::new("vertex");
+        let req = ImageGenerationRequest {
+            prompt: "a cat".to_string(),
+            count: 2,
+            model: Some("imagen-4.0-generate-001".to_string()),
+            aspect_ratio: Some("16:9".to_string()),
+            seed: Some(7),
+            ..Default::default()
+        };
+
+        let body = transformer.transform_image(&req).expect("transform image");
+
+        assert_eq!(body["parameters"]["sampleCount"], serde_json::json!(2));
+        assert_eq!(body["parameters"]["aspectRatio"], serde_json::json!("16:9"));
+        assert_eq!(body["parameters"]["seed"], serde_json::json!(7));
+    }
+
+    #[test]
+    fn imagen_edit_transformer_maps_top_level_aspect_ratio_and_seed() {
+        let transformer = VertexImagenRequestTransformer::new("vertex");
+        let req = ImageEditRequest {
+            images: vec![ImageEditInput::file(vec![1, 2, 3])],
+            mask: None,
+            prompt: "edit".to_string(),
+            model: Some("imagen-4.0-generate-001".to_string()),
+            count: Some(3),
+            size: None,
+            aspect_ratio: Some("4:3".to_string()),
+            seed: Some(9),
+            response_format: None,
+            extra_params: HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        match transformer
+            .transform_image_edit(&req)
+            .expect("transform image edit")
+        {
+            ImageHttpBody::Json(body) => {
+                assert_eq!(body["parameters"]["sampleCount"], serde_json::json!(3));
+                assert_eq!(body["parameters"]["aspectRatio"], serde_json::json!("4:3"));
+                assert_eq!(body["parameters"]["seed"], serde_json::json!(9));
+                assert_eq!(
+                    body["parameters"]["editMode"],
+                    serde_json::json!("EDIT_MODE_INPAINT_INSERTION")
+                );
+            }
+            _ => panic!("expected json image edit body"),
+        }
     }
 }

@@ -69,7 +69,9 @@ fn build_veo_image_from_input(input: &VideoGenerationInput) -> Result<Option<Veo
                 "Gemini video models currently require file-backed image inputs on the provider-owned path.",
             ),
         )),
-        VideoGenerationInput::File { data, media_type } => {
+        VideoGenerationInput::File {
+            data, media_type, ..
+        } => {
             let mime_type = if let Some(media_type) = media_type {
                 media_type.clone()
             } else {
@@ -100,7 +102,9 @@ fn build_veo_video_from_input(input: &VideoGenerationInput) -> Result<Option<Veo
                 "Gemini video models currently require file-backed video inputs on the provider-owned path.",
             ),
         )),
-        VideoGenerationInput::File { data, media_type } => {
+        VideoGenerationInput::File {
+            data, media_type, ..
+        } => {
             let mime_type = if let Some(media_type) = media_type {
                 media_type.clone()
             } else {

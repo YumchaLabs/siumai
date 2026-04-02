@@ -27,7 +27,7 @@ use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer}
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
     ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse,
-    ImageVariationRequest,
+    ImageVariationRequest, Warning,
 };
 use crate::{core::ProviderContext, core::ProviderSpec};
 use std::sync::Arc;
@@ -42,7 +42,11 @@ fn openai_image_edit_part(
         ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(
             "OpenAI-compatible image edit multipart requests do not support URL-backed image inputs yet. Provide file/base64 image data instead.".to_string(),
         )),
-        ImageEditInput::File { data, media_type } => {
+        ImageEditInput::File {
+            data,
+            media_type,
+            ..
+        } => {
             let bytes = data.as_bytes().map_err(|err| {
                 LlmError::InvalidParameter(format!("Invalid OpenAI image edit file data: {err}"))
             })?;
@@ -51,6 +55,40 @@ fn openai_image_edit_part(
                 .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
             Part::bytes(bytes)
                 .file_name(file_name.to_string())
+                .mime_str(&mime)
+                .map_err(|e| {
+                    LlmError::InvalidParameter(format!(
+                        "Invalid image MIME type '{mime}': {e}"
+                    ))
+                })
+        }
+    }
+}
+
+fn openai_image_variation_part(
+    input: &ImageEditInput,
+) -> Result<reqwest::multipart::Part, LlmError> {
+    use reqwest::multipart::Part;
+
+    match input {
+        ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(
+            "OpenAI-compatible image variation multipart requests do not support URL-backed image inputs yet. Provide file/base64 image data instead.".to_string(),
+        )),
+        ImageEditInput::File {
+            data,
+            media_type,
+            ..
+        } => {
+            let bytes = data.as_bytes().map_err(|err| {
+                LlmError::InvalidParameter(format!(
+                    "Invalid OpenAI image variation file data: {err}"
+                ))
+            })?;
+            let mime = media_type
+                .clone()
+                .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
+            Part::bytes(bytes)
+                .file_name("image".to_string())
                 .mime_str(&mime)
                 .map_err(|e| {
                     LlmError::InvalidParameter(format!(
@@ -237,6 +275,23 @@ pub struct OpenAiImageSpec {
     adapter: Option<Arc<dyn OpenAiImageAdapter>>,
 }
 
+fn openai_image_warnings(aspect_ratio: bool, seed: bool) -> Option<Vec<Warning>> {
+    let mut warnings = Vec::new();
+
+    if aspect_ratio {
+        warnings.push(Warning::unsupported(
+            "aspectRatio",
+            Some("This model does not support aspect ratio. Use `size` instead."),
+        ));
+    }
+
+    if seed {
+        warnings.push(Warning::unsupported("seed", Option::<String>::None));
+    }
+
+    (!warnings.is_empty()).then_some(warnings)
+}
+
 impl ProviderSpec for OpenAiImageSpec {
     fn id(&self) -> &'static str {
         self.provider_id
@@ -270,6 +325,14 @@ impl ProviderSpec for OpenAiImageSpec {
         crate::utils::url::join_url(&ctx.base_url, endpoint)
     }
 
+    fn image_warnings(
+        &self,
+        req: &crate::types::ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        openai_image_warnings(req.aspect_ratio.is_some(), req.seed.is_some())
+    }
+
     fn image_edit_url(&self, _req: &ImageEditRequest, ctx: &ProviderContext) -> String {
         let endpoint = self
             .adapter
@@ -279,6 +342,14 @@ impl ProviderSpec for OpenAiImageSpec {
         crate::utils::url::join_url(&ctx.base_url, endpoint)
     }
 
+    fn image_edit_warnings(
+        &self,
+        req: &ImageEditRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        openai_image_warnings(req.aspect_ratio.is_some(), req.seed.is_some())
+    }
+
     fn image_variation_url(&self, _req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
         let endpoint = self
             .adapter
@@ -286,6 +357,14 @@ impl ProviderSpec for OpenAiImageSpec {
             .map(|a| a.variation_endpoint())
             .unwrap_or("/images/variations");
         crate::utils::url::join_url(&ctx.base_url, endpoint)
+    }
+
+    fn image_variation_warnings(
+        &self,
+        req: &ImageVariationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        openai_image_warnings(req.aspect_ratio.is_some(), req.seed.is_some())
     }
 
     fn choose_image_transformers(
@@ -494,7 +573,7 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
         &self,
         req: &ImageVariationRequest,
     ) -> Result<ImageHttpBody, LlmError> {
-        use reqwest::multipart::{Form, Part};
+        use reqwest::multipart::Form;
 
         // Build multipart form for OpenAI Images Variation
         let mut form = Form::new();
@@ -503,13 +582,7 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             form = form.text("model", model.clone());
         }
 
-        let image_mime = crate::utils::guess_mime(Some(&req.image), None);
-        let image_part = Part::bytes(req.image.clone())
-            .file_name("image")
-            .mime_str(&image_mime)
-            .map_err(|e| {
-                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
-            })?;
+        let image_part = openai_image_variation_part(&req.image)?;
         form = form.part("image", image_part);
 
         if let Some(n) = req.count {
@@ -693,6 +766,15 @@ impl ResponseTransformer for OpenAiImageResponseTransformer {
 mod tests {
     use super::*;
 
+    fn test_provider_context() -> ProviderContext {
+        ProviderContext::new(
+            "openai".to_string(),
+            "https://api.openai.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        )
+    }
+
     #[test]
     fn test_openai_image_standard_new() {
         let standard = OpenAiImageStandard::new();
@@ -706,6 +788,88 @@ mod tests {
 
         let standard = OpenAiImageStandard::with_adapter(Arc::new(TestAdapter));
         assert!(standard.adapter.is_some());
+    }
+
+    #[test]
+    fn test_openai_image_generation_warnings_surface_ai_sdk_aspect_ratio_then_seed() {
+        let spec = OpenAiImageStandard::new().create_spec("openai");
+        let ctx = test_provider_context();
+        let req = ImageGenerationRequest {
+            aspect_ratio: Some("16:9".to_string()),
+            seed: Some(7),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            spec.image_warnings(&req, &ctx),
+            Some(vec![
+                Warning::unsupported(
+                    "aspectRatio",
+                    Some("This model does not support aspect ratio. Use `size` instead."),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_openai_image_edit_warnings_surface_ai_sdk_aspect_ratio_then_seed() {
+        let spec = OpenAiImageStandard::new().create_spec("openai");
+        let ctx = test_provider_context();
+        let req = ImageEditRequest {
+            images: vec![ImageEditInput::file(vec![1, 2, 3])],
+            mask: None,
+            prompt: "edit".to_string(),
+            model: None,
+            count: None,
+            size: None,
+            aspect_ratio: Some("4:3".to_string()),
+            seed: Some(9),
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        assert_eq!(
+            spec.image_edit_warnings(&req, &ctx),
+            Some(vec![
+                Warning::unsupported(
+                    "aspectRatio",
+                    Some("This model does not support aspect ratio. Use `size` instead."),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_openai_image_variation_warnings_surface_ai_sdk_aspect_ratio_then_seed() {
+        let spec = OpenAiImageStandard::new().create_spec("openai");
+        let ctx = test_provider_context();
+        let req = ImageVariationRequest {
+            image: ImageEditInput::file(vec![1, 2, 3]),
+            model: None,
+            count: None,
+            size: None,
+            aspect_ratio: Some("9:16".to_string()),
+            seed: Some(11),
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        assert_eq!(
+            spec.image_variation_warnings(&req, &ctx),
+            Some(vec![
+                Warning::unsupported(
+                    "aspectRatio",
+                    Some("This model does not support aspect ratio. Use `size` instead."),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ])
+        );
     }
 
     #[test]
@@ -783,6 +947,8 @@ mod tests {
             model: None,
             count: Some(1),
             size: Some("512x512".to_string()),
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("url".to_string()),
             extra_params: std::collections::HashMap::new(),
             provider_options_map: Default::default(),
@@ -816,6 +982,8 @@ mod tests {
             model: Some("gpt-image-1".to_string()),
             count: Some(2),
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("b64_json".to_string()),
             extra_params: std::collections::HashMap::new(),
             provider_options_map: Default::default(),
@@ -842,6 +1010,8 @@ mod tests {
             model: Some("gpt-image-1".to_string()),
             count: Some(1),
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("b64_json".to_string()),
             extra_params: std::collections::HashMap::new(),
             provider_options_map: Default::default(),
@@ -863,10 +1033,12 @@ mod tests {
         let transformers = standard.create_transformers("test-provider");
 
         let request = ImageVariationRequest {
-            image: vec![1, 2, 3, 4],
+            image: ImageEditInput::file(vec![1, 2, 3, 4]),
             model: None,
             count: Some(2),
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("b64_json".to_string()),
             extra_params: std::collections::HashMap::new(),
             provider_options_map: Default::default(),
@@ -883,6 +1055,33 @@ mod tests {
             }
             _ => panic!("Expected multipart form"),
         }
+    }
+
+    #[test]
+    fn test_image_variation_request_transformer_rejects_url_inputs() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let request = ImageVariationRequest {
+            image: ImageEditInput::url("https://example.com/input.png"),
+            model: Some("gpt-image-1".to_string()),
+            count: Some(1),
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: Some("b64_json".to_string()),
+            extra_params: std::collections::HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        let result = transformers.request.transform_image_variation(&request);
+        assert!(result.is_err());
+        let err = result.err().expect("url-backed variation should fail");
+        assert!(
+            err.to_string().contains("URL-backed image inputs"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

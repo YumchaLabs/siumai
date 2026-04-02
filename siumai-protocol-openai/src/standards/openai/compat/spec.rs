@@ -539,6 +539,13 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
     ) -> Option<Vec<Warning>> {
         let mut warnings = Vec::new();
 
+        if req.aspect_ratio.is_some() {
+            warnings.push(Warning::unsupported(
+                "aspectRatio",
+                Some("This model does not support aspect ratio. Use `size` instead."),
+            ));
+        }
+
         if req.seed.is_some() {
             warnings.push(Warning::unsupported("seed", Option::<String>::None));
         }
@@ -553,11 +560,53 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         )
     }
 
+    fn image_edit_warnings(
+        &self,
+        req: &ImageEditRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        let mut warnings = Vec::new();
+
+        if req.aspect_ratio.is_some() {
+            warnings.push(Warning::unsupported(
+                "aspectRatio",
+                Some("This model does not support aspect ratio. Use `size` instead."),
+            ));
+        }
+
+        if req.seed.is_some() {
+            warnings.push(Warning::unsupported("seed", Option::<String>::None));
+        }
+
+        (!warnings.is_empty()).then_some(warnings)
+    }
+
     fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
         apply_url_settings(
             self.image_spec().image_variation_url(req, ctx),
             &self.request_settings,
         )
+    }
+
+    fn image_variation_warnings(
+        &self,
+        req: &ImageVariationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        let mut warnings = Vec::new();
+
+        if req.aspect_ratio.is_some() {
+            warnings.push(Warning::unsupported(
+                "aspectRatio",
+                Some("This model does not support aspect ratio. Use `size` instead."),
+            ));
+        }
+
+        if req.seed.is_some() {
+            warnings.push(Warning::unsupported("seed", Option::<String>::None));
+        }
+
+        (!warnings.is_empty()).then_some(warnings)
     }
 
     fn choose_audio_transformer(&self, ctx: &ProviderContext) -> AudioTransformerBundle {
@@ -842,6 +891,31 @@ mod tests {
         ConfigurableAdapter, ProviderConfig,
     };
 
+    fn compat_image_spec_and_ctx() -> (OpenAiCompatibleSpecWithAdapter, ProviderContext) {
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["image_generation".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        (spec, ctx)
+    }
+
     #[test]
     fn openai_compatible_audio_transformer_uses_openai_audio_endpoints() {
         let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
@@ -1020,37 +1094,87 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_image_warnings_surface_ai_sdk_seed_warning() {
+    fn openai_compatible_image_warnings_surface_ai_sdk_aspect_ratio_then_seed_on_generation() {
         use crate::core::ProviderSpec;
 
-        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
-            ProviderConfig {
-                id: "deepseek".to_string(),
-                name: "DeepSeek".to_string(),
-                base_url: "https://api.deepseek.com/v1".to_string(),
-                field_mappings: Default::default(),
-                capabilities: vec!["image_generation".into()],
-                default_model: None,
-                supports_reasoning: false,
-                api_key_env: None,
-                api_key_env_aliases: vec![],
-            },
-        )));
-
-        let ctx = ProviderContext::new(
-            "deepseek".to_string(),
-            "https://api.deepseek.com/v1".to_string(),
-            Some("k".to_string()),
-            Default::default(),
-        );
+        let (spec, ctx) = compat_image_spec_and_ctx();
         let req = ImageGenerationRequest {
+            aspect_ratio: Some("16:9".to_string()),
             seed: Some(7),
             ..Default::default()
         };
 
         assert_eq!(
             spec.image_warnings(&req, &ctx),
-            Some(vec![Warning::unsupported("seed", Option::<String>::None)])
+            Some(vec![
+                Warning::unsupported(
+                    "aspectRatio",
+                    Some("This model does not support aspect ratio. Use `size` instead."),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ])
+        );
+    }
+
+    #[test]
+    fn openai_compatible_image_warnings_surface_ai_sdk_aspect_ratio_then_seed_on_edit() {
+        use crate::core::ProviderSpec;
+
+        let (spec, ctx) = compat_image_spec_and_ctx();
+        let req = ImageEditRequest {
+            images: vec![crate::types::ImageEditInput::file(vec![1, 2, 3])],
+            mask: None,
+            prompt: "edit".to_string(),
+            model: None,
+            count: None,
+            size: None,
+            aspect_ratio: Some("4:3".to_string()),
+            seed: Some(9),
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        assert_eq!(
+            spec.image_edit_warnings(&req, &ctx),
+            Some(vec![
+                Warning::unsupported(
+                    "aspectRatio",
+                    Some("This model does not support aspect ratio. Use `size` instead."),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ])
+        );
+    }
+
+    #[test]
+    fn openai_compatible_image_warnings_surface_ai_sdk_aspect_ratio_then_seed_on_variation() {
+        use crate::core::ProviderSpec;
+
+        let (spec, ctx) = compat_image_spec_and_ctx();
+        let req = ImageVariationRequest {
+            image: crate::types::ImageEditInput::file(vec![1, 2, 3]),
+            model: None,
+            count: None,
+            size: None,
+            aspect_ratio: Some("9:16".to_string()),
+            seed: Some(11),
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        assert_eq!(
+            spec.image_variation_warnings(&req, &ctx),
+            Some(vec![
+                Warning::unsupported(
+                    "aspectRatio",
+                    Some("This model does not support aspect ratio. Use `size` instead."),
+                ),
+                Warning::unsupported("seed", Option::<String>::None),
+            ])
         );
     }
 
@@ -1250,16 +1374,20 @@ mod tests {
             model: None,
             count: None,
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: None,
             extra_params: Default::default(),
             provider_options_map: Default::default(),
             http_config: None,
         };
         let image_variation_req = ImageVariationRequest {
-            image: Vec::new(),
+            image: crate::types::ImageEditInput::file(Vec::new()),
             model: None,
             count: None,
             size: None,
+            aspect_ratio: None,
+            seed: None,
             response_format: None,
             extra_params: Default::default(),
             provider_options_map: Default::default(),

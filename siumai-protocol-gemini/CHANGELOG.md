@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gemini streaming serialization now accepts the new runtime `ChatStreamEvent::Part(ChatStreamPart)` semantic channel by routing it through the typed stream-part compatibility bridge, so reasoning/source/finish-style V4 parts no longer require provider-scoped custom events first.
 - Gemini streaming parsing now emits first-class runtime stream parts for reasoning/source/provider-executed tool semantics and for `emit_v3_tool_call_parts=true` function-call paths instead of tunneling those AI SDK-stable semantics through `gemini:*` custom events.
 - Gemini usage parsing/serialization now treats `candidatesTokenCount + thoughtsTokenCount` as total completion usage and preserves `cachedContentTokenCount` / `trafficType` across SSE round-trips without overwriting raw usage fields when stable totals are absent.
+- Gemini image request shaping now consumes canonical top-level `aspectRatio` / `seed` more
+  consistently: Gemini image generation maps them into `generationConfig.imageConfig.aspectRatio`
+  and `generationConfig.seed`, while Imagen request shaping now also honors provider-owned
+  `aspectRatio` overrides with AI SDK-aligned precedence.
 
 ## [0.11.0-beta.5] - 2026-01-15
 
