@@ -7,7 +7,7 @@
           {
             "type": "reasoning",
             "text": "Analyzing the problem step by step",
-            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+            "providerOptions": { "openai": { "itemId": "reasoning_001" } }
           }
         ]
       },

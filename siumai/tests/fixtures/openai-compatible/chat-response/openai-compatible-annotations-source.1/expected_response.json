@@ -1,0 +1,54 @@
+{
+  "id": "chatcmpl-annotations-1",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "text",
+        "text": "Here are the cited sources."
+      },
+      {
+        "type": "tool-call",
+        "toolCallId": "call_weather_1",
+        "toolName": "weather$get_weather",
+        "input": {
+          "city": "Hong Kong"
+        }
+      },
+      {
+        "type": "source",
+        "id": "source_chatcmpl-annotations-1_0",
+        "sourceType": "url",
+        "url": "https://example.com/weather",
+        "title": "Weather"
+      },
+      {
+        "type": "source",
+        "id": "source_chatcmpl-annotations-1_1",
+        "sourceType": "url",
+        "url": "https://example.com/forecast",
+        "title": "Forecast"
+      }
+    ]
+  },
+  "model": "grok-beta",
+  "usage": {
+    "inputTokens": {
+      "total": 12,
+      "noCache": 12
+    },
+    "outputTokens": {
+      "total": 9,
+      "text": 9
+    },
+    "raw": {
+      "prompt_tokens": 12,
+      "completion_tokens": 9,
+      "total_tokens": 21
+    },
+    "prompt_tokens": 12,
+    "completion_tokens": 9,
+    "total_tokens": 21
+  },
+  "finish_reason": "tool_calls",
+  "audio": null
+}

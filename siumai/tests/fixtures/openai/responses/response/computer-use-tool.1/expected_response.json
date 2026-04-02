@@ -24,7 +24,12 @@
       },
       {
         "type": "text",
-        "text": "I've completed the computer task."
+        "text": "I've completed the computer task.",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_computer_test"
+          }
+        }
       }
     ]
   },
@@ -35,10 +40,40 @@
     "total_tokens": 150,
     "cached_tokens": 0,
     "reasoning_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 },
-    "completion_tokens_details": { "reasoning_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "inputTokens": {
+      "total": 100,
+      "noCache": 100,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 50,
+      "text": 50,
+      "reasoning": 0
+    },
+    "raw": {
+      "input_tokens": 100,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 50,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 150
+    }
   },
   "finish_reason": "stop",
   "service_tier": "default",
-  "provider_metadata": { "openai": { "itemId": "msg_computer_test" } }
+  "provider_metadata": {
+    "openai": {
+      "responseId": "resp_computer_test",
+      "serviceTier": "default"
+    }
+  }
 }

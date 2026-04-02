@@ -1,7 +1,17 @@
 {
   "id": "resp_67c97c0203188190a025beb4a75242bc",
   "content": {
-    "Text": "answer text"
+    "MultiModal": [
+      {
+        "type": "text",
+        "text": "answer text",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_67c97c02656c81908e080dfdf4a03cd1"
+          }
+        }
+      }
+    ]
   },
   "model": "gpt-4o-2024-07-18",
   "usage": {
@@ -15,6 +25,27 @@
     },
     "completion_tokens_details": {
       "reasoning_tokens": 123
+    },
+    "inputTokens": {
+      "total": 345,
+      "noCache": 111,
+      "cacheRead": 234
+    },
+    "outputTokens": {
+      "total": 538,
+      "text": 415,
+      "reasoning": 123
+    },
+    "raw": {
+      "input_tokens": 345,
+      "input_tokens_details": {
+        "cached_tokens": 234
+      },
+      "output_tokens": 538,
+      "output_tokens_details": {
+        "reasoning_tokens": 123
+      },
+      "total_tokens": 572
     }
   },
   "finish_reason": "stop",
@@ -22,7 +53,6 @@
   "system_fingerprint": "fp-test",
   "provider_metadata": {
     "openai": {
-      "itemId": "msg_67c97c02656c81908e080dfdf4a03cd1",
       "logprobs": [
         [
           {
@@ -50,7 +80,9 @@
             ]
           }
         ]
-      ]
+      ],
+      "responseId": "resp_67c97c0203188190a025beb4a75242bc",
+      "serviceTier": "default"
     }
   }
 }

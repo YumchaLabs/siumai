@@ -9,7 +9,8 @@ mod response_format;
 
 // Re-export all public types
 pub use content::{
-    ContentPart, ImageDetail, MediaSource, MessageContent, ToolResultContentPart, ToolResultOutput,
+    ContentPart, ImageDetail, MediaSource, MessageContent, SourcePart, ToolResultContentPart,
+    ToolResultFileId, ToolResultOutput,
 };
 pub use message::{ChatMessage, ChatMessageBuilder, MessageRole};
 pub use metadata::{CacheControl, MessageMetadata, ToolCallInfo, ToolResultInfo};

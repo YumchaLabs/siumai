@@ -1,5 +1,6 @@
 use crate::error::LlmError;
 use crate::execution::transformers::response::ResponseTransformer;
+use crate::standards::openai::utils::parse_openai_usage_value;
 use crate::types::ChatResponse;
 
 #[cfg(feature = "openai-responses")]
@@ -67,6 +68,52 @@ impl OpenAiResponsesResponseTransformer {
             (ResponsesTransformStyle::Xai, "x_keyword_search") => "x_search".to_string(),
             _ => call_name.to_string(),
         }
+    }
+
+    fn xai_file_search_queries(item: &serde_json::Value) -> serde_json::Value {
+        item.get("queries")
+            .filter(|value| !value.is_null())
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
+    }
+
+    fn xai_file_search_results(item: &serde_json::Value) -> serde_json::Value {
+        let Some(results) = item.get("results") else {
+            return serde_json::Value::Null;
+        };
+        let Some(results) = results.as_array() else {
+            return results.clone();
+        };
+
+        serde_json::Value::Array(
+            results
+                .iter()
+                .map(|result| {
+                    let mut out = serde_json::Map::new();
+                    if let Some(file_id) = result.get("file_id").or_else(|| result.get("fileId"))
+                        && !file_id.is_null()
+                    {
+                        out.insert("fileId".to_string(), file_id.clone());
+                    }
+                    if let Some(filename) = result.get("filename")
+                        && !filename.is_null()
+                    {
+                        out.insert("filename".to_string(), filename.clone());
+                    }
+                    if let Some(score) = result.get("score")
+                        && !score.is_null()
+                    {
+                        out.insert("score".to_string(), score.clone());
+                    }
+                    if let Some(text) = result.get("text")
+                        && !text.is_null()
+                    {
+                        out.insert("text".to_string(), text.clone());
+                    }
+                    serde_json::Value::Object(out)
+                })
+                .collect(),
+        )
     }
 }
 
@@ -155,7 +202,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
     }
 
     fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        use crate::types::{ContentPart, FinishReason, MessageContent, Usage};
+        use crate::types::{ContentPart, FinishReason, MessageContent};
         let root = raw.get("response").unwrap_or(raw);
         let xai_style = self.style == ResponsesTransformStyle::Xai;
 
@@ -334,6 +381,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             result_obj,
                         )),
                         provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
 
@@ -382,6 +430,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             let text = s.get("text").and_then(|v| v.as_str()).unwrap_or("");
                             content_parts.push(ContentPart::Reasoning {
                                 text: text.to_string(),
+                                provider_options: crate::types::ProviderOptionsMap::default(),
                                 provider_metadata: provider_metadata.clone(),
                             });
                             emitted += 1;
@@ -391,9 +440,41 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     if emitted == 0 {
                         content_parts.push(ContentPart::Reasoning {
                             text: String::new(),
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
                     }
+
+                    continue;
+                }
+
+                if item_type == "compaction" {
+                    if item_id.is_empty() {
+                        continue;
+                    }
+
+                    let mut openai_meta = serde_json::Map::new();
+                    openai_meta.insert(
+                        "itemId".to_string(),
+                        serde_json::Value::String(item_id.clone()),
+                    );
+                    openai_meta.insert("type".to_string(), serde_json::json!("compaction"));
+                    if let Some(encrypted_content) = item.get("encrypted_content")
+                        && !encrypted_content.is_null()
+                    {
+                        openai_meta
+                            .insert("encryptedContent".to_string(), encrypted_content.clone());
+                    }
+
+                    content_parts.push(ContentPart::Custom {
+                        kind: "openai.compaction".to_string(),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        provider_metadata: Some(
+                            self.single_provider_metadata_map(serde_json::Value::Object(
+                                openai_meta,
+                            )),
+                        ),
+                    });
 
                     continue;
                 }
@@ -434,6 +515,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         tool_name: tool_name.clone(),
                         arguments,
                         provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata: provider_metadata.clone(),
                     });
 
@@ -448,6 +530,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name,
                             output: custom_tool_output_to_result_output(output, is_error),
                             provider_executed: Some(true),
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
                     }
@@ -575,12 +658,28 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     "file_search_call" => {
                         // Vercel alignment: provider-executed file search tool call uses empty input (`{}`),
                         // and returns queries/results in the tool result.
-                        let args = serde_json::Value::String("{}".to_string());
-                        let result = serde_json::json!({
-                            "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
-                            "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
-                        });
-                        ("fileSearch", args, result)
+                        let args = if xai_style {
+                            serde_json::Value::String(String::new())
+                        } else {
+                            serde_json::Value::String("{}".to_string())
+                        };
+                        let result = if xai_style {
+                            serde_json::json!({
+                                "queries": Self::xai_file_search_queries(item),
+                                "results": Self::xai_file_search_results(item),
+                            })
+                        } else {
+                            serde_json::json!({
+                                "queries": item.get("queries").cloned().unwrap_or(serde_json::Value::Null),
+                                "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
+                            })
+                        };
+                        let tool_name = if xai_style {
+                            "file_search"
+                        } else {
+                            "fileSearch"
+                        };
+                        (tool_name, args, result)
                     }
                     "code_interpreter_call" => {
                         if xai_style {
@@ -725,6 +824,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: "shell".to_string(),
                             arguments: serde_json::Value::String(input_str),
                             provider_executed: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
                         continue;
@@ -753,6 +853,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: "shell".to_string(),
                             arguments: serde_json::Value::String(input_str),
                             provider_executed: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
                         continue;
@@ -793,6 +894,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: "apply_patch".to_string(),
                             arguments: serde_json::Value::String(input_str),
                             provider_executed: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
                         continue;
@@ -833,6 +935,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: name.to_string(),
                             arguments: serde_json::Value::String(args_str.to_string()),
                             provider_executed: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
 
@@ -859,31 +962,84 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         tool_name: tool_name.to_string(),
                         output: crate::types::ToolResultOutput::json(result),
                         provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata: None,
                     });
                 }
             }
         }
 
-        // Extract text content from output[*].content[*].text
+        // Extract text content from output[*].content[*].text.
+        //
+        // Vercel AI SDK always surfaces OpenAI Responses `message.content[*].output_text`
+        // as structured text parts carrying `providerMetadata.{provider}.itemId`.
+        // Preserve that typed part structure for standard OpenAI/Azure Responses items,
+        // instead of collapsing plain single-text messages back to bare `MessageContent::Text`.
         let mut text_content = String::new();
+        let mut structured_text_parts: Vec<ContentPart> = Vec::new();
         let mut xai_source_urls: Vec<String> = Vec::new();
         if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
             for item in output {
+                let item_id = item
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let item_phase = item
+                    .get("phase")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
                 if let Some(parts) = item.get("content").and_then(|c| c.as_array()) {
                     for p in parts {
+                        let annotations = p
+                            .get("annotations")
+                            .and_then(|v| v.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+
                         if let Some(t) = p.get("text").and_then(|v| v.as_str()) {
                             if !text_content.is_empty() {
                                 text_content.push('\n');
                             }
                             text_content.push_str(t);
+
+                            if !xai_style {
+                                let mut openai_meta = serde_json::Map::new();
+                                if !item_id.is_empty() {
+                                    openai_meta.insert(
+                                        "itemId".to_string(),
+                                        serde_json::Value::String(item_id.clone()),
+                                    );
+                                }
+                                if let Some(phase) = &item_phase {
+                                    openai_meta.insert(
+                                        "phase".to_string(),
+                                        serde_json::Value::String(phase.clone()),
+                                    );
+                                }
+                                if !annotations.is_empty() {
+                                    openai_meta.insert(
+                                        "annotations".to_string(),
+                                        serde_json::Value::Array(annotations.clone()),
+                                    );
+                                }
+
+                                let provider_metadata = (!openai_meta.is_empty()).then(|| {
+                                    self.single_provider_metadata_map(serde_json::Value::Object(
+                                        openai_meta,
+                                    ))
+                                });
+
+                                structured_text_parts.push(ContentPart::Text {
+                                    text: t.to_string(),
+                                    provider_options: crate::types::ProviderOptionsMap::default(),
+                                    provider_metadata,
+                                });
+                            }
                         }
 
                         if xai_style {
-                            let Some(annotations) = p.get("annotations").and_then(|v| v.as_array())
-                            else {
-                                continue;
-                            };
                             for ann in annotations {
                                 if ann.get("type").and_then(|v| v.as_str()) != Some("url_citation")
                                 {
@@ -901,8 +1057,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             }
         }
 
-        // Add text content if present
-        if !text_content.is_empty() {
+        if !structured_text_parts.is_empty() {
+            content_parts.extend(structured_text_parts);
+        } else if !text_content.is_empty() {
+            // Add text content if present.
             content_parts.push(ContentPart::text(&text_content));
         }
 
@@ -964,66 +1122,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         }
 
         // Usage
-        let usage = root.get("usage").map(|u| {
-            let prompt_tokens = u
-                .get("input_tokens")
-                .or_else(|| u.get("prompt_tokens"))
-                .or_else(|| u.get("inputTokens"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
-
-            let cached_tokens = u
-                .get("input_tokens_details")
-                .or_else(|| u.get("prompt_tokens_details"))
-                .and_then(|v| v.get("cached_tokens").or_else(|| v.get("cachedTokens")))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let completion_tokens = u
-                .get("output_tokens")
-                .or_else(|| u.get("completion_tokens"))
-                .or_else(|| u.get("outputTokens"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
-
-            let total_tokens = u
-                .get("total_tokens")
-                .or_else(|| u.get("totalTokens"))
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0) as u32;
-
-            let reasoning_tokens = u
-                .get("reasoning_tokens")
-                .or_else(|| u.get("reasoningTokens"))
-                .and_then(|v| v.as_u64())
-                .map(|v| v as u32);
-
-            let reasoning_tokens = reasoning_tokens.or_else(|| {
-                u.get("output_tokens_details")
-                    .or_else(|| u.get("completion_tokens_details"))
-                    .and_then(|v| {
-                        v.get("reasoning_tokens")
-                            .or_else(|| v.get("reasoningTokens"))
-                    })
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u32)
-            });
-
-            let mut builder = Usage::builder()
-                .prompt_tokens(prompt_tokens)
-                .completion_tokens(completion_tokens)
-                .total_tokens(total_tokens);
-
-            if let Some(cached) = cached_tokens {
-                builder = builder.with_cached_tokens(cached);
-            }
-
-            if let Some(reasoning) = reasoning_tokens {
-                builder = builder.with_reasoning_tokens(reasoning);
-            }
-
-            builder.build()
-        });
+        let usage = root.get("usage").and_then(parse_openai_usage_value);
 
         // Finish reason
         //
@@ -1084,32 +1183,26 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         // Determine final content
         let content = if content_parts.is_empty() {
             MessageContent::Text(String::new())
-        } else if content_parts.len() == 1 && content_parts[0].is_text() {
-            MessageContent::Text(text_content)
+        } else if content_parts.len() == 1 {
+            match &content_parts[0] {
+                ContentPart::Text {
+                    provider_options,
+                    provider_metadata,
+                    ..
+                } if provider_options.is_empty() && provider_metadata.is_none() => {
+                    MessageContent::Text(text_content)
+                }
+                _ => MessageContent::MultiModal(content_parts),
+            }
         } else {
             MessageContent::MultiModal(content_parts)
         };
 
         // Provider metadata (Vercel-aligned): sources extracted from provider tool results and
         // message annotations.
-        let provider_metadata = {
-            let mut item_id: Option<String> = None;
-            if let Some(output) = root.get("output").and_then(|v| v.as_array()) {
-                for item in output {
-                    if item.get("type").and_then(|v| v.as_str()) != Some("message") {
-                        continue;
-                    }
-                    let role = item.get("role").and_then(|v| v.as_str());
-                    if role != Some("assistant") {
-                        continue;
-                    }
-                    if let Some(id) = item.get("id").and_then(|v| v.as_str()) {
-                        item_id = Some(id.to_string());
-                        break;
-                    }
-                }
-            }
-
+        let provider_metadata = if xai_style {
+            None
+        } else {
             let mut sources: Vec<serde_json::Value> = Vec::new();
             let mut seen_source_keys: std::collections::HashSet<String> =
                 std::collections::HashSet::new();
@@ -1357,11 +1450,6 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     continue;
                                 }
 
-                                let source_key = format!("message:doc:{ann_type}:{file_id}");
-                                if !seen_source_keys.insert(source_key) {
-                                    continue;
-                                }
-
                                 let filename = ann
                                     .get("filename")
                                     .and_then(|v| v.as_str())
@@ -1380,13 +1468,33 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                 } else {
                                     Some("text/plain".to_string())
                                 };
+                                let index = ann.get("index").and_then(|v| v.as_u64());
+                                let container_id = ann
+                                    .get("container_id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.to_string());
+                                let source_key = format!(
+                                    "message:doc:{ann_type}:{file_id}:{}:{}:{}:{}",
+                                    container_id.as_deref().unwrap_or(""),
+                                    index.map(|value| value.to_string()).unwrap_or_default(),
+                                    filename.as_deref().unwrap_or(""),
+                                    title.as_deref().unwrap_or(""),
+                                );
+                                if !seen_source_keys.insert(source_key) {
+                                    continue;
+                                }
 
                                 let provider_metadata = match ann_type {
                                     "file_citation" => Some(self.single_provider_metadata_value(
-                                        serde_json::json!({ "fileId": file_id }),
+                                        serde_json::json!({
+                                            "type": "file_citation",
+                                            "fileId": file_id,
+                                            "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
+                                        }),
                                     )),
                                     "container_file_citation" => Some(
                                         self.single_provider_metadata_value(serde_json::json!({
+                                            "type": "container_file_citation",
                                             "fileId": file_id,
                                             "containerId": ann.get("container_id").cloned().unwrap_or(serde_json::Value::Null),
                                             "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
@@ -1394,6 +1502,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                                     ),
                                     "file_path" => Some(self.single_provider_metadata_value(
                                         serde_json::json!({
+                                            "type": "file_path",
                                             "fileId": file_id,
                                             "index": ann.get("index").cloned().unwrap_or(serde_json::Value::Null),
                                         }),
@@ -1440,8 +1549,18 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
             let mut openai_meta: std::collections::HashMap<String, serde_json::Value> =
                 std::collections::HashMap::new();
 
-            if let Some(id) = item_id {
-                openai_meta.insert("itemId".to_string(), serde_json::Value::String(id));
+            if let Some(response_id) = root.get("id").and_then(|v| v.as_str()) {
+                openai_meta.insert(
+                    "responseId".to_string(),
+                    serde_json::Value::String(response_id.to_string()),
+                );
+            }
+
+            if let Some(service_tier) = root.get("service_tier").and_then(|v| v.as_str()) {
+                openai_meta.insert(
+                    "serviceTier".to_string(),
+                    serde_json::Value::String(service_tier.to_string()),
+                );
             }
 
             if !sources.is_empty() {
@@ -1499,12 +1618,13 @@ mod tests {
     #[test]
     fn responses_provider_tools_are_exposed_as_tool_parts() {
         let raw = serde_json::json!({
-            "response": {
-                "id": "resp_1",
-                "model": "gpt-4o-mini",
-                "output": [
-                    {
-                        "type": "web_search_call",
+                "response": {
+                    "id": "resp_1",
+                    "model": "gpt-4o-mini",
+                    "service_tier": "default",
+                    "output": [
+                        {
+                            "type": "web_search_call",
                         "id": "ws_1",
                         "query": "rust 1.85 release notes",
                         "results": [
@@ -1526,6 +1646,8 @@ mod tests {
                     },
                     {
                         "type": "message",
+                        "id": "msg_1",
+                        "role": "assistant",
                         "content": [
                             {
                                 "type": "output_text",
@@ -1564,6 +1686,15 @@ mod tests {
 
         let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&resp)
             .expect("openai metadata present");
+        assert_eq!(meta.response_id.as_deref(), Some("resp_1"));
+        assert_eq!(meta.service_tier.as_deref(), Some("default"));
+        assert!(
+            resp.provider_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("openai"))
+                .and_then(|metadata| metadata.get("itemId"))
+                .is_none()
+        );
         let sources = meta.sources.expect("sources present");
         assert_eq!(sources.len(), 4);
         assert!(
@@ -1572,6 +1703,24 @@ mod tests {
                 .any(|s| s.url == "https://blog.rust-lang.org/")
         );
         assert!(sources.iter().any(|s| s.url == "https://www.rust-lang.org"));
+        let text = resp
+            .content
+            .as_multimodal()
+            .expect("expected multimodal")
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::Text { .. }))
+            .expect("text part");
+        let text_meta =
+            crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(text)
+                .expect("typed text metadata");
+        assert_eq!(text_meta.item_id.as_deref(), Some("msg_1"));
+        assert_eq!(
+            text_meta
+                .annotations
+                .as_ref()
+                .map(|annotations| annotations.len()),
+            Some(2)
+        );
         let document = sources
             .iter()
             .find(|s| s.tool_call_id.as_deref() == Some("fs_1"))
@@ -1593,9 +1742,65 @@ mod tests {
         let cited_source_meta =
             crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(cited_document)
                 .expect("typed cited source metadata");
+        assert_eq!(
+            cited_source_meta.metadata_type.as_deref(),
+            Some("file_citation")
+        );
         assert_eq!(cited_source_meta.file_id.as_deref(), Some("file_123"));
         assert!(cited_source_meta.container_id.is_none());
         assert!(cited_source_meta.index.is_none());
+    }
+
+    #[test]
+    fn responses_transformer_keeps_plain_output_text_as_structured_text_part() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_plain_text_1",
+                "model": "gpt-4.1",
+                "output": [
+                    {
+                        "type": "message",
+                        "id": "msg_plain_1",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Plain answer.",
+                                "annotations": []
+                            }
+                        ]
+                    }
+                ],
+                "usage": { "input_tokens": 1, "output_tokens": 2, "total_tokens": 3 },
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+        let text = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::Text { .. }))
+            .expect("text part");
+        let text_meta =
+            crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(text)
+                .expect("typed text metadata");
+
+        let crate::types::ContentPart::Text { text, .. } = text else {
+            unreachable!("expected text part");
+        };
+        assert_eq!(text, "Plain answer.");
+        assert_eq!(text_meta.item_id.as_deref(), Some("msg_plain_1"));
+        assert!(text_meta.phase.is_none());
+        assert!(text_meta.annotations.is_none());
+        assert!(
+            resp.provider_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("openai"))
+                .and_then(|metadata| metadata.get("itemId"))
+                .is_none()
+        );
     }
 
     #[test]
@@ -1698,6 +1903,10 @@ mod tests {
         let container_meta =
             crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(container_source)
                 .expect("typed container source metadata");
+        assert_eq!(
+            container_meta.metadata_type.as_deref(),
+            Some("container_file_citation")
+        );
         assert_eq!(container_meta.file_id.as_deref(), Some("file_container_1"));
         assert_eq!(container_meta.container_id.as_deref(), Some("container_42"));
         assert_eq!(container_meta.index, Some(3));
@@ -1709,6 +1918,7 @@ mod tests {
         let file_path_meta =
             crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(file_path_source)
                 .expect("typed file path source metadata");
+        assert_eq!(file_path_meta.metadata_type.as_deref(), Some("file_path"));
         assert_eq!(file_path_meta.file_id.as_deref(), Some("file_path_9"));
         assert!(file_path_meta.container_id.is_none());
         assert_eq!(file_path_meta.index, Some(5));
@@ -1716,6 +1926,99 @@ mod tests {
             file_path_source.media_type.as_deref(),
             Some("application/octet-stream")
         );
+    }
+
+    #[test]
+    fn responses_transformer_keeps_distinct_file_citation_sources_per_index() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_sources_dup",
+                "model": "gpt-5",
+                "output": [
+                    {
+                        "type": "message",
+                        "id": "msg_dup",
+                        "role": "assistant",
+                        "content": [
+                            {
+                                "type": "output_text",
+                                "text": "Annotated answer.",
+                                "annotations": [
+                                    {
+                                        "type": "file_citation",
+                                        "file_id": "file_shared",
+                                        "filename": "resource1.json",
+                                        "index": 145
+                                    },
+                                    {
+                                        "type": "file_citation",
+                                        "file_id": "file_shared",
+                                        "filename": "resource1.json",
+                                        "index": 192
+                                    }
+                                ]
+                            }
+                        ]
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&resp)
+            .expect("openai metadata");
+        let sources = meta.sources.expect("sources present");
+
+        assert_eq!(sources.len(), 2);
+        let indices: std::collections::BTreeSet<u32> = sources
+            .iter()
+            .filter_map(|source| {
+                crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(source)
+                    .and_then(|meta| meta.index)
+            })
+            .collect();
+        assert_eq!(indices, std::collections::BTreeSet::from([145, 192]));
+    }
+
+    #[test]
+    fn responses_transformer_maps_compaction_items_to_custom_content_parts() {
+        let raw = serde_json::json!({
+            "response": {
+                "id": "resp_compaction_1",
+                "model": "gpt-4.1",
+                "output": [
+                    {
+                        "type": "compaction",
+                        "id": "cmp_1",
+                        "encrypted_content": "enc_compaction"
+                    }
+                ],
+                "finish_reason": "stop"
+            }
+        });
+
+        let tx = OpenAiResponsesResponseTransformer::new();
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("expected multimodal");
+        let custom = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::Custom { .. }))
+            .expect("expected custom part");
+
+        match custom {
+            crate::types::ContentPart::Custom { kind, .. } => {
+                assert_eq!(kind, "openai.compaction");
+                let meta =
+                    crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(custom)
+                        .expect("typed compaction metadata");
+                assert_eq!(meta.metadata_type.as_deref(), Some("compaction"));
+                assert_eq!(meta.item_id.as_deref(), Some("cmp_1"));
+                assert_eq!(meta.encrypted_content.as_deref(), Some("enc_compaction"));
+            }
+            _ => unreachable!(),
+        }
     }
 
     #[test]
@@ -1821,6 +2124,7 @@ mod tests {
                     tool_name: "fileSearch".to_string(),
                     arguments: serde_json::json!({ "query": "bridge design" }),
                     provider_executed: Some(true),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: Some(std::collections::HashMap::from([(
                         "openai".to_string(),
                         serde_json::json!({ "itemId": "fs_item_1" }),
@@ -1833,6 +2137,7 @@ mod tests {
                         "queries": ["bridge design"]
                     })),
                     provider_executed: Some(true),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,
                 },
                 crate::types::ContentPart::ToolCall {
@@ -1840,6 +2145,7 @@ mod tests {
                     tool_name: "fileSearch".to_string(),
                     arguments: serde_json::json!({ "query": "bridge design" }),
                     provider_executed: Some(true),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: Some(std::collections::HashMap::from([(
                         "openai".to_string(),
                         serde_json::json!({ "itemId": "fs_item_2" }),
@@ -1852,6 +2158,7 @@ mod tests {
                         "queries": ["bridge design"]
                     })),
                     provider_executed: Some(true),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,
                 },
             ]));

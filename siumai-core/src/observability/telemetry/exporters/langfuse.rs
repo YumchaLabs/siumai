@@ -98,9 +98,9 @@ impl LangfuseExporter {
                 .map(|o| serde_json::to_value(o).ok())
                 .flatten(),
             usage: generation.usage.as_ref().map(|u| LangfuseUsage {
-                prompt_tokens: u.prompt_tokens as i64,
-                completion_tokens: u.completion_tokens as i64,
-                total_tokens: u.total_tokens as i64,
+                prompt_tokens: u.prompt_tokens().unwrap_or(0) as i64,
+                completion_tokens: u.completion_tokens().unwrap_or(0) as i64,
+                total_tokens: u.total_tokens().unwrap_or(0) as i64,
             }),
             metadata: generation.metadata.clone(),
             level: if generation.error.is_some() {

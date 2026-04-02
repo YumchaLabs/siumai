@@ -111,7 +111,22 @@
       },
       {
         "type": "text",
-        "text": "I ran 10,000 trials of rolling two dice and summed the results.\n\n- Total sum across all 10,000 rolls: 70024\n- Per-trial sums were saved to a file. You can download it here:\n  [Download the file](sandbox:/mnt/data/two_dice_sums_10000.txt)\n\nThe file contains 10,000 lines (one sum per line) followed by a final line with the total, e.g., \"TOTAL: 70024\".\n\nIf you’d like the file in a different format (CSV, JSON) or with only the total, I can adjust and re-upload."
+        "text": "I ran 10,000 trials of rolling two dice and summed the results.\n\n- Total sum across all 10,000 rolls: 70024\n- Per-trial sums were saved to a file. You can download it here:\n  [Download the file](sandbox:/mnt/data/two_dice_sums_10000.txt)\n\nThe file contains 10,000 lines (one sum per line) followed by a final line with the total, e.g., \"TOTAL: 70024\".\n\nIf you’d like the file in a different format (CSV, JSON) or with only the total, I can adjust and re-upload.",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_024ee52fc1900767006903bf43b66081939b669e0ce1deb286",
+            "annotations": [
+              {
+                "type": "container_file_citation",
+                "container_id": "cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec",
+                "end_index": 236,
+                "file_id": "cfile_6903bf45e3288191af3d56e6d23c3a4d",
+                "filename": "two_dice_sums_10000.txt",
+                "start_index": 195
+              }
+            ]
+          }
+        }
       }
     ]
   },
@@ -127,13 +142,33 @@
     "reasoning_tokens": 1792,
     "completion_tokens_details": {
       "reasoning_tokens": 1792
+    },
+    "inputTokens": {
+      "total": 2283,
+      "noCache": 2283,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 1928,
+      "text": 136,
+      "reasoning": 1792
+    },
+    "raw": {
+      "input_tokens": 2283,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 1928,
+      "output_tokens_details": {
+        "reasoning_tokens": 1792
+      },
+      "total_tokens": 4211
     }
   },
   "finish_reason": "stop",
   "service_tier": "default",
   "provider_metadata": {
     "openai": {
-      "itemId": "msg_024ee52fc1900767006903bf43b66081939b669e0ce1deb286",
       "sources": [
         {
           "id": "ann:0",
@@ -146,11 +181,13 @@
             "openai": {
               "fileId": "cfile_6903bf45e3288191af3d56e6d23c3a4d",
               "containerId": "cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec",
-              "index": null
+              "type": "container_file_citation"
             }
           }
         }
-      ]
+      ],
+      "responseId": "resp_024ee52fc1900767006903bf276a60819395647a8a01d4a3d8",
+      "serviceTier": "default"
     }
   }
 }

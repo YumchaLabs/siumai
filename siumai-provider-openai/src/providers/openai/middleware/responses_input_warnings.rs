@@ -41,46 +41,41 @@ impl OpenAiResponsesInputWarningsMiddleware {
     fn vercel_reasoning_part_json(part: &ContentPart) -> Option<String> {
         let ContentPart::Reasoning {
             text,
-            provider_metadata,
+            provider_options,
+            ..
         } = part
         else {
             return None;
         };
 
-        let openai = provider_metadata
-            .as_ref()
-            .and_then(|m| m.get("openai"))
-            .and_then(|v| v.as_object());
-
-        let item_id = openai
-            .and_then(|m| m.get("itemId").or_else(|| m.get("item_id")))
-            .and_then(|v| v.as_str());
-        let encrypted = openai.and_then(|m| {
-            m.get("reasoningEncryptedContent")
-                .or_else(|| m.get("reasoning_encrypted_content"))
-        });
-        let reasoning = openai.and_then(|m| m.get("reasoning"));
-
         // Emit a Vercel-shaped JSON.stringify snapshot with stable key order:
         // {"type":"reasoning","text":"...","providerOptions":{"openai":{...}}}
         let text_json = serde_json::to_string(text).unwrap_or_else(|_| "\"\"".to_string());
+        let openai = provider_options.get_object("openai");
 
-        if item_id.is_none() && encrypted.is_none() && reasoning.is_none() {
+        let Some(openai) = openai else {
             return Some(format!("{{\"type\":\"reasoning\",\"text\":{text_json}}}"));
-        }
+        };
 
         let mut openai_fields: Vec<String> = Vec::new();
-        if let Some(id) = item_id {
-            let id_json = serde_json::to_string(id).unwrap_or_else(|_| "\"\"".to_string());
+        if let Some(id) = openai.get("itemId").or_else(|| openai.get("item_id")) {
+            let id_json = serde_json::to_string(id).unwrap_or_else(|_| "null".to_string());
             openai_fields.push(format!("\"itemId\":{id_json}"));
         }
-        if let Some(enc) = encrypted {
+        if let Some(enc) = openai
+            .get("reasoningEncryptedContent")
+            .or_else(|| openai.get("reasoning_encrypted_content"))
+        {
             let enc_json = serde_json::to_string(enc).unwrap_or_else(|_| "null".to_string());
             openai_fields.push(format!("\"reasoningEncryptedContent\":{enc_json}"));
         }
-        if let Some(r) = reasoning {
+        if let Some(r) = openai.get("reasoning") {
             let r_json = serde_json::to_string(r).unwrap_or_else(|_| "null".to_string());
             openai_fields.push(format!("\"reasoning\":{r_json}"));
+        }
+
+        if openai_fields.is_empty() {
+            return Some(format!("{{\"type\":\"reasoning\",\"text\":{text_json}}}"));
         }
 
         Some(format!(
@@ -202,11 +197,8 @@ impl OpenAiResponsesInputWarningsMiddleware {
 
                 let openai = match part {
                     ContentPart::Reasoning {
-                        provider_metadata, ..
-                    } => provider_metadata
-                        .as_ref()
-                        .and_then(|m| m.get("openai"))
-                        .and_then(|v| v.as_object()),
+                        provider_options, ..
+                    } => provider_options.get_object("openai"),
                     _ => None,
                 };
 
@@ -214,8 +206,17 @@ impl OpenAiResponsesInputWarningsMiddleware {
                     .and_then(|m| m.get("itemId").or_else(|| m.get("item_id")))
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                let has_encrypted_content = openai
+                    .and_then(|m| {
+                        m.get("reasoningEncryptedContent")
+                            .or_else(|| m.get("reasoning_encrypted_content"))
+                    })
+                    .is_some_and(|value| !value.is_null());
 
                 let Some(reasoning_id) = reasoning_id else {
+                    if has_encrypted_content {
+                        continue;
+                    }
                     let snapshot = Self::vercel_reasoning_part_json(part)
                         .unwrap_or_else(|| "{\"type\":\"reasoning\"}".to_string());
                     warnings.push(Warning::other(format!(

@@ -7,6 +7,8 @@ use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_openai_chat_completions_sse,
 };
 use siumai::prelude::unified::{ChatByteStream, ChatStreamEvent, SseEventConverter};
+use siumai_core::types::ChatStreamPart;
+use siumai_core::types::SourcePart;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -140,6 +142,13 @@ struct ToolCallSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct SourceSummary {
+    id: String,
+    url: String,
+    title: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct OpenAiChatStreamSummary {
     has_stream_start: bool,
     start_id: Option<String>,
@@ -150,6 +159,27 @@ struct OpenAiChatStreamSummary {
     total_tokens: Option<u32>,
     text: String,
     tool_calls: Vec<ToolCallSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct ResponseMetadataSummary {
+    id: Option<String>,
+    model: Option<String>,
+    created_unix: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct ResponseEnvelopeSummary {
+    id: Option<String>,
+    model: Option<String>,
+    system_fingerprint: Option<String>,
+    service_tier: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+struct PredictionTokensSummary {
+    accepted_prediction_tokens: Option<u64>,
+    rejected_prediction_tokens: Option<u64>,
 }
 
 fn finish_reason_to_string(reason: &siumai::prelude::unified::FinishReason) -> Option<String> {
@@ -206,10 +236,12 @@ fn summarize_openai_chat_events(events: &[ChatStreamEvent]) -> OpenAiChatStreamS
                 }
             }
             ChatStreamEvent::UsageUpdate { usage } => {
-                if usage.prompt_tokens > 0 || usage.completion_tokens > 0 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
-                    summary.total_tokens = Some(usage.total_tokens);
+                if usage.prompt_tokens().unwrap_or(0) > 0
+                    || usage.completion_tokens().unwrap_or(0) > 0
+                {
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
+                    summary.total_tokens = usage.total_tokens();
                 }
             }
             ChatStreamEvent::StreamEnd { response } => {
@@ -222,9 +254,9 @@ fn summarize_openai_chat_events(events: &[ChatStreamEvent]) -> OpenAiChatStreamS
                 if summary.prompt_tokens.is_none()
                     && let Some(usage) = response.usage.as_ref()
                 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
-                    summary.total_tokens = Some(usage.total_tokens);
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
+                    summary.total_tokens = usage.total_tokens();
                 }
             }
             _ => {}
@@ -233,6 +265,100 @@ fn summarize_openai_chat_events(events: &[ChatStreamEvent]) -> OpenAiChatStreamS
 
     summary.tool_calls = tool_calls.into_values().collect();
     summary
+}
+
+fn summarize_openai_chat_sources(events: &[ChatStreamEvent]) -> Vec<SourceSummary> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part {
+                part:
+                    siumai::prelude::unified::ChatStreamPart::Source {
+                        id,
+                        source: SourcePart::Url { url, title },
+                        ..
+                    },
+            } => Some(SourceSummary {
+                id: id.clone(),
+                url: url.clone(),
+                title: title.clone(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+fn summarize_openai_chat_response_metadata(
+    events: &[ChatStreamEvent],
+) -> Vec<ResponseMetadataSummary> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ResponseMetadata(metadata),
+            } => Some(ResponseMetadataSummary {
+                id: metadata.id.clone(),
+                model: metadata.model.clone(),
+                created_unix: metadata.created.map(|value| value.timestamp()),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+fn summarize_openai_chat_logprobs(events: &[ChatStreamEvent]) -> Option<serde_json::Value> {
+    events.iter().find_map(|event| match event {
+        ChatStreamEvent::StreamEnd { response } => response
+            .provider_metadata
+            .as_ref()
+            .and_then(|providers| providers.get("openai"))
+            .and_then(|meta| meta.get("logprobs"))
+            .cloned(),
+        _ => None,
+    })
+}
+
+fn summarize_openai_chat_prediction_tokens(
+    events: &[ChatStreamEvent],
+) -> Option<PredictionTokensSummary> {
+    events.iter().find_map(|event| match event {
+        ChatStreamEvent::StreamEnd { response } => {
+            let openai = response
+                .provider_metadata
+                .as_ref()
+                .and_then(|providers| providers.get("openai"))?;
+            let accepted_prediction_tokens = openai
+                .get("acceptedPredictionTokens")
+                .and_then(serde_json::Value::as_u64);
+            let rejected_prediction_tokens = openai
+                .get("rejectedPredictionTokens")
+                .and_then(serde_json::Value::as_u64);
+
+            if accepted_prediction_tokens.is_none() && rejected_prediction_tokens.is_none() {
+                None
+            } else {
+                Some(PredictionTokensSummary {
+                    accepted_prediction_tokens,
+                    rejected_prediction_tokens,
+                })
+            }
+        }
+        _ => None,
+    })
+}
+
+fn summarize_openai_chat_terminal_envelope(
+    events: &[ChatStreamEvent],
+) -> Option<ResponseEnvelopeSummary> {
+    events.iter().find_map(|event| match event {
+        ChatStreamEvent::StreamEnd { response } => Some(ResponseEnvelopeSummary {
+            id: response.id.clone(),
+            model: response.model.clone(),
+            system_fingerprint: response.system_fingerprint.clone(),
+            service_tier: response.service_tier.clone(),
+        }),
+        _ => None,
+    })
 }
 
 async fn roundtrip_summary(path: &str, model: &str) -> OpenAiChatStreamSummary {
@@ -269,6 +395,7 @@ fn fixture_summary(path: &str, model: &str) -> OpenAiChatStreamSummary {
 #[tokio::test]
 async fn openai_chat_completions_stream_bridge_roundtrip_fixture_summary_cases_match() {
     let summary_cases = [
+        ("annotations_url_sources.sse", "gpt-4o-mini"),
         ("role_content_finish_reason.sse", "gpt-4o-mini"),
         ("tool_calls_arguments_usage.sse", "gpt-4o-mini"),
         ("multiple_tool_calls.sse", "gpt-4o-mini"),
@@ -283,4 +410,158 @@ async fn openai_chat_completions_stream_bridge_roundtrip_fixture_summary_cases_m
             fixtures_dir().join(case).display()
         );
     }
+}
+
+#[tokio::test]
+async fn openai_chat_completions_stream_bridge_roundtrip_preserves_url_source_annotations() {
+    let case = "annotations_url_sources.sse";
+    let model = "gpt-4o-mini";
+    let fixture = fixtures_dir().join(case);
+
+    let original = decode_openai_chat_completions(model, read_fixture_lines(&fixture));
+    let expected_sources = summarize_openai_chat_sources(&original);
+    assert_eq!(
+        expected_sources,
+        vec![
+            SourceSummary {
+                id: "source_chatcmpl-annotations-1_0".to_string(),
+                url: "https://example.com/rust".to_string(),
+                title: Some("Rust".to_string()),
+            },
+            SourceSummary {
+                id: "source_chatcmpl-annotations-1_1".to_string(),
+                url: "https://example.com/book".to_string(),
+                title: Some("Book".to_string()),
+            },
+        ]
+    );
+
+    let bridged = bridge_chat_stream_to_openai_chat_completions_sse(
+        stream::iter(original.into_iter().map(Ok)),
+        Some(BridgeTarget::OpenAiChatCompletions),
+        BridgeMode::Strict,
+    )
+    .expect("bridge stream");
+
+    assert!(
+        !bridged.is_rejected(),
+        "bridge rejected fixture case {} with report {:?}",
+        fixture.display(),
+        bridged.report
+    );
+
+    let bytes = collect_bytes(bridged.value.expect("bridged byte stream")).await;
+    let roundtripped =
+        decode_openai_chat_completions(model, extract_sse_data_payload_lines(&bytes));
+
+    assert_eq!(
+        summarize_openai_chat_sources(&roundtripped),
+        expected_sources,
+        "fixture case: {}",
+        fixture.display()
+    );
+}
+
+#[tokio::test]
+async fn openai_chat_completions_stream_bridge_roundtrip_preserves_response_metadata_and_logprobs()
+{
+    let case = "metadata_logprobs.sse";
+    let model = "gpt-4o-mini";
+    let fixture = fixtures_dir().join(case);
+
+    let original = decode_openai_chat_completions(model, read_fixture_lines(&fixture));
+    let expected_metadata = summarize_openai_chat_response_metadata(&original);
+    let expected_logprobs = summarize_openai_chat_logprobs(&original);
+    let expected_prediction_tokens = summarize_openai_chat_prediction_tokens(&original);
+    let expected_terminal = summarize_openai_chat_terminal_envelope(&original);
+
+    assert_eq!(
+        expected_metadata,
+        vec![ResponseMetadataSummary {
+            id: Some("chatcmpl-meta-logprobs-1".to_string()),
+            model: Some("gpt-4o-mini".to_string()),
+            created_unix: Some(1731234567),
+        }]
+    );
+    assert_eq!(
+        expected_logprobs,
+        Some(serde_json::json!([
+            {
+                "token": "Hello",
+                "logprob": -0.01,
+                "bytes": [72, 101, 108, 108, 111],
+                "top_logprobs": [
+                    { "token": "Hello", "logprob": -0.01 },
+                    { "token": "Hi", "logprob": -1.5 }
+                ]
+            },
+            {
+                "token": "!",
+                "logprob": -0.2,
+                "bytes": [33],
+                "top_logprobs": [
+                    { "token": "!", "logprob": -0.2 }
+                ]
+            }
+        ]))
+    );
+    assert_eq!(
+        expected_prediction_tokens,
+        Some(PredictionTokensSummary {
+            accepted_prediction_tokens: Some(5),
+            rejected_prediction_tokens: Some(6),
+        })
+    );
+    assert_eq!(
+        expected_terminal,
+        Some(ResponseEnvelopeSummary {
+            id: Some("chatcmpl-meta-logprobs-1".to_string()),
+            model: Some("gpt-4o-mini".to_string()),
+            system_fingerprint: Some("fp_meta_logprobs".to_string()),
+            service_tier: Some("priority".to_string()),
+        })
+    );
+
+    let bridged = bridge_chat_stream_to_openai_chat_completions_sse(
+        stream::iter(original.into_iter().map(Ok)),
+        Some(BridgeTarget::OpenAiChatCompletions),
+        BridgeMode::Strict,
+    )
+    .expect("bridge stream");
+
+    assert!(
+        !bridged.is_rejected(),
+        "bridge rejected fixture case {} with report {:?}",
+        fixture.display(),
+        bridged.report
+    );
+
+    let bytes = collect_bytes(bridged.value.expect("bridged byte stream")).await;
+    let roundtripped =
+        decode_openai_chat_completions(model, extract_sse_data_payload_lines(&bytes));
+
+    assert_eq!(
+        summarize_openai_chat_response_metadata(&roundtripped),
+        expected_metadata,
+        "fixture case: {}",
+        fixture.display()
+    );
+    assert_eq!(
+        summarize_openai_chat_logprobs(&roundtripped),
+        expected_logprobs,
+        "fixture case: {}",
+        fixture.display()
+    );
+    assert_eq!(
+        summarize_openai_chat_prediction_tokens(&roundtripped),
+        expected_prediction_tokens,
+        "fixture case: {}",
+        fixture.display()
+    );
+    assert_eq!(
+        summarize_openai_chat_terminal_envelope(&roundtripped),
+        expected_terminal,
+        "fixture case: {}",
+        fixture.display()
+    );
 }

@@ -55,6 +55,8 @@ pub fn provider_defined_tool(id: &str) -> Option<Tool> {
         xai::WEB_SEARCH_ID => Some(xai::web_search()),
         xai::X_SEARCH_ID => Some(xai::x_search()),
         xai::CODE_EXECUTION_ID => Some(xai::code_execution()),
+        xai::VIEW_IMAGE_ID => Some(xai::view_image()),
+        xai::VIEW_X_VIDEO_ID => Some(xai::view_x_video()),
 
         _ => None,
     }
@@ -591,17 +593,232 @@ pub mod google {
 /// xAI provider-defined tools (OpenAI-like family).
 pub mod xai {
     use super::Tool;
+    use std::collections::BTreeMap;
 
     /// Mapping of provider tool ids to xAI tool names (provider-native).
     pub const PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
         (WEB_SEARCH_ID, "web_search"),
         (X_SEARCH_ID, "x_search"),
         (CODE_EXECUTION_ID, "code_execution"),
+        (VIEW_IMAGE_ID, "view_image"),
+        (VIEW_X_VIDEO_ID, "view_x_video"),
+        (FILE_SEARCH_ID, "file_search"),
+        (MCP_ID, "mcp"),
     ];
 
     pub const WEB_SEARCH_ID: &str = "xai.web_search";
     pub const X_SEARCH_ID: &str = "xai.x_search";
     pub const CODE_EXECUTION_ID: &str = "xai.code_execution";
+    pub const VIEW_IMAGE_ID: &str = "xai.view_image";
+    pub const VIEW_X_VIDEO_ID: &str = "xai.view_x_video";
+    pub const FILE_SEARCH_ID: &str = "xai.file_search";
+    pub const MCP_ID: &str = "xai.mcp";
+
+    fn args_value<T: serde::Serialize>(args: T) -> serde_json::Value {
+        serde_json::to_value(args).expect("xAI tool args should serialize")
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct WebSearchArgs {
+        #[serde(rename = "allowedDomains", skip_serializing_if = "Option::is_none")]
+        pub allowed_domains: Option<Vec<String>>,
+        #[serde(rename = "excludedDomains", skip_serializing_if = "Option::is_none")]
+        pub excluded_domains: Option<Vec<String>>,
+        #[serde(
+            rename = "enableImageUnderstanding",
+            skip_serializing_if = "Option::is_none"
+        )]
+        pub enable_image_understanding: Option<bool>,
+    }
+
+    impl WebSearchArgs {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn with_allowed_domains<T, I>(mut self, domains: I) -> Self
+        where
+            T: Into<String>,
+            I: IntoIterator<Item = T>,
+        {
+            self.allowed_domains = Some(domains.into_iter().map(Into::into).collect());
+            self
+        }
+
+        pub fn with_excluded_domains<T, I>(mut self, domains: I) -> Self
+        where
+            T: Into<String>,
+            I: IntoIterator<Item = T>,
+        {
+            self.excluded_domains = Some(domains.into_iter().map(Into::into).collect());
+            self
+        }
+
+        pub fn with_enable_image_understanding(mut self, enabled: bool) -> Self {
+            self.enable_image_understanding = Some(enabled);
+            self
+        }
+    }
+
+    #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct XSearchArgs {
+        #[serde(rename = "allowedXHandles", skip_serializing_if = "Option::is_none")]
+        pub allowed_x_handles: Option<Vec<String>>,
+        #[serde(rename = "excludedXHandles", skip_serializing_if = "Option::is_none")]
+        pub excluded_x_handles: Option<Vec<String>>,
+        #[serde(rename = "fromDate", skip_serializing_if = "Option::is_none")]
+        pub from_date: Option<String>,
+        #[serde(rename = "toDate", skip_serializing_if = "Option::is_none")]
+        pub to_date: Option<String>,
+        #[serde(
+            rename = "enableImageUnderstanding",
+            skip_serializing_if = "Option::is_none"
+        )]
+        pub enable_image_understanding: Option<bool>,
+        #[serde(
+            rename = "enableVideoUnderstanding",
+            skip_serializing_if = "Option::is_none"
+        )]
+        pub enable_video_understanding: Option<bool>,
+    }
+
+    impl XSearchArgs {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn with_allowed_x_handles<T, I>(mut self, handles: I) -> Self
+        where
+            T: Into<String>,
+            I: IntoIterator<Item = T>,
+        {
+            self.allowed_x_handles = Some(handles.into_iter().map(Into::into).collect());
+            self
+        }
+
+        pub fn with_excluded_x_handles<T, I>(mut self, handles: I) -> Self
+        where
+            T: Into<String>,
+            I: IntoIterator<Item = T>,
+        {
+            self.excluded_x_handles = Some(handles.into_iter().map(Into::into).collect());
+            self
+        }
+
+        pub fn with_from_date(mut self, date: impl Into<String>) -> Self {
+            self.from_date = Some(date.into());
+            self
+        }
+
+        pub fn with_to_date(mut self, date: impl Into<String>) -> Self {
+            self.to_date = Some(date.into());
+            self
+        }
+
+        pub fn with_enable_image_understanding(mut self, enabled: bool) -> Self {
+            self.enable_image_understanding = Some(enabled);
+            self
+        }
+
+        pub fn with_enable_video_understanding(mut self, enabled: bool) -> Self {
+            self.enable_video_understanding = Some(enabled);
+            self
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct FileSearchArgs {
+        #[serde(rename = "vectorStoreIds")]
+        pub vector_store_ids: Vec<String>,
+        #[serde(rename = "maxNumResults", skip_serializing_if = "Option::is_none")]
+        pub max_num_results: Option<u32>,
+    }
+
+    impl FileSearchArgs {
+        pub fn new<T, I>(vector_store_ids: I) -> Self
+        where
+            T: Into<String>,
+            I: IntoIterator<Item = T>,
+        {
+            Self {
+                vector_store_ids: vector_store_ids.into_iter().map(Into::into).collect(),
+                max_num_results: None,
+            }
+        }
+
+        pub fn with_max_num_results(mut self, max_num_results: u32) -> Self {
+            self.max_num_results = Some(max_num_results);
+            self
+        }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+    pub struct McpArgs {
+        #[serde(rename = "serverUrl")]
+        pub server_url: String,
+        #[serde(rename = "serverLabel", skip_serializing_if = "Option::is_none")]
+        pub server_label: Option<String>,
+        #[serde(rename = "serverDescription", skip_serializing_if = "Option::is_none")]
+        pub server_description: Option<String>,
+        #[serde(rename = "allowedTools", skip_serializing_if = "Option::is_none")]
+        pub allowed_tools: Option<Vec<String>>,
+        #[serde(rename = "headers", skip_serializing_if = "Option::is_none")]
+        pub headers: Option<BTreeMap<String, String>>,
+        #[serde(rename = "authorization", skip_serializing_if = "Option::is_none")]
+        pub authorization: Option<String>,
+    }
+
+    impl McpArgs {
+        pub fn new(server_url: impl Into<String>) -> Self {
+            Self {
+                server_url: server_url.into(),
+                server_label: None,
+                server_description: None,
+                allowed_tools: None,
+                headers: None,
+                authorization: None,
+            }
+        }
+
+        pub fn with_server_label(mut self, server_label: impl Into<String>) -> Self {
+            self.server_label = Some(server_label.into());
+            self
+        }
+
+        pub fn with_server_description(mut self, server_description: impl Into<String>) -> Self {
+            self.server_description = Some(server_description.into());
+            self
+        }
+
+        pub fn with_allowed_tools<T, I>(mut self, allowed_tools: I) -> Self
+        where
+            T: Into<String>,
+            I: IntoIterator<Item = T>,
+        {
+            self.allowed_tools = Some(allowed_tools.into_iter().map(Into::into).collect());
+            self
+        }
+
+        pub fn with_headers<K, V, I>(mut self, headers: I) -> Self
+        where
+            K: Into<String>,
+            V: Into<String>,
+            I: IntoIterator<Item = (K, V)>,
+        {
+            self.headers = Some(
+                headers
+                    .into_iter()
+                    .map(|(key, value)| (key.into(), value.into()))
+                    .collect(),
+            );
+            self
+        }
+
+        pub fn with_authorization(mut self, authorization: impl Into<String>) -> Self {
+            self.authorization = Some(authorization.into());
+            self
+        }
+    }
 
     pub fn web_search() -> Tool {
         web_search_named("web_search")
@@ -609,6 +826,14 @@ pub mod xai {
 
     pub fn web_search_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(WEB_SEARCH_ID, name)
+    }
+
+    pub fn web_search_with(args: WebSearchArgs) -> Tool {
+        web_search_named_with("web_search", args)
+    }
+
+    pub fn web_search_named_with(name: impl Into<String>, args: WebSearchArgs) -> Tool {
+        Tool::provider_defined(WEB_SEARCH_ID, name).with_args(args_value(args))
     }
 
     pub fn x_search() -> Tool {
@@ -619,12 +844,76 @@ pub mod xai {
         Tool::provider_defined(X_SEARCH_ID, name)
     }
 
+    pub fn x_search_with(args: XSearchArgs) -> Tool {
+        x_search_named_with("x_search", args)
+    }
+
+    pub fn x_search_named_with(name: impl Into<String>, args: XSearchArgs) -> Tool {
+        Tool::provider_defined(X_SEARCH_ID, name).with_args(args_value(args))
+    }
+
     pub fn code_execution() -> Tool {
         code_execution_named("code_execution")
     }
 
     pub fn code_execution_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(CODE_EXECUTION_ID, name)
+    }
+
+    pub fn view_image() -> Tool {
+        view_image_named("view_image")
+    }
+
+    pub fn view_image_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(VIEW_IMAGE_ID, name)
+    }
+
+    pub fn view_x_video() -> Tool {
+        view_x_video_named("view_x_video")
+    }
+
+    pub fn view_x_video_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(VIEW_X_VIDEO_ID, name)
+    }
+
+    pub fn file_search(vector_store_ids: Vec<String>) -> Tool {
+        file_search_named(vector_store_ids, "file_search")
+    }
+
+    pub fn file_search_named(vector_store_ids: Vec<String>, name: impl Into<String>) -> Tool {
+        file_search_named_with(name, FileSearchArgs::new(vector_store_ids))
+    }
+
+    pub fn file_search_with(args: FileSearchArgs) -> Tool {
+        file_search_named_with("file_search", args)
+    }
+
+    pub fn file_search_named_with(name: impl Into<String>, args: FileSearchArgs) -> Tool {
+        Tool::provider_defined(FILE_SEARCH_ID, name).with_args(args_value(args))
+    }
+
+    pub fn mcp(server_url: impl Into<String>) -> Tool {
+        mcp_named(server_url, "mcp")
+    }
+
+    pub fn mcp_named(server_url: impl Into<String>, name: impl Into<String>) -> Tool {
+        mcp_named_with(name, McpArgs::new(server_url))
+    }
+
+    pub fn mcp_with(args: McpArgs) -> Tool {
+        mcp_named_with("mcp", args)
+    }
+
+    pub fn mcp_named_with(name: impl Into<String>, args: McpArgs) -> Tool {
+        Tool::provider_defined(MCP_ID, name).with_args(args_value(args))
+    }
+
+    pub fn mcp_server(server_url: impl Into<String>) -> Tool {
+        mcp(server_url)
+    }
+
+    pub fn mcp_server_with(args: McpArgs) -> Tool {
+        mcp_with(args)
     }
 }
 
@@ -734,6 +1023,138 @@ mod tests {
         };
         assert_eq!(pd.id, xai::CODE_EXECUTION_ID);
         assert_eq!(pd.name, "code_execution");
+    }
+
+    #[test]
+    fn xai_view_tools_have_expected_ids_and_names() {
+        for (tool, id, name) in [
+            (xai::view_image(), xai::VIEW_IMAGE_ID, "view_image"),
+            (xai::view_x_video(), xai::VIEW_X_VIDEO_ID, "view_x_video"),
+        ] {
+            let crate::types::Tool::ProviderDefined(pd) = tool else {
+                panic!("expected provider-defined tool");
+            };
+            assert_eq!(pd.id, id);
+            assert_eq!(pd.name, name);
+        }
+    }
+
+    #[test]
+    fn xai_file_search_tool_has_expected_id_name_and_args() {
+        let t = xai::file_search(vec!["collection_1".to_string(), "collection_2".to_string()]);
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, xai::FILE_SEARCH_ID);
+        assert_eq!(pd.name, "file_search");
+        assert_eq!(
+            pd.args,
+            serde_json::json!({
+                "vectorStoreIds": ["collection_1", "collection_2"]
+            })
+        );
+    }
+
+    #[test]
+    fn xai_typed_tool_arg_builders_serialize_sdk_aligned_shapes() {
+        let web_search = xai::web_search_with(
+            xai::WebSearchArgs::new()
+                .with_allowed_domains(["wikipedia.org"])
+                .with_excluded_domains(["spam.com"])
+                .with_enable_image_understanding(true),
+        );
+        let crate::types::Tool::ProviderDefined(web_pd) = web_search else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(web_pd.id, xai::WEB_SEARCH_ID);
+        assert_eq!(
+            web_pd.args,
+            serde_json::json!({
+                "allowedDomains": ["wikipedia.org"],
+                "excludedDomains": ["spam.com"],
+                "enableImageUnderstanding": true
+            })
+        );
+
+        let x_search = xai::x_search_with(
+            xai::XSearchArgs::new()
+                .with_allowed_x_handles(["xai"])
+                .with_excluded_x_handles(["spam_handle"])
+                .with_from_date("2025-01-01")
+                .with_to_date("2025-01-31")
+                .with_enable_image_understanding(true)
+                .with_enable_video_understanding(true),
+        );
+        let crate::types::Tool::ProviderDefined(x_pd) = x_search else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(x_pd.id, xai::X_SEARCH_ID);
+        assert_eq!(
+            x_pd.args,
+            serde_json::json!({
+                "allowedXHandles": ["xai"],
+                "excludedXHandles": ["spam_handle"],
+                "fromDate": "2025-01-01",
+                "toDate": "2025-01-31",
+                "enableImageUnderstanding": true,
+                "enableVideoUnderstanding": true
+            })
+        );
+
+        let file_search = xai::file_search_with(
+            xai::FileSearchArgs::new(["collection_1"]).with_max_num_results(5),
+        );
+        let crate::types::Tool::ProviderDefined(file_pd) = file_search else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(file_pd.id, xai::FILE_SEARCH_ID);
+        assert_eq!(
+            file_pd.args,
+            serde_json::json!({
+                "vectorStoreIds": ["collection_1"],
+                "maxNumResults": 5
+            })
+        );
+
+        let mcp = xai::mcp_server_with(
+            xai::McpArgs::new("https://example.com/mcp")
+                .with_server_label("docs")
+                .with_server_description("Docs MCP")
+                .with_allowed_tools(["search_docs"])
+                .with_headers([("X-Test", "1")])
+                .with_authorization("Bearer token"),
+        );
+        let crate::types::Tool::ProviderDefined(mcp_pd) = mcp else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(mcp_pd.id, xai::MCP_ID);
+        assert_eq!(
+            mcp_pd.args,
+            serde_json::json!({
+                "serverUrl": "https://example.com/mcp",
+                "serverLabel": "docs",
+                "serverDescription": "Docs MCP",
+                "allowedTools": ["search_docs"],
+                "headers": { "X-Test": "1" },
+                "authorization": "Bearer token"
+            })
+        );
+    }
+
+    #[test]
+    fn xai_mcp_tool_has_expected_id_name_and_required_args() {
+        let t = xai::mcp("https://example.com/mcp");
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, xai::MCP_ID);
+        assert_eq!(pd.name, "mcp");
+        assert_eq!(
+            pd.args,
+            serde_json::json!({
+                "serverUrl": "https://example.com/mcp"
+            })
+        );
     }
 
     #[test]

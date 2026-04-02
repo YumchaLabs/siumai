@@ -9,6 +9,10 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::streaming::{ChatStreamEvent, LanguageModelV3StreamPart};
+use crate::types::{
+    ChatStreamPart, ChatStreamReplay, ChatStreamToolCall, ChatStreamToolResult,
+    StreamProviderMetadata,
+};
 
 /// Bridges Gemini/Anthropic Vercel-aligned stream parts into OpenAI Responses
 /// stream parts (`openai:*`) that can be serialized by the OpenAI Responses SSE
@@ -218,32 +222,26 @@ impl OpenAiResponsesStreamPartsBridge {
         self.emitted_tool_call_ids.insert(tool_call_id.clone());
 
         let raw_item = openai_provider_tool_call_raw_item(&tool_call_id, &tool_name, &input_str);
-        let mut payload = serde_json::json!({
-            "type": "tool-call",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name,
-            "input": input_str,
-            "providerExecuted": data.get("providerExecuted").and_then(|v| v.as_bool()).unwrap_or(true),
-            "dynamic": data.get("dynamic").and_then(|v| v.as_bool()).unwrap_or(false),
-            // The OpenAI Responses serializer requires `rawItem` for provider tool results.
-            // We also attach a best-effort `rawItem` on tool-call so a downstream gateway
-            // can emit output_item.added consistently.
-            "rawItem": raw_item,
-        });
-        if let Some(pm) = data.get("providerMetadata")
-            && let Some(obj) = payload.as_object_mut()
-        {
-            obj.insert("providerMetadata".to_string(), pm.clone());
-        }
-        if let Some(title) = data.get("title")
-            && let Some(obj) = payload.as_object_mut()
-        {
-            obj.insert("title".to_string(), title.clone());
-        }
+        let replay = ChatStreamReplay::openai_responses(None, Some(raw_item)).expect("replay");
 
-        vec![ChatStreamEvent::Custom {
-            event_type: "openai:tool-call".to_string(),
-            data: payload,
+        vec![ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id,
+                tool_name,
+                input: input_str,
+                provider_executed: Some(
+                    data.get("providerExecuted")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(true),
+                ),
+                dynamic: Some(
+                    data.get("dynamic")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false),
+                ),
+                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
+            }),
+            replay,
         }]
     }
 
@@ -293,23 +291,16 @@ impl OpenAiResponsesStreamPartsBridge {
             self.emitted_tool_call_ids.insert(tool_call_id.clone());
             let raw_item =
                 openai_provider_tool_call_raw_item(&tool_call_id, &tool_name, &input_str);
-            let mut tool_call_payload = serde_json::json!({
-                "type": "tool-call",
-                "toolCallId": tool_call_id,
-                "toolName": tool_name,
-                "input": input_str,
-                "providerExecuted": provider_executed,
-                "dynamic": dynamic,
-                "rawItem": raw_item,
-            });
-            if let Some(pm) = data.get("providerMetadata")
-                && let Some(obj) = tool_call_payload.as_object_mut()
-            {
-                obj.insert("providerMetadata".to_string(), pm.clone());
-            }
-            out.push(ChatStreamEvent::Custom {
-                event_type: "openai:tool-call".to_string(),
-                data: tool_call_payload,
+            out.push(ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_name: tool_name.clone(),
+                    input: input_str.clone(),
+                    provider_executed: Some(provider_executed),
+                    dynamic: Some(dynamic),
+                    provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
+                }),
+                replay: ChatStreamReplay::openai_responses(None, Some(raw_item)).expect("replay"),
             });
         }
 
@@ -329,23 +320,17 @@ impl OpenAiResponsesStreamPartsBridge {
             &result,
             is_error,
         );
-        let mut result_payload = serde_json::json!({
-            "type": "tool-result",
-            "toolCallId": tool_call_id,
-            "toolName": tool_name,
-            "providerExecuted": provider_executed,
-            "dynamic": dynamic,
-            // The OpenAI Responses serializer currently requires `rawItem` here.
-            "rawItem": raw_item,
-        });
-        if let Some(pm) = data.get("providerMetadata")
-            && let Some(obj) = result_payload.as_object_mut()
-        {
-            obj.insert("providerMetadata".to_string(), pm.clone());
-        }
-        out.push(ChatStreamEvent::Custom {
-            event_type: "openai:tool-result".to_string(),
-            data: result_payload,
+        out.push(ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                tool_call_id,
+                tool_name,
+                result,
+                is_error: Some(is_error),
+                preliminary: None,
+                dynamic: Some(dynamic),
+                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
+            }),
+            replay: ChatStreamReplay::openai_responses(None, Some(raw_item)).expect("replay"),
         });
 
         out
@@ -359,6 +344,16 @@ fn normalize_json_string(value: Option<&serde_json::Value>) -> Option<String> {
         serde_json::Value::Null => None,
         other => serde_json::to_string(other).ok(),
     }
+}
+
+fn provider_metadata_from_value(
+    value: Option<&serde_json::Value>,
+) -> Option<StreamProviderMetadata> {
+    let serde_json::Value::Object(obj) = value?.clone() else {
+        return None;
+    };
+
+    Some(obj.into_iter().collect())
 }
 
 fn openai_provider_tool_call_raw_item(
@@ -456,6 +451,14 @@ fn openai_provider_tool_result_raw_item(
 mod tests {
     use super::*;
 
+    fn replay_raw_item(event: &ChatStreamEvent) -> &serde_json::Value {
+        event
+            .replay_ref()
+            .and_then(ChatStreamReplay::openai_responses_ref)
+            .and_then(|replay| replay.raw_item.as_ref())
+            .expect("openai responses raw item")
+    }
+
     #[test]
     fn bridge_v3_tool_call_from_unknown_prefix_adds_raw_item_and_preserves_provider_metadata() {
         let mut bridge = OpenAiResponsesStreamPartsBridge::new();
@@ -474,13 +477,17 @@ mod tests {
         let out = bridge.bridge_event(in_event);
         assert_eq!(out.len(), 1);
 
-        let ChatStreamEvent::Custom { event_type, data } = &out[0] else {
-            panic!("expected Custom");
+        let ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolCall(call),
+            ..
+        } = &out[0]
+        else {
+            panic!("expected tool-call part with replay");
         };
-        assert_eq!(event_type, "openai:tool-call");
-        assert!(data.get("rawItem").is_some());
+        assert!(replay_raw_item(&out[0]).is_object());
         assert_eq!(
-            data.get("providerMetadata")
+            call.provider_metadata
+                .as_ref()
                 .and_then(|v| v.get("gemini"))
                 .and_then(|v| v.get("traceId"))
                 .and_then(|v| v.as_str()),
@@ -506,42 +513,38 @@ mod tests {
         let out = bridge.bridge_event(in_event);
         assert_eq!(out.len(), 2);
 
-        let ChatStreamEvent::Custom {
-            event_type: call_event_type,
-            data: call_data,
+        let ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolCall(call),
+            ..
         } = &out[0]
         else {
-            panic!("expected tool-call Custom");
+            panic!("expected tool-call part with replay");
         };
-        assert_eq!(call_event_type, "openai:tool-call");
         assert_eq!(
-            call_data
-                .get("rawItem")
-                .and_then(|v| v.get("status"))
+            replay_raw_item(&out[0])
+                .get("status")
                 .and_then(|v| v.as_str()),
             Some("in_progress")
         );
         assert_eq!(
-            call_data
-                .get("providerMetadata")
+            call.provider_metadata
+                .as_ref()
                 .and_then(|v| v.get("anthropic"))
                 .and_then(|v| v.get("requestId"))
                 .and_then(|v| v.as_str()),
             Some("r1")
         );
 
-        let ChatStreamEvent::Custom {
-            event_type: result_event_type,
-            data: result_data,
+        let ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolResult(_),
+            ..
         } = &out[1]
         else {
-            panic!("expected tool-result Custom");
+            panic!("expected tool-result part with replay");
         };
-        assert_eq!(result_event_type, "openai:tool-result");
         assert_eq!(
-            result_data
-                .get("rawItem")
-                .and_then(|v| v.get("status"))
+            replay_raw_item(&out[1])
+                .get("status")
                 .and_then(|v| v.as_str()),
             Some("completed")
         );
@@ -624,51 +627,35 @@ mod tests {
 
         let bridged_call = bridge.bridge_event(call);
         assert_eq!(bridged_call.len(), 1);
-        let ChatStreamEvent::Custom {
-            data: call_data, ..
-        } = &bridged_call[0]
-        else {
-            panic!("expected bridged call custom event");
-        };
+        let call_data = replay_raw_item(&bridged_call[0]);
         assert_eq!(
-            call_data.pointer("/rawItem/type").and_then(|v| v.as_str()),
+            call_data.pointer("/type").and_then(|v| v.as_str()),
             Some("mcp_call")
         );
         assert_eq!(
-            call_data.pointer("/rawItem/name").and_then(|v| v.as_str()),
+            call_data.pointer("/name").and_then(|v| v.as_str()),
             Some("web_search_exa")
         );
         assert_eq!(
-            call_data
-                .pointer("/rawItem/arguments")
-                .and_then(|v| v.as_str()),
+            call_data.pointer("/arguments").and_then(|v| v.as_str()),
             Some("{\"query\":\"nyc mayor\"}")
         );
 
         let bridged_result = bridge.bridge_event(result);
         assert_eq!(bridged_result.len(), 1);
-        let ChatStreamEvent::Custom {
-            data: result_data, ..
-        } = &bridged_result[0]
-        else {
-            panic!("expected bridged result custom event");
-        };
+        let result_data = replay_raw_item(&bridged_result[0]);
         assert_eq!(
-            result_data
-                .pointer("/rawItem/type")
-                .and_then(|v| v.as_str()),
+            result_data.pointer("/type").and_then(|v| v.as_str()),
             Some("mcp_call")
         );
         assert_eq!(
             result_data
-                .pointer("/rawItem/server_label")
+                .pointer("/server_label")
                 .and_then(|v| v.as_str()),
             Some("exa")
         );
         assert_eq!(
-            result_data
-                .pointer("/rawItem/output/hits")
-                .and_then(|v| v.as_u64()),
+            result_data.pointer("/output/hits").and_then(|v| v.as_u64()),
             Some(3)
         );
     }

@@ -55,14 +55,14 @@ fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
 fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
         .collect()
 }
 
@@ -98,9 +98,13 @@ fn openai_responses_text_stream_emits_stream_start_metadata_text_and_finish() {
         metadata[0].get("modelId").and_then(|v| v.as_str()),
         Some("gpt-4o-2024-07-18")
     );
-    assert_eq!(
-        metadata[0].get("timestamp").and_then(|v| v.as_str()),
-        Some("2025-03-06T13:50:19.000Z")
+    let timestamp = metadata[0]
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .expect("response metadata timestamp");
+    assert!(
+        timestamp.starts_with("2025-03-06T13:50:19"),
+        "unexpected timestamp: {timestamp}"
     );
 
     assert_eq!(text_starts.len(), 1, "expected exactly one text-start");

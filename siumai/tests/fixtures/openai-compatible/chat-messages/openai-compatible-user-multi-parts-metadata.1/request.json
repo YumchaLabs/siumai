@@ -7,8 +7,10 @@
           {
             "type": "text",
             "text": "Hello from part 1",
+            "providerOptions": {
+              "openaiCompatible": { "sentiment": "positive" }
+            },
             "providerMetadata": {
-              "openaiCompatible": { "sentiment": "positive" },
               "leftoverKey": { "foo": "some leftover data" }
             }
           },
@@ -16,11 +18,11 @@
             "type": "file",
             "data": "AAECAw==",
             "media_type": "image/png",
-            "providerMetadata": { "openaiCompatible": { "alt_text": "A sample image" } }
+            "providerOptions": { "openaiCompatible": { "alt_text": "A sample image" } }
           }
         ]
       },
-      "metadata": { "custom": { "openaiCompatible": { "priority": "high" } } }
+      "providerOptions": { "openaiCompatible": { "priority": "high" } }
     }
   ],
   "tools": null,

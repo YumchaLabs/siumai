@@ -1,0 +1,52 @@
+{
+  "messages": [
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call_456",
+            "toolName": "search",
+            "output": {
+              "type": "content",
+              "value": [
+                { "type": "text", "text": "Provider keyed attachments" },
+                {
+                  "type": "image-file-id",
+                  "fileId": {
+                    "anthropic": "image-ant-1",
+                    "openai": "assistant-img-openai"
+                  }
+                },
+                {
+                  "type": "file-id",
+                  "fileId": {
+                    "anthropic": "file-pdf-anthropic",
+                    "azure": "file-pdf-azure",
+                    "openai": "file-pdf-openai"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

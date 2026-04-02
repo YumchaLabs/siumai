@@ -8,7 +8,7 @@
             "type": "file",
             "data": "AAECAw==",
             "media_type": "image/png",
-            "providerMetadata": { "openai": { "imageDetail": "low" } }
+            "providerOptions": { "openai": { "imageDetail": "low" } }
           }
         ]
       },

@@ -8,7 +8,9 @@
             "type": "file",
             "url": "https://example.com/image.jpg",
             "media_type": "image/*",
-            "providerMetadata": { "openaiCompatible": { "cacheControl": { "type": "ephemeral" } } }
+            "providerOptions": {
+              "openaiCompatible": { "cacheControl": { "type": "ephemeral" } }
+            }
           }
         ]
       },

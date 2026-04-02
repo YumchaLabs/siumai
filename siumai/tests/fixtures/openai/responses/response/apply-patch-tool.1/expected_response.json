@@ -8,7 +8,9 @@
         "toolName": "apply_patch",
         "input": "{\"callId\":\"call_CdXiGtcRl49Q6Ek20tG9lYOr\",\"operation\":{\"type\":\"create_file\",\"path\":\"shopping-checklist.md\",\"diff\":\"+## Shopping Checklist\\n+\\n+- [ ] Milk\\n+- [ ] Bread\\n+- [ ] Eggs\\n+- [ ] Apples\\n+- [ ] Coffee\\n+\\n\"}}",
         "providerMetadata": {
-          "openai": { "itemId": "apc_0b04c5f8dfc43af500692749bd60908197b0e453c38f30191a" }
+          "openai": {
+            "itemId": "apc_0b04c5f8dfc43af500692749bd60908197b0e453c38f30191a"
+          }
         }
       }
     ]
@@ -20,9 +22,40 @@
     "total_tokens": 709,
     "cached_tokens": 0,
     "reasoning_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 },
-    "completion_tokens_details": { "reasoning_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "inputTokens": {
+      "total": 642,
+      "noCache": 642,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 67,
+      "text": 67,
+      "reasoning": 0
+    },
+    "raw": {
+      "input_tokens": 642,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 67,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 709
+    }
   },
   "finish_reason": "stop",
-  "service_tier": "default"
+  "service_tier": "default",
+  "provider_metadata": {
+    "openai": {
+      "responseId": "resp_0b04c5f8dfc43af500692749bc5b288197b45e830995fd32d3",
+      "serviceTier": "default"
+    }
+  }
 }

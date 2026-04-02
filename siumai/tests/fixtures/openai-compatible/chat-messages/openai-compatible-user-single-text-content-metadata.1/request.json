@@ -7,7 +7,9 @@
           {
             "type": "text",
             "text": "Hello",
-            "providerMetadata": { "openaiCompatible": { "cacheControl": { "type": "ephemeral" } } }
+            "providerOptions": {
+              "openaiCompatible": { "cacheControl": { "type": "ephemeral" } }
+            }
           }
         ]
       },

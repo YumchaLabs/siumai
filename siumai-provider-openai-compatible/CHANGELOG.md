@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- OpenAI-compatible content-part metadata helpers now cover stable `reasoning-file` and `custom`
+  parts instead of assuming the older content-part subset only.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

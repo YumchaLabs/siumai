@@ -61,29 +61,27 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                 let mut out: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
 
                 if self.mark_stream_start_emitted() {
-                    out.push(crate::streaming::ChatStreamEvent::Custom {
-                        event_type: "openai:stream-start".to_string(),
-                        data: serde_json::json!({
-                            "type": "stream-start",
-                            "warnings": [],
-                        }),
+                    out.push(crate::streaming::ChatStreamEvent::Part {
+                        part: crate::types::ChatStreamPart::StreamStart { warnings: vec![] },
                     });
                 }
 
-                if let (Some(id), Some(model_id), Some(ts)) = (
+                if let (Some(id), Some(model_id), Some(created)) = (
                     self.created_response_id(),
                     self.created_model_id(),
-                    self.created_timestamp_rfc3339_millis(),
+                    self.created_timestamp(),
                 ) && self.mark_response_metadata_emitted(&id)
                 {
-                    out.push(crate::streaming::ChatStreamEvent::Custom {
-                        event_type: "openai:response-metadata".to_string(),
-                        data: serde_json::json!({
-                            "type": "response-metadata",
-                            "id": id,
-                            "modelId": model_id,
-                            "timestamp": ts,
-                        }),
+                    out.push(crate::streaming::ChatStreamEvent::Part {
+                        part: crate::types::ChatStreamPart::ResponseMetadata(
+                            crate::types::ResponseMetadata {
+                                id: Some(id),
+                                model: Some(model_id),
+                                created: Some(created),
+                                provider: self.provider_metadata_key.clone(),
+                                request_id: None,
+                            },
+                        ),
                     });
                 }
 
@@ -212,12 +210,10 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         .to_string();
 
                     return vec![
-                        Ok(crate::streaming::ChatStreamEvent::Custom {
-                            event_type: "openai:error".to_string(),
-                            data: serde_json::json!({
-                                "type": "error",
-                                "error": json,
-                            }),
+                        Ok(crate::streaming::ChatStreamEvent::Part {
+                            part: crate::types::ChatStreamPart::Error {
+                                error: json.get("error").cloned().unwrap_or_else(|| json.clone()),
+                            },
                         }),
                         Ok(crate::streaming::ChatStreamEvent::Error { error: msg }),
                     ];

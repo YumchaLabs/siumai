@@ -1,0 +1,5 @@
+data: {"id":"chatcmpl-meta-logprobs-1","model":"gpt-4o-mini","created":1731234567,"choices":[{"index":0,"delta":{"role":"assistant"}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"Hello!"}}]}
+
+data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop","logprobs":{"content":[{"token":"Hello","logprob":-0.01,"bytes":[72,101,108,108,111],"top_logprobs":[{"token":"Hello","logprob":-0.01},{"token":"Hi","logprob":-1.5}]},{"token":"!","logprob":-0.2,"bytes":[33],"top_logprobs":[{"token":"!","logprob":-0.2}]}]}}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6,"completion_tokens_details":{"accepted_prediction_tokens":5,"rejected_prediction_tokens":6}},"system_fingerprint":"fp_meta_logprobs","service_tier":"priority"}

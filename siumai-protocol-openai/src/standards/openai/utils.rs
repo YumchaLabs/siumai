@@ -7,6 +7,168 @@ use super::types::OpenAiMessage;
 use crate::error::LlmError;
 use crate::types::*;
 
+fn object_value_by_aliases<'a>(
+    obj: &'a serde_json::Map<String, serde_json::Value>,
+    aliases: &[&str],
+) -> Option<&'a serde_json::Value> {
+    aliases.iter().find_map(|alias| obj.get(*alias))
+}
+
+fn copy_object_value(
+    target: &mut serde_json::Value,
+    target_key: &str,
+    obj: &serde_json::Map<String, serde_json::Value>,
+    aliases: &[&str],
+) {
+    if let Some(value) = object_value_by_aliases(obj, aliases) {
+        target[target_key] = value.clone();
+    }
+}
+
+fn required_object_value(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    aliases: &[&str],
+    message: &str,
+) -> Result<serde_json::Value, LlmError> {
+    object_value_by_aliases(obj, aliases)
+        .cloned()
+        .ok_or_else(|| LlmError::InvalidInput(message.to_string()))
+}
+
+fn convert_xai_provider_tool_to_responses_format(
+    provider_tool: &crate::types::ProviderDefinedTool,
+) -> Result<Option<serde_json::Value>, LlmError> {
+    let raw = provider_tool.tool_type().unwrap_or("unknown");
+    let args_obj = provider_tool.args.as_object();
+
+    let tool = match raw {
+        "web_search" => {
+            let mut tool = serde_json::json!({ "type": "web_search" });
+            if let Some(args_obj) = args_obj {
+                copy_object_value(
+                    &mut tool,
+                    "allowed_domains",
+                    args_obj,
+                    &["allowedDomains", "allowed_domains"],
+                );
+                copy_object_value(
+                    &mut tool,
+                    "excluded_domains",
+                    args_obj,
+                    &["excludedDomains", "excluded_domains"],
+                );
+                copy_object_value(
+                    &mut tool,
+                    "enable_image_understanding",
+                    args_obj,
+                    &["enableImageUnderstanding", "enable_image_understanding"],
+                );
+            }
+            tool
+        }
+        "x_search" => {
+            let mut tool = serde_json::json!({ "type": "x_search" });
+            if let Some(args_obj) = args_obj {
+                copy_object_value(
+                    &mut tool,
+                    "allowed_x_handles",
+                    args_obj,
+                    &["allowedXHandles", "allowed_x_handles"],
+                );
+                copy_object_value(
+                    &mut tool,
+                    "excluded_x_handles",
+                    args_obj,
+                    &["excludedXHandles", "excluded_x_handles"],
+                );
+                copy_object_value(&mut tool, "from_date", args_obj, &["fromDate", "from_date"]);
+                copy_object_value(&mut tool, "to_date", args_obj, &["toDate", "to_date"]);
+                copy_object_value(
+                    &mut tool,
+                    "enable_image_understanding",
+                    args_obj,
+                    &["enableImageUnderstanding", "enable_image_understanding"],
+                );
+                copy_object_value(
+                    &mut tool,
+                    "enable_video_understanding",
+                    args_obj,
+                    &["enableVideoUnderstanding", "enable_video_understanding"],
+                );
+            }
+            tool
+        }
+        "code_execution" => serde_json::json!({ "type": "code_interpreter" }),
+        "view_image" => serde_json::json!({ "type": "view_image" }),
+        "view_x_video" => serde_json::json!({ "type": "view_x_video" }),
+        "file_search" => {
+            let Some(args_obj) = args_obj else {
+                return Err(LlmError::InvalidInput(
+                    "xAI file_search requires vectorStoreIds".to_string(),
+                ));
+            };
+
+            let vector_store_ids = required_object_value(
+                args_obj,
+                &["vectorStoreIds", "vector_store_ids"],
+                "xAI file_search requires vectorStoreIds",
+            )?;
+            let mut tool = serde_json::json!({
+                "type": "file_search",
+                "vector_store_ids": vector_store_ids,
+            });
+            copy_object_value(
+                &mut tool,
+                "max_num_results",
+                args_obj,
+                &["maxNumResults", "max_num_results"],
+            );
+            tool
+        }
+        "mcp" => {
+            let Some(args_obj) = args_obj else {
+                return Err(LlmError::InvalidInput(
+                    "xAI mcp requires serverUrl".to_string(),
+                ));
+            };
+
+            let server_url = required_object_value(
+                args_obj,
+                &["serverUrl", "server_url"],
+                "xAI mcp requires serverUrl",
+            )?;
+            let mut tool = serde_json::json!({
+                "type": "mcp",
+                "server_url": server_url,
+            });
+            copy_object_value(
+                &mut tool,
+                "server_label",
+                args_obj,
+                &["serverLabel", "server_label"],
+            );
+            copy_object_value(
+                &mut tool,
+                "server_description",
+                args_obj,
+                &["serverDescription", "server_description"],
+            );
+            copy_object_value(
+                &mut tool,
+                "allowed_tools",
+                args_obj,
+                &["allowedTools", "allowed_tools"],
+            );
+            copy_object_value(&mut tool, "headers", args_obj, &["headers"]);
+            copy_object_value(&mut tool, "authorization", args_obj, &["authorization"]);
+            tool
+        }
+        _ => return Ok(None),
+    };
+
+    Ok(Some(tool))
+}
+
 /// Convert tools to OpenAI Chat Completions format.
 pub fn convert_tools_to_openai_format(
     tools: &[crate::types::Tool],
@@ -68,16 +230,12 @@ pub fn convert_tools_to_responses_format(
                     continue;
                 }
 
-                // xAI Vercel alignment: provider tools map to Responses tool types with minimal args.
-                // In particular, `xai.code_execution` is sent as `type: "code_interpreter"`.
                 if provider == "xai" {
-                    let raw = provider_tool.tool_type().unwrap_or("unknown");
-                    let mapped = match raw {
-                        "code_execution" => "code_interpreter",
-                        other => other,
-                    };
-
-                    openai_tools.push(serde_json::json!({ "type": mapped }));
+                    if let Some(xai_tool) =
+                        convert_xai_provider_tool_to_responses_format(provider_tool)?
+                    {
+                        openai_tools.push(xai_tool);
+                    }
                     continue;
                 }
 
@@ -487,46 +645,71 @@ pub fn convert_responses_response_format(
 pub fn convert_responses_tool_choice(
     choice: &crate::types::ToolChoice,
     tools: Option<&[crate::types::Tool]>,
-) -> serde_json::Value {
+) -> Option<serde_json::Value> {
     match choice {
-        ToolChoice::Auto => serde_json::json!("auto"),
-        ToolChoice::Required => serde_json::json!("required"),
-        ToolChoice::None => serde_json::json!("none"),
+        ToolChoice::Auto => Some(serde_json::json!("auto")),
+        ToolChoice::Required => Some(serde_json::json!("required")),
+        ToolChoice::None => Some(serde_json::json!("none")),
         ToolChoice::Tool { name } => {
-            // Vercel parity: recognize built-in responses tools by name.
-            if let Some(t) =
-                siumai_core::tools::openai::responses_builtin_type_for_choice_name(name.as_str())
-            {
-                return serde_json::json!({ "type": t });
-            }
-
-            // Optional: resolve custom tool names (e.g. "generateImage") to the built-in type
-            // by matching against the request tool list.
             if let Some(tools) = tools {
-                for tool in tools {
-                    let crate::types::Tool::ProviderDefined(provider_tool) = tool else {
-                        continue;
-                    };
-                    if provider_tool.name != *name {
-                        continue;
-                    }
+                for tool in tools.iter().rev() {
+                    match tool {
+                        crate::types::Tool::Function { function } if function.name == *name => {
+                            return Some(serde_json::json!({
+                                "type": "function",
+                                "name": name,
+                            }));
+                        }
+                        crate::types::Tool::ProviderDefined(provider_tool)
+                            if provider_tool.name == *name =>
+                        {
+                            match provider_tool.provider() {
+                                Some("openai") => {
+                                    if let Some(tool_type) = provider_tool.tool_type()
+                                        && let Some(t) =
+                                            siumai_core::tools::openai::responses_builtin_type_for_tool_type(
+                                                tool_type,
+                                            )
+                                    {
+                                        return Some(serde_json::json!({ "type": t }));
+                                    }
+                                }
+                                Some("xai") => {
+                                    if matches!(
+                                        provider_tool.tool_type(),
+                                        Some(
+                                            "web_search"
+                                                | "x_search"
+                                                | "code_execution"
+                                                | "view_image"
+                                                | "view_x_video"
+                                                | "file_search"
+                                                | "mcp"
+                                        )
+                                    ) {
+                                        return None;
+                                    }
+                                }
+                                _ => {}
+                            }
 
-                    if provider_tool.provider() != Some("openai") {
-                        continue;
-                    }
-
-                    if let Some(tool_type) = provider_tool.tool_type()
-                        && let Some(t) =
-                            siumai_core::tools::openai::responses_builtin_type_for_tool_type(
-                                tool_type,
-                            )
-                    {
-                        return serde_json::json!({ "type": t });
+                            return Some(serde_json::json!({
+                                "type": "function",
+                                "name": name,
+                            }));
+                        }
+                        _ => {}
                     }
                 }
             }
 
-            serde_json::json!({ "type": "function", "name": name })
+            if let Some(t) =
+                siumai_core::tools::openai::responses_builtin_type_for_choice_name(name.as_str())
+            {
+                return Some(serde_json::json!({ "type": t }));
+            }
+
+            Some(serde_json::json!({ "type": "function", "name": name }))
         }
     }
 }
@@ -534,6 +717,21 @@ pub fn convert_responses_tool_choice(
 /// Parse OpenAI finish reason to unified FinishReason.
 pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
     siumai_core::standards::openai::utils::parse_finish_reason(reason)
+}
+
+/// Parse OpenAI chat/responses/AI SDK usage payloads into unified `Usage`.
+pub fn parse_openai_usage_value(value: &serde_json::Value) -> Option<Usage> {
+    siumai_core::standards::openai::utils::parse_openai_usage_value(value)
+}
+
+/// Convert unified `Usage` into OpenAI Chat Completions usage JSON.
+pub fn openai_chat_usage_value(usage: &Usage) -> serde_json::Value {
+    siumai_core::standards::openai::utils::openai_chat_usage_value(usage)
+}
+
+/// Convert unified `Usage` into OpenAI Responses usage JSON.
+pub fn openai_responses_usage_value(usage: &Usage) -> serde_json::Value {
+    siumai_core::standards::openai::utils::openai_responses_usage_value(usage)
 }
 
 #[cfg(test)]
@@ -663,17 +861,86 @@ mod tests {
     }
 
     #[test]
+    fn responses_tools_map_xai_server_tools_to_sdk_aligned_shapes() {
+        let tools = vec![
+            crate::tools::xai::web_search().with_args(serde_json::json!({
+                "allowedDomains": ["wikipedia.org"],
+                "enableImageUnderstanding": true,
+            })),
+            crate::tools::xai::x_search().with_args(serde_json::json!({
+                "allowedXHandles": ["xai"],
+                "fromDate": "2025-01-01",
+                "enableVideoUnderstanding": true,
+            })),
+            crate::tools::xai::view_image(),
+            crate::tools::xai::view_x_video(),
+            crate::tools::xai::file_search(vec!["collection_1".to_string()]).with_args(
+                serde_json::json!({
+                    "vectorStoreIds": ["collection_1"],
+                    "maxNumResults": 5,
+                }),
+            ),
+            crate::tools::xai::mcp("https://example.com/mcp").with_args(serde_json::json!({
+                "serverUrl": "https://example.com/mcp",
+                "serverLabel": "docs",
+                "allowedTools": ["search_docs"],
+                "authorization": "Bearer token",
+            })),
+            crate::tools::xai::code_execution(),
+        ];
+
+        let out = convert_tools_to_responses_format(&tools).unwrap();
+        assert_eq!(out.len(), 7);
+        assert_eq!(out[0]["type"], serde_json::json!("web_search"));
+        assert_eq!(
+            out[0]["allowed_domains"],
+            serde_json::json!(["wikipedia.org"])
+        );
+        assert_eq!(
+            out[0]["enable_image_understanding"],
+            serde_json::json!(true)
+        );
+        assert_eq!(out[1]["type"], serde_json::json!("x_search"));
+        assert_eq!(out[1]["allowed_x_handles"], serde_json::json!(["xai"]));
+        assert_eq!(out[1]["from_date"], serde_json::json!("2025-01-01"));
+        assert_eq!(
+            out[1]["enable_video_understanding"],
+            serde_json::json!(true)
+        );
+        assert_eq!(out[2], serde_json::json!({ "type": "view_image" }));
+        assert_eq!(out[3], serde_json::json!({ "type": "view_x_video" }));
+        assert_eq!(out[4]["type"], serde_json::json!("file_search"));
+        assert_eq!(
+            out[4]["vector_store_ids"],
+            serde_json::json!(["collection_1"])
+        );
+        assert_eq!(out[4]["max_num_results"], serde_json::json!(5));
+        assert_eq!(out[5]["type"], serde_json::json!("mcp"));
+        assert_eq!(
+            out[5]["server_url"],
+            serde_json::json!("https://example.com/mcp")
+        );
+        assert_eq!(out[5]["server_label"], serde_json::json!("docs"));
+        assert_eq!(out[5]["allowed_tools"], serde_json::json!(["search_docs"]));
+        assert_eq!(out[5]["authorization"], serde_json::json!("Bearer token"));
+        assert_eq!(out[6], serde_json::json!({ "type": "code_interpreter" }));
+    }
+
+    #[test]
     fn responses_tool_choice_maps_builtins_by_name() {
         let choice = crate::types::ToolChoice::tool("web_search");
         let out = convert_responses_tool_choice(&choice, None);
-        assert_eq!(out, serde_json::json!({ "type": "web_search" }));
+        assert_eq!(out, Some(serde_json::json!({ "type": "web_search" })));
     }
 
     #[test]
     fn responses_tool_choice_maps_computer_use_alias_to_preview_type() {
         let choice = crate::types::ToolChoice::tool("computer_use");
         let out = convert_responses_tool_choice(&choice, None);
-        assert_eq!(out, serde_json::json!({ "type": "computer_use_preview" }));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "type": "computer_use_preview" }))
+        );
     }
 
     #[test]
@@ -682,7 +949,7 @@ mod tests {
         let out = convert_responses_tool_choice(&choice, None);
         assert_eq!(
             out,
-            serde_json::json!({ "type": "function", "name": "testFunction" })
+            Some(serde_json::json!({ "type": "function", "name": "testFunction" }))
         );
     }
 
@@ -693,7 +960,7 @@ mod tests {
             "generateImage",
         )];
         let out = convert_responses_tool_choice(&choice, Some(&tools));
-        assert_eq!(out, serde_json::json!({ "type": "image_generation" }));
+        assert_eq!(out, Some(serde_json::json!({ "type": "image_generation" })));
     }
 
     #[test]
@@ -701,6 +968,35 @@ mod tests {
         let choice = crate::types::ToolChoice::tool("myComputer");
         let tools = vec![crate::tools::openai::computer_use_named("myComputer")];
         let out = convert_responses_tool_choice(&choice, Some(&tools));
-        assert_eq!(out, serde_json::json!({ "type": "computer_use_preview" }));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "type": "computer_use_preview" }))
+        );
+    }
+
+    #[test]
+    fn responses_tool_choice_drops_xai_server_side_tools() {
+        let choice = crate::types::ToolChoice::tool("web_search");
+        let tools = vec![crate::tools::xai::web_search()];
+        let out = convert_responses_tool_choice(&choice, Some(&tools));
+        assert_eq!(out, None);
+    }
+
+    #[test]
+    fn responses_tool_choice_keeps_xai_function_tool_names() {
+        let choice = crate::types::ToolChoice::tool("weather");
+        let tools = vec![crate::types::Tool::function(
+            "weather",
+            "weather lookup",
+            serde_json::json!({
+                "type": "object",
+                "properties": {}
+            }),
+        )];
+        let out = convert_responses_tool_choice(&choice, Some(&tools));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "type": "function", "name": "weather" }))
+        );
     }
 }

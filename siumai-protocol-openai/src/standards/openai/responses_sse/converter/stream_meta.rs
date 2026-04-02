@@ -70,11 +70,9 @@ impl OpenAiResponsesEventConverter {
         self.created_model_id.lock().ok().and_then(|v| v.clone())
     }
 
-    pub(super) fn created_timestamp_rfc3339_millis(&self) -> Option<String> {
+    pub(super) fn created_timestamp(&self) -> Option<chrono::DateTime<chrono::Utc>> {
         let created_at = self.created_created_at.lock().ok().and_then(|v| *v)?;
-        Utc.timestamp_opt(created_at, 0)
-            .single()
-            .map(|dt| dt.to_rfc3339_opts(SecondsFormat::Millis, true))
+        Utc.timestamp_opt(created_at, 0).single()
     }
 
     pub(super) fn record_message_item_id(&self, output_index: u64, item_id: &str) {

@@ -679,7 +679,7 @@ mod tests {
         let warnings = out.warnings.expect("warnings");
         assert_eq!(
             warnings[0],
-            Warning::unsupported_setting(
+            Warning::unsupported(
                 "size",
                 Some("This model does not support the `size` option. Use `aspectRatio` instead.")
             )

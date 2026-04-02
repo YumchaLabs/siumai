@@ -8,6 +8,19 @@
   },
   "model": "grok-beta",
   "usage": {
+    "inputTokens": {
+      "total": 4,
+      "noCache": 4
+    },
+    "outputTokens": {
+      "total": 30,
+      "text": 30
+    },
+    "raw": {
+      "prompt_tokens": 4,
+      "completion_tokens": 30,
+      "total_tokens": 34
+    },
     "prompt_tokens": 4,
     "completion_tokens": 30,
     "total_tokens": 34

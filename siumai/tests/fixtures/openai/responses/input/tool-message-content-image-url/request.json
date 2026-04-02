@@ -11,7 +11,7 @@
             "output": {
               "type": "content",
               "value": [
-                { "type": "file", "media_type": "image/png", "url": "https://example.com/screenshot.png" }
+                { "type": "image-url", "url": "https://example.com/screenshot.png" }
               ]
             }
           }

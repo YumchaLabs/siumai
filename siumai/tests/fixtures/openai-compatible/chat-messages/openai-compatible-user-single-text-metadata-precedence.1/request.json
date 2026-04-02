@@ -7,11 +7,10 @@
           {
             "type": "text",
             "text": "Hello",
-            "providerMetadata": { "openaiCompatible": { "sharedKey": "contentLevel" } }
+            "providerOptions": { "openaiCompatible": { "sharedKey": "contentLevel" } }
           }
         ]
-      },
-      "metadata": { "custom": { "openaiCompatible": { "sharedKey": "messageLevel" } } }
+      }
     }
   ],
   "tools": null,

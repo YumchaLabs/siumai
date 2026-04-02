@@ -15,7 +15,7 @@
             "input": {
               "query": "weather in San Francisco"
             },
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "id_456"
               }

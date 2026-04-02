@@ -82,6 +82,10 @@ pub(super) fn serialize_event(
             })
     }
 
+    fn openai_responses_usage_json(usage: &crate::types::Usage) -> serde_json::Value {
+        crate::standards::openai::utils::openai_responses_usage_value(usage)
+    }
+
     fn openai_response_status(finish_reason: Option<&str>) -> &'static str {
         match finish_reason {
             Some("error") => "failed",
@@ -614,6 +618,38 @@ pub(super) fn serialize_event(
         sse_event_frame("response.mcp_call_arguments.done", &payload)
     }
 
+    if matches!(
+        event,
+        crate::streaming::ChatStreamEvent::Part { .. }
+            | crate::streaming::ChatStreamEvent::PartWithReplay { .. }
+    ) {
+        let Some(part) = crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event)
+        else {
+            return Ok(Vec::new());
+        };
+        let Some(mut custom_event) =
+            part.to_custom_event(crate::streaming::StreamPartNamespace::OpenAi)
+        else {
+            return Ok(Vec::new());
+        };
+
+        if let Some(replay) = event
+            .replay_ref()
+            .and_then(crate::types::ChatStreamReplay::openai_responses_ref)
+            && let crate::streaming::ChatStreamEvent::Custom { data, .. } = &mut custom_event
+            && let Some(obj) = data.as_object_mut()
+        {
+            if let Some(output_index) = replay.output_index {
+                obj.insert("outputIndex".to_string(), serde_json::json!(output_index));
+            }
+            if let Some(raw_item) = replay.raw_item.clone() {
+                obj.insert("rawItem".to_string(), raw_item);
+            }
+        }
+
+        return serialize_event(this, &custom_event);
+    }
+
     let mut state = this
         .serialize_state
         .lock()
@@ -779,11 +815,7 @@ pub(super) fn serialize_event(
             let payload = serde_json::json!({
                 "type": "response.usage",
                 "sequence_number": next_sequence_number(&mut state),
-                "usage": {
-                    "input_tokens": usage.prompt_tokens,
-                    "output_tokens": usage.completion_tokens,
-                    "total_tokens": usage.total_tokens,
-                }
+                "usage": openai_responses_usage_json(usage),
             });
             sse_event_frame("response.usage", &payload)
         }
@@ -875,13 +907,7 @@ pub(super) fn serialize_event(
                 .usage
                 .clone()
                 .or_else(|| state.latest_usage.clone());
-            let usage_json = usage.as_ref().map(|u| {
-                serde_json::json!({
-                    "input_tokens": u.prompt_tokens,
-                    "output_tokens": u.completion_tokens,
-                    "total_tokens": u.total_tokens,
-                })
-            });
+            let usage_json = usage.as_ref().map(openai_responses_usage_json);
             let finish_reason = openai_finish_reason_str(response.finish_reason.as_ref());
 
             let payload = serde_json::json!({
@@ -896,6 +922,7 @@ pub(super) fn serialize_event(
                     "output": output,
                     "usage": usage_json.unwrap_or(serde_json::Value::Null),
                     "finish_reason": finish_reason,
+                    "service_tier": response.service_tier,
                     "metadata": {},
                 }
             });
@@ -917,6 +944,10 @@ pub(super) fn serialize_event(
                 "error": { "message": error },
             });
             sse_event_frame("response.error", &payload)
+        }
+        crate::streaming::ChatStreamEvent::Part { .. }
+        | crate::streaming::ChatStreamEvent::PartWithReplay { .. } => {
+            unreachable!("part events are normalized before serialize_state is locked")
         }
         crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
             fn provider_metadata_value(metadata: &serde_json::Value) -> Option<&serde_json::Value> {
@@ -1218,7 +1249,16 @@ pub(super) fn serialize_event(
                             serde_json::Value::Object(ann)
                         }
                         "document" => {
-                            let Some(file_id) = data.get("url").and_then(|v| v.as_str()) else {
+                            let provider_meta = data
+                                .get("providerMetadata")
+                                .and_then(provider_metadata_value);
+                            let Some(file_id) =
+                                data.get("url").and_then(|v| v.as_str()).or_else(|| {
+                                    provider_meta
+                                        .and_then(|v| v.get("fileId"))
+                                        .and_then(|v| v.as_str())
+                                })
+                            else {
                                 return Ok(Vec::new());
                             };
                             let filename = data
@@ -1228,22 +1268,24 @@ pub(super) fn serialize_event(
                             let quote = data.get("title").and_then(|v| v.as_str());
                             let media_type = data.get("mediaType").and_then(|v| v.as_str());
 
-                            let provider_meta = data
-                                .get("providerMetadata")
-                                .and_then(provider_metadata_value);
                             let container_id = provider_meta
                                 .and_then(|v| v.get("containerId"))
                                 .filter(|v| !v.is_null())
                                 .cloned();
                             let index = provider_meta.and_then(|v| v.get("index")).cloned();
+                            let explicit_ann_type = provider_meta
+                                .and_then(|v| v.get("type"))
+                                .and_then(|v| v.as_str());
 
-                            let ann_type = if media_type == Some("application/octet-stream") {
-                                "file_path"
-                            } else if container_id.is_some() {
-                                "container_file_citation"
-                            } else {
-                                "file_citation"
-                            };
+                            let ann_type = explicit_ann_type.unwrap_or_else(|| {
+                                if media_type == Some("application/octet-stream") {
+                                    "file_path"
+                                } else if container_id.is_some() {
+                                    "container_file_citation"
+                                } else {
+                                    "file_citation"
+                                }
+                            });
 
                             let mut ann = serde_json::Map::new();
                             ann.insert("type".to_string(), serde_json::json!(ann_type));
@@ -1256,6 +1298,10 @@ pub(super) fn serialize_event(
                                 if let Some(cid) = container_id {
                                     ann.insert("container_id".to_string(), cid);
                                 }
+                                if let Some(idx) = index {
+                                    ann.insert("index".to_string(), idx);
+                                }
+                            } else if ann_type == "file_citation" {
                                 if let Some(idx) = index {
                                     ann.insert("index".to_string(), idx);
                                 }
@@ -1339,25 +1385,11 @@ pub(super) fn serialize_event(
                         state.response_id = Some(id.to_string());
                     }
 
-                    let input_tokens = data
+                    if let Some(usage) = data
                         .get("usage")
-                        .and_then(|u| u.get("inputTokens"))
-                        .and_then(|u| u.get("total"))
-                        .and_then(|v| v.as_u64());
-                    let output_tokens = data
-                        .get("usage")
-                        .and_then(|u| u.get("outputTokens"))
-                        .and_then(|u| u.get("total"))
-                        .and_then(|v| v.as_u64());
-
-                    if let (Some(prompt), Some(completion)) = (input_tokens, output_tokens) {
-                        state.latest_usage = Some(
-                            crate::types::Usage::builder()
-                                .prompt_tokens(prompt as u32)
-                                .completion_tokens(completion as u32)
-                                .total_tokens(prompt.saturating_add(completion) as u32)
-                                .build(),
-                        );
+                        .and_then(crate::standards::openai::utils::parse_openai_usage_value)
+                    {
+                        state.latest_usage = Some(usage);
                     }
 
                     maybe_emit_response_created(this, &mut state)?;
@@ -1367,6 +1399,10 @@ pub(super) fn serialize_event(
 
                     let mut out = Vec::new();
                     let finish_logprobs = provider_meta.and_then(|v| v.get("logprobs")).cloned();
+                    let finish_service_tier = provider_meta
+                        .and_then(|v| v.get("serviceTier"))
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string);
 
                     // Close open function calls (best-effort): emit done + output_item.done.
                     let mut function_outputs: Vec<serde_json::Value> = Vec::new();
@@ -1442,13 +1478,7 @@ pub(super) fn serialize_event(
                     }
 
                     let usage = state.latest_usage.clone();
-                    let usage_json = usage.as_ref().map(|u| {
-                        serde_json::json!({
-                            "input_tokens": u.prompt_tokens,
-                            "output_tokens": u.completion_tokens,
-                            "total_tokens": u.total_tokens,
-                        })
-                    });
+                    let usage_json = usage.as_ref().map(openai_responses_usage_json);
                     let finish_reason = openai_finish_reason_str_from_finish_payload(data);
                     let response_status = if state.latest_error_message.is_some()
                         && data
@@ -1481,6 +1511,7 @@ pub(super) fn serialize_event(
                             "output": output,
                             "usage": usage_json.unwrap_or(serde_json::Value::Null),
                             "finish_reason": finish_reason,
+                            "service_tier": finish_service_tier,
                             "metadata": {},
                         }
                     });

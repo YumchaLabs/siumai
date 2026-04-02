@@ -62,10 +62,20 @@ async fn openai_remote_cancel_propagates_through_siumai_wrapper() {
     // Wait until we see response metadata (so the response id is known), then cancel.
     while let Some(item) = stream.next().await {
         let ev = item.unwrap();
-        if let ChatStreamEvent::Custom { event_type, .. } = ev
-            && event_type == "openai:response-metadata"
-        {
-            break;
+        match ev {
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ResponseMetadata(_),
+            }
+            | ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ResponseMetadata(_),
+                ..
+            } => break,
+            ChatStreamEvent::Custom { event_type, .. }
+                if event_type == "openai:response-metadata" =>
+            {
+                break;
+            }
+            _ => {}
         }
     }
 

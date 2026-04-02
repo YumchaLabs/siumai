@@ -47,6 +47,14 @@ fn provider_options_map_merge_hook(
                 rename_field(src_obj, "postFavoriteCount", "post_favorite_count");
                 rename_field(src_obj, "postViewCount", "post_view_count");
                 rename_field(src_obj, "xHandles", "x_handles");
+
+                if src_obj.get("included_x_handles").is_none() {
+                    if let Some(value) = src_obj.remove("x_handles") {
+                        src_obj.insert("included_x_handles".to_string(), value);
+                    }
+                } else {
+                    src_obj.remove("x_handles");
+                }
             }
         }
     }
@@ -58,9 +66,15 @@ fn provider_options_map_merge_hook(
 
     if provider_id == "xai" {
         rename_field(&mut obj, "reasoningEffort", "reasoning_effort");
+        rename_field(&mut obj, "reasoningSummary", "reasoning_summary");
         rename_field(&mut obj, "searchParameters", "search_parameters");
+        rename_field(&mut obj, "topLogprobs", "top_logprobs");
+        rename_field(&mut obj, "previousResponseId", "previous_response_id");
         if let Some(v) = obj.get_mut("search_parameters") {
             normalize_xai_search_parameters(v);
+        }
+        if obj.get("top_logprobs").is_some() {
+            obj.insert("logprobs".to_string(), serde_json::json!(true));
         }
     } else if provider_id == "deepseek" {
         normalize_deepseek_options(&mut obj);
@@ -80,6 +94,10 @@ fn provider_options_map_merge_hook(
             if provider_id == "xai" {
                 body_obj.remove("stop");
                 body_obj.remove("stream_options");
+                body_obj.remove("reasoning_summary");
+                body_obj.remove("previous_response_id");
+                body_obj.remove("include");
+                body_obj.remove("store");
             }
         }
         Ok(out)
@@ -976,5 +994,60 @@ mod tests {
         assert_eq!(call.tool_call_id, "call_1");
         assert_eq!(call.tool_name, "get_weather");
         assert_eq!(call.arguments, &serde_json::json!({ "city": "Tokyo" }));
+    }
+
+    #[test]
+    fn openai_compatible_xai_runtime_provider_normalizes_logprobs_and_drops_responses_only_fields()
+    {
+        use crate::core::ProviderSpec;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "xai".to_string(),
+                name: "xAI".to_string(),
+                base_url: "https://api.x.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "xai".to_string(),
+            "https://api.x.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("grok-4")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option(
+                "xai",
+                serde_json::json!({
+                    "reasoningSummary": "detailed",
+                    "topLogprobs": 2,
+                    "previousResponseId": "resp_prev_123",
+                    "include": ["file_search_call.results"],
+                    "store": false
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(body["logprobs"], serde_json::json!(true));
+        assert!(body.get("reasoning_summary").is_none());
+        assert!(body.get("previous_response_id").is_none());
+        assert!(body.get("include").is_none());
+        assert!(body.get("store").is_none());
+        assert!(body.get("topLogprobs").is_none());
     }
 }

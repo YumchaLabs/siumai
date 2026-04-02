@@ -8,12 +8,12 @@
           {
             "type": "reasoning",
             "text": "First reasoning step (message 1)",
-            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+            "providerOptions": { "openai": { "itemId": "reasoning_001" } }
           },
           {
             "type": "reasoning",
             "text": "Second reasoning step (message 1)",
-            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+            "providerOptions": { "openai": { "itemId": "reasoning_001" } }
           },
           { "type": "text", "text": "First response" }
         ]
@@ -28,7 +28,7 @@
           {
             "type": "reasoning",
             "text": "First reasoning step (message 2)",
-            "providerMetadata": { "openai": { "itemId": "reasoning_002" } }
+            "providerOptions": { "openai": { "itemId": "reasoning_002" } }
           },
           { "type": "text", "text": "Second response" }
         ]

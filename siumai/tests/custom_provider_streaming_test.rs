@@ -228,9 +228,9 @@ async fn test_custom_provider_content_streaming() {
         assert_eq!(response.finish_reason, Some(FinishReason::Stop));
         assert!(response.usage.is_some());
         let usage = response.usage.as_ref().unwrap();
-        assert_eq!(usage.prompt_tokens, 5);
-        assert_eq!(usage.completion_tokens, 10);
-        assert_eq!(usage.total_tokens, 15);
+        assert_eq!(usage.prompt_tokens(), Some(5));
+        assert_eq!(usage.completion_tokens(), Some(10));
+        assert_eq!(usage.total_tokens(), Some(15));
     } else {
         panic!("Expected StreamEnd event");
     }
@@ -323,13 +323,13 @@ async fn test_custom_provider_usage_updates() {
         .collect();
 
     assert_eq!(usage_updates.len(), 2);
-    assert_eq!(usage_updates[0].total_tokens, 6);
-    assert_eq!(usage_updates[1].total_tokens, 8);
+    assert_eq!(usage_updates[0].total_tokens(), Some(6));
+    assert_eq!(usage_updates[1].total_tokens(), Some(8));
 
     // Verify final usage in StreamEnd
     if let ChatStreamEvent::StreamEnd { response } = &events[5] {
         let usage = response.usage.as_ref().unwrap();
-        assert_eq!(usage.total_tokens, 8);
+        assert_eq!(usage.total_tokens(), Some(8));
     } else {
         panic!("Expected StreamEnd event");
     }

@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::error::LlmError;
 use crate::streaming::{ChatStreamEvent, JsonEventConverter, SseEventConverter, StreamProcessor};
-use crate::types::{FinishReason, ResponseMetadata};
+use crate::types::{ChatStreamPart, FinishReason, ResponseMetadata};
 
 /// Byte stream suitable for HTTP responses (SSE/JSONL).
 pub type ChatByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, LlmError>> + Send>>;
@@ -63,10 +63,15 @@ where
                     if let ChatStreamEvent::StreamStart { metadata } = &event {
                         stream_start_metadata = Some(metadata.clone());
                     }
+                    if let Some(ChatStreamPart::ResponseMetadata(metadata)) = event.part_ref() {
+                        stream_start_metadata = Some(metadata.clone());
+                    }
                     if matches!(event, ChatStreamEvent::StreamEnd { .. }) {
                         saw_stream_end = true;
                     }
-                    if matches!(event, ChatStreamEvent::Error { .. }) {
+                    if matches!(event, ChatStreamEvent::Error { .. })
+                        || matches!(event.part_ref(), Some(ChatStreamPart::Error { .. }))
+                    {
                         saw_error_event = true;
                     }
                     let _ = processor.process_event(event.clone());
@@ -195,7 +200,10 @@ mod tests {
                 assert_eq!(response.id.as_deref(), Some("resp_1"));
                 assert_eq!(response.model.as_deref(), Some("test-model"));
                 assert_eq!(response.finish_reason, Some(FinishReason::Unknown));
-                assert_eq!(response.usage.as_ref().map(|u| u.total_tokens), Some(3));
+                assert_eq!(
+                    response.usage.as_ref().and_then(|u| u.total_tokens()),
+                    Some(3)
+                );
                 assert_eq!(response.content, MessageContent::Text("Hello".to_string()));
             }
             other => panic!("expected synthetic StreamEnd, got: {other:?}"),

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex};
 
-use chrono::{SecondsFormat, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 
 mod state;
 use state::OpenAiResponsesSerializeState;
@@ -83,6 +83,7 @@ pub struct OpenAiResponsesEventConverter {
     custom_tool_name_by_call_name: Arc<Mutex<HashMap<String, String>>>,
     custom_tool_call_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
     custom_tool_tool_name_by_item_id: Arc<Mutex<HashMap<String, String>>>,
+    custom_tool_input_by_item_id: Arc<Mutex<HashMap<String, String>>>,
     emitted_custom_tool_input_start_ids: Arc<Mutex<HashSet<String>>>,
     emitted_custom_tool_input_end_ids: Arc<Mutex<HashSet<String>>>,
     emitted_custom_tool_call_ids: Arc<Mutex<HashSet<String>>>,
@@ -142,6 +143,7 @@ impl Default for OpenAiResponsesEventConverter {
             custom_tool_name_by_call_name: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_call_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             custom_tool_tool_name_by_item_id: Arc::new(Mutex::new(HashMap::new())),
+            custom_tool_input_by_item_id: Arc::new(Mutex::new(HashMap::new())),
             emitted_custom_tool_input_start_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_custom_tool_input_end_ids: Arc::new(Mutex::new(HashSet::new())),
             emitted_custom_tool_call_ids: Arc::new(Mutex::new(HashSet::new())),

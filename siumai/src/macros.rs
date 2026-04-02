@@ -13,6 +13,7 @@ macro_rules! user {
         $crate::__private::types::ChatMessage {
             role: $crate::__private::types::MessageRole::User,
             content: $crate::__private::types::MessageContent::Text($content.into()),
+            provider_options: $crate::__private::types::ProviderOptionsMap::default(),
             metadata: $crate::__private::types::MessageMetadata::default(),
         }
     };
@@ -44,6 +45,7 @@ macro_rules! system {
         $crate::__private::types::ChatMessage {
             role: $crate::__private::types::MessageRole::System,
             content: $crate::__private::types::MessageContent::Text($content.into()),
+            provider_options: $crate::__private::types::ProviderOptionsMap::default(),
             metadata: $crate::__private::types::MessageMetadata::default(),
         }
     };
@@ -65,6 +67,7 @@ macro_rules! assistant {
         $crate::__private::types::ChatMessage {
             role: $crate::__private::types::MessageRole::Assistant,
             content: $crate::__private::types::MessageContent::Text($content.into()),
+            provider_options: $crate::__private::types::ProviderOptionsMap::default(),
             metadata: $crate::__private::types::MessageMetadata::default(),
         }
     }; // Message with tool calls arm removed; use assistant_with_content instead
@@ -81,6 +84,7 @@ macro_rules! tool {
             content: $crate::__private::types::MessageContent::MultiModal(vec![
                 $crate::__private::types::ContentPart::tool_result_text($id, $name, $content),
             ]),
+            provider_options: $crate::__private::types::ProviderOptionsMap::default(),
             metadata: $crate::__private::types::MessageMetadata::default(),
         }
     };

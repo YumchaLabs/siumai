@@ -8,7 +8,7 @@ use crate::provider_metadata::openai::{
     OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiSource, OpenAiSourceExt,
 };
 use crate::types::{ChatResponse, ContentPart, FinishReason, Usage};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 fn openai_finish_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
@@ -74,25 +74,12 @@ fn openai_output_text_logprobs_groups(value: &serde_json::Value) -> Vec<serde_js
     }
 }
 
-fn usage_json(u: &Usage) -> OpenAiUsage {
-    OpenAiUsage {
-        prompt_tokens: u.prompt_tokens,
-        completion_tokens: u.completion_tokens,
-        total_tokens: u.total_tokens,
-        prompt_tokens_details: u.prompt_tokens_details.clone(),
-        completion_tokens_details: u.completion_tokens_details.clone(),
-    }
+fn chat_usage_json(u: &Usage) -> serde_json::Value {
+    crate::standards::openai::utils::openai_chat_usage_value(u)
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct OpenAiUsage {
-    prompt_tokens: u32,
-    completion_tokens: u32,
-    total_tokens: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    prompt_tokens_details: Option<crate::types::PromptTokensDetails>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    completion_tokens_details: Option<crate::types::CompletionTokensDetails>,
+fn responses_usage_json(u: &Usage) -> serde_json::Value {
+    crate::standards::openai::utils::openai_responses_usage_value(u)
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -103,7 +90,7 @@ pub struct OpenAiChatCompletionsJsonResponse {
     pub model: String,
     pub choices: Vec<OpenAiChatChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<OpenAiUsage>,
+    pub usage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -216,7 +203,7 @@ impl JsonResponseConverter for OpenAiChatCompletionsJsonResponseConverter {
                 message,
                 finish_reason: openai_finish_reason(response.finish_reason.as_ref()),
             }],
-            usage: response.usage.as_ref().map(usage_json),
+            usage: response.usage.as_ref().map(chat_usage_json),
             system_fingerprint: response.system_fingerprint.clone(),
             service_tier: response.service_tier.clone(),
         };
@@ -250,7 +237,7 @@ pub struct OpenAiResponsesJsonResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<OpenAiUsage>,
+    pub usage: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub system_fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -264,6 +251,8 @@ pub enum OpenAiResponseOutputItem {
     Message {
         id: String,
         role: &'static str,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        phase: Option<String>,
         content: Vec<OpenAiResponseMessageContent>,
     },
     #[serde(rename = "reasoning")]
@@ -295,7 +284,7 @@ pub enum OpenAiResponseMessageContent {
     OutputText {
         text: String,
         #[serde(skip_serializing_if = "Option::is_none")]
-        annotations: Option<Vec<OpenAiResponseAnnotation>>,
+        annotations: Option<Vec<serde_json::Value>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         logprobs: Option<serde_json::Value>,
     },
@@ -308,7 +297,7 @@ pub enum OpenAiResponseReasoningSummary {
     SummaryText { text: String },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum OpenAiResponseAnnotation {
     #[serde(rename = "url_citation")]
@@ -320,6 +309,8 @@ pub enum OpenAiResponseAnnotation {
     #[serde(rename = "file_citation")]
     FileCitation {
         file_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        index: Option<u32>,
         #[serde(skip_serializing_if = "Option::is_none")]
         filename: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -391,16 +382,22 @@ fn split_openai_sources(
     (message_sources, tool_sources)
 }
 
-fn openai_sources_to_annotations(sources: Vec<OpenAiSource>) -> Vec<OpenAiResponseAnnotation> {
+fn openai_sources_to_annotations(sources: Vec<OpenAiSource>) -> Vec<serde_json::Value> {
     sources
         .into_iter()
         .filter_map(|source| {
             let source_meta = source.openai_metadata();
+            let metadata_type = source_meta
+                .as_ref()
+                .and_then(|meta| meta.metadata_type.as_deref());
             match source.source_type.as_str() {
-                "url" => Some(OpenAiResponseAnnotation::UrlCitation {
-                    url: source.url,
-                    title: source.title,
-                }),
+                "url" => Some(
+                    serde_json::to_value(OpenAiResponseAnnotation::UrlCitation {
+                        url: source.url,
+                        title: source.title,
+                    })
+                    .expect("serialize url annotation"),
+                ),
                 "document" => {
                     let file_id = source_meta
                         .as_ref()
@@ -408,32 +405,50 @@ fn openai_sources_to_annotations(sources: Vec<OpenAiSource>) -> Vec<OpenAiRespon
                         .unwrap_or_else(|| source.url.clone());
                     let quote = source.title.or(source.snippet);
 
-                    if let Some(container_id) = source_meta
-                        .as_ref()
-                        .and_then(|meta| meta.container_id.clone())
+                    if metadata_type == Some("container_file_citation")
+                        || source_meta
+                            .as_ref()
+                            .and_then(|meta| meta.container_id.clone())
+                            .is_some()
                     {
-                        return Some(OpenAiResponseAnnotation::ContainerFileCitation {
+                        let container_id = source_meta
+                            .as_ref()
+                            .and_then(|meta| meta.container_id.clone())?;
+
+                        return Some(
+                            serde_json::to_value(OpenAiResponseAnnotation::ContainerFileCitation {
+                                file_id,
+                                container_id,
+                                index: source_meta.as_ref().and_then(|meta| meta.index),
+                                filename: source.filename,
+                                quote,
+                            })
+                            .expect("serialize container annotation"),
+                        );
+                    }
+
+                    if metadata_type == Some("file_path")
+                        || source.media_type.as_deref() == Some("application/octet-stream")
+                    {
+                        return Some(
+                            serde_json::to_value(OpenAiResponseAnnotation::FilePath {
+                                file_id,
+                                index: source_meta.as_ref().and_then(|meta| meta.index),
+                                filename: source.filename,
+                            })
+                            .expect("serialize file path annotation"),
+                        );
+                    }
+
+                    Some(
+                        serde_json::to_value(OpenAiResponseAnnotation::FileCitation {
                             file_id,
-                            container_id,
                             index: source_meta.as_ref().and_then(|meta| meta.index),
                             filename: source.filename,
                             quote,
-                        });
-                    }
-
-                    if source.media_type.as_deref() == Some("application/octet-stream") {
-                        return Some(OpenAiResponseAnnotation::FilePath {
-                            file_id,
-                            index: source_meta.as_ref().and_then(|meta| meta.index),
-                            filename: source.filename,
-                        });
-                    }
-
-                    Some(OpenAiResponseAnnotation::FileCitation {
-                        file_id,
-                        filename: source.filename,
-                        quote,
-                    })
+                        })
+                        .expect("serialize file citation annotation"),
+                    )
                 }
                 _ => None,
             }
@@ -522,35 +537,25 @@ fn openai_tool_result_payload(
 ) -> (serde_json::Value, Option<bool>) {
     match tool_result {
         Some(ContentPart::ToolResult { output, .. }) => match output {
-            crate::types::ToolResultOutput::Text { value } => {
+            crate::types::ToolResultOutput::Text { value, .. } => {
                 (serde_json::Value::String(value.clone()), Some(false))
             }
-            crate::types::ToolResultOutput::Json { value } => (value.clone(), Some(false)),
-            crate::types::ToolResultOutput::ExecutionDenied { reason } => (
+            crate::types::ToolResultOutput::Json { value, .. } => (value.clone(), Some(false)),
+            crate::types::ToolResultOutput::ExecutionDenied { reason, .. } => (
                 serde_json::json!({
                     "reason": reason,
                 }),
                 Some(true),
             ),
-            crate::types::ToolResultOutput::ErrorText { value } => {
+            crate::types::ToolResultOutput::ErrorText { value, .. } => {
                 (serde_json::Value::String(value.clone()), Some(true))
             }
-            crate::types::ToolResultOutput::ErrorJson { value } => (value.clone(), Some(true)),
-            crate::types::ToolResultOutput::Content { value } => (
+            crate::types::ToolResultOutput::ErrorJson { value, .. } => (value.clone(), Some(true)),
+            crate::types::ToolResultOutput::Content { value, .. } => (
                 serde_json::Value::Array(
                     value
                         .iter()
-                        .map(|part| match part {
-                            crate::types::ToolResultContentPart::Text { text } => {
-                                serde_json::json!({ "type": "text", "text": text })
-                            }
-                            crate::types::ToolResultContentPart::Image { .. } => {
-                                serde_json::json!({ "type": "image" })
-                            }
-                            crate::types::ToolResultContentPart::File { .. } => {
-                                serde_json::json!({ "type": "file" })
-                            }
-                        })
+                        .map(|part| serde_json::to_value(part).unwrap_or(serde_json::Value::Null))
                         .collect(),
                 ),
                 Some(false),
@@ -911,17 +916,20 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
         let model = response.model.clone().unwrap_or_default();
         let mut output = Vec::new();
         let mut emitted_provider_tool_items: HashSet<String> = HashSet::new();
-        let raw_openai_meta = response
-            .provider_metadata
+        let first_text_meta = response.content.as_multimodal().and_then(|parts| {
+            parts.iter().find_map(|part| match part {
+                ContentPart::Text { .. } => part.openai_metadata(),
+                _ => None,
+            })
+        });
+        let message_item_id = first_text_meta
             .as_ref()
-            .and_then(|meta| meta.get("openai"));
-        let message_item_id = raw_openai_meta
-            .and_then(|meta| meta.get("itemId"))
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned)
+            .and_then(|meta| meta.item_id.clone())
             .unwrap_or_else(|| format!("msg_{id}"));
+        let message_phase = first_text_meta.as_ref().and_then(|meta| meta.phase.clone());
         let (mut message_sources, mut tool_sources_by_call_id) = split_openai_sources(response);
 
+        #[allow(unreachable_patterns)]
         let mut message_content: Vec<OpenAiResponseMessageContent> = match &response.content {
             crate::types::MessageContent::Text(text) => {
                 vec![OpenAiResponseMessageContent::OutputText {
@@ -934,19 +942,19 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                 .iter()
                 .filter_map(|part| match part {
                     ContentPart::Text { text, .. } => {
+                        let meta = part.openai_metadata();
                         Some(OpenAiResponseMessageContent::OutputText {
                             text: text.clone(),
-                            annotations: None,
+                            annotations: meta.as_ref().and_then(|meta| meta.annotations.clone()),
                             logprobs: None,
                         })
                     }
                     _ => None,
                 })
                 .collect(),
-            #[cfg(feature = "structured-messages")]
-            crate::types::MessageContent::Json(value) => {
+            _ => {
                 vec![OpenAiResponseMessageContent::OutputText {
-                    text: serde_json::to_string(value).unwrap_or_default(),
+                    text: response.content.all_text(),
                     annotations: None,
                     logprobs: None,
                 }]
@@ -1068,6 +1076,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                     ContentPart::ToolApprovalRequest {
                         approval_id,
                         tool_call_id,
+                        ..
                     } => {
                         let Some(ContentPart::ToolCall {
                             tool_name,
@@ -1138,7 +1147,19 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             (!annotations.is_empty()).then_some(annotations)
         };
 
-        if let Some(annotations) = annotations {
+        let has_part_annotations = message_content.iter().any(|part| {
+            matches!(
+                part,
+                OpenAiResponseMessageContent::OutputText {
+                    annotations: Some(annotations),
+                    ..
+                } if !annotations.is_empty()
+            )
+        });
+
+        if let Some(annotations) = annotations
+            && !has_part_annotations
+        {
             if message_content.is_empty() {
                 message_content.push(OpenAiResponseMessageContent::OutputText {
                     text: String::new(),
@@ -1161,17 +1182,13 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             }
         }
 
-        if !message_content.is_empty()
-            || raw_openai_meta
-                .and_then(|meta| meta.get("itemId"))
-                .and_then(|value| value.as_str())
-                .is_some()
-        {
+        if !message_content.is_empty() {
             output.insert(
                 0,
                 openai_response_output_item_value(&OpenAiResponseOutputItem::Message {
                     id: message_item_id,
                     role: "assistant",
+                    phase: message_phase,
                     content: message_content,
                 })?,
             );
@@ -1186,7 +1203,7 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
             output,
             output_text: response.content.all_text(),
             finish_reason: openai_finish_reason(response.finish_reason.as_ref()),
-            usage: response.usage.as_ref().map(usage_json),
+            usage: response.usage.as_ref().map(responses_usage_json),
             system_fingerprint: response.system_fingerprint.clone(),
             service_tier: response.service_tier.clone(),
         };
@@ -1217,6 +1234,7 @@ mod tests {
     fn responses_encoder_serializes_reasoning_ids_annotations_and_native_fields() {
         let reasoning = ContentPart::Reasoning {
             text: "Need to compare both options.".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
                 serde_json::json!({
@@ -1231,6 +1249,7 @@ mod tests {
             tool_name: "get_weather".to_string(),
             arguments: serde_json::Value::String(r#"{"city":"Tokyo"}"#.to_string()),
             provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
                 serde_json::json!({
@@ -1241,7 +1260,16 @@ mod tests {
 
         let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
             reasoning,
-            ContentPart::text("It is sunny."),
+            ContentPart::Text {
+                text: "It is sunny.".to_string(),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "msg_1"
+                    }),
+                )])),
+            },
             tool_call,
         ]));
         response.id = Some("resp_1".to_string());
@@ -1251,30 +1279,31 @@ mod tests {
         response.service_tier = Some("priority".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "openai".to_string(),
-            HashMap::from([
-                ("itemId".to_string(), serde_json::json!("msg_1")),
-                (
-                    "sources".to_string(),
-                    serde_json::json!([
-                        {
-                            "id": "src_1",
-                            "source_type": "url",
-                            "url": "https://example.com",
-                            "title": "Example"
-                        },
-                        {
-                            "id": "src_2",
-                            "source_type": "document",
-                            "url": "file_123",
-                            "title": "Design Doc",
-                            "filename": "design.md",
-                            "provider_metadata": {
-                                "fileId": "file_123"
+            HashMap::from([(
+                "sources".to_string(),
+                serde_json::json!([
+                    {
+                        "id": "src_1",
+                        "source_type": "url",
+                        "url": "https://example.com",
+                        "title": "Example"
+                    },
+                    {
+                        "id": "src_2",
+                        "source_type": "document",
+                        "url": "file_123",
+                        "title": "Design Doc",
+                        "filename": "design.md",
+                        "provider_metadata": {
+                            "openai": {
+                                "type": "file_citation",
+                                "fileId": "file_123",
+                                "index": 7
                             }
                         }
-                    ]),
-                ),
-            ]),
+                    }
+                ]),
+            )]),
         )]));
 
         let mut out = Vec::new();
@@ -1287,6 +1316,7 @@ mod tests {
         assert_eq!(value["system_fingerprint"], serde_json::json!("fp_123"));
         assert_eq!(value["service_tier"], serde_json::json!("priority"));
         assert_eq!(value["output"][0]["id"], serde_json::json!("msg_1"));
+        assert_eq!(value["output"][0]["phase"], serde_json::Value::Null);
         assert_eq!(
             value["output"][0]["content"][0]["annotations"][0]["type"],
             serde_json::json!("url_citation")
@@ -1294,6 +1324,10 @@ mod tests {
         assert_eq!(
             value["output"][0]["content"][0]["annotations"][1]["type"],
             serde_json::json!("file_citation")
+        );
+        assert_eq!(
+            value["output"][0]["content"][0]["annotations"][1]["index"],
+            serde_json::json!(7)
         );
         assert_eq!(value["output"][1]["type"], serde_json::json!("reasoning"));
         assert_eq!(value["output"][1]["id"], serde_json::json!("rs_1"));
@@ -1318,6 +1352,7 @@ mod tests {
                     "query": "rust release notes"
                 }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "openai".to_string(),
                     serde_json::json!({
@@ -1336,6 +1371,7 @@ mod tests {
                     }
                 })),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1389,6 +1425,31 @@ mod tests {
     }
 
     #[test]
+    fn responses_encoder_ignores_legacy_top_level_message_item_id() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::text("hello"),
+        ]));
+        response.id = Some("resp_legacy_msg".to_string());
+        response.model = Some("gpt-5-mini".to_string());
+        response.provider_metadata = Some(HashMap::from([(
+            "openai".to_string(),
+            HashMap::from([("itemId".to_string(), serde_json::json!("msg_legacy"))]),
+        )]));
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["output"][0]["type"], serde_json::json!("message"));
+        assert_eq!(
+            value["output"][0]["id"],
+            serde_json::json!("msg_resp_legacy_msg")
+        );
+    }
+
+    #[test]
     fn responses_encoder_replays_normalized_web_search_tool_result_sources() {
         let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
             ContentPart::ToolCall {
@@ -1398,6 +1459,7 @@ mod tests {
                     "query": "rust release notes"
                 }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "openai".to_string(),
                     serde_json::json!({
@@ -1421,6 +1483,7 @@ mod tests {
                     ]
                 })),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1462,6 +1525,7 @@ mod tests {
                     r#"{"url":"https://example.com"}"#.to_string(),
                 ),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "openai".to_string(),
                     serde_json::json!({
@@ -1476,6 +1540,7 @@ mod tests {
                     "message": "blocked"
                 })),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1566,5 +1631,87 @@ mod tests {
                 r#"{"alias":"","description":"","max_clicks":100,"password":"","url":"https://ai-sdk.dev/"}"#
             )
         );
+    }
+
+    #[test]
+    fn chat_completions_encoder_serializes_normalized_usage_and_preserves_extensions() {
+        let mut response =
+            ChatResponse::new(crate::types::MessageContent::Text("hello".to_string()));
+        response.model = Some("gpt-4.1".to_string());
+        response.usage = Some(
+            Usage::builder()
+                .prompt_tokens(10)
+                .completion_tokens(8)
+                .total_tokens(18)
+                .with_input_total_tokens(10)
+                .with_input_no_cache_tokens(6)
+                .with_input_cache_read_tokens(4)
+                .with_output_total_tokens(8)
+                .with_output_text_tokens(5)
+                .with_output_reasoning_tokens(3)
+                .with_raw_usage_value(serde_json::json!({
+                    "citation_tokens": 7,
+                    "input_tokens": 10
+                }))
+                .build(),
+        );
+
+        let mut out = Vec::new();
+        OpenAiChatCompletionsJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["usage"]["prompt_tokens"], serde_json::json!(10));
+        assert_eq!(value["usage"]["completion_tokens"], serde_json::json!(8));
+        assert_eq!(
+            value["usage"]["prompt_tokens_details"]["cached_tokens"],
+            serde_json::json!(4)
+        );
+        assert_eq!(
+            value["usage"]["completion_tokens_details"]["reasoning_tokens"],
+            serde_json::json!(3)
+        );
+        assert_eq!(value["usage"]["citation_tokens"], serde_json::json!(7));
+        assert!(value["usage"].get("input_tokens").is_none());
+    }
+
+    #[test]
+    fn responses_encoder_serializes_responses_usage_shape_and_preserves_extensions() {
+        let mut response =
+            ChatResponse::new(crate::types::MessageContent::Text("hello".to_string()));
+        response.model = Some("gpt-5".to_string());
+        response.usage = Some(
+            Usage::builder()
+                .prompt_tokens(12)
+                .completion_tokens(9)
+                .total_tokens(21)
+                .with_cached_tokens(2)
+                .with_reasoning_tokens(4)
+                .with_raw_usage_value(serde_json::json!({
+                    "citation_tokens": 5,
+                    "prompt_tokens": 999
+                }))
+                .build(),
+        );
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["usage"]["input_tokens"], serde_json::json!(12));
+        assert_eq!(value["usage"]["output_tokens"], serde_json::json!(9));
+        assert_eq!(
+            value["usage"]["input_tokens_details"]["cached_tokens"],
+            serde_json::json!(2)
+        );
+        assert_eq!(
+            value["usage"]["output_tokens_details"]["reasoning_tokens"],
+            serde_json::json!(4)
+        );
+        assert_eq!(value["usage"]["citation_tokens"], serde_json::json!(5));
+        assert!(value["usage"].get("prompt_tokens").is_none());
     }
 }

@@ -195,9 +195,11 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                 push_adjacent_unique(&mut text_deltas, delta.clone());
             }
             ChatStreamEvent::UsageUpdate { usage } => {
-                if usage.prompt_tokens > 0 || usage.completion_tokens > 0 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
+                if usage.prompt_tokens().unwrap_or(0) > 0
+                    || usage.completion_tokens().unwrap_or(0) > 0
+                {
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
                 }
             }
             ChatStreamEvent::StreamEnd { response } => {
@@ -210,8 +212,8 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                 if summary.prompt_tokens.is_none()
                     && let Some(usage) = response.usage.as_ref()
                 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
                 }
             }
             ChatStreamEvent::Custom { data, .. } => {

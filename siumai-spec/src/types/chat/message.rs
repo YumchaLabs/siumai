@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::types::ProviderOptionsMap;
+
 use super::content::{ContentPart, ImageDetail, MediaSource, MessageContent, ToolResultOutput};
 use super::metadata::{CacheControl, MessageMetadata};
 
@@ -53,6 +55,14 @@ pub struct ChatMessage {
     pub role: MessageRole,
     /// Content - can be text, multimodal (images, audio, files), tool calls, tool results, or reasoning
     pub content: MessageContent,
+    /// Provider-specific request options attached to the message.
+    #[serde(
+        default,
+        rename = "providerOptions",
+        alias = "provider_options",
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
     /// Message metadata
     #[serde(default)]
     pub metadata: MessageMetadata,
@@ -106,6 +116,7 @@ impl ChatMessage {
         ChatMessageBuilder {
             role: MessageRole::Assistant,
             content: Some(MessageContent::MultiModal(content)),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -133,6 +144,7 @@ impl ChatMessage {
             content: Some(MessageContent::MultiModal(vec![
                 ContentPart::tool_result_text(tool_call_id, tool_name, result),
             ])),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -161,6 +173,7 @@ impl ChatMessage {
             content: Some(MessageContent::MultiModal(vec![
                 ContentPart::tool_result_json(tool_call_id, tool_name, result),
             ])),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -190,6 +203,7 @@ impl ChatMessage {
                 tool_name,
                 error,
             )])),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -218,6 +232,7 @@ impl ChatMessage {
             content: Some(MessageContent::MultiModal(vec![
                 ContentPart::tool_error_json(tool_call_id, tool_name, error),
             ])),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -280,7 +295,8 @@ impl ChatMessage {
                     ContentPart::Text { text, .. } => text.len(),
                     ContentPart::Image { source, .. }
                     | ContentPart::Audio { source, .. }
-                    | ContentPart::File { source, .. } => match source {
+                    | ContentPart::File { source, .. }
+                    | ContentPart::ReasoningFile { source, .. } => match source {
                         MediaSource::Url { url } => url.len(),
                         MediaSource::Base64 { data } => data.len(),
                         MediaSource::Binary { data } => data.len(),
@@ -289,17 +305,29 @@ impl ChatMessage {
                         .map(|s| s.len())
                         .unwrap_or(0),
                     ContentPart::ToolResult { output, .. } => output.to_string_lossy().len(),
+                    ContentPart::Custom { kind, .. } => kind.len(),
                     ContentPart::Reasoning { text, .. } => text.len(),
                     ContentPart::ToolApprovalResponse {
                         approval_id,
                         approved,
-                    } => approval_id.len() + if *approved { 4 } else { 5 },
+                        reason,
+                        ..
+                    } => {
+                        approval_id.len()
+                            + if *approved { 4 } else { 5 }
+                            + reason.as_ref().map(|r| r.len()).unwrap_or(0)
+                    }
                     ContentPart::ToolApprovalRequest {
                         approval_id,
                         tool_call_id,
+                        ..
                     } => approval_id.len() + tool_call_id.len(),
-                    ContentPart::Source { id, url, title, .. } => {
-                        id.len() + url.len() + title.len()
+                    ContentPart::Source { id, source, .. } => {
+                        id.len()
+                            + source.url().map(|s| s.len()).unwrap_or(0)
+                            + source.title().map(|s| s.len()).unwrap_or(0)
+                            + source.media_type().map(|s| s.len()).unwrap_or(0)
+                            + source.filename().map(|s| s.len()).unwrap_or(0)
                     }
                 })
                 .sum(),
@@ -388,7 +416,10 @@ impl ChatMessage {
 
     /// Check if message contains reasoning
     pub fn has_reasoning(&self) -> bool {
-        !self.reasoning().is_empty()
+        match &self.content {
+            MessageContent::MultiModal(parts) => parts.iter().any(|part| part.is_reasoning()),
+            _ => false,
+        }
     }
 
     /// Get message metadata (always available due to default)
@@ -399,6 +430,21 @@ impl ChatMessage {
     /// Get mutable reference to metadata
     pub fn metadata_mut(&mut self) -> &mut MessageMetadata {
         &mut self.metadata
+    }
+
+    /// Get message-level provider options.
+    pub fn provider_options(&self) -> &ProviderOptionsMap {
+        &self.provider_options
+    }
+
+    /// Get mutable message-level provider options.
+    pub fn provider_options_mut(&mut self) -> &mut ProviderOptionsMap {
+        &mut self.provider_options
+    }
+
+    /// Check if the message carries first-class provider options.
+    pub fn has_provider_options(&self) -> bool {
+        !self.provider_options.is_empty()
     }
 
     /// Check if message has any metadata set
@@ -415,6 +461,7 @@ impl ChatMessage {
 pub struct ChatMessageBuilder {
     role: MessageRole,
     content: Option<MessageContent>,
+    provider_options: ProviderOptionsMap,
     metadata: MessageMetadata,
 }
 
@@ -424,6 +471,7 @@ impl ChatMessageBuilder {
         Self {
             role: MessageRole::User,
             content: Some(MessageContent::Text(content.into())),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -435,6 +483,7 @@ impl ChatMessageBuilder {
         Self {
             role: MessageRole::User,
             content: Some(MessageContent::Text(content)),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -444,6 +493,7 @@ impl ChatMessageBuilder {
         Self {
             role: MessageRole::System,
             content: Some(MessageContent::Text(content.into())),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -453,6 +503,7 @@ impl ChatMessageBuilder {
         Self {
             role: MessageRole::Assistant,
             content: Some(MessageContent::Text(content.into())),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -462,6 +513,7 @@ impl ChatMessageBuilder {
         Self {
             role: MessageRole::Developer,
             content: Some(MessageContent::Text(content.into())),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
@@ -477,15 +529,56 @@ impl ChatMessageBuilder {
                 tool_name: String::new(), // Unknown in old API
                 output: ToolResultOutput::text(content),
                 provider_executed: None,
+                provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,
             }])),
+            provider_options: ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }
 
+    /// Replace the message-level provider options map.
+    pub fn provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Add a provider-specific option at the message level.
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        value: serde_json::Value,
+    ) -> Self {
+        self.provider_options.insert(provider_id, value);
+        self
+    }
+
     /// Sets cache control
-    pub const fn cache_control(mut self, cache: CacheControl) -> Self {
+    pub fn cache_control(mut self, cache: CacheControl) -> Self {
+        fn cache_control_to_json(cache: &CacheControl) -> serde_json::Value {
+            match cache {
+                CacheControl::Ephemeral => serde_json::json!({ "type": "ephemeral" }),
+                CacheControl::Persistent { ttl } => {
+                    let mut obj = serde_json::json!({ "type": "ephemeral" });
+                    if let Some(dur) = ttl {
+                        obj["ttl"] = serde_json::json!(dur.as_secs());
+                    }
+                    obj
+                }
+            }
+        }
+
         self.metadata.cache_control = Some(cache);
+        let cache_json = cache_control_to_json(
+            self.metadata
+                .cache_control
+                .as_ref()
+                .expect("cache just set"),
+        );
+        self.provider_options.insert(
+            "anthropic",
+            serde_json::json!({ "cacheControl": cache_json }),
+        );
         self
     }
 
@@ -507,70 +600,54 @@ impl ChatMessageBuilder {
             }
         }
 
-        // Preferred representation: explicit per-part cache control map.
-        // Keys are indices as strings to keep JSON object stable.
-        let key = "anthropic_content_cache_controls".to_string();
-        let mut map = self
-            .metadata
-            .custom
-            .get(&key)
-            .and_then(|v| v.as_object())
-            .cloned()
-            .unwrap_or_default();
-        map.insert(index.to_string(), cache_control_to_json(&cache));
-        self.metadata.custom.insert(key, Value::Object(map));
-
-        // Backward-compatible hint for older callers: keep the index list as well.
-        // (Older versions treated this as "ephemeral indices".)
-        let legacy_key = "anthropic_content_cache_indices".to_string();
-        let mut indices: Vec<usize> = self
-            .metadata
-            .custom
-            .get(&legacy_key)
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|x| x.as_u64().map(|u| u as usize))
-                    .collect()
-            })
-            .unwrap_or_default();
-        if !indices.contains(&index) {
-            indices.push(index);
-            indices.sort_unstable();
+        if let Some(MessageContent::MultiModal(parts)) = self.content.as_mut()
+            && let Some(part) = parts.get_mut(index)
+            && let Some(provider_options) = part.provider_options_mut()
+        {
+            let mut anthropic = provider_options
+                .get("anthropic")
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
+            anthropic.insert("cacheControl".to_string(), cache_control_to_json(&cache));
+            provider_options.insert("anthropic", Value::Object(anthropic));
         }
-        self.metadata.custom.insert(
-            legacy_key,
-            Value::Array(indices.into_iter().map(|i| Value::from(i as u64)).collect()),
-        );
         self
     }
 
     /// Enables citations for a specific document content part (Anthropic only).
     ///
     /// This is a provider-specific knob that mirrors the Vercel AI SDK behavior for citations on
-    /// `document` parts. Siumai stores this setting under `ChatMessage.metadata.custom` so it does
-    /// not expand the unified surface.
+    /// `document` parts. The setting is stored on the targeted part's
+    /// `providerOptions.anthropic.citations`.
     ///
     /// The `index` refers to the position in the final content array after transformation.
     pub fn anthropic_document_citations_for_part(mut self, index: usize, enabled: bool) -> Self {
         use serde_json::Value;
 
-        let key = "anthropic_document_citations".to_string();
-        let mut map = self
-            .metadata
-            .custom
-            .get(&key)
-            .and_then(|v| v.as_object())
-            .cloned()
-            .unwrap_or_default();
-
-        if enabled {
-            map.insert(index.to_string(), serde_json::json!({ "enabled": true }));
-        } else {
-            map.remove(&index.to_string());
+        if let Some(MessageContent::MultiModal(parts)) = self.content.as_mut()
+            && let Some(part) = parts.get_mut(index)
+            && let Some(provider_options) = part.provider_options_mut()
+        {
+            let mut anthropic = provider_options
+                .get("anthropic")
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
+            if enabled {
+                anthropic.insert(
+                    "citations".to_string(),
+                    serde_json::json!({ "enabled": true }),
+                );
+            } else {
+                anthropic.remove("citations");
+            }
+            if anthropic.is_empty() {
+                provider_options.0.remove("anthropic");
+            } else {
+                provider_options.insert("anthropic", Value::Object(anthropic));
+            }
         }
-
-        self.metadata.custom.insert(key, Value::Object(map));
         self
     }
 
@@ -590,34 +667,37 @@ impl ChatMessageBuilder {
     ) -> Self {
         use serde_json::Value;
 
-        let key = "anthropic_document_metadata".to_string();
-        let mut map = self
-            .metadata
-            .custom
-            .get(&key)
-            .and_then(|v| v.as_object())
-            .cloned()
-            .unwrap_or_default();
-
-        let mut obj = serde_json::Map::new();
-        if let Some(t) = title
-            && !t.is_empty()
+        if let Some(MessageContent::MultiModal(parts)) = self.content.as_mut()
+            && let Some(part) = parts.get_mut(index)
+            && let Some(provider_options) = part.provider_options_mut()
         {
-            obj.insert("title".to_string(), Value::String(t));
+            let mut anthropic = provider_options
+                .get("anthropic")
+                .and_then(|v| v.as_object())
+                .cloned()
+                .unwrap_or_default();
+            match title.as_ref() {
+                Some(title) if !title.is_empty() => {
+                    anthropic.insert("title".to_string(), Value::String(title.clone()));
+                }
+                _ => {
+                    anthropic.remove("title");
+                }
+            }
+            match context.as_ref() {
+                Some(context) if !context.is_empty() => {
+                    anthropic.insert("context".to_string(), Value::String(context.clone()));
+                }
+                _ => {
+                    anthropic.remove("context");
+                }
+            }
+            if anthropic.is_empty() {
+                provider_options.0.remove("anthropic");
+            } else {
+                provider_options.insert("anthropic", Value::Object(anthropic));
+            }
         }
-        if let Some(c) = context
-            && !c.is_empty()
-        {
-            obj.insert("context".to_string(), Value::String(c));
-        }
-
-        if obj.is_empty() {
-            map.remove(&index.to_string());
-        } else {
-            map.insert(index.to_string(), Value::Object(obj));
-        }
-
-        self.metadata.custom.insert(key, Value::Object(map));
         self
     }
 
@@ -639,6 +719,7 @@ impl ChatMessageBuilder {
         let image_part = ContentPart::Image {
             source: MediaSource::Url { url: image_url },
             detail: detail.map(|d| ImageDetail::from(d.as_str())),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         };
 
@@ -674,6 +755,7 @@ impl ChatMessageBuilder {
             source: MediaSource::Url { url: url.into() },
             media_type: media_type.into(),
             filename: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         };
 
@@ -714,6 +796,7 @@ impl ChatMessageBuilder {
             source: MediaSource::Base64 { data: data.into() },
             media_type: media_type.into(),
             filename,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         };
 
@@ -754,6 +837,7 @@ impl ChatMessageBuilder {
             source: MediaSource::Binary { data },
             media_type: media_type.into(),
             filename,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         };
 
@@ -805,6 +889,7 @@ impl ChatMessageBuilder {
         ChatMessage {
             role: self.role,
             content: self.content.unwrap_or(MessageContent::Text(String::new())),
+            provider_options: self.provider_options,
             metadata: self.metadata,
         }
     }
@@ -842,5 +927,79 @@ mod tests {
         assert_eq!(parts.len(), 2);
         assert!(matches!(parts[0], ContentPart::Text { .. }));
         assert!(matches!(parts[1], ContentPart::File { .. }));
+    }
+
+    #[test]
+    fn anthropic_document_helpers_write_part_provider_options_only() {
+        let msg = ChatMessage::user("hello")
+            .with_file_url("https://example.com/doc.pdf", "application/pdf")
+            .anthropic_document_citations_for_part(1, true)
+            .anthropic_document_metadata_for_part(
+                1,
+                Some("Doc Title".to_string()),
+                Some("Doc Context".to_string()),
+            )
+            .build();
+
+        assert!(
+            !msg.metadata
+                .custom
+                .contains_key("anthropic_document_citations")
+        );
+        assert!(
+            !msg.metadata
+                .custom
+                .contains_key("anthropic_document_metadata")
+        );
+
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+
+        let ContentPart::File {
+            provider_options, ..
+        } = &parts[1]
+        else {
+            panic!("expected file part");
+        };
+
+        let anthropic = provider_options
+            .get_object("anthropic")
+            .expect("anthropic provider options");
+        assert_eq!(anthropic["citations"]["enabled"], serde_json::json!(true));
+        assert_eq!(anthropic["title"], serde_json::json!("Doc Title"));
+        assert_eq!(anthropic["context"], serde_json::json!("Doc Context"));
+    }
+
+    #[test]
+    fn cache_control_for_part_writes_provider_options_only() {
+        let msg = ChatMessage::user("hello")
+            .with_content_parts(vec![ContentPart::text("part2")])
+            .cache_control_for_part(1, CacheControl::Ephemeral)
+            .build();
+
+        assert!(
+            !msg.metadata
+                .custom
+                .contains_key("anthropic_content_cache_controls")
+        );
+        assert!(
+            !msg.metadata
+                .custom
+                .contains_key("anthropic_content_cache_indices")
+        );
+
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+
+        let anthropic = parts[1]
+            .provider_options()
+            .and_then(|provider_options| provider_options.get_object("anthropic"))
+            .expect("anthropic provider options");
+        assert_eq!(
+            anthropic["cacheControl"],
+            serde_json::json!({ "type": "ephemeral" })
+        );
     }
 }

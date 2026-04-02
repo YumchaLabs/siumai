@@ -7,7 +7,7 @@
           {
             "type": "reasoning",
             "text": "Analyzing the problem step by step",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "reasoning_001",
                 "reasoningEncryptedContent": null

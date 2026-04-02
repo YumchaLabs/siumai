@@ -212,7 +212,7 @@ impl CustomChatResponse {
     }
 
     /// Add usage information
-    pub const fn with_usage(mut self, usage: Usage) -> Self {
+    pub fn with_usage(mut self, usage: Usage) -> Self {
         self.usage = Some(usage);
         self
     }

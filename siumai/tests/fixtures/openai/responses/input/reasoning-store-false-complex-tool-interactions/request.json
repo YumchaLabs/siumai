@@ -7,7 +7,7 @@
           {
             "type": "reasoning",
             "text": "Initial analysis step 1",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "reasoning_001",
                 "reasoningEncryptedContent": "encrypted_content_001"
@@ -17,7 +17,7 @@
           {
             "type": "reasoning",
             "text": "Initial analysis step 2",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "reasoning_001",
                 "reasoningEncryptedContent": "encrypted_content_001"
@@ -55,7 +55,7 @@
           {
             "type": "reasoning",
             "text": "Processing results step 1",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "reasoning_002",
                 "reasoningEncryptedContent": "encrypted_content_002"
@@ -65,7 +65,7 @@
           {
             "type": "reasoning",
             "text": "Processing results step 2",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "reasoning_002",
                 "reasoningEncryptedContent": "encrypted_content_002"
@@ -75,7 +75,7 @@
           {
             "type": "reasoning",
             "text": "Processing results step 3",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "reasoning_002",
                 "reasoningEncryptedContent": "encrypted_content_002"

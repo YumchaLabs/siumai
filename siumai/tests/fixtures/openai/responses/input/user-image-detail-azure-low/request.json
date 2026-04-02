@@ -8,7 +8,7 @@
             "type": "file",
             "media_type": "image/png",
             "data": "AAECAw==",
-            "providerMetadata": { "azure": { "imageDetail": "low" } }
+            "providerOptions": { "azure": { "imageDetail": "low" } }
           }
         ]
       },

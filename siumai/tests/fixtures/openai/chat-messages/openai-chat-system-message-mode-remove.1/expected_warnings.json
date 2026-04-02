@@ -1,6 +1,7 @@
 [
   {
-    "type": "other",
-    "message": "system messages are removed for this model"
+    "type": "compatibility",
+    "feature": "systemMessageMode=remove",
+    "details": "system messages are removed for this model"
   }
 ]

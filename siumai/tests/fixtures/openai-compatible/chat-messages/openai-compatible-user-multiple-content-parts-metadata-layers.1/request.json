@@ -7,8 +7,10 @@
           {
             "type": "text",
             "text": "Part A",
+            "providerOptions": {
+              "openaiCompatible": { "textPartLevel": "localized" }
+            },
             "providerMetadata": {
-              "openaiCompatible": { "textPartLevel": "localized" },
               "leftoverForText": { "info": "text leftover" }
             }
           },
@@ -16,13 +18,17 @@
             "type": "file",
             "data": "CQgHBg==",
             "media_type": "image/png",
-            "providerMetadata": { "openaiCompatible": { "imagePartLevel": "image-data" } }
+            "providerOptions": {
+              "openaiCompatible": { "imagePartLevel": "image-data" }
+            }
           }
         ]
       },
+      "providerOptions": {
+        "openaiCompatible": { "messageLevel": "global-metadata" }
+      },
       "metadata": {
         "custom": {
-          "openaiCompatible": { "messageLevel": "global-metadata" },
           "leftoverForMessage": { "x": 123 }
         }
       }

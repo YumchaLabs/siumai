@@ -59,7 +59,9 @@ async fn test_image_analysis_url<T: ChatCapability>(client: &T, provider_name: &
             if let Some(usage) = response.usage {
                 println!(
                     "    📊 Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    usage.prompt_tokens().unwrap_or(0),
+                    usage.completion_tokens().unwrap_or(0),
+                    usage.total_tokens().unwrap_or(0)
                 );
             }
         }
@@ -111,7 +113,9 @@ async fn test_multimodal_conversation<T: ChatCapability>(client: &T, provider_na
             if let Some(usage) = response.usage {
                 println!(
                     "    📊 Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    usage.prompt_tokens().unwrap_or(0),
+                    usage.completion_tokens().unwrap_or(0),
+                    usage.total_tokens().unwrap_or(0)
                 );
             }
         }
@@ -162,7 +166,9 @@ async fn test_multiple_images<T: ChatCapability>(client: &T, provider_name: &str
             if let Some(usage) = response.usage {
                 println!(
                     "    📊 Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    usage.prompt_tokens().unwrap_or(0),
+                    usage.completion_tokens().unwrap_or(0),
+                    usage.total_tokens().unwrap_or(0)
                 );
             }
         }
@@ -212,7 +218,9 @@ async fn test_vision_reasoning<T: ChatCapability>(client: &T, provider_name: &st
             if let Some(usage) = response.usage {
                 println!(
                     "    📊 Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    usage.prompt_tokens().unwrap_or(0),
+                    usage.completion_tokens().unwrap_or(0),
+                    usage.total_tokens().unwrap_or(0)
                 );
             }
         }

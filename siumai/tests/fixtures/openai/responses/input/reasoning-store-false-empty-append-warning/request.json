@@ -7,12 +7,12 @@
           {
             "type": "reasoning",
             "text": "First reasoning step",
-            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+            "providerOptions": { "openai": { "itemId": "reasoning_001" } }
           },
           {
             "type": "reasoning",
             "text": "",
-            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+            "providerOptions": { "openai": { "itemId": "reasoning_001" } }
           }
         ]
       },

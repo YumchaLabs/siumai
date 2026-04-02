@@ -15,11 +15,10 @@
             "toolCallId": "call123",
             "toolName": "calculator",
             "output": { "type": "json", "value": { "stepTwo": "data chunk 2" } },
-            "providerMetadata": { "openaiCompatible": { "partial": true } }
+            "providerOptions": { "openaiCompatible": { "partial": true } }
           }
         ]
-      },
-      "metadata": { "custom": { "openaiCompatible": { "responseTier": "detailed" } } }
+      }
     }
   ],
   "tools": null,

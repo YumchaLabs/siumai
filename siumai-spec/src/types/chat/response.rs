@@ -268,6 +268,7 @@ impl ChatResponse {
         vec![ChatMessage {
             role: MessageRole::Assistant,
             content: self.content.clone(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }]
     }
@@ -288,6 +289,7 @@ impl ChatResponse {
         ChatMessage {
             role: MessageRole::Assistant,
             content: self.content.clone(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     }

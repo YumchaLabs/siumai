@@ -550,6 +550,151 @@ async fn multi_tool_calls_are_mapped_by_index() {
 }
 
 #[tokio::test]
+async fn parser_emits_stable_tool_parts_before_legacy_shadow_deltas() {
+    let conv = make_converter();
+
+    let start_chunk = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"lookup","arguments":""}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let start_events: Vec<ChatStreamEvent> = conv
+        .convert_event(start_chunk)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+    let stable_start_pos = start_events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ToolInputStart { id, tool_name, .. }
+                } if id == "call_1" && tool_name == "lookup"
+            )
+        })
+        .expect("stable tool-input-start");
+    let legacy_start_pos = start_events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::ToolCallDelta {
+                    id,
+                    function_name,
+                    arguments_delta,
+                    ..
+                } if id == "call_1"
+                    && function_name.as_deref() == Some("lookup")
+                    && arguments_delta.as_deref() == Some("")
+            )
+        })
+        .expect("legacy shadow tool-call delta");
+    assert!(
+        stable_start_pos < legacy_start_pos,
+        "stable part should be emitted before legacy shadow delta"
+    );
+
+    let delta_chunk = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":\"rust\"}"}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let delta_events: Vec<ChatStreamEvent> = conv
+        .convert_event(delta_chunk)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+    assert!(delta_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputDelta { id, delta, .. }
+        } if id == "call_1" && delta == "{\"q\":\"rust\"}"
+    )));
+    assert!(delta_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolInputEnd { id, .. }
+        } if id == "call_1"
+    )));
+    assert!(delta_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolCall(call)
+        } if call.tool_call_id == "call_1"
+            && call.tool_name == "lookup"
+            && call.input == "{\"q\":\"rust\"}"
+    )));
+    assert!(delta_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::ToolCallDelta {
+            id,
+            arguments_delta,
+            ..
+        } if id == "call_1" && arguments_delta.as_deref() == Some("{\"q\":\"rust\"}")
+    )));
+}
+
+#[tokio::test]
+async fn parser_emits_annotations_as_stable_source_parts() {
+    let conv = make_converter();
+
+    let event = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chatcmpl_1","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"annotations":[{"type":"url_citation","url_citation":{"url":"https://example.com/rust","title":"Rust"}},{"type":"url_citation","url_citation":{"url":"https://example.com/book"}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let converted: Vec<ChatStreamEvent> = conv
+        .convert_event(event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+
+    let source_parts: Vec<(String, String, Option<String>)> = converted
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part {
+                part:
+                    crate::types::ChatStreamPart::Source {
+                        id,
+                        source: crate::types::SourcePart::Url { url, title },
+                        ..
+                    },
+            } => Some((id.clone(), url.clone(), title.clone())),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(source_parts.len(), 2);
+    assert_eq!(
+        source_parts[0],
+        (
+            "source_chatcmpl_1_0".to_string(),
+            "https://example.com/rust".to_string(),
+            Some("Rust".to_string())
+        )
+    );
+    assert_eq!(
+        source_parts[1],
+        (
+            "source_chatcmpl_1_1".to_string(),
+            "https://example.com/book".to_string(),
+            None
+        )
+    );
+}
+
+#[tokio::test]
 async fn finish_reason_tool_calls_without_tool_calls_array_emits_stream_end() {
     let conv = make_converter();
 
@@ -629,12 +774,199 @@ async fn multi_event_sequence() {
     };
     let r4 = converter.convert_event(event4).await;
     assert!(r4.iter().any(|e| matches!(e,
-        Ok(ChatStreamEvent::UsageUpdate { usage }) if usage.prompt_tokens == 5 && usage.completion_tokens == 7 && usage.total_tokens == 12
+        Ok(ChatStreamEvent::UsageUpdate { usage }) if usage.prompt_tokens() == Some(5) && usage.completion_tokens() == Some(7) && usage.total_tokens() == Some(12)
     )));
 
     // 5) End of stream ([DONE]) -> StreamEnd
     let end = converter.handle_stream_end().expect("end event");
     assert!(matches!(end, Ok(ChatStreamEvent::StreamEnd { .. })));
+}
+
+#[tokio::test]
+async fn parser_emits_stream_start_and_response_metadata_parts_on_first_chunk() {
+    let converter = make_converter();
+
+    let event = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chatcmpl-1","model":"gpt-4o-mini","created":1731234567,"choices":[{"index":0,"delta":{"content":"Hello"}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let converted: Vec<ChatStreamEvent> = converter
+        .convert_event(event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+
+    assert!(matches!(
+        converted.first(),
+        Some(ChatStreamEvent::StreamStart { .. })
+    ));
+    assert!(matches!(
+        converted.get(1),
+        Some(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::StreamStart { warnings }
+        }) if warnings.is_empty()
+    ));
+    assert!(matches!(
+        converted.get(2),
+        Some(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ResponseMetadata(metadata)
+        }) if metadata.id.as_deref() == Some("chatcmpl-1")
+            && metadata.model.as_deref() == Some("gpt-4o-mini")
+            && metadata.created.is_some()
+    ));
+    assert!(converted.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextStart { .. }
+        }
+    )));
+    assert!(converted.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::ContentDelta { delta, .. } if delta == "Hello"
+    )));
+}
+
+#[tokio::test]
+async fn parser_emits_text_reasoning_lifecycle_parts_without_duplicate_deltas() {
+    let converter = make_converter();
+
+    let first = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chatcmpl-1","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"Hello"}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let first_events: Vec<ChatStreamEvent> = converter
+        .convert_event(first)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+    let text_part_id = first_events
+        .iter()
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::TextStart { id, .. },
+            } => Some(id.clone()),
+            _ => None,
+        })
+        .expect("text start id");
+    assert_eq!(
+        first_events
+            .iter()
+            .filter(|event| matches!(event, ChatStreamEvent::ContentDelta { .. }))
+            .count(),
+        1,
+        "first chunk should keep a single legacy content delta"
+    );
+
+    let second = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"thinking":"Reasoning..."}}]}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let second_events: Vec<ChatStreamEvent> = converter
+        .convert_event(second)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+    assert!(second_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextEnd { id, .. }
+        } if id == &text_part_id
+    )));
+    let reasoning_part_id = second_events
+        .iter()
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ReasoningStart { id, .. },
+            } => Some(id.clone()),
+            _ => None,
+        })
+        .expect("reasoning start id");
+    assert_eq!(
+        second_events
+            .iter()
+            .filter(|event| matches!(event, ChatStreamEvent::ThinkingDelta { .. }))
+            .count(),
+        1,
+        "reasoning chunk should keep a single legacy thinking delta"
+    );
+
+    let third = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{"content":" world"}}]}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let third_events: Vec<ChatStreamEvent> = converter
+        .convert_event(third)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+    assert!(third_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningEnd { id, .. }
+        } if id == &reasoning_part_id
+    )));
+    let resumed_text_part_id = third_events
+        .iter()
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::TextStart { id, .. },
+            } => Some(id.clone()),
+            _ => None,
+        })
+        .expect("resumed text start id");
+    assert_ne!(resumed_text_part_id, text_part_id);
+
+    let final_chunk = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let final_events: Vec<ChatStreamEvent> = converter
+        .convert_event(final_chunk)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+    assert!(final_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextEnd { id, .. }
+        } if id == &resumed_text_part_id
+    )));
+    assert!(final_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Finish {
+                usage,
+                finish_reason,
+                ..
+            }
+        } if usage.total_tokens() == Some(12)
+            && finish_reason.unified == crate::types::FinishReason::Stop
+            && finish_reason.raw.as_deref() == Some("stop")
+    )));
+    assert!(final_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::StreamEnd { response }
+            if matches!(response.finish_reason, Some(crate::types::FinishReason::Stop))
+    )));
 }
 
 #[tokio::test]
@@ -758,7 +1090,7 @@ async fn end_to_end_sse_multi_event_flow() {
     );
     assert!(
         events.iter().any(
-            |e| matches!(e, ChatStreamEvent::UsageUpdate { usage } if usage.total_tokens == 12)
+            |e| matches!(e, ChatStreamEvent::UsageUpdate { usage } if usage.total_tokens() == Some(12))
         ),
         "should contain usage update"
     );

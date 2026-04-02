@@ -24,7 +24,12 @@
       },
       {
         "type": "text",
-        "text": "answer text"
+        "text": "answer text",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_67c97c02656c81908e080dfdf4a03cd1"
+          }
+        }
       }
     ]
   },
@@ -40,12 +45,33 @@
     },
     "completion_tokens_details": {
       "reasoning_tokens": 320
+    },
+    "inputTokens": {
+      "total": 34,
+      "noCache": 34,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 538,
+      "text": 218,
+      "reasoning": 320
+    },
+    "raw": {
+      "input_tokens": 34,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 538,
+      "output_tokens_details": {
+        "reasoning_tokens": 320
+      },
+      "total_tokens": 572
     }
   },
   "finish_reason": "stop",
   "provider_metadata": {
     "openai": {
-      "itemId": "msg_67c97c02656c81908e080dfdf4a03cd1"
+      "responseId": "resp_67c97c0203188190a025beb4a75242bc"
     }
   }
 }

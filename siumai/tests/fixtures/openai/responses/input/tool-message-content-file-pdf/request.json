@@ -12,7 +12,7 @@
               "type": "content",
               "value": [
                 {
-                  "type": "file",
+                  "type": "file-data",
                   "media_type": "application/pdf",
                   "data": "AQIDBAU=",
                   "filename": "document.pdf"

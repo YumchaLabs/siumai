@@ -2,7 +2,7 @@ use super::*;
 
 use crate::streaming::{
     LanguageModelV3StreamPart, LanguageModelV3ToolApprovalRequest, LanguageModelV3ToolCall,
-    LanguageModelV3ToolResult, SharedV3ProviderMetadata, StreamPartNamespace,
+    LanguageModelV3ToolResult, SharedV3ProviderMetadata,
 };
 
 fn normalize_tool_input_value(value: serde_json::Value) -> String {
@@ -25,47 +25,26 @@ impl OpenAiResponsesEventConverter {
         &self,
         part: LanguageModelV3StreamPart,
     ) -> crate::types::ChatStreamEvent {
-        part.to_custom_event(StreamPartNamespace::OpenAi)
-            .expect("openai stream part should serialize to custom event")
-    }
-
-    fn attach_provider_executed(
-        &self,
-        mut event: crate::types::ChatStreamEvent,
-        provider_executed: Option<bool>,
-    ) -> crate::types::ChatStreamEvent {
-        if let Some(provider_executed) = provider_executed
-            && let crate::types::ChatStreamEvent::Custom { data, .. } = &mut event
-            && let Some(obj) = data.as_object_mut()
-        {
-            obj.insert(
-                "providerExecuted".to_string(),
-                serde_json::json!(provider_executed),
-            );
-        }
-
-        event
+        part.to_part_event()
     }
 
     fn attach_event_extras(
         &self,
-        mut event: crate::types::ChatStreamEvent,
+        event: crate::types::ChatStreamEvent,
         extras: OpenAiResponsesEventExtras,
     ) -> crate::types::ChatStreamEvent {
-        if let crate::types::ChatStreamEvent::Custom { data, .. } = &mut event {
-            if let Some(output_index) = extras.output_index
-                && let Some(obj) = data.as_object_mut()
-            {
-                obj.insert("outputIndex".to_string(), serde_json::json!(output_index));
-            }
-            if let Some(raw_item) = extras.raw_item
-                && let Some(obj) = data.as_object_mut()
-            {
-                obj.insert("rawItem".to_string(), raw_item);
-            }
-        }
+        let Some(replay) =
+            crate::types::ChatStreamReplay::openai_responses(extras.output_index, extras.raw_item)
+        else {
+            return event;
+        };
 
-        event
+        match event {
+            crate::types::ChatStreamEvent::Part { part } => {
+                crate::types::ChatStreamEvent::PartWithReplay { part, replay }
+            }
+            other => other,
+        }
     }
 
     pub(super) fn openai_tool_input_start_event(
@@ -140,7 +119,7 @@ impl OpenAiResponsesEventConverter {
         tool_call_id: &str,
         tool_name: &str,
         result: serde_json::Value,
-        provider_executed: Option<bool>,
+        _provider_executed: Option<bool>,
         dynamic: Option<bool>,
         is_error: Option<bool>,
         provider_metadata: Option<serde_json::Value>,
@@ -157,7 +136,6 @@ impl OpenAiResponsesEventConverter {
                 provider_metadata: into_provider_metadata(provider_metadata),
             },
         ));
-        let event = self.attach_provider_executed(event, provider_executed);
         self.attach_event_extras(event, extras)
     }
 

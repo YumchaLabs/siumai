@@ -18,7 +18,9 @@
         "toolName": "shell",
         "input": "{\"action\":{\"type\":\"exec\",\"command\":[\"ls\"],\"working_directory\":\"/root\",\"env\":{}}}",
         "providerMetadata": {
-          "openai": { "itemId": "lsh_68da74abdaec819c9aa19c124308f4600fdbc19a07110799" }
+          "openai": {
+            "itemId": "lsh_68da74abdaec819c9aa19c124308f4600fdbc19a07110799"
+          }
         }
       }
     ]
@@ -30,9 +32,40 @@
     "total_tokens": 431,
     "cached_tokens": 0,
     "reasoning_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 },
-    "completion_tokens_details": { "reasoning_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "inputTokens": {
+      "total": 407,
+      "noCache": 407,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 24,
+      "text": 24,
+      "reasoning": 0
+    },
+    "raw": {
+      "input_tokens": 407,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 24,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 431
+    }
   },
   "finish_reason": "stop",
-  "service_tier": "default"
+  "service_tier": "default",
+  "provider_metadata": {
+    "openai": {
+      "responseId": "resp_68da74aaae58819ca776fbd20244e8df0fdbc19a07110799",
+      "serviceTier": "default"
+    }
+  }
 }

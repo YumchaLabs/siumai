@@ -57,14 +57,14 @@ fn run_converter(
 fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
         .collect()
 }
 
@@ -126,7 +126,7 @@ fn openai_responses_error_stream_emits_error_and_finish() {
             .get("error")
             .and_then(|v| v.get("type"))
             .and_then(|v| v.as_str()),
-        Some("error")
+        Some("insufficient_quota")
     );
 
     let errors: Vec<_> = events

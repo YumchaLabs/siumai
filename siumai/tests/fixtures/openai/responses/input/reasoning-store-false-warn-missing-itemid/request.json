@@ -7,7 +7,7 @@
           {
             "type": "reasoning",
             "text": "This is a reasoning part without OpenAI-specific reasoning id provider options",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": { "reasoning": { "encryptedContent": "encrypted_content_001" } }
             }
           }

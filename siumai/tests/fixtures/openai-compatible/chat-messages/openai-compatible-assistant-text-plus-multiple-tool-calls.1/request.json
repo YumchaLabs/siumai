@@ -10,7 +10,9 @@
             "toolCallId": "call1",
             "toolName": "searchTool",
             "input": { "query": "Weather" },
-            "providerMetadata": { "openaiCompatible": { "function_call_reason": "user request" } }
+            "providerOptions": {
+              "openaiCompatible": { "function_call_reason": "user request" }
+            }
           },
           { "type": "text", "text": "Almost there..." },
           {

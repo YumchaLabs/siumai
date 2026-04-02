@@ -3712,7 +3712,10 @@ data: [DONE]
                 _ => None,
             })
             .expect("stream end event");
-        assert_eq!(end.usage.as_ref().map(|usage| usage.total_tokens), Some(28));
+        assert_eq!(
+            end.usage.as_ref().and_then(|usage| usage.total_tokens()),
+            Some(28)
+        );
 
         let meta = end.perplexity_metadata().expect("perplexity metadata");
         assert_eq!(

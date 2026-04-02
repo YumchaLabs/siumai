@@ -9,7 +9,7 @@
             "toolCallId": "call_XWgeTylovOiS8xLNz2TONOgO",
             "toolName": "shell",
             "input": { "action": { "type": "exec", "command": ["ls"] } },
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "lsh_68c2e2cf522c81908f3e2c1bccd1493b0b24aae9c6c01e4f"
               }

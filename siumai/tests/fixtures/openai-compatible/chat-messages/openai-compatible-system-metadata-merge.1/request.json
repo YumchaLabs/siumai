@@ -3,8 +3,8 @@
     {
       "role": "system",
       "content": { "Text": "You are a helpful assistant." },
-      "metadata": {
-        "custom": { "openaiCompatible": { "cacheControl": { "type": "ephemeral" } } }
+      "providerOptions": {
+        "openaiCompatible": { "cacheControl": { "type": "ephemeral" } }
       }
     }
   ],

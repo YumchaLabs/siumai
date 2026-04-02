@@ -10,7 +10,7 @@
             "toolName": "search",
             "output": {
               "type": "content",
-              "value": [{ "type": "file", "media_type": "image/png", "data": "base64_data" }]
+              "value": [{ "type": "image-data", "media_type": "image/png", "data": "base64_data" }]
             }
           }
         ]

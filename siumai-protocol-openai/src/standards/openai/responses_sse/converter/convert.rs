@@ -1,6 +1,89 @@
 use super::*;
 
 impl OpenAiResponsesEventConverter {
+    fn part_provider_metadata(
+        &self,
+        value: serde_json::Value,
+    ) -> Option<crate::types::StreamProviderMetadata> {
+        let serde_json::Value::Object(obj) = value else {
+            return None;
+        };
+
+        let mut provider_metadata = crate::types::StreamProviderMetadata::new();
+        provider_metadata.insert(
+            self.provider_metadata_key.clone(),
+            serde_json::Value::Object(obj),
+        );
+        Some(provider_metadata)
+    }
+
+    fn style_part_provider_metadata(
+        &self,
+        value: serde_json::Value,
+    ) -> Option<crate::types::StreamProviderMetadata> {
+        match self.stream_parts_style {
+            StreamPartsStyle::OpenAi => self.part_provider_metadata(value),
+            StreamPartsStyle::Xai => None,
+        }
+    }
+
+    fn reasoning_part_provider_metadata(
+        &self,
+        value: serde_json::Value,
+    ) -> Option<crate::types::StreamProviderMetadata> {
+        self.part_provider_metadata(value)
+    }
+
+    fn xai_file_search_queries_from_object(
+        item: &serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Value {
+        item.get("queries")
+            .filter(|value| !value.is_null())
+            .cloned()
+            .unwrap_or_else(|| serde_json::Value::Array(Vec::new()))
+    }
+
+    fn xai_file_search_results_from_object(
+        item: &serde_json::Map<String, serde_json::Value>,
+    ) -> serde_json::Value {
+        let Some(results) = item.get("results") else {
+            return serde_json::Value::Null;
+        };
+        let Some(results) = results.as_array() else {
+            return results.clone();
+        };
+
+        serde_json::Value::Array(
+            results
+                .iter()
+                .map(|result| {
+                    let mut out = serde_json::Map::new();
+                    if let Some(file_id) = result.get("file_id").or_else(|| result.get("fileId"))
+                        && !file_id.is_null()
+                    {
+                        out.insert("fileId".to_string(), file_id.clone());
+                    }
+                    if let Some(filename) = result.get("filename")
+                        && !filename.is_null()
+                    {
+                        out.insert("filename".to_string(), filename.clone());
+                    }
+                    if let Some(score) = result.get("score")
+                        && !score.is_null()
+                    {
+                        out.insert("score".to_string(), score.clone());
+                    }
+                    if let Some(text) = result.get("text")
+                        && !text.is_null()
+                    {
+                        out.insert("text".to_string(), text.clone());
+                    }
+                    serde_json::Value::Object(out)
+                })
+                .collect(),
+        )
+    }
+
     pub(super) fn convert_responses_event(
         &self,
         json: &serde_json::Value,
@@ -60,51 +143,8 @@ impl OpenAiResponsesEventConverter {
             .get("usage")
             .or_else(|| json.get("response")?.get("usage"))
         {
-            let prompt_tokens = usage
-                .get("prompt_tokens")
-                .or_else(|| usage.get("input_tokens"))
-                .or_else(|| usage.get("inputTokens"))
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32)
-                .unwrap_or(0);
-            let completion_tokens = usage
-                .get("completion_tokens")
-                .or_else(|| usage.get("output_tokens"))
-                .or_else(|| usage.get("outputTokens"))
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32)
-                .unwrap_or(0);
-            let total_tokens = usage
-                .get("total_tokens")
-                .or_else(|| usage.get("totalTokens"))
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32)
-                .unwrap_or(0);
-            let reasoning_tokens = usage
-                .get("reasoning_tokens")
-                .or_else(|| usage.get("reasoningTokens"))
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32);
-
-            let usage_info = crate::types::Usage {
-                prompt_tokens,
-                completion_tokens,
-                total_tokens,
-                #[allow(deprecated)]
-                reasoning_tokens,
-                #[allow(deprecated)]
-                cached_tokens: None,
-                prompt_tokens_details: None,
-                completion_tokens_details: reasoning_tokens.map(|r| {
-                    crate::types::CompletionTokensDetails {
-                        reasoning_tokens: Some(r),
-                        audio_tokens: None,
-                        accepted_prediction_tokens: None,
-                        rejected_prediction_tokens: None,
-                    }
-                }),
-            };
-            return Some(crate::streaming::ChatStreamEvent::UsageUpdate { usage: usage_info });
+            return crate::standards::openai::utils::parse_openai_usage_value(usage)
+                .map(|usage| crate::streaming::ChatStreamEvent::UsageUpdate { usage });
         }
 
         None
@@ -138,25 +178,13 @@ impl OpenAiResponsesEventConverter {
         }
         self.mark_text_start_emitted(&id);
 
-        match self.stream_parts_style {
-            StreamPartsStyle::OpenAi => Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:text-start".to_string(),
-                data: serde_json::json!({
-                    "type": "text-start",
-                    "id": id,
-                    "providerMetadata": self.provider_metadata_json(serde_json::json!({
-                        "itemId": item_id,
-                    })),
-                }),
-            }),
-            StreamPartsStyle::Xai => Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:text-start".to_string(),
-                data: serde_json::json!({
-                    "type": "text-start",
-                    "id": id,
-                }),
-            }),
-        }
+        Some(crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextStart {
+                id,
+                provider_metadata: self
+                    .style_part_provider_metadata(serde_json::json!({ "itemId": item_id })),
+            },
+        })
     }
 
     pub(super) fn convert_output_text_delta_events(
@@ -179,38 +207,21 @@ impl OpenAiResponsesEventConverter {
 
         if !self.has_emitted_text_start(&id) {
             self.mark_text_start_emitted(&id);
-            match self.stream_parts_style {
-                StreamPartsStyle::OpenAi => {
-                    events.push(crate::streaming::ChatStreamEvent::Custom {
-                        event_type: "openai:text-start".to_string(),
-                        data: serde_json::json!({
-                            "type": "text-start",
-                            "id": id,
-                            "providerMetadata": self.provider_metadata_json(serde_json::json!({
-                                "itemId": item_id,
-                            })),
-                        }),
-                    });
-                }
-                StreamPartsStyle::Xai => {
-                    events.push(crate::streaming::ChatStreamEvent::Custom {
-                        event_type: "openai:text-start".to_string(),
-                        data: serde_json::json!({
-                            "type": "text-start",
-                            "id": id,
-                        }),
-                    });
-                }
-            }
+            events.push(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::TextStart {
+                    id: id.clone(),
+                    provider_metadata: self
+                        .style_part_provider_metadata(serde_json::json!({ "itemId": item_id })),
+                },
+            });
         }
 
-        events.push(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-delta".to_string(),
-            data: serde_json::json!({
-                "type": "text-delta",
-                "id": id,
-                "delta": delta,
-            }),
+        events.push(crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta {
+                id,
+                delta: delta.to_string(),
+                provider_metadata: None,
+            },
         });
 
         Some(events)
@@ -240,12 +251,11 @@ impl OpenAiResponsesEventConverter {
 
         if self.stream_parts_style == StreamPartsStyle::Xai {
             // xAI Vercel-aligned stream parts omit providerMetadata and annotations.
-            return Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:text-end".to_string(),
-                data: serde_json::json!({
-                    "type": "text-end",
-                    "id": id,
-                }),
+            return Some(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::TextEnd {
+                    id,
+                    provider_metadata: None,
+                },
             });
         }
 
@@ -285,13 +295,11 @@ impl OpenAiResponsesEventConverter {
             })
         };
 
-        Some(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-end".to_string(),
-            data: serde_json::json!({
-                "type": "text-end",
-                "id": id,
-                "providerMetadata": self.provider_metadata_json(provider_metadata_openai),
-            }),
+        Some(crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextEnd {
+                id,
+                provider_metadata: self.style_part_provider_metadata(provider_metadata_openai),
+            },
         })
     }
 
@@ -300,80 +308,59 @@ impl OpenAiResponsesEventConverter {
         completed_json: &serde_json::Value,
         response: &crate::types::ChatResponse,
     ) -> Option<crate::streaming::ChatStreamEvent> {
-        let usage = completed_json
+        let raw_usage = completed_json
             .get("response")
             .and_then(|r| r.get("usage"))
             .cloned()
             .unwrap_or(serde_json::Value::Null);
+        let usage = crate::standards::openai::utils::parse_openai_usage_value(&raw_usage);
+        let normalized_input = usage
+            .as_ref()
+            .map(crate::types::Usage::normalized_input_tokens)
+            .unwrap_or_default();
+        let normalized_output = usage
+            .as_ref()
+            .map(crate::types::Usage::normalized_output_tokens)
+            .unwrap_or_default();
 
-        let input_tokens = usage
-            .get("input_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let cached_tokens = usage
-            .get("input_tokens_details")
-            .and_then(|d| d.get("cached_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let output_tokens = usage
-            .get("output_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let reasoning_tokens = usage
-            .get("output_tokens_details")
-            .and_then(|d| d.get("reasoning_tokens"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-
-        let input_cache_read = cached_tokens.min(input_tokens);
-        let input_no_cache = input_tokens.saturating_sub(input_cache_read);
-        let output_reasoning = reasoning_tokens.min(output_tokens);
-        let output_text = output_tokens.saturating_sub(output_reasoning);
-
-        let unified = response.finish_reason.as_ref().map(|r| match r {
-            crate::types::FinishReason::Stop => "stop".to_string(),
-            crate::types::FinishReason::StopSequence => "stop".to_string(),
-            crate::types::FinishReason::Length => "length".to_string(),
-            crate::types::FinishReason::ToolCalls => "tool-calls".to_string(),
-            crate::types::FinishReason::ContentFilter => "content-filter".to_string(),
-            crate::types::FinishReason::Error => "error".to_string(),
-            crate::types::FinishReason::Unknown => "unknown".to_string(),
-            crate::types::FinishReason::Other(s) => s.clone(),
+        let input_tokens = normalized_input.total.unwrap_or(0) as u64;
+        let input_cache_read = normalized_input.cache_read.unwrap_or(0) as u64;
+        let input_cache_write = normalized_input.cache_write.unwrap_or(0) as u64;
+        let input_no_cache = normalized_input.no_cache.unwrap_or(0) as u64;
+        let output_tokens = normalized_output.total.unwrap_or(0) as u64;
+        let output_reasoning = normalized_output.reasoning.unwrap_or(0) as u64;
+        let output_text = normalized_output.text.unwrap_or(0) as u64;
+        let raw_usage_value = usage
+            .as_ref()
+            .and_then(crate::types::Usage::raw_usage_value)
+            .unwrap_or(raw_usage.clone());
+        let finish_usage = usage.clone().unwrap_or_else(|| {
+            crate::types::Usage::builder()
+                .with_raw_usage_value(raw_usage_value.clone())
+                .build()
         });
+
+        let unified = response
+            .finish_reason
+            .clone()
+            .unwrap_or(crate::types::FinishReason::Unknown);
 
         if self.stream_parts_style == StreamPartsStyle::Xai {
             let raw_finish = completed_json
                 .get("response")
                 .and_then(|r| r.get("status"))
                 .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| "completed".to_string());
+                .map(|s| s.to_string());
 
-            let input_tokens_obj = serde_json::json!({
-                "total": input_tokens,
-                "cacheRead": input_cache_read,
-                "noCache": input_no_cache,
-            });
-            let output_tokens_obj = serde_json::json!({
-                "total": output_tokens,
-                "reasoning": output_reasoning,
-                "text": output_text,
-            });
-
-            return Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:finish".to_string(),
-                data: serde_json::json!({
-                    "type": "finish",
-                    "finishReason": {
-                        "raw": raw_finish,
-                        "unified": unified,
+            return Some(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::Finish {
+                    usage: finish_usage,
+                    finish_reason: crate::types::ChatStreamFinishInfo {
+                        unified,
+                        raw: raw_finish,
                     },
-                    "usage": {
-                        "inputTokens": input_tokens_obj,
-                        "outputTokens": output_tokens_obj,
-                        "raw": usage,
-                    },
-                }),
+                    provider_metadata: None,
+                },
             });
         }
 
@@ -396,8 +383,7 @@ impl OpenAiResponsesEventConverter {
             .and_then(|r| r.get("incomplete_details"))
             .and_then(|d| d.get("reason"))
             .and_then(|v| v.as_str())
-            .map(|s| serde_json::Value::String(s.to_string()))
-            .unwrap_or(serde_json::Value::Null);
+            .map(|s| s.to_string());
 
         let mut provider_metadata = serde_json::Map::new();
         if let Some(id) = response_id {
@@ -414,30 +400,25 @@ impl OpenAiResponsesEventConverter {
         }
         let provider_metadata = serde_json::Value::Object(provider_metadata);
 
-        Some(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:finish".to_string(),
-            data: serde_json::json!({
-                "type": "finish",
-                "finishReason": {
-                    "raw": raw_finish_reason,
-                    "unified": unified,
+        let _ = (
+            input_tokens,
+            input_cache_read,
+            input_cache_write,
+            input_no_cache,
+            output_tokens,
+            output_reasoning,
+            output_text,
+        );
+
+        Some(crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Finish {
+                usage: finish_usage,
+                finish_reason: crate::types::ChatStreamFinishInfo {
+                    unified,
+                    raw: raw_finish_reason,
                 },
-                "providerMetadata": self.provider_metadata_json(provider_metadata),
-                "usage": {
-                    "inputTokens": {
-                        "total": input_tokens,
-                        "cacheRead": input_cache_read,
-                        "cacheWrite": serde_json::Value::Null,
-                        "noCache": input_no_cache,
-                    },
-                    "outputTokens": {
-                        "total": output_tokens,
-                        "reasoning": output_reasoning,
-                        "text": output_text,
-                    },
-                    "raw": usage,
-                },
-            }),
+                provider_metadata: self.part_provider_metadata(provider_metadata),
+            },
         })
     }
 
@@ -472,27 +453,24 @@ impl OpenAiResponsesEventConverter {
         }
         self.mark_reasoning_start_emitted(&id);
 
-        match self.stream_parts_style {
-            StreamPartsStyle::OpenAi => Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:reasoning-start".to_string(),
-                data: serde_json::json!({
-                    "type": "reasoning-start",
-                    "id": id,
-                    "providerMetadata": self.provider_metadata_json(serde_json::json!({
-                        "itemId": item_id,
-                        // Vercel alignment: always include the key for start events.
-                        "reasoningEncryptedContent": encrypted_content,
-                    })),
-                }),
-            }),
-            StreamPartsStyle::Xai => Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:reasoning-start".to_string(),
-                data: serde_json::json!({
-                    "type": "reasoning-start",
-                    "id": id,
-                }),
-            }),
-        }
+        Some(crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningStart {
+                id,
+                provider_metadata: match self.stream_parts_style {
+                    StreamPartsStyle::OpenAi => {
+                        self.reasoning_part_provider_metadata(serde_json::json!({
+                            "itemId": item_id,
+                            "reasoningEncryptedContent": encrypted_content,
+                        }))
+                    }
+                    StreamPartsStyle::Xai => {
+                        self.reasoning_part_provider_metadata(serde_json::json!({
+                            "itemId": item_id,
+                        }))
+                    }
+                },
+            },
+        })
     }
 
     pub(super) fn convert_reasoning_summary_part_added(
@@ -513,12 +491,13 @@ impl OpenAiResponsesEventConverter {
                 return None;
             }
             self.mark_reasoning_start_emitted(&id);
-            return Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:reasoning-start".to_string(),
-                data: serde_json::json!({
-                    "type": "reasoning-start",
-                    "id": id,
-                }),
+            return Some(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ReasoningStart {
+                    id,
+                    provider_metadata: self.reasoning_part_provider_metadata(serde_json::json!({
+                        "itemId": item_id,
+                    })),
+                },
             });
         }
         let summary_index = json
@@ -534,17 +513,14 @@ impl OpenAiResponsesEventConverter {
 
         let encrypted_content = self.reasoning_encrypted_content(item_id);
 
-        Some(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-start".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-start",
-                "id": id,
-                "providerMetadata": self.provider_metadata_json(serde_json::json!({
+        Some(crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningStart {
+                id,
+                provider_metadata: self.reasoning_part_provider_metadata(serde_json::json!({
                     "itemId": item_id,
-                    // Vercel alignment: always include the key for start events.
                     "reasoningEncryptedContent": encrypted_content,
                 })),
-            }),
+            },
         })
     }
 
@@ -575,16 +551,14 @@ impl OpenAiResponsesEventConverter {
                     self.mark_reasoning_start_emitted(&id);
                 }
 
-                Some(crate::streaming::ChatStreamEvent::Custom {
-                    event_type: "openai:reasoning-delta".to_string(),
-                    data: serde_json::json!({
-                        "type": "reasoning-delta",
-                        "id": id,
-                        "delta": delta,
-                        "providerMetadata": self.provider_metadata_json(serde_json::json!({
-                            "itemId": item_id,
-                        })),
-                    }),
+                Some(crate::streaming::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ReasoningDelta {
+                        id,
+                        delta: delta.to_string(),
+                        provider_metadata: self.reasoning_part_provider_metadata(
+                            serde_json::json!({ "itemId": item_id }),
+                        ),
+                    },
                 })
             }
             StreamPartsStyle::Xai => {
@@ -593,13 +567,14 @@ impl OpenAiResponsesEventConverter {
                     self.mark_reasoning_start_emitted(&id);
                 }
 
-                Some(crate::streaming::ChatStreamEvent::Custom {
-                    event_type: "openai:reasoning-delta".to_string(),
-                    data: serde_json::json!({
-                        "type": "reasoning-delta",
-                        "id": id,
-                        "delta": delta,
-                    }),
+                Some(crate::streaming::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ReasoningDelta {
+                        id,
+                        delta: delta.to_string(),
+                        provider_metadata: self.reasoning_part_provider_metadata(
+                            serde_json::json!({ "itemId": item_id }),
+                        ),
+                    },
                 })
             }
         }
@@ -630,15 +605,39 @@ impl OpenAiResponsesEventConverter {
             if self.has_emitted_reasoning_end(&id) {
                 return None;
             }
+            let mut events = Vec::new();
+            if !self.has_emitted_reasoning_start(&id) {
+                self.mark_reasoning_start_emitted(&id);
+                events.push(crate::streaming::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ReasoningStart {
+                        id: id.clone(),
+                        provider_metadata: self.reasoning_part_provider_metadata(
+                            serde_json::json!({
+                                "itemId": item_id,
+                            }),
+                        ),
+                    },
+                });
+            }
             self.mark_reasoning_end_emitted(&id);
+            let provider_metadata = if let Some(enc) = encrypted_content.as_ref() {
+                serde_json::json!({
+                    "itemId": item_id,
+                    "reasoningEncryptedContent": enc,
+                })
+            } else {
+                serde_json::json!({
+                    "itemId": item_id,
+                })
+            };
+            events.push(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ReasoningEnd {
+                    id,
+                    provider_metadata: self.reasoning_part_provider_metadata(provider_metadata),
+                },
+            });
 
-            return Some(vec![crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:reasoning-end".to_string(),
-                data: serde_json::json!({
-                    "type": "reasoning-end",
-                    "id": id,
-                }),
-            }]);
+            return Some(events);
         }
 
         let summary_len = item
@@ -658,23 +657,21 @@ impl OpenAiResponsesEventConverter {
 
             // Vercel alignment: omit reasoningEncryptedContent when it is null/absent.
             let provider_metadata = if let Some(enc) = encrypted_content.as_ref() {
-                self.provider_metadata_json(serde_json::json!({
+                serde_json::json!({
                     "itemId": item_id,
                     "reasoningEncryptedContent": enc,
-                }))
+                })
             } else {
-                self.provider_metadata_json(serde_json::json!({
+                serde_json::json!({
                     "itemId": item_id,
-                }))
+                })
             };
 
-            events.push(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:reasoning-end".to_string(),
-                data: serde_json::json!({
-                    "type": "reasoning-end",
-                    "id": id,
-                    "providerMetadata": provider_metadata,
-                }),
+            events.push(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ReasoningEnd {
+                    id,
+                    provider_metadata: self.reasoning_part_provider_metadata(provider_metadata),
+                },
             });
         }
 
@@ -702,15 +699,15 @@ impl OpenAiResponsesEventConverter {
                 .map(|s| format!("ann:url:{s}"))
                 .unwrap_or_else(|| format!("ann:url:{url}"));
 
-            return Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:source".to_string(),
-                data: serde_json::json!({
-                    "type": "source",
-                    "sourceType": "url",
-                    "id": id,
-                    "url": url,
-                    "title": title,
-                }),
+            return Some(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::Source {
+                    id,
+                    source: crate::types::SourcePart::Url {
+                        url: url.to_string(),
+                        title: title.map(ToString::to_string),
+                    },
+                    provider_metadata: None,
+                },
             });
         }
 
@@ -733,38 +730,42 @@ impl OpenAiResponsesEventConverter {
 
             let title = quote.unwrap_or(filename);
             let start_index = annotation.get("start_index").and_then(|v| v.as_u64());
+            let annotation_index = json.get("annotation_index").and_then(|v| v.as_u64());
             let id = start_index
                 .map(|s| format!("ann:doc:{s}"))
+                .or_else(|| annotation_index.map(|idx| format!("ann:doc:{file_id}:{idx}")))
                 .unwrap_or_else(|| format!("ann:doc:{file_id}"));
 
             let provider_metadata = match ann_type {
-                "file_citation" => {
-                    self.provider_metadata_json(serde_json::json!({ "fileId": file_id }))
-                }
-                "container_file_citation" => self.provider_metadata_json(serde_json::json!({
+                "file_citation" => self.part_provider_metadata(serde_json::json!({
+                    "type": "file_citation",
+                    "fileId": file_id,
+                    "index": annotation.get("index").cloned().unwrap_or(serde_json::Value::Null),
+                })),
+                "container_file_citation" => self.part_provider_metadata(serde_json::json!({
+                    "type": "container_file_citation",
                     "fileId": file_id,
                     "containerId": annotation.get("container_id").cloned().unwrap_or(serde_json::Value::Null),
                     "index": annotation.get("index").cloned().unwrap_or(serde_json::Value::Null),
                 })),
-                "file_path" => self.provider_metadata_json(serde_json::json!({
+                "file_path" => self.part_provider_metadata(serde_json::json!({
+                    "type": "file_path",
                     "fileId": file_id,
                     "index": annotation.get("index").cloned().unwrap_or(serde_json::Value::Null),
                 })),
-                _ => serde_json::Value::Null,
+                _ => None,
             };
 
-            return Some(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:source".to_string(),
-                data: serde_json::json!({
-                    "type": "source",
-                    "sourceType": "document",
-                    "id": id,
-                    "url": file_id,
-                    "title": title,
-                    "mediaType": media_type,
-                    "filename": filename,
-                    "providerMetadata": provider_metadata,
-                }),
+            return Some(crate::streaming::ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::Source {
+                    id,
+                    source: crate::types::SourcePart::Document {
+                        media_type: media_type.to_string(),
+                        title: title.to_string(),
+                        filename: Some(filename.to_string()),
+                    },
+                    provider_metadata,
+                },
             });
         }
 
@@ -1185,6 +1186,12 @@ impl OpenAiResponsesEventConverter {
                 let tool_name = self.custom_tool_name_for_call_name(call_name);
                 self.record_custom_tool_item(tool_call_id, call_name, &tool_name);
 
+                if self.stream_parts_style == StreamPartsStyle::Xai {
+                    // AI SDK xAI alignment: defer tool-input-* and tool-call emission until
+                    // `response.output_item.done`, using the finalized input string.
+                    return None;
+                }
+
                 if self.mark_custom_tool_input_start_emitted(tool_call_id) {
                     return Some(vec![self.openai_tool_input_start_event(
                         tool_call_id,
@@ -1211,7 +1218,13 @@ impl OpenAiResponsesEventConverter {
                     ("web_search", serde_json::Value::String(args.to_string()))
                 }
             }
-            "file_search_call" => ("file_search", serde_json::json!("{}")),
+            "file_search_call" => {
+                let input = match self.stream_parts_style {
+                    StreamPartsStyle::OpenAi => serde_json::json!("{}"),
+                    StreamPartsStyle::Xai => serde_json::json!(""),
+                };
+                ("file_search", input)
+            }
             "computer_call" => ("computer_use", serde_json::json!("")),
             "code_interpreter_call" => {
                 let container_id = item.get("container_id").and_then(|v| v.as_str());
@@ -1236,23 +1249,39 @@ impl OpenAiResponsesEventConverter {
 
         let mut events: Vec<crate::streaming::ChatStreamEvent> = Vec::new();
 
-        // Vercel alignment: webSearch emits tool-input-start/end even with empty input.
-        if item_type == "web_search_call" && self.mark_web_search_tool_input_emitted(tool_call_id) {
-            events.push(
-                self.openai_tool_input_start_event(
-                    tool_call_id,
-                    &tool_name,
-                    self.include_web_search_provider_executed_in_tool_input
-                        .then_some(true),
-                    None,
-                    None,
-                    None,
-                ),
-            );
+        let emit_provider_tool_input = match item_type {
+            "web_search_call" => self.mark_web_search_tool_input_emitted(tool_call_id),
+            "file_search_call" if self.stream_parts_style == StreamPartsStyle::Xai => {
+                self.mark_web_search_tool_input_emitted(tool_call_id)
+            }
+            _ => false,
+        };
 
-            if self.emit_web_search_tool_input_delta
-                && let serde_json::Value::String(delta) = &input
-            {
+        // Vercel alignment:
+        // - webSearch emits tool-input-start/end even with empty input
+        // - xAI file_search also emits empty tool-input-* lifecycle events before tool-call
+        if emit_provider_tool_input {
+            let provider_executed = if item_type == "web_search_call" {
+                self.include_web_search_provider_executed_in_tool_input
+                    .then_some(true)
+            } else {
+                None
+            };
+            events.push(self.openai_tool_input_start_event(
+                tool_call_id,
+                &tool_name,
+                provider_executed,
+                None,
+                None,
+                None,
+            ));
+
+            let should_emit_delta = match item_type {
+                "web_search_call" => self.emit_web_search_tool_input_delta,
+                "file_search_call" if self.stream_parts_style == StreamPartsStyle::Xai => true,
+                _ => false,
+            };
+            if should_emit_delta && let serde_json::Value::String(delta) = &input {
                 events.push(self.openai_tool_input_delta_event(tool_call_id, delta));
             }
 
@@ -1294,12 +1323,45 @@ impl OpenAiResponsesEventConverter {
 
             let call_name = item.get("name").and_then(|v| v.as_str()).unwrap_or("");
             let tool_name = self.custom_tool_name_for_call_name(call_name);
-            let input = item.get("input").and_then(|v| v.as_str()).unwrap_or("");
+            let input = item
+                .get("input")
+                .and_then(|v| v.as_str())
+                .filter(|value| !value.is_empty())
+                .map(str::to_string)
+                .or_else(|| self.take_custom_tool_input_by_item_id(tool_call_id))
+                .unwrap_or_default();
+
+            if self.stream_parts_style == StreamPartsStyle::Xai {
+                return Some(vec![
+                    self.openai_tool_input_start_event(
+                        tool_call_id,
+                        &tool_name,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ),
+                    self.openai_tool_input_delta_event(tool_call_id, &input),
+                    self.openai_tool_input_end_event(tool_call_id, None),
+                    self.openai_tool_call_event(
+                        tool_call_id,
+                        &tool_name,
+                        serde_json::json!(input),
+                        Some(true),
+                        None,
+                        None,
+                        OpenAiResponsesEventExtras {
+                            output_index,
+                            raw_item: Some(serde_json::Value::Object(item.clone())),
+                        },
+                    ),
+                ]);
+            }
 
             let mut events = vec![self.openai_tool_call_event(
                 tool_call_id,
                 &tool_name,
-                serde_json::json!(input),
+                serde_json::json!(input.as_str()),
                 Some(true),
                 None,
                 None,
@@ -1466,13 +1528,19 @@ impl OpenAiResponsesEventConverter {
                     }),
                 )
             }
-            "file_search_call" => (
-                "file_search",
-                serde_json::json!({
-                    "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
-                    "status": item.get("status").cloned().unwrap_or_else(|| serde_json::json!("completed")),
-                }),
-            ),
+            "file_search_call" => {
+                let result = match self.stream_parts_style {
+                    StreamPartsStyle::OpenAi => serde_json::json!({
+                        "results": item.get("results").cloned().unwrap_or(serde_json::Value::Null),
+                        "status": item.get("status").cloned().unwrap_or_else(|| serde_json::json!("completed")),
+                    }),
+                    StreamPartsStyle::Xai => serde_json::json!({
+                        "queries": Self::xai_file_search_queries_from_object(item),
+                        "results": Self::xai_file_search_results_from_object(item),
+                    }),
+                };
+                ("file_search", result)
+            }
             "code_interpreter_call" => {
                 // Vercel alignment: codeExecution streams tool input, then emits tool-call, then tool-result.
                 let tool_name = self

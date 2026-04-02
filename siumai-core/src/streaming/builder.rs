@@ -3,7 +3,9 @@
 //! Helper utilities for efficiently building ChatStreamEvent sequences.
 
 use crate::error::LlmError;
-use crate::types::{ChatResponse, ChatStreamEvent, ResponseMetadata, Usage};
+use crate::types::{
+    ChatResponse, ChatStreamEvent, ChatStreamPart, ChatStreamReplay, ResponseMetadata, Usage,
+};
 
 /// Event Builder
 ///
@@ -101,6 +103,19 @@ impl EventBuilder {
     pub fn add_custom_event(mut self, event_type: String, data: serde_json::Value) -> Self {
         self.events
             .push(ChatStreamEvent::Custom { event_type, data });
+        self
+    }
+
+    /// Add a typed stream part event.
+    pub fn add_part(mut self, part: ChatStreamPart) -> Self {
+        self.events.push(ChatStreamEvent::Part { part });
+        self
+    }
+
+    /// Add a typed stream part event with runtime replay hints.
+    pub fn add_part_with_replay(mut self, part: ChatStreamPart, replay: ChatStreamReplay) -> Self {
+        self.events
+            .push(ChatStreamEvent::PartWithReplay { part, replay });
         self
     }
 

@@ -9,7 +9,7 @@
             "toolCallId": "collisionToolCall",
             "toolName": "collider",
             "input": { "num": 42 },
-            "providerMetadata": {
+            "providerOptions": {
               "openaiCompatible": {
                 "cacheControl": { "type": "ephemeral" },
                 "sharedKey": "toolLevel"
@@ -18,12 +18,10 @@
           }
         ]
       },
-      "metadata": {
-        "custom": {
-          "openaiCompatible": {
-            "cacheControl": { "type": "default" },
-            "sharedKey": "assistantLevel"
-          }
+      "providerOptions": {
+        "openaiCompatible": {
+          "cacheControl": { "type": "default" },
+          "sharedKey": "assistantLevel"
         }
       }
     }

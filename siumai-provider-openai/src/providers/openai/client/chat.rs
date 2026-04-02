@@ -31,13 +31,28 @@ fn wrap_handle_with_responses_remote_cancel(
         use futures_util::StreamExt;
         let _done = DoneOnDrop(Some(done_tx));
         while let Some(item) = inner.next().await {
-            if let Ok(crate::types::ChatStreamEvent::Custom { event_type, data }) = item.as_ref()
-                && event_type == "openai:response-metadata"
-                && let Some(id) = data.get("id").and_then(|v| v.as_str())
-            {
+            let response_id_from_event = match item.as_ref() {
+                Ok(crate::types::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ResponseMetadata(metadata),
+                })
+                | Ok(crate::types::ChatStreamEvent::PartWithReplay {
+                    part: crate::types::ChatStreamPart::ResponseMetadata(metadata),
+                    ..
+                }) => metadata.id.clone(),
+                Ok(crate::types::ChatStreamEvent::Custom { event_type, data })
+                    if event_type == "openai:response-metadata" =>
+                {
+                    data.get("id")
+                        .and_then(|v| v.as_str())
+                        .map(ToString::to_string)
+                }
+                _ => None,
+            };
+
+            if let Some(id) = response_id_from_event {
                 let mut g = response_id_for_stream.lock().await;
                 if g.is_none() {
-                    *g = Some(id.to_string());
+                    *g = Some(id);
                 }
             }
             yield item;
@@ -426,10 +441,20 @@ mod tests {
         // Wait until we see response metadata (so the response id is known), then cancel.
         while let Some(item) = stream.next().await {
             let ev = item.unwrap();
-            if let crate::types::ChatStreamEvent::Custom { event_type, .. } = ev {
-                if event_type == "openai:response-metadata" {
+            match ev {
+                crate::types::ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ResponseMetadata(_),
+                }
+                | crate::types::ChatStreamEvent::PartWithReplay {
+                    part: crate::types::ChatStreamPart::ResponseMetadata(_),
+                    ..
+                } => break,
+                crate::types::ChatStreamEvent::Custom { event_type, .. }
+                    if event_type == "openai:response-metadata" =>
+                {
                     break;
                 }
+                _ => {}
             }
         }
 

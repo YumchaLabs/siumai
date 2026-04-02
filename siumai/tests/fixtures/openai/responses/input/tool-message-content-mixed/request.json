@@ -12,8 +12,8 @@
               "type": "content",
               "value": [
                 { "type": "text", "text": "The weather in San Francisco is 72°F" },
-                { "type": "file", "media_type": "image/png", "data": "base64_data" },
-                { "type": "file", "media_type": "application/pdf", "data": "AQIDBAU=" }
+                { "type": "image-data", "media_type": "image/png", "data": "base64_data" },
+                { "type": "file-data", "media_type": "application/pdf", "data": "AQIDBAU=" }
               ]
             }
           }

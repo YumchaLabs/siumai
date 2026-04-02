@@ -7,7 +7,7 @@
           {
             "type": "reasoning",
             "text": "",
-            "providerMetadata": {
+            "providerOptions": {
               "openai": {
                 "itemId": "reasoning_001",
                 "reasoningEncryptedContent": "encrypted_content_001"

@@ -1,0 +1,14 @@
+{
+  "model": "gpt-5-nano",
+  "input": [
+    {
+      "type": "function_call_output",
+      "call_id": "call_456",
+      "output": [
+        { "type": "input_text", "text": "Provider keyed attachments" },
+        { "type": "input_image", "file_id": "assistant-img-openai" },
+        { "type": "input_file", "file_id": "file-pdf-openai" }
+      ]
+    }
+  ]
+}

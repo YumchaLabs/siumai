@@ -15,7 +15,9 @@
 #![allow(unsafe_code)]
 
 use siumai::prelude::unified::LlmError;
-use siumai::prelude::unified::{ChatMessage, MessageContent, MessageRole, ProviderType};
+use siumai::prelude::unified::{
+    ChatMessage, MessageContent, MessageRole, ProviderOptionsMap, ProviderType,
+};
 use siumai::provider::SiumaiBuilder;
 
 /// Test that all providers can be created through the unified interface
@@ -403,6 +405,7 @@ fn test_core_interface_methods() {
     let messages = [ChatMessage {
         role: MessageRole::User,
         content: MessageContent::Text("Hello, world!".to_string()),
+        provider_options: ProviderOptionsMap::default(),
         metadata: Default::default(),
     }];
 

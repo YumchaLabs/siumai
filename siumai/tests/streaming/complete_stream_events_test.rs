@@ -13,13 +13,31 @@ use siumai::experimental::standards::openai::compat::types::{
     FieldMappings, ModelConfig, RequestType,
 };
 use siumai::prelude::unified::{
-    ChatStreamEvent, JsonEventConverter, LlmError, ProviderCapabilities, SseEventConverter,
+    ChatStreamEvent, ChatStreamPart, JsonEventConverter, LlmError, ProviderCapabilities,
+    SseEventConverter,
 };
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::providers::anthropic::streaming::AnthropicEventConverter;
 #[cfg(feature = "ollama")]
 use siumai_provider_ollama::providers::ollama::streaming::OllamaEventConverter;
 use std::sync::Arc;
+
+fn text_deltas(events: &[ChatStreamEvent]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.clone()),
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta { delta, .. },
+            }
+            | ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::TextDelta { delta, .. },
+                ..
+            } => Some(delta.clone()),
+            _ => None,
+        })
+        .collect()
+}
 
 fn make_openai_converter() -> OpenAiCompatibleEventConverter {
     #[derive(Debug, Clone)]
@@ -161,29 +179,15 @@ async fn test_complete_openai_stream_sequence() {
         _ => panic!("Expected StreamStart as first event"),
     }
 
-    // 2. Content delta from first event (now generated alongside StreamStart)
-    match &results[1] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, "Hello");
-        }
-        _ => panic!("Expected ContentDelta"),
-    }
-
-    // 3. Content delta from second event
-    match &results[2] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, " world");
-        }
-        _ => panic!("Expected ContentDelta"),
-    }
-
-    // 4. Third content delta
-    match &results[3] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, "!");
-        }
-        _ => panic!("Expected ContentDelta"),
-    }
+    let deltas = text_deltas(&results);
+    assert!(
+        deltas.len() >= 3,
+        "Expected at least three text deltas, got {:?}",
+        deltas
+    );
+    assert_eq!(deltas[0], "Hello");
+    assert_eq!(deltas[1], " world");
+    assert_eq!(deltas[2], "!");
 
     // 5. Tool call start (find first ToolCallDelta)
     if let Some(tc_pos) = results
@@ -223,9 +227,9 @@ async fn test_complete_openai_stream_sequence() {
         .expect("Expected a UsageUpdate event");
     match &results[usage_pos] {
         ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.prompt_tokens, 10);
-            assert_eq!(usage.completion_tokens, 20);
-            assert_eq!(usage.total_tokens, 30);
+            assert_eq!(usage.prompt_tokens(), Some(10));
+            assert_eq!(usage.completion_tokens(), Some(20));
+            assert_eq!(usage.total_tokens(), Some(30));
         }
         _ => panic!("Expected UsageUpdate"),
     }
@@ -261,8 +265,11 @@ async fn test_stream_event_ordering() {
         }
     }
 
-    // With multi-event architecture, first event generates StreamStart + ContentDelta
-    assert_eq!(results.len(), 3);
+    assert!(
+        results.len() >= 3,
+        "Expected at least three events, got {}",
+        results.len()
+    );
 
     // First result should be StreamStart (even without metadata in first event)
     match &results[0] {
@@ -275,21 +282,17 @@ async fn test_stream_event_ordering() {
         _ => panic!("Expected StreamStart as first event"),
     }
 
-    // Second result should be ContentDelta from first event
-    match &results[1] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, "Hello");
-        }
-        _ => panic!("Expected ContentDelta as second event"),
-    }
+    assert_eq!(
+        results
+            .iter()
+            .filter(|event| matches!(event, ChatStreamEvent::StreamStart { .. }))
+            .count(),
+        1,
+        "Expected exactly one StreamStart"
+    );
 
-    // Third result should be ContentDelta from second event
-    match &results[2] {
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            assert_eq!(delta, " world");
-        }
-        _ => panic!("Expected ContentDelta as third event"),
-    }
+    let deltas = text_deltas(&results);
+    assert_eq!(deltas, vec!["Hello".to_string(), " world".to_string()]);
 }
 
 #[tokio::test]
@@ -373,13 +376,7 @@ async fn test_complete_anthropic_stream_sequence() {
     }
 
     // Should have content deltas
-    let content_deltas: Vec<_> = results
-        .iter()
-        .filter_map(|event| match event {
-            ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.clone()),
-            _ => None,
-        })
-        .collect();
+    let content_deltas = text_deltas(&results);
 
     assert!(!content_deltas.is_empty(), "Should have content deltas");
     assert!(content_deltas.contains(&"Hello".to_string()));
@@ -452,8 +449,8 @@ async fn test_complete_ollama_stream_sequence() {
     // 5. Usage update (final chunk)
     match &results[4] {
         ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.prompt_tokens, 10);
-            assert_eq!(usage.completion_tokens, 20);
+            assert_eq!(usage.prompt_tokens(), Some(10));
+            assert_eq!(usage.completion_tokens(), Some(20));
         }
         _ => panic!("Expected UsageUpdate"),
     }

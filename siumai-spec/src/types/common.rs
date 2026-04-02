@@ -15,13 +15,28 @@ use serde::{Deserialize, Serialize};
 /// ```rust
 /// use siumai::types::Warning;
 ///
-/// let warning = Warning::unsupported_setting("topK", Some("This provider doesn't support topK"));
+/// let warning = Warning::unsupported("topK", Some("This provider doesn't support topK"));
 /// let tool_warning = Warning::unsupported_tool("calculator", Some("This model doesn't support custom tools"));
+/// let compatibility_warning = Warning::compatibility(
+///     "systemMessageMode=remove",
+///     Some("System messages are removed for this model"),
+/// );
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Warning {
+    /// An unsupported feature was provided.
+    Unsupported {
+        /// The unsupported feature name.
+        feature: String,
+        /// Optional details about why it's unsupported.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+    },
     /// An unsupported setting was provided
+    ///
+    /// Legacy compatibility variant. Prefer `Unsupported { feature }` for new
+    /// warnings.
     UnsupportedSetting {
         /// The name of the unsupported setting
         setting: String,
@@ -30,10 +45,21 @@ pub enum Warning {
         details: Option<String>,
     },
     /// An unsupported tool was provided
+    ///
+    /// Legacy compatibility variant. Prefer `Unsupported { feature }` for new
+    /// warnings.
     UnsupportedTool {
         /// The name of the unsupported tool
         tool_name: String,
         /// Optional details about why it's unsupported
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+    },
+    /// A compatibility warning indicating behavior differs from the ideal contract
+    Compatibility {
+        /// The feature or behavior with compatibility caveats
+        feature: String,
+        /// Optional details about the compatibility adjustment
         #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<String>,
     },
@@ -45,15 +71,20 @@ pub enum Warning {
 }
 
 impl Warning {
+    /// Create an unsupported warning using the AI SDK-style shared shape.
+    pub fn unsupported(feature: impl Into<String>, details: Option<impl Into<String>>) -> Self {
+        Self::Unsupported {
+            feature: feature.into(),
+            details: details.map(|d| d.into()),
+        }
+    }
+
     /// Create an unsupported setting warning
     pub fn unsupported_setting(
         setting: impl Into<String>,
         details: Option<impl Into<String>>,
     ) -> Self {
-        Self::UnsupportedSetting {
-            setting: setting.into(),
-            details: details.map(|d| d.into()),
-        }
+        Self::unsupported(setting, details)
     }
 
     /// Create an unsupported tool warning
@@ -61,8 +92,13 @@ impl Warning {
         tool_name: impl Into<String>,
         details: Option<impl Into<String>>,
     ) -> Self {
-        Self::UnsupportedTool {
-            tool_name: tool_name.into(),
+        Self::unsupported(tool_name, details)
+    }
+
+    /// Create a compatibility warning
+    pub fn compatibility(feature: impl Into<String>, details: Option<impl Into<String>>) -> Self {
+        Self::Compatibility {
+            feature: feature.into(),
             details: details.map(|d| d.into()),
         }
     }
@@ -206,24 +242,94 @@ pub enum FinishReason {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseMetadata {
     /// Response ID
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
-    /// Model name
+    /// AI SDK-style model identifier.
+    #[serde(
+        rename = "modelId",
+        alias = "model",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub model: Option<String>,
-    /// Creation time
+    /// AI SDK-style response start timestamp.
+    #[serde(
+        rename = "timestamp",
+        alias = "created",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub created: Option<chrono::DateTime<chrono::Utc>>,
     /// Provider name
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub provider: String,
     /// Request ID
+    #[serde(
+        rename = "requestId",
+        alias = "request_id",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub request_id: Option<String>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::ProviderType;
+    use super::{ProviderType, Warning};
 
     #[test]
     fn provider_type_maps_deepseek_name() {
         assert_eq!(ProviderType::from_name("deepseek"), ProviderType::DeepSeek);
         assert_eq!(ProviderType::DeepSeek.to_string(), "deepseek");
+    }
+
+    #[test]
+    fn compatibility_warning_serializes_with_vercel_shape() {
+        let warning = Warning::compatibility(
+            "systemMessageMode=remove",
+            Some("system messages are removed for this model"),
+        );
+
+        let value = serde_json::to_value(&warning).expect("serialize warning");
+        assert_eq!(value["type"], serde_json::json!("compatibility"));
+        assert_eq!(
+            value["feature"],
+            serde_json::json!("systemMessageMode=remove")
+        );
+        assert_eq!(
+            value["details"],
+            serde_json::json!("system messages are removed for this model")
+        );
+    }
+
+    #[test]
+    fn unsupported_warning_serializes_with_vercel_shape() {
+        let warning = Warning::unsupported_setting(
+            "size",
+            Some("This model does not support the `size` option."),
+        );
+
+        let value = serde_json::to_value(&warning).expect("serialize warning");
+        assert_eq!(value["type"], serde_json::json!("unsupported"));
+        assert_eq!(value["feature"], serde_json::json!("size"));
+        assert_eq!(
+            value["details"],
+            serde_json::json!("This model does not support the `size` option.")
+        );
+    }
+
+    #[test]
+    fn legacy_unsupported_setting_shape_still_deserializes() {
+        let value = serde_json::json!({
+            "type": "unsupported-setting",
+            "setting": "topK",
+            "details": "provider does not support topK"
+        });
+
+        let warning = serde_json::from_value::<Warning>(value).expect("deserialize warning");
+        assert_eq!(
+            warning,
+            Warning::UnsupportedSetting {
+                setting: "topK".to_string(),
+                details: Some("provider does not support topK".to_string()),
+            }
+        );
     }
 }

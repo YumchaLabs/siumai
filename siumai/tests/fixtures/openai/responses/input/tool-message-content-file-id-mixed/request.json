@@ -1,0 +1,39 @@
+{
+  "messages": [
+    {
+      "role": "tool",
+      "content": {
+        "MultiModal": [
+          {
+            "type": "tool-result",
+            "toolCallId": "call_123",
+            "toolName": "search",
+            "output": {
+              "type": "content",
+              "value": [
+                { "type": "text", "text": "Tool generated attachments" },
+                { "type": "image-file-id", "fileId": "assistant-img-abc123" },
+                { "type": "file-id", "fileId": "file-pdf-xyz789" }
+              ]
+            }
+          }
+        ]
+      },
+      "metadata": {}
+    }
+  ],
+  "common_params": {
+    "model": "gpt-5-nano",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "stop_sequences": null,
+    "seed": null,
+    "response_format": null,
+    "reasoning_effort": null,
+    "reasoning_enabled": null,
+    "reasoning_budget": null
+  },
+  "stream": false
+}

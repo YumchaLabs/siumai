@@ -7,5 +7,5 @@ mod tool_result;
 
 pub use media::{ImageDetail, MediaSource};
 pub use message_content::MessageContent;
-pub use part::ContentPart;
-pub use tool_result::{ToolResultContentPart, ToolResultOutput};
+pub use part::{ContentPart, SourcePart};
+pub use tool_result::{ToolResultContentPart, ToolResultFileId, ToolResultOutput};

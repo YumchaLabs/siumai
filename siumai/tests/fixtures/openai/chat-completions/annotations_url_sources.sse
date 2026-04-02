@@ -1,0 +1,7 @@
+data: {"id":"chatcmpl-annotations-1","model":"gpt-4o-mini","created":1731234567,"choices":[{"index":0,"delta":{"role":"assistant"}}]}
+
+data: {"choices":[{"index":0,"delta":{"content":"Rust uses ownership for memory safety."}}]}
+
+data: {"choices":[{"index":0,"delta":{"annotations":[{"type":"url_citation","url_citation":{"url":"https://example.com/rust","title":"Rust"}},{"type":"url_citation","url_citation":{"url":"https://example.com/book","title":"Book"}}]}}]}
+
+data: {"choices":[{"index":0,"finish_reason":"stop"}]}

@@ -7,7 +7,7 @@
           {
             "type": "reasoning",
             "text": "",
-            "providerMetadata": { "openai": { "itemId": "reasoning_001" } }
+            "providerOptions": { "openai": { "itemId": "reasoning_001" } }
           }
         ]
       },

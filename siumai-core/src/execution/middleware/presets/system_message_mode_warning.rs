@@ -37,7 +37,10 @@ impl SystemMessageModeWarningMiddleware {
 
     fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
         if Self::system_message_mode(req) == Some("remove") && Self::has_system_messages(req) {
-            vec![Warning::other("system messages are removed for this model")]
+            vec![Warning::compatibility(
+                "systemMessageMode=remove",
+                Some("system messages are removed for this model"),
+            )]
         } else {
             Vec::new()
         }
@@ -76,5 +79,36 @@ impl LanguageModelMiddleware for SystemMessageModeWarningMiddleware {
             }
             other => Ok(vec![other]),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{ChatMessage, MessageContent};
+
+    #[test]
+    fn post_generate_emits_compatibility_warning_for_system_message_removal() {
+        let req = ChatRequest::new(vec![
+            ChatMessage::system("sys").build(),
+            ChatMessage::user("hi").build(),
+        ])
+        .with_provider_option(
+            "openai",
+            serde_json::json!({ "systemMessageMode": "remove" }),
+        );
+
+        let resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
+        let resp = SystemMessageModeWarningMiddleware::new()
+            .post_generate(&req, resp)
+            .expect("post-generate");
+
+        assert_eq!(
+            resp.warnings,
+            Some(vec![Warning::Compatibility {
+                feature: "systemMessageMode=remove".to_string(),
+                details: Some("system messages are removed for this model".to_string()),
+            }])
+        );
     }
 }

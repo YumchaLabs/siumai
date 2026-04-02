@@ -103,26 +103,23 @@ fn openai_responses_public_feature_surface_roundtrips_mcp_tool_stream_parts() {
 
     let provider_tool_calls = events
         .iter()
-        .filter_map(|event| match event {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-call"))
-                    && data.get("toolName") == Some(&serde_json::json!("mcp.web_search_exa"))
-                    && data.get("providerExecuted") == Some(&serde_json::json!(true)) =>
+        .filter_map(|event| match event.part_ref() {
+            Some(siumai_protocol_openai::types::ChatStreamPart::ToolCall(call))
+                if call.tool_name == "mcp.web_search_exa"
+                    && call.provider_executed == Some(true) =>
             {
-                Some(data)
+                Some(call)
             }
             _ => None,
         })
         .count();
     let provider_tool_results = events
         .iter()
-        .filter_map(|event| match event {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-result"))
-                    && data.get("toolName") == Some(&serde_json::json!("mcp.web_search_exa"))
-                    && data.get("providerExecuted") == Some(&serde_json::json!(true)) =>
+        .filter_map(|event| match event.part_ref() {
+            Some(siumai_protocol_openai::types::ChatStreamPart::ToolResult(result))
+                if result.tool_name == "mcp.web_search_exa" =>
             {
-                Some(data)
+                Some(result)
             }
             _ => None,
         })

@@ -8,7 +8,9 @@
         "toolName": "shell",
         "input": "{\"action\":{\"commands\":[\"cd ~ && pwd\",\"cd ~/Desktop && pwd\",\"cd ~/Desktop && echo 'THIS WORKS!' > dec1.txt && ls -l dec1.txt && cat dec1.txt\"]}}",
         "providerMetadata": {
-          "openai": { "itemId": "sh_0f0d479976b1e9a600692f61bec0e08197a0864dc5ddf1d38c" }
+          "openai": {
+            "itemId": "sh_0f0d479976b1e9a600692f61bec0e08197a0864dc5ddf1d38c"
+          }
         }
       }
     ]
@@ -20,9 +22,40 @@
     "total_tokens": 230,
     "cached_tokens": 0,
     "reasoning_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 },
-    "completion_tokens_details": { "reasoning_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "inputTokens": {
+      "total": 157,
+      "noCache": 157,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 73,
+      "text": 73,
+      "reasoning": 0
+    },
+    "raw": {
+      "input_tokens": 157,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 73,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 230
+    }
   },
   "finish_reason": "stop",
-  "service_tier": "default"
+  "service_tier": "default",
+  "provider_metadata": {
+    "openai": {
+      "responseId": "resp_0f0d479976b1e9a600692f61be5948819783b655c7a54af2a2",
+      "serviceTier": "default"
+    }
+  }
 }

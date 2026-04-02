@@ -14,7 +14,12 @@
       },
       {
         "type": "text",
-        "text": "12 + 7 = 19\n19 × 3 = 57\n57 × 10 = 570\n\nFinal result: 570"
+        "text": "12 + 7 = 19\n19 × 3 = 57\n57 × 10 = 570\n\nFinal result: 570",
+        "providerMetadata": {
+          "openai": {
+            "itemId": "msg_0f35ed53160b395301693cc95c1d288190997018450969162b"
+          }
+        }
       }
     ]
   },
@@ -30,13 +35,35 @@
     },
     "completion_tokens_details": {
       "reasoning_tokens": 128
+    },
+    "inputTokens": {
+      "total": 865,
+      "noCache": 865,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 163,
+      "text": 35,
+      "reasoning": 128
+    },
+    "raw": {
+      "input_tokens": 865,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 163,
+      "output_tokens_details": {
+        "reasoning_tokens": 128
+      },
+      "total_tokens": 1028
     }
   },
   "finish_reason": "stop",
   "service_tier": "default",
   "provider_metadata": {
     "openai": {
-      "itemId": "msg_0f35ed53160b395301693cc95c1d288190997018450969162b"
+      "responseId": "resp_0f35ed53160b395301693cc957829881909359e7f80cdd20b5",
+      "serviceTier": "default"
     }
   }
 }

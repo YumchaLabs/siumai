@@ -16,7 +16,7 @@ use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
     ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, FinishReason,
-    ImageGenerationRequest, ImageGenerationResponse, MessageContent, Usage,
+    ImageGenerationRequest, ImageGenerationResponse, MessageContent, SourcePart,
 };
 use eventsource_stream::Event;
 use std::future::Future;
@@ -178,6 +178,20 @@ impl ResponseTransformer for CompatResponseTransformer {
             content: Option<serde_json::Value>,
             tool_calls: Option<Vec<CompatToolCall>>,
             function_call: Option<CompatFunction>,
+            annotations: Option<Vec<CompatAnnotation>>,
+        }
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct CompatAnnotation {
+            #[serde(default, rename = "type")]
+            annotation_type: Option<String>,
+            url_citation: Option<CompatUrlCitation>,
+        }
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct CompatUrlCitation {
+            url: String,
+            title: Option<String>,
         }
         #[allow(dead_code)]
         #[derive(serde::Deserialize)]
@@ -187,13 +201,13 @@ impl ResponseTransformer for CompatResponseTransformer {
             finish_reason: Option<String>,
         }
         #[allow(dead_code)]
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize)]
         struct CompatPromptTokensDetails {
             cached_tokens: Option<u32>,
             audio_tokens: Option<u32>,
         }
         #[allow(dead_code)]
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize)]
         struct CompatCompletionTokensDetails {
             reasoning_tokens: Option<u32>,
             audio_tokens: Option<u32>,
@@ -201,7 +215,7 @@ impl ResponseTransformer for CompatResponseTransformer {
             rejected_prediction_tokens: Option<u32>,
         }
         #[allow(dead_code)]
-        #[derive(serde::Deserialize)]
+        #[derive(serde::Deserialize, serde::Serialize)]
         struct CompatUsage {
             prompt_tokens: Option<u32>,
             completion_tokens: Option<u32>,
@@ -223,6 +237,7 @@ impl ResponseTransformer for CompatResponseTransformer {
 
         let resp: Compat =
             serde_json::from_value(raw.clone()).map_err(|e| LlmError::ParseError(e.to_string()))?;
+        let response_id = resp.id.clone();
 
         // Extract thinking content using adapter field mappings directly from raw JSON
         let mappings = self.adapter.get_field_mappings(&self.config.model);
@@ -248,6 +263,7 @@ impl ResponseTransformer for CompatResponseTransformer {
                         if let Some(text) = p.get("text").and_then(|t| t.as_str()) {
                             out.push(crate::types::ContentPart::Text {
                                 text: text.to_string(),
+                                provider_options: crate::types::ProviderOptionsMap::default(),
                                 provider_metadata: None,
                             });
                         }
@@ -327,6 +343,39 @@ impl ResponseTransformer for CompatResponseTransformer {
             }
         }
 
+        if let Some(annotations) = choice.message.annotations {
+            for (annotation_index, annotation) in annotations.into_iter().enumerate() {
+                let annotation_type = annotation
+                    .annotation_type
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty());
+                if annotation_type.is_some_and(|value| !value.eq_ignore_ascii_case("url_citation"))
+                {
+                    continue;
+                }
+
+                let Some(url_citation) = annotation.url_citation else {
+                    continue;
+                };
+                if url_citation.url.trim().is_empty() {
+                    continue;
+                }
+
+                parts.push(ContentPart::Source {
+                    id: compat_source_part_id(Some(response_id.as_str()), annotation_index),
+                    source: SourcePart::Url {
+                        url: url_citation.url,
+                        title: url_citation
+                            .title
+                            .map(|title| title.trim().to_string())
+                            .filter(|title| !title.is_empty()),
+                    },
+                    provider_metadata: None,
+                });
+            }
+        }
+
         // Add thinking/reasoning
         if let Some(thinking) = thinking_content
             && !thinking.is_empty()
@@ -342,43 +391,10 @@ impl ResponseTransformer for CompatResponseTransformer {
             MessageContent::Text(String::new())
         };
 
-        let usage = resp.usage.map(|u| {
-            let mut builder = Usage::builder()
-                .prompt_tokens(u.prompt_tokens.unwrap_or(0))
-                .completion_tokens(u.completion_tokens.unwrap_or(0))
-                .total_tokens(u.total_tokens.unwrap_or(0));
-
-            // Prefer explicit completion_tokens_details.reasoning_tokens when available,
-            // otherwise fall back to legacy top-level reasoning_tokens.
-            if let Some(details) = &u.prompt_tokens_details {
-                if let Some(cached) = details.cached_tokens {
-                    builder = builder.with_cached_tokens(cached);
-                }
-                if let Some(audio) = details.audio_tokens {
-                    builder = builder.with_prompt_audio_tokens(audio);
-                }
-            }
-
-            if let Some(details) = &u.completion_tokens_details {
-                if let Some(reasoning) = details.reasoning_tokens {
-                    builder = builder.with_reasoning_tokens(reasoning);
-                } else if let Some(reasoning) = u.reasoning_tokens {
-                    builder = builder.with_reasoning_tokens(reasoning);
-                }
-                if let Some(audio) = details.audio_tokens {
-                    builder = builder.with_completion_audio_tokens(audio);
-                }
-                if let Some(accepted) = details.accepted_prediction_tokens {
-                    builder = builder.with_accepted_prediction_tokens(accepted);
-                }
-                if let Some(rejected) = details.rejected_prediction_tokens {
-                    builder = builder.with_rejected_prediction_tokens(rejected);
-                }
-            } else if let Some(reasoning) = u.reasoning_tokens {
-                builder = builder.with_reasoning_tokens(reasoning);
-            }
-
-            builder.build()
+        let usage = resp.usage.and_then(|u| {
+            serde_json::to_value(u)
+                .ok()
+                .and_then(|value| crate::standards::openai::utils::parse_openai_usage_value(&value))
         });
 
         let finish_reason = choice.finish_reason.map(|r| match r.as_str() {
@@ -482,6 +498,13 @@ impl StreamChunkTransformer for CompatStreamChunkTransformer {
 fn provider_allows_tool_call_json_in_text_fallback(provider_id: &str) -> bool {
     provider_id.eq_ignore_ascii_case("siliconflow")
         || provider_id.eq_ignore_ascii_case("siliconcloud")
+}
+
+fn compat_source_part_id(response_id: Option<&str>, index: usize) -> String {
+    match response_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(response_id) => format!("source_{response_id}_{index}"),
+        None => format!("source_{index}"),
+    }
 }
 
 #[cfg(test)]
@@ -717,9 +740,9 @@ mod tests {
         assert_eq!(resp.finish_reason, Some(FinishReason::Stop));
 
         let usage = resp.usage.expect("usage");
-        assert_eq!(usage.prompt_tokens, 11);
-        assert_eq!(usage.completion_tokens, 7);
-        assert_eq!(usage.total_tokens, 18);
+        assert_eq!(usage.prompt_tokens(), Some(11));
+        assert_eq!(usage.completion_tokens(), Some(7));
+        assert_eq!(usage.total_tokens(), Some(18));
         assert_eq!(
             usage
                 .prompt_tokens_details
@@ -761,6 +784,71 @@ mod tests {
                 .as_ref()
                 .and_then(|details| details.rejected_prediction_tokens),
             Some(6)
+        );
+
+        let provider_metadata = resp.provider_metadata.expect("provider metadata");
+        let openai = provider_metadata.get("openai").expect("openai metadata");
+        assert_eq!(
+            openai.get("acceptedPredictionTokens"),
+            Some(&serde_json::json!(5))
+        );
+        assert_eq!(
+            openai.get("rejectedPredictionTokens"),
+            Some(&serde_json::json!(6))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_transformer_exposes_annotations_as_source_parts() {
+        let adapter = Arc::new(DummyAdapter);
+        let config = OpenAiCompatibleConfig::new(
+            "openai",
+            "test-key",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-4.1-mini");
+
+        let tx = CompatResponseTransformer { config, adapter };
+
+        let raw = serde_json::json!({
+            "id": "chatcmpl_123",
+            "model": "gpt-4.1-mini",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "hello",
+                    "annotations": [
+                        {
+                            "type": "url_citation",
+                            "url_citation": {
+                                "url": "https://example.com/rust",
+                                "title": "Rust"
+                            }
+                        }
+                    ]
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let parts = resp.content.as_multimodal().expect("multimodal content");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0].as_text(), Some("hello"));
+
+        let Some((source_id, source)) = parts[1].as_source() else {
+            panic!("expected source part");
+        };
+        assert_eq!(source_id, "source_chatcmpl_123_0");
+        assert_eq!(
+            source,
+            &SourcePart::Url {
+                url: "https://example.com/rust".to_string(),
+                title: Some("Rust".to_string()),
+            }
         );
     }
 }

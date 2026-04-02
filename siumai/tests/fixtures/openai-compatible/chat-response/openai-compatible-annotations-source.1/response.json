@@ -1,0 +1,47 @@
+{
+  "id": "chatcmpl-annotations-1",
+  "object": "chat.completion",
+  "created": 1711115037,
+  "model": "grok-beta",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Here are the cited sources.",
+        "tool_calls": [
+          {
+            "id": "call_weather_1",
+            "type": "function",
+            "function": {
+              "name": "weather$get_weather",
+              "arguments": "{\"city\":\"Hong Kong\"}"
+            }
+          }
+        ],
+        "annotations": [
+          {
+            "type": "url_citation",
+            "url_citation": {
+              "url": "https://example.com/weather",
+              "title": "Weather"
+            }
+          },
+          {
+            "type": "url_citation",
+            "url_citation": {
+              "url": "https://example.com/forecast",
+              "title": "Forecast"
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 9,
+    "total_tokens": 21
+  }
+}

@@ -232,9 +232,9 @@ async fn test_openai_usage_conversion() {
         .find(|event| matches!(event, Ok(ChatStreamEvent::UsageUpdate { .. })));
 
     if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
-        assert_eq!(usage.prompt_tokens, 10);
-        assert_eq!(usage.completion_tokens, 20);
-        assert_eq!(usage.total_tokens, 30);
+        assert_eq!(usage.prompt_tokens(), Some(10));
+        assert_eq!(usage.completion_tokens(), Some(20));
+        assert_eq!(usage.total_tokens(), Some(30));
     } else {
         panic!("Expected UsageUpdate event");
     }
@@ -412,9 +412,9 @@ async fn test_ollama_stream_end() {
         .find(|event| matches!(event, Ok(ChatStreamEvent::UsageUpdate { .. })));
 
     if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
-        assert_eq!(usage.prompt_tokens, 10);
-        assert_eq!(usage.completion_tokens, 20);
-        assert_eq!(usage.total_tokens, 30);
+        assert_eq!(usage.prompt_tokens(), Some(10));
+        assert_eq!(usage.completion_tokens(), Some(20));
+        assert_eq!(usage.total_tokens(), Some(30));
     } else {
         panic!("Expected UsageUpdate event");
     }

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Responses input warning parity middleware now tolerates the expanded reasoning-part stable shape
+  after the request-side `providerOptions` rollout.
+- Responses input warning parity middleware now reads reasoning request state from canonical
+  `providerOptions.openai`, preserves AI SDK-style warning snapshots for malformed reasoning
+  provider options, and stops treating `provider_metadata` as a request-side reasoning carrier.
+- Best-effort remote cancel for streaming Responses now tracks structured
+  `Part(ResponseMetadata)` events in addition to the legacy `openai:response-metadata` custom
+  event, so HTTP and websocket wrappers still call `POST /responses/{id}/cancel` after the
+  stream-part migration.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

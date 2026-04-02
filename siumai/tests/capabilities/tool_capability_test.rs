@@ -106,7 +106,9 @@ async fn test_basic_tool_calling<T: ChatCapability>(client: &T, provider_name: &
             if let Some(usage) = response.usage {
                 println!(
                     "    📊 Usage: {} prompt + {} completion = {} total tokens",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    usage.prompt_tokens().unwrap_or(0),
+                    usage.completion_tokens().unwrap_or(0),
+                    usage.total_tokens().unwrap_or(0)
                 );
             }
         }
@@ -180,9 +182,9 @@ async fn test_streaming_tool_calling<T: ChatCapability>(client: &T, provider_nam
                             if let Some(usage) = response.usage {
                                 println!(
                                     "    📊 Usage: {} prompt + {} completion = {} total tokens",
-                                    usage.prompt_tokens,
-                                    usage.completion_tokens,
-                                    usage.total_tokens
+                                    usage.prompt_tokens().unwrap_or(0),
+                                    usage.completion_tokens().unwrap_or(0),
+                                    usage.total_tokens().unwrap_or(0)
                                 );
                             }
                             break;

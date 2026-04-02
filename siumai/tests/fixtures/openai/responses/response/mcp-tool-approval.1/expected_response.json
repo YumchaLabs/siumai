@@ -33,9 +33,40 @@
     "total_tokens": 526,
     "cached_tokens": 0,
     "reasoning_tokens": 64,
-    "prompt_tokens_details": { "cached_tokens": 0 },
-    "completion_tokens_details": { "reasoning_tokens": 64 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "completion_tokens_details": {
+      "reasoning_tokens": 64
+    },
+    "inputTokens": {
+      "total": 422,
+      "noCache": 422,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 104,
+      "text": 40,
+      "reasoning": 64
+    },
+    "raw": {
+      "input_tokens": 422,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 104,
+      "output_tokens_details": {
+        "reasoning_tokens": 64
+      },
+      "total_tokens": 526
+    }
   },
   "finish_reason": "stop",
-  "service_tier": "default"
+  "service_tier": "default",
+  "provider_metadata": {
+    "openai": {
+      "responseId": "resp_04f6b17429cf2b02006949a66d56088196a2d1b86e820556ce",
+      "serviceTier": "default"
+    }
+  }
 }

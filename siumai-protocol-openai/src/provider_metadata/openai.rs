@@ -43,6 +43,10 @@ pub struct OpenAiSource {
 /// OpenAI-specific source metadata carried on `OpenAiSource.provider_metadata`.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenAiSourceMetadata {
+    /// OpenAI annotation/source discriminator (`file_citation`, `container_file_citation`, `file_path`).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub metadata_type: Option<String>,
+
     /// Provider file id for file/document-backed citations.
     #[serde(skip_serializing_if = "Option::is_none", rename = "fileId")]
     pub file_id: Option<String>,
@@ -59,20 +63,50 @@ pub struct OpenAiSourceMetadata {
 /// OpenAI-specific metadata from chat responses
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenAiMetadata {
+    /// Stable OpenAI Responses response id surfaced via provider metadata.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "responseId")]
+    pub response_id: Option<String>,
+
     /// Number of tokens used for reasoning (o1/o3 models)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_tokens: Option<u32>,
 
+    /// Number of prediction tokens accepted by the model.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "acceptedPredictionTokens"
+    )]
+    pub accepted_prediction_tokens: Option<u32>,
+
+    /// Number of prediction tokens rejected by the model.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "rejectedPredictionTokens"
+    )]
+    pub rejected_prediction_tokens: Option<u32>,
+
     /// System fingerprint for this response
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "systemFingerprint",
+        alias = "system_fingerprint"
+    )]
     pub system_fingerprint: Option<String>,
 
     /// Service tier used for this request
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "serviceTier",
+        alias = "service_tier"
+    )]
     pub service_tier: Option<String>,
 
     /// Revised prompt (for image generation)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "revisedPrompt",
+        alias = "revised_prompt"
+    )]
     pub revised_prompt: Option<String>,
 
     /// Sources extracted from provider-hosted tool results (Vercel-aligned).
@@ -87,9 +121,21 @@ pub struct OpenAiMetadata {
 /// OpenAI-specific metadata attached to unified content parts.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct OpenAiContentPartMetadata {
+    /// OpenAI content/custom discriminator (`compaction`, etc.).
+    #[serde(skip_serializing_if = "Option::is_none", rename = "type")]
+    pub metadata_type: Option<String>,
+
     /// Stable OpenAI item id surfaced on text/reasoning/tool parts.
     #[serde(skip_serializing_if = "Option::is_none", rename = "itemId")]
     pub item_id: Option<String>,
+
+    /// Message phase surfaced on Responses output text parts when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+
+    /// Raw OpenAI output-text annotations preserved on text parts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<Vec<serde_json::Value>>,
 
     /// Encrypted reasoning payload surfaced on reasoning parts when available.
     #[serde(
@@ -97,6 +143,10 @@ pub struct OpenAiContentPartMetadata {
         rename = "reasoningEncryptedContent"
     )]
     pub reasoning_encrypted_content: Option<String>,
+
+    /// Encrypted compaction payload surfaced on compaction custom parts when available.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "encryptedContent")]
+    pub encrypted_content: Option<String>,
 }
 
 impl crate::types::provider_metadata::FromMetadata for OpenAiMetadata {
@@ -114,9 +164,35 @@ pub trait OpenAiChatResponseExt {
 
 impl OpenAiChatResponseExt for crate::types::ChatResponse {
     fn openai_metadata(&self) -> Option<OpenAiMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("openai")?;
-        OpenAiMetadata::from_metadata(meta)
+        let mut meta = self.provider_metadata.as_ref()?.get("openai")?.clone();
+
+        if !meta.contains_key("responseId")
+            && let Some(id) = self.id.clone()
+        {
+            meta.insert("responseId".to_string(), serde_json::Value::String(id));
+        }
+
+        if !meta.contains_key("serviceTier")
+            && !meta.contains_key("service_tier")
+            && let Some(service_tier) = self.service_tier.clone()
+        {
+            meta.insert(
+                "serviceTier".to_string(),
+                serde_json::Value::String(service_tier),
+            );
+        }
+
+        if !meta.contains_key("systemFingerprint")
+            && !meta.contains_key("system_fingerprint")
+            && let Some(system_fingerprint) = self.system_fingerprint.clone()
+        {
+            meta.insert(
+                "systemFingerprint".to_string(),
+                serde_json::Value::String(system_fingerprint),
+            );
+        }
+
+        serde_json::from_value(serde_json::to_value(meta).ok()?).ok()
     }
 }
 
@@ -155,6 +231,12 @@ impl OpenAiContentPartExt for crate::types::ContentPart {
             | ContentPart::File {
                 provider_metadata, ..
             }
+            | ContentPart::ReasoningFile {
+                provider_metadata, ..
+            }
+            | ContentPart::Custom {
+                provider_metadata, ..
+            }
             | ContentPart::ToolCall {
                 provider_metadata, ..
             }
@@ -180,23 +262,33 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn openai_metadata_parses_logprobs() {
+    fn openai_metadata_parses_logprobs_and_prediction_tokens() {
         let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
             "hello".to_string(),
         ));
+        resp.id = Some("resp_123".to_string());
+        resp.service_tier = Some("flex".to_string());
+        resp.system_fingerprint = Some("fp_123".to_string());
 
         let mut inner = HashMap::new();
         inner.insert(
             "logprobs".to_string(),
             serde_json::json!([[{ "token": "N", "logprob": -0.1 }]]),
         );
+        inner.insert("acceptedPredictionTokens".to_string(), serde_json::json!(5));
+        inner.insert("rejectedPredictionTokens".to_string(), serde_json::json!(6));
 
         let mut outer = HashMap::new();
         outer.insert("openai".to_string(), inner);
         resp.provider_metadata = Some(outer);
 
         let meta = resp.openai_metadata().expect("openai metadata");
+        assert_eq!(meta.response_id.as_deref(), Some("resp_123"));
         assert!(meta.logprobs.is_some());
+        assert_eq!(meta.accepted_prediction_tokens, Some(5));
+        assert_eq!(meta.rejected_prediction_tokens, Some(6));
+        assert_eq!(meta.service_tier.as_deref(), Some("flex"));
+        assert_eq!(meta.system_fingerprint.as_deref(), Some("fp_123"));
     }
 
     #[test]
@@ -210,6 +302,7 @@ mod tests {
             media_type: Some("text/plain".to_string()),
             filename: Some("notes.txt".to_string()),
             provider_metadata: Some(serde_json::json!({
+                "type": "container_file_citation",
                 "fileId": "file_123",
                 "containerId": "container_456",
                 "index": 7
@@ -218,15 +311,54 @@ mod tests {
         };
 
         let meta = source.openai_metadata().expect("openai source metadata");
+        assert_eq!(
+            meta.metadata_type.as_deref(),
+            Some("container_file_citation")
+        );
         assert_eq!(meta.file_id.as_deref(), Some("file_123"));
         assert_eq!(meta.container_id.as_deref(), Some("container_456"));
         assert_eq!(meta.index, Some(7));
     }
 
     #[test]
-    fn openai_content_part_metadata_parses_item_id_and_reasoning_payload() {
-        let part = crate::types::ContentPart::Reasoning {
+    fn openai_content_part_metadata_parses_text_phase_annotations_and_reasoning_payloads() {
+        let text_part = crate::types::ContentPart::Text {
+            text: "hello".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({
+                    "itemId": "msg_1",
+                    "phase": "final_answer",
+                    "annotations": [
+                        {
+                            "type": "file_citation",
+                            "file_id": "file_123",
+                            "index": 7
+                        }
+                    ]
+                }),
+            )])),
+        };
+
+        let text_meta =
+            crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(&text_part)
+                .expect("openai text metadata");
+        assert_eq!(text_meta.item_id.as_deref(), Some("msg_1"));
+        assert_eq!(text_meta.phase.as_deref(), Some("final_answer"));
+        assert_eq!(
+            text_meta
+                .annotations
+                .as_ref()
+                .and_then(|annotations| annotations.first())
+                .and_then(|annotation| annotation.get("type"))
+                .and_then(|value| value.as_str()),
+            Some("file_citation")
+        );
+
+        let reasoning_part = crate::types::ContentPart::Reasoning {
             text: "thinking".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
                 serde_json::json!({
@@ -236,9 +368,38 @@ mod tests {
             )])),
         };
 
-        let meta = crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(&part)
+        let reasoning_meta =
+            crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(
+                &reasoning_part,
+            )
             .expect("openai content part metadata");
-        assert_eq!(meta.item_id.as_deref(), Some("rs_1"));
-        assert_eq!(meta.reasoning_encrypted_content.as_deref(), Some("enc_123"));
+        assert_eq!(reasoning_meta.item_id.as_deref(), Some("rs_1"));
+        assert_eq!(
+            reasoning_meta.reasoning_encrypted_content.as_deref(),
+            Some("enc_123")
+        );
+
+        let custom_part = crate::types::ContentPart::Custom {
+            kind: "openai.compaction".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({
+                    "type": "compaction",
+                    "itemId": "cmp_1",
+                    "encryptedContent": "enc_compaction"
+                }),
+            )])),
+        };
+
+        let custom_meta =
+            crate::provider_metadata::openai::OpenAiContentPartExt::openai_metadata(&custom_part)
+                .expect("openai custom metadata");
+        assert_eq!(custom_meta.metadata_type.as_deref(), Some("compaction"));
+        assert_eq!(custom_meta.item_id.as_deref(), Some("cmp_1"));
+        assert_eq!(
+            custom_meta.encrypted_content.as_deref(),
+            Some("enc_compaction")
+        );
     }
 }

@@ -1056,6 +1056,7 @@ mod tests {
         let message = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::Text("Hello".to_string()),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         };
 

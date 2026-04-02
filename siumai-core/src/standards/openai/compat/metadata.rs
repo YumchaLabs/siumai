@@ -29,6 +29,25 @@ fn extract_sources_and_logprobs(
         meta.insert("logprobs".to_string(), logprobs.clone());
     }
 
+    if let Some(usage) = raw
+        .get("usage")
+        .and_then(crate::standards::openai::utils::parse_openai_usage_value)
+        && let Some(details) = usage.completion_tokens_details.as_ref()
+    {
+        if let Some(accepted_prediction_tokens) = details.accepted_prediction_tokens {
+            meta.insert(
+                "acceptedPredictionTokens".to_string(),
+                serde_json::json!(accepted_prediction_tokens),
+            );
+        }
+        if let Some(rejected_prediction_tokens) = details.rejected_prediction_tokens {
+            meta.insert(
+                "rejectedPredictionTokens".to_string(),
+                serde_json::json!(rejected_prediction_tokens),
+            );
+        }
+    }
+
     if meta.is_empty() {
         None
     } else {
@@ -169,12 +188,29 @@ mod tests {
                         "top_logprobs": []
                     }]
                 }
-            }]
+            }],
+            "usage": {
+                "prompt_tokens": 11,
+                "completion_tokens": 7,
+                "total_tokens": 18,
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": 5,
+                    "rejected_prediction_tokens": 6
+                }
+            }
         });
 
         let meta = extract_provider_metadata("openai", &raw).expect("metadata present");
         let openai = meta.get("openai").expect("openai namespace");
         assert_eq!(openai["logprobs"][0]["token"], serde_json::json!("hello"));
+        assert_eq!(
+            openai.get("acceptedPredictionTokens"),
+            Some(&serde_json::json!(5))
+        );
+        assert_eq!(
+            openai.get("rejectedPredictionTokens"),
+            Some(&serde_json::json!(6))
+        );
     }
 
     #[test]

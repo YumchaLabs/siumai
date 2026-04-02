@@ -2,10 +2,315 @@
 //! Streaming event types for real-time responses
 
 use super::chat::ChatResponse;
+use super::chat::SourcePart;
 use crate::error::LlmError;
-use crate::types::{ResponseMetadata, Usage};
+use crate::types::{FinishReason, ResponseMetadata, Usage, Warning};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+/// Provider metadata object keyed by provider name.
+pub type StreamProviderMetadata = HashMap<String, serde_json::Value>;
+
+/// Binary-or-base64 file payload used by stream parts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ChatStreamFileData {
+    Base64(String),
+    Bytes(Vec<u8>),
+}
+
+/// Finish reason payload for stream parts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChatStreamFinishInfo {
+    pub unified: FinishReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
+}
+
+/// Tool approval request part carried during streaming.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChatStreamToolApprovalRequest {
+    #[serde(rename = "approvalId")]
+    pub approval_id: String,
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata"
+    )]
+    pub provider_metadata: Option<StreamProviderMetadata>,
+}
+
+/// Tool call part carried during streaming.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChatStreamToolCall {
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    pub input: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerExecuted"
+    )]
+    pub provider_executed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata"
+    )]
+    pub provider_metadata: Option<StreamProviderMetadata>,
+}
+
+/// Tool result part carried during streaming.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChatStreamToolResult {
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    pub result: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "isError")]
+    pub is_error: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preliminary: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata"
+    )]
+    pub provider_metadata: Option<StreamProviderMetadata>,
+}
+
+/// Custom content part carried during streaming.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChatStreamCustomContent {
+    pub kind: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata"
+    )]
+    pub provider_metadata: Option<StreamProviderMetadata>,
+}
+
+/// Generated file part carried during streaming.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ChatStreamFilePart {
+    #[serde(rename = "mediaType")]
+    pub media_type: String,
+    pub data: ChatStreamFileData,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata"
+    )]
+    pub provider_metadata: Option<StreamProviderMetadata>,
+}
+
+/// Runtime-only replay hints attached to structured stream parts.
+///
+/// These hints are intentionally kept outside `ChatStreamPart` so the stable
+/// AI SDK-aligned part schema stays clean while protocol serializers can still
+/// recover provider-specific wire details when lossless replay matters.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ChatStreamReplay {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "openaiResponses"
+    )]
+    pub openai_responses: Option<ChatStreamOpenAiResponsesReplay>,
+}
+
+/// Replay hints used by the OpenAI Responses SSE serializer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ChatStreamOpenAiResponsesReplay {
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "outputIndex"
+    )]
+    pub output_index: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "rawItem")]
+    pub raw_item: Option<serde_json::Value>,
+}
+
+impl ChatStreamReplay {
+    /// Build an OpenAI Responses replay envelope when at least one hint exists.
+    pub fn openai_responses(
+        output_index: Option<u64>,
+        raw_item: Option<serde_json::Value>,
+    ) -> Option<Self> {
+        let replay = ChatStreamOpenAiResponsesReplay {
+            output_index,
+            raw_item,
+        };
+
+        if replay.output_index.is_none() && replay.raw_item.is_none() {
+            None
+        } else {
+            Some(Self {
+                openai_responses: Some(replay),
+            })
+        }
+    }
+
+    pub fn openai_responses_ref(&self) -> Option<&ChatStreamOpenAiResponsesReplay> {
+        self.openai_responses.as_ref()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.openai_responses.is_none()
+    }
+}
+
+/// Typed AI SDK-aligned stream-part contract available on the runtime event layer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ChatStreamPart {
+    TextStart {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    TextDelta {
+        id: String,
+        delta: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    TextEnd {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    ReasoningStart {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    ReasoningDelta {
+        id: String,
+        delta: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    ReasoningEnd {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    ToolInputStart {
+        id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerExecuted"
+        )]
+        provider_executed: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dynamic: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    ToolInputDelta {
+        id: String,
+        delta: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    ToolInputEnd {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    ToolApprovalRequest(ChatStreamToolApprovalRequest),
+    ToolCall(ChatStreamToolCall),
+    ToolResult(ChatStreamToolResult),
+    Custom(ChatStreamCustomContent),
+    File(ChatStreamFilePart),
+    ReasoningFile(ChatStreamFilePart),
+    Source {
+        id: String,
+        #[serde(flatten)]
+        source: SourcePart,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    StreamStart {
+        warnings: Vec<Warning>,
+    },
+    ResponseMetadata(ResponseMetadata),
+    Finish {
+        usage: Usage,
+        #[serde(rename = "finishReason")]
+        finish_reason: ChatStreamFinishInfo,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata"
+        )]
+        provider_metadata: Option<StreamProviderMetadata>,
+    },
+    Raw {
+        #[serde(rename = "rawValue")]
+        raw_value: serde_json::Value,
+    },
+    Error {
+        error: serde_json::Value,
+    },
+}
 
 /// Chat streaming event
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +353,28 @@ pub enum ChatStreamEvent {
     StreamEnd {
         /// Final response
         response: ChatResponse,
+    },
+    /// Typed AI SDK-style stream part.
+    ///
+    /// This is the structured semantic companion to the legacy transport-style
+    /// variants above. It allows the runtime layer to represent richer stream
+    /// semantics such as sources, response metadata, warnings, tool results,
+    /// custom content, and reasoning files without tunneling them through
+    /// `Custom`.
+    Part {
+        /// Structured stream part.
+        part: ChatStreamPart,
+    },
+    /// Structured stream part plus runtime replay hints.
+    ///
+    /// This is used when a provider parser can express stable semantics as a
+    /// `ChatStreamPart` but still needs protocol-specific carrier data for
+    /// lossless wire replay in a downstream serializer.
+    PartWithReplay {
+        /// Structured stream part.
+        part: ChatStreamPart,
+        /// Runtime-only replay metadata.
+        replay: ChatStreamReplay,
     },
     /// Error occurred during streaming
     Error {
@@ -121,6 +448,24 @@ use std::pin::Pin;
 pub type AudioStream =
     Pin<Box<dyn Stream<Item = Result<AudioStreamEvent, LlmError>> + Send + Sync>>;
 
+impl ChatStreamEvent {
+    /// Borrow the structured stream part if this is a part-bearing event.
+    pub fn part_ref(&self) -> Option<&ChatStreamPart> {
+        match self {
+            Self::Part { part } | Self::PartWithReplay { part, .. } => Some(part),
+            _ => None,
+        }
+    }
+
+    /// Borrow runtime replay hints if present.
+    pub fn replay_ref(&self) -> Option<&ChatStreamReplay> {
+        match self {
+            Self::PartWithReplay { replay, .. } => Some(replay),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,5 +480,102 @@ mod tests {
         }
 
         test_arc_usage();
+    }
+
+    #[test]
+    fn stream_part_serializes_finish_with_ai_sdk_shape() {
+        let part = ChatStreamPart::Finish {
+            usage: Usage::new(3, 5),
+            finish_reason: ChatStreamFinishInfo {
+                unified: FinishReason::Stop,
+                raw: Some("stop".to_string()),
+            },
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({ "responseId": "resp_1" }),
+            )])),
+        };
+
+        let value = serde_json::to_value(&part).expect("serialize stream part");
+        assert_eq!(value["type"], serde_json::json!("finish"));
+        assert_eq!(value["finishReason"]["unified"], serde_json::json!("stop"));
+        assert_eq!(value["finishReason"]["raw"], serde_json::json!("stop"));
+        assert_eq!(
+            value["providerMetadata"]["openai"]["responseId"],
+            serde_json::json!("resp_1")
+        );
+    }
+
+    #[test]
+    fn stream_part_source_serializes_strict_union_shape() {
+        let part = ChatStreamPart::Source {
+            id: "src_1".to_string(),
+            source: SourcePart::Document {
+                media_type: "application/pdf".to_string(),
+                title: "Guide".to_string(),
+                filename: Some("guide.pdf".to_string()),
+            },
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({ "startPageNumber": 1 }),
+            )])),
+        };
+
+        let value = serde_json::to_value(&part).expect("serialize source part");
+        assert_eq!(value["type"], serde_json::json!("source"));
+        assert_eq!(value["sourceType"], serde_json::json!("document"));
+        assert_eq!(value["mediaType"], serde_json::json!("application/pdf"));
+        assert_eq!(value["title"], serde_json::json!("Guide"));
+        assert_eq!(
+            value["providerMetadata"]["anthropic"]["startPageNumber"],
+            serde_json::json!(1)
+        );
+    }
+
+    #[test]
+    fn stream_event_supports_typed_part_variant() {
+        let event = ChatStreamEvent::Part {
+            part: ChatStreamPart::Custom(ChatStreamCustomContent {
+                kind: "openai.compaction".to_string(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({ "itemId": "cmp_1" }),
+                )])),
+            }),
+        };
+
+        let value = serde_json::to_value(&event).expect("serialize event");
+        assert!(value.get("Part").is_some());
+    }
+
+    #[test]
+    fn stream_event_exposes_part_replay_accessors() {
+        let event = ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "web_search".to_string(),
+                input: "{}".to_string(),
+                provider_executed: Some(true),
+                dynamic: Some(true),
+                provider_metadata: None,
+            }),
+            replay: ChatStreamReplay::openai_responses(
+                Some(2),
+                Some(serde_json::json!({ "id": "call_1", "type": "custom_tool_call" })),
+            )
+            .expect("replay"),
+        };
+
+        assert!(matches!(
+            event.part_ref(),
+            Some(ChatStreamPart::ToolCall(_))
+        ));
+        assert_eq!(
+            event
+                .replay_ref()
+                .and_then(ChatStreamReplay::openai_responses_ref)
+                .and_then(|replay| replay.output_index),
+            Some(2)
+        );
     }
 }

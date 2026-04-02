@@ -9,8 +9,11 @@
             "type": "tool-result",
             "toolCallId": "call-123",
             "toolName": "mcp_tool",
-            "output": { "type": "execution-denied", "reason": "User denied the tool execution" },
-            "providerMetadata": { "openai": { "approvalId": "denied-approval" } }
+            "output": {
+              "type": "execution-denied",
+              "reason": "User denied the tool execution",
+              "providerOptions": { "openai": { "approvalId": "denied-approval" } }
+            }
           }
         ]
       },

@@ -5,8 +5,8 @@
 
 use crate::error::LlmError;
 use crate::types::{
-    ChatResponse, ChatStreamEvent, ContentPart, FinishReason, MessageContent, ResponseMetadata,
-    Usage,
+    ChatResponse, ChatStreamEvent, ChatStreamFileData, ChatStreamPart, ContentPart, FinishReason,
+    MessageContent, ResponseMetadata, Usage, Warning,
 };
 use std::collections::HashMap;
 
@@ -71,8 +71,14 @@ pub struct StreamProcessor {
     buffer: String,
     tool_calls: HashMap<String, ToolCallBuilder>, // Use ID as key to handle duplicate indices
     tool_call_order: Vec<String>,                 // Track order of tool calls for consistent output
+    tool_call_sources: HashMap<String, ToolCallStreamSource>,
     thinking_buffer: String,
+    stream_parts: Vec<ContentPart>,
+    stream_warnings: Vec<Warning>,
+    start_metadata: Option<ResponseMetadata>,
+    terminal_response: Option<ChatResponse>,
     current_usage: Option<Usage>,
+    stream_finish_reason: Option<FinishReason>,
     final_provider_metadata: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
     config: StreamProcessorConfig,
 }
@@ -95,8 +101,14 @@ impl StreamProcessor {
             buffer: String::new(),
             tool_calls: HashMap::new(),
             tool_call_order: Vec::new(),
+            tool_call_sources: HashMap::new(),
             thinking_buffer: String::new(),
+            stream_parts: Vec::new(),
+            stream_warnings: Vec::new(),
+            start_metadata: None,
+            terminal_response: None,
             current_usage: None,
+            stream_finish_reason: None,
             final_provider_metadata: None,
             config,
         }
@@ -113,10 +125,19 @@ impl StreamProcessor {
                 function_name,
                 arguments_delta,
                 index,
-            } => self.process_tool_call_delta(id, function_name, arguments_delta, index),
+            } => self.process_tool_call_delta(
+                id,
+                function_name,
+                arguments_delta,
+                index,
+                ToolCallStreamSource::LegacyDelta,
+            ),
             ChatStreamEvent::ThinkingDelta { delta } => self.process_thinking_delta(delta),
             ChatStreamEvent::UsageUpdate { usage } => self.process_usage_update(usage),
-            ChatStreamEvent::StreamStart { metadata } => ProcessedEvent::StreamStart { metadata },
+            ChatStreamEvent::StreamStart { metadata } => {
+                self.start_metadata = Some(metadata.clone());
+                ProcessedEvent::StreamStart { metadata }
+            }
             ChatStreamEvent::StreamEnd { response } => {
                 if let Some(usage) = response.usage.clone() {
                     self.current_usage = Some(usage);
@@ -128,9 +149,13 @@ impl StreamProcessor {
                         self.final_provider_metadata = Some(provider_metadata);
                     }
                 }
+                self.terminal_response = Some(response.clone());
                 ProcessedEvent::StreamEnd {
                     response: Box::new(response),
                 }
+            }
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                self.process_stream_part(part)
             }
             ChatStreamEvent::Error { error } => ProcessedEvent::Error {
                 error: LlmError::InternalError(error),
@@ -138,6 +163,128 @@ impl StreamProcessor {
             ChatStreamEvent::Custom { event_type, data } => {
                 ProcessedEvent::Custom { event_type, data }
             }
+        }
+    }
+
+    fn process_stream_part(&mut self, part: ChatStreamPart) -> ProcessedEvent {
+        match &part {
+            ChatStreamPart::TextDelta { delta, .. } => {
+                return self.process_content_delta(delta.clone(), None);
+            }
+            ChatStreamPart::ReasoningDelta { delta, .. } => {
+                return self.process_thinking_delta(delta.clone());
+            }
+            ChatStreamPart::ToolInputStart { id, tool_name, .. } => {
+                return self.process_tool_call_delta(
+                    id.clone(),
+                    Some(tool_name.clone()),
+                    None,
+                    None,
+                    ToolCallStreamSource::StablePart,
+                );
+            }
+            ChatStreamPart::ToolInputDelta { id, delta, .. } => {
+                return self.process_tool_call_delta(
+                    id.clone(),
+                    None,
+                    Some(delta.clone()),
+                    None,
+                    ToolCallStreamSource::StablePart,
+                );
+            }
+            ChatStreamPart::StreamStart { warnings } => {
+                self.stream_warnings.extend(warnings.clone());
+            }
+            ChatStreamPart::ResponseMetadata(metadata) => {
+                self.start_metadata = Some(metadata.clone());
+            }
+            ChatStreamPart::Finish {
+                usage,
+                finish_reason,
+                provider_metadata,
+            } => {
+                let _ = self.process_usage_update(usage.clone());
+                self.stream_finish_reason = Some(finish_reason.unified.clone());
+                if let Some(provider_metadata) = provider_metadata.clone() {
+                    self.merge_shared_provider_metadata(provider_metadata);
+                }
+            }
+            ChatStreamPart::ToolApprovalRequest(request) => {
+                self.stream_parts
+                    .push(ContentPart::tool_approval_request_with_metadata(
+                        request.approval_id.clone(),
+                        request.tool_call_id.clone(),
+                        request.provider_metadata.clone().unwrap_or_default(),
+                    ));
+            }
+            ChatStreamPart::ToolCall(call) => {
+                self.stream_parts.push(ContentPart::ToolCall {
+                    tool_call_id: call.tool_call_id.clone(),
+                    tool_name: call.tool_name.clone(),
+                    arguments: serde_json::from_str(&call.input)
+                        .unwrap_or_else(|_| serde_json::Value::String(call.input.clone())),
+                    provider_executed: call.provider_executed,
+                    provider_options: crate::types::ProviderOptionsMap::default(),
+                    provider_metadata: call.provider_metadata.clone(),
+                });
+            }
+            ChatStreamPart::ToolResult(result) => {
+                self.stream_parts.push(ContentPart::ToolResult {
+                    tool_call_id: result.tool_call_id.clone(),
+                    tool_name: result.tool_name.clone(),
+                    output: if result.is_error.unwrap_or(false) {
+                        crate::types::ToolResultOutput::error_json(result.result.clone())
+                    } else {
+                        crate::types::ToolResultOutput::json(result.result.clone())
+                    },
+                    provider_executed: None,
+                    provider_options: crate::types::ProviderOptionsMap::default(),
+                    provider_metadata: result.provider_metadata.clone(),
+                });
+            }
+            ChatStreamPart::Custom(custom) => {
+                self.stream_parts.push(ContentPart::Custom {
+                    kind: custom.kind.clone(),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
+                    provider_metadata: custom.provider_metadata.clone(),
+                });
+            }
+            ChatStreamPart::File(file) => {
+                self.stream_parts
+                    .push(stream_file_part_to_content_part(file, false));
+            }
+            ChatStreamPart::ReasoningFile(file) => {
+                self.stream_parts
+                    .push(stream_file_part_to_content_part(file, true));
+            }
+            ChatStreamPart::Source {
+                id,
+                source,
+                provider_metadata,
+            } => {
+                self.stream_parts.push(ContentPart::Source {
+                    id: id.clone(),
+                    source: source.clone(),
+                    provider_metadata: provider_metadata.clone(),
+                });
+            }
+            ChatStreamPart::Error { error } => {
+                return ProcessedEvent::Error {
+                    error: LlmError::InternalError(
+                        serde_json::to_string(error).unwrap_or_else(|_| "stream part error".into()),
+                    ),
+                };
+            }
+            ChatStreamPart::TextStart { .. }
+            | ChatStreamPart::TextEnd { .. }
+            | ChatStreamPart::ReasoningStart { .. }
+            | ChatStreamPart::ReasoningEnd { .. }
+            | ChatStreamPart::ToolInputEnd { .. }
+            | ChatStreamPart::Raw { .. } => {}
+        }
+
+        ProcessedEvent::Part {
+            part: Box::new(part),
         }
     }
 
@@ -182,6 +329,7 @@ impl StreamProcessor {
         function_name: Option<String>,
         arguments_delta: Option<String>,
         index: Option<usize>,
+        source: ToolCallStreamSource,
     ) -> ProcessedEvent {
         tracing::debug!("Tool call delta - ID: '{}', Index: {:?}", id, index);
 
@@ -197,6 +345,20 @@ impl StreamProcessor {
                 format!("temp_tool_call_{}", self.tool_call_order.len())
             }
         };
+
+        match self.tool_call_sources.entry(tool_id.clone()) {
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(source);
+            }
+            std::collections::hash_map::Entry::Occupied(entry) if *entry.get() != source => {
+                return ProcessedEvent::ToolCallUpdate {
+                    id: tool_id.clone(),
+                    current_state: self.tool_calls.get(&tool_id).cloned().unwrap_or_default(),
+                    index,
+                };
+            }
+            std::collections::hash_map::Entry::Occupied(_) => {}
+        }
 
         // Get or create the tool call builder
         let is_new_tool_call = !self.tool_calls.contains_key(&tool_id);
@@ -313,6 +475,23 @@ impl StreamProcessor {
         }
     }
 
+    fn merge_shared_provider_metadata(&mut self, source: HashMap<String, serde_json::Value>) {
+        let mut nested = HashMap::new();
+        for (provider, value) in source {
+            let metadata = match value {
+                serde_json::Value::Object(obj) => obj.into_iter().collect(),
+                other => HashMap::from([("value".to_string(), other)]),
+            };
+            nested.insert(provider, metadata);
+        }
+
+        if let Some(current) = self.final_provider_metadata.as_mut() {
+            merge_nested_provider_metadata(current, nested);
+        } else {
+            self.final_provider_metadata = Some(nested);
+        }
+    }
+
     /// Build the final response
     pub fn build_final_response(&self) -> ChatResponse {
         self.build_final_response_with_finish_reason(None)
@@ -323,6 +502,7 @@ impl StreamProcessor {
         &self,
         finish_reason: Option<FinishReason>,
     ) -> ChatResponse {
+        let terminal_response = self.terminal_response.as_ref();
         let mut stream_metadata = HashMap::new();
 
         if !self.thinking_buffer.is_empty() {
@@ -332,47 +512,7 @@ impl StreamProcessor {
             );
         }
 
-        // Build content with text, tool calls, and reasoning
-        let mut parts = Vec::new();
-
-        // Add text content if present
-        if !self.buffer.is_empty() {
-            parts.push(ContentPart::text(&self.buffer));
-        }
-
-        // Add tool calls if present
-        if !self.tool_calls.is_empty() {
-            for id in &self.tool_call_order {
-                if let Some(builder) = self.tool_calls.get(id)
-                    && !builder.name.is_empty()
-                {
-                    // Parse arguments string to JSON Value
-                    let arguments = serde_json::from_str(&builder.arguments)
-                        .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()));
-
-                    parts.push(ContentPart::tool_call(
-                        builder.id.clone(),
-                        builder.name.clone(),
-                        arguments,
-                        None,
-                    ));
-                }
-            }
-        }
-
-        // Add thinking/reasoning if present
-        if !self.thinking_buffer.is_empty() {
-            parts.push(ContentPart::reasoning(&self.thinking_buffer));
-        }
-
-        // Determine final content
-        let content = if parts.len() == 1 && parts[0].is_text() {
-            MessageContent::Text(self.buffer.clone())
-        } else if !parts.is_empty() {
-            MessageContent::MultiModal(parts)
-        } else {
-            MessageContent::Text(String::new())
-        };
+        let content = self.build_final_content(terminal_response);
 
         // Convert to nested provider_metadata structure
         let mut provider_metadata = self.final_provider_metadata.clone().unwrap_or_default();
@@ -386,17 +526,130 @@ impl StreamProcessor {
         };
 
         ChatResponse {
-            id: None,
+            id: terminal_response
+                .and_then(|response| response.id.clone())
+                .or_else(|| {
+                    self.start_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.id.clone())
+                }),
             content,
-            model: None,
-            usage: self.current_usage.clone(),
-            finish_reason,
-            audio: None,
-            system_fingerprint: None,
-            service_tier: None,
-            warnings: None,
+            model: terminal_response
+                .and_then(|response| response.model.clone())
+                .or_else(|| {
+                    self.start_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.model.clone())
+                }),
+            usage: self
+                .current_usage
+                .clone()
+                .or_else(|| terminal_response.and_then(|response| response.usage.clone())),
+            finish_reason: finish_reason
+                .or_else(|| self.stream_finish_reason.clone())
+                .or_else(|| terminal_response.and_then(|response| response.finish_reason.clone())),
+            audio: terminal_response.and_then(|response| response.audio.clone()),
+            system_fingerprint: terminal_response
+                .and_then(|response| response.system_fingerprint.clone()),
+            service_tier: terminal_response.and_then(|response| response.service_tier.clone()),
+            warnings: terminal_response
+                .and_then(|response| response.warnings.clone())
+                .or_else(|| {
+                    (!self.stream_warnings.is_empty()).then(|| self.stream_warnings.clone())
+                }),
             provider_metadata,
         }
+    }
+
+    fn build_final_content(&self, terminal_response: Option<&ChatResponse>) -> MessageContent {
+        let has_accumulated_content = !self.buffer.is_empty()
+            || !self.tool_calls.is_empty()
+            || !self.thinking_buffer.is_empty()
+            || !self.stream_parts.is_empty();
+
+        if !has_accumulated_content {
+            return terminal_response
+                .map(|response| response.content.clone())
+                .unwrap_or_else(|| MessageContent::Text(String::new()));
+        }
+
+        #[cfg(feature = "structured-messages")]
+        if matches!(
+            terminal_response.map(|response| &response.content),
+            Some(MessageContent::Json(_))
+        ) {
+            return terminal_response
+                .map(|response| response.content.clone())
+                .unwrap_or_else(|| MessageContent::Text(String::new()));
+        }
+
+        let mut parts = if !self.buffer.is_empty() {
+            vec![build_text_part(&self.buffer, terminal_response)]
+        } else {
+            terminal_response
+                .map(|response| extract_terminal_text_parts(&response.content))
+                .unwrap_or_default()
+        };
+
+        if !self.tool_calls.is_empty() {
+            parts.extend(self.build_accumulated_tool_call_parts(terminal_response));
+        } else if let Some(response) = terminal_response {
+            parts.extend(extract_terminal_tool_call_parts(&response.content));
+        }
+
+        if !self.thinking_buffer.is_empty() {
+            parts.push(build_reasoning_part(
+                &self.thinking_buffer,
+                terminal_response,
+            ));
+        } else if let Some(response) = terminal_response {
+            parts.extend(extract_terminal_reasoning_parts(&response.content));
+        }
+
+        if let Some(response) = terminal_response {
+            parts.extend(extract_terminal_extra_parts(&response.content));
+        }
+
+        parts.extend(extract_stream_tool_call_parts(
+            &self.stream_parts,
+            &self.tool_call_order,
+        ));
+        parts.extend(extract_stream_reasoning_extra_parts(&self.stream_parts));
+        parts.extend(extract_stream_extra_parts(&self.stream_parts));
+
+        message_content_from_parts(parts)
+    }
+
+    fn build_accumulated_tool_call_parts(
+        &self,
+        terminal_response: Option<&ChatResponse>,
+    ) -> Vec<ContentPart> {
+        let mut parts = Vec::new();
+
+        for (tool_index, id) in self.tool_call_order.iter().enumerate() {
+            if self
+                .stream_parts
+                .iter()
+                .any(|part| matches!(part, ContentPart::ToolCall { tool_call_id, .. } if tool_call_id == id))
+            {
+                continue;
+            }
+
+            if let Some(builder) = self.tool_calls.get(id)
+                && !builder.name.is_empty()
+            {
+                let arguments = serde_json::from_str(&builder.arguments)
+                    .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()));
+
+                let terminal_match = terminal_response.and_then(|response| {
+                    find_terminal_tool_call_part(&response.content, builder, tool_index)
+                });
+
+                parts.push(build_tool_call_part(builder, arguments, terminal_match));
+            }
+        }
+
+        parts
     }
 }
 
@@ -406,6 +659,214 @@ fn merge_nested_provider_metadata(
 ) {
     for (provider, metadata) in source {
         target.entry(provider).or_default().extend(metadata);
+    }
+}
+
+fn stream_file_part_to_content_part(
+    file: &crate::types::ChatStreamFilePart,
+    reasoning: bool,
+) -> ContentPart {
+    let source = match &file.data {
+        ChatStreamFileData::Base64(data) => crate::types::MediaSource::base64(data.clone()),
+        ChatStreamFileData::Bytes(data) => crate::types::MediaSource::binary(data.clone()),
+    };
+
+    if reasoning {
+        ContentPart::ReasoningFile {
+            source,
+            media_type: file.media_type.clone(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: file.provider_metadata.clone(),
+        }
+    } else {
+        ContentPart::File {
+            source,
+            media_type: file.media_type.clone(),
+            filename: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: file.provider_metadata.clone(),
+        }
+    }
+}
+
+fn build_text_part(text: &str, terminal_response: Option<&ChatResponse>) -> ContentPart {
+    let provider_metadata =
+        terminal_response.and_then(|response| first_terminal_text_metadata(&response.content));
+
+    ContentPart::Text {
+        text: text.to_string(),
+        provider_options: crate::types::ProviderOptionsMap::default(),
+        provider_metadata,
+    }
+}
+
+fn build_reasoning_part(text: &str, terminal_response: Option<&ChatResponse>) -> ContentPart {
+    let provider_metadata =
+        terminal_response.and_then(|response| first_terminal_reasoning_metadata(&response.content));
+
+    ContentPart::Reasoning {
+        text: text.to_string(),
+        provider_options: crate::types::ProviderOptionsMap::default(),
+        provider_metadata,
+    }
+}
+
+fn build_tool_call_part(
+    builder: &ToolCallBuilder,
+    arguments: serde_json::Value,
+    terminal_part: Option<&ContentPart>,
+) -> ContentPart {
+    let (provider_executed, provider_metadata) = match terminal_part {
+        Some(ContentPart::ToolCall {
+            provider_executed,
+            provider_metadata,
+            ..
+        }) => (*provider_executed, provider_metadata.clone()),
+        _ => (None, None),
+    };
+
+    ContentPart::ToolCall {
+        tool_call_id: builder.id.clone(),
+        tool_name: builder.name.clone(),
+        arguments,
+        provider_executed,
+        provider_options: crate::types::ProviderOptionsMap::default(),
+        provider_metadata,
+    }
+}
+
+fn find_terminal_tool_call_part<'a>(
+    content: &'a MessageContent,
+    builder: &ToolCallBuilder,
+    tool_index: usize,
+) -> Option<&'a ContentPart> {
+    let terminal_parts = match content {
+        MessageContent::MultiModal(parts) => parts,
+        _ => return None,
+    };
+
+    terminal_parts
+        .iter()
+        .find(|part| matches!(part, ContentPart::ToolCall { tool_call_id, .. } if tool_call_id == &builder.id))
+        .or_else(|| {
+            terminal_parts
+                .iter()
+                .filter(|part| part.is_tool_call())
+                .nth(tool_index)
+        })
+}
+
+fn first_terminal_text_metadata(
+    content: &MessageContent,
+) -> Option<HashMap<String, serde_json::Value>> {
+    match content {
+        MessageContent::MultiModal(parts) => parts.iter().find_map(|part| match part {
+            ContentPart::Text {
+                provider_metadata, ..
+            } => provider_metadata.clone(),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn first_terminal_reasoning_metadata(
+    content: &MessageContent,
+) -> Option<HashMap<String, serde_json::Value>> {
+    match content {
+        MessageContent::MultiModal(parts) => parts.iter().find_map(|part| match part {
+            ContentPart::Reasoning {
+                provider_metadata, ..
+            } => provider_metadata.clone(),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn extract_terminal_text_parts(content: &MessageContent) -> Vec<ContentPart> {
+    match content {
+        MessageContent::Text(text) if !text.is_empty() => vec![ContentPart::text(text.clone())],
+        MessageContent::MultiModal(parts) => parts
+            .iter()
+            .filter(|part| part.is_text())
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn extract_terminal_tool_call_parts(content: &MessageContent) -> Vec<ContentPart> {
+    match content {
+        MessageContent::MultiModal(parts) => parts
+            .iter()
+            .filter(|part| part.is_tool_call())
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn extract_terminal_reasoning_parts(content: &MessageContent) -> Vec<ContentPart> {
+    match content {
+        MessageContent::MultiModal(parts) => parts
+            .iter()
+            .filter(|part| part.is_reasoning())
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn extract_terminal_extra_parts(content: &MessageContent) -> Vec<ContentPart> {
+    match content {
+        MessageContent::MultiModal(parts) => parts
+            .iter()
+            .filter(|part| !part.is_text() && !part.is_tool_call() && !part.is_reasoning())
+            .cloned()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn extract_stream_tool_call_parts(
+    parts: &[ContentPart],
+    _accumulated_tool_call_ids: &[String],
+) -> Vec<ContentPart> {
+    parts
+        .iter()
+        .filter(|part| matches!(part, ContentPart::ToolCall { .. }))
+        .cloned()
+        .collect()
+}
+
+fn extract_stream_reasoning_extra_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
+    parts
+        .iter()
+        .filter(|part| matches!(part, ContentPart::ReasoningFile { .. }))
+        .cloned()
+        .collect()
+}
+
+fn extract_stream_extra_parts(parts: &[ContentPart]) -> Vec<ContentPart> {
+    parts
+        .iter()
+        .filter(|part| !part.is_text() && !part.is_reasoning() && !part.is_tool_call())
+        .cloned()
+        .collect()
+}
+
+fn message_content_from_parts(parts: Vec<ContentPart>) -> MessageContent {
+    match parts.as_slice() {
+        [
+            ContentPart::Text {
+                text,
+                provider_options,
+                provider_metadata: None,
+            },
+        ] if provider_options.is_empty() => MessageContent::Text(text.clone()),
+        [] => MessageContent::Text(String::new()),
+        _ => MessageContent::MultiModal(parts),
     }
 }
 
@@ -434,6 +895,8 @@ pub enum ProcessedEvent {
     StreamStart { metadata: ResponseMetadata },
     /// Stream end event
     StreamEnd { response: Box<ChatResponse> },
+    /// Typed stream part passed through after state updates.
+    Part { part: Box<ChatStreamPart> },
     /// Error event
     Error { error: LlmError },
     /// Custom provider-specific event (passed through without processing)
@@ -477,10 +940,16 @@ impl ToolCallBuilder {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolCallStreamSource {
+    LegacyDelta,
+    StablePart,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::PromptTokensDetails;
+    use crate::types::{AudioOutput, PromptTokensDetails, Warning};
 
     #[test]
     fn tool_arguments_respect_max_size() {
@@ -510,6 +979,84 @@ mod tests {
     }
 
     #[test]
+    fn mixed_legacy_and_stable_tool_streams_deduplicate_by_first_source() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                provider_metadata: None,
+                provider_executed: None,
+                dynamic: None,
+                title: None,
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: "{\"query\":\"rust\"}".to_string(),
+                provider_metadata: None,
+            },
+        });
+
+        // The equivalent legacy delta should be ignored once the stable lane
+        // has already claimed this tool-call id.
+        let _ = sp.process_event(ChatStreamEvent::ToolCallDelta {
+            id: "call_1".to_string(),
+            function_name: Some("search".to_string()),
+            arguments_delta: Some("{\"query\":\"rust\"}".to_string()),
+            index: Some(0),
+        });
+
+        let builder = sp.tool_calls.get("call_1").expect("tool call builder");
+        assert_eq!(builder.name, "search");
+        assert_eq!(builder.arguments, "{\"query\":\"rust\"}");
+    }
+
+    #[test]
+    fn stable_tool_call_parts_survive_final_response_build() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                provider_metadata: None,
+                provider_executed: None,
+                dynamic: None,
+                title: None,
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: "{\"query\":\"rust\"}".to_string(),
+                provider_metadata: None,
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                input: "{\"query\":\"rust\"}".to_string(),
+                provider_executed: None,
+                dynamic: None,
+                provider_metadata: None,
+            }),
+        });
+
+        let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::ToolCalls));
+        let tool_calls = final_resp.tool_calls();
+
+        assert_eq!(tool_calls.len(), 1);
+        let tool_call = tool_calls[0].as_tool_call().expect("tool call");
+        assert_eq!(tool_call.tool_call_id, "call_1");
+        assert_eq!(tool_call.tool_name, "search");
+        assert_eq!(*tool_call.arguments, serde_json::json!({ "query": "rust" }));
+    }
+
+    #[test]
     fn stream_end_response_updates_final_usage_and_provider_metadata() {
         let mut sp = StreamProcessor::new();
         let response = ChatResponse {
@@ -535,7 +1082,10 @@ mod tests {
         let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::Stop));
 
         assert_eq!(
-            final_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            final_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(8)
         );
         let metadata = final_resp.provider_metadata.expect("provider metadata");
@@ -555,12 +1105,208 @@ mod tests {
         let _ = sp.process_event(ChatStreamEvent::UsageUpdate { usage: u2 });
         let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::Stop));
         let usage = final_resp.usage.expect("usage present");
-        assert_eq!(usage.prompt_tokens, 5);
-        assert_eq!(usage.completion_tokens, 9);
-        assert_eq!(usage.total_tokens, 14);
+        assert_eq!(usage.prompt_tokens(), Some(5));
+        assert_eq!(usage.completion_tokens(), Some(9));
+        assert_eq!(usage.total_tokens(), Some(14));
         assert_eq!(
             usage.prompt_tokens_details.unwrap().cached_tokens.unwrap(),
             7
         );
+    }
+
+    #[test]
+    fn stream_end_response_preserves_terminal_envelope_fields() {
+        let mut sp = StreamProcessor::new();
+        let response = ChatResponse {
+            id: Some("resp_123".to_string()),
+            content: MessageContent::Text("terminal text".to_string()),
+            model: Some("claude-3-7-sonnet".to_string()),
+            usage: Some(Usage::new(11, 7)),
+            finish_reason: Some(FinishReason::Stop),
+            audio: Some(AudioOutput {
+                id: "aud_123".to_string(),
+                expires_at: 1_744_000_000,
+                data: "ZmFrZQ==".to_string(),
+                transcript: "hello".to_string(),
+            }),
+            system_fingerprint: Some("fp_terminal".to_string()),
+            service_tier: Some("priority".to_string()),
+            warnings: Some(vec![Warning::other("watch settings")]),
+            provider_metadata: None,
+        };
+
+        let _ = sp.process_event(ChatStreamEvent::StreamEnd { response });
+        let final_resp = sp.build_final_response();
+
+        assert_eq!(final_resp.id.as_deref(), Some("resp_123"));
+        assert_eq!(final_resp.model.as_deref(), Some("claude-3-7-sonnet"));
+        assert_eq!(
+            final_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
+            Some(18)
+        );
+        assert_eq!(final_resp.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(
+            final_resp.system_fingerprint.as_deref(),
+            Some("fp_terminal")
+        );
+        assert_eq!(final_resp.service_tier.as_deref(), Some("priority"));
+        assert_eq!(
+            final_resp.audio.as_ref().map(|audio| audio.id.as_str()),
+            Some("aud_123")
+        );
+        assert_eq!(
+            final_resp.warnings,
+            Some(vec![Warning::other("watch settings")])
+        );
+        assert_eq!(
+            final_resp.content,
+            MessageContent::Text("terminal text".to_string())
+        );
+    }
+
+    #[test]
+    fn stream_start_metadata_falls_back_when_stream_end_missing() {
+        let mut sp = StreamProcessor::new();
+        let _ = sp.process_event(ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("start_resp".to_string()),
+                model: Some("gpt-4o-mini".to_string()),
+                created: None,
+                provider: "openai".to_string(),
+                request_id: Some("req_123".to_string()),
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::ContentDelta {
+            delta: "hello world".to_string(),
+            index: Some(0),
+        });
+
+        let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::Stop));
+
+        assert_eq!(final_resp.id.as_deref(), Some("start_resp"));
+        assert_eq!(final_resp.model.as_deref(), Some("gpt-4o-mini"));
+        assert_eq!(final_resp.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(
+            final_resp.content,
+            MessageContent::Text("hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn stream_end_content_preserves_extra_parts_when_accumulated_text_exists() {
+        let mut sp = StreamProcessor::new();
+        let _ = sp.process_event(ChatStreamEvent::ContentDelta {
+            delta: "Hello from stream".to_string(),
+            index: Some(0),
+        });
+
+        let response = ChatResponse {
+            id: Some("resp_source".to_string()),
+            content: MessageContent::MultiModal(vec![
+                ContentPart::Text {
+                    text: "terminal fallback".to_string(),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
+                    provider_metadata: Some(HashMap::from([(
+                        "openai".to_string(),
+                        serde_json::json!({ "annotations": ["citation"] }),
+                    )])),
+                },
+                ContentPart::source("source-1", "url", "https://example.com", "Example Source"),
+            ]),
+            model: Some("gpt-4.1".to_string()),
+            usage: None,
+            finish_reason: Some(FinishReason::Stop),
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            warnings: None,
+            provider_metadata: None,
+        };
+
+        let _ = sp.process_event(ChatStreamEvent::StreamEnd { response });
+        let final_resp = sp.build_final_response();
+
+        match final_resp.content {
+            MessageContent::MultiModal(parts) => {
+                assert_eq!(parts.len(), 2);
+                assert_eq!(
+                    parts[0],
+                    ContentPart::Text {
+                        text: "Hello from stream".to_string(),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        provider_metadata: Some(HashMap::from([(
+                            "openai".to_string(),
+                            serde_json::json!({ "annotations": ["citation"] }),
+                        )])),
+                    }
+                );
+                assert_eq!(
+                    parts[1],
+                    ContentPart::source("source-1", "url", "https://example.com", "Example Source",)
+                );
+            }
+            other => panic!("expected multimodal content, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn accumulated_tool_calls_preserve_terminal_provider_fields() {
+        let mut sp = StreamProcessor::new();
+        let _ = sp.process_event(ChatStreamEvent::ToolCallDelta {
+            id: "call_1".to_string(),
+            function_name: Some("search".to_string()),
+            arguments_delta: Some("{\"query\":\"rust\"}".to_string()),
+            index: Some(0),
+        });
+
+        let response = ChatResponse {
+            id: Some("resp_tool".to_string()),
+            content: MessageContent::MultiModal(vec![ContentPart::ToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                arguments: serde_json::json!({ "query": "rust" }),
+                provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({ "server_tool_use": true }),
+                )])),
+            }]),
+            model: Some("claude-3-7-sonnet".to_string()),
+            usage: None,
+            finish_reason: Some(FinishReason::ToolCalls),
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            warnings: None,
+            provider_metadata: None,
+        };
+
+        let _ = sp.process_event(ChatStreamEvent::StreamEnd { response });
+        let final_resp = sp.build_final_response();
+
+        match final_resp.content {
+            MessageContent::MultiModal(parts) => {
+                assert_eq!(parts.len(), 1);
+                assert_eq!(
+                    parts[0],
+                    ContentPart::ToolCall {
+                        tool_call_id: "call_1".to_string(),
+                        tool_name: "search".to_string(),
+                        arguments: serde_json::json!({ "query": "rust" }),
+                        provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        provider_metadata: Some(HashMap::from([(
+                            "anthropic".to_string(),
+                            serde_json::json!({ "server_tool_use": true }),
+                        )])),
+                    }
+                );
+            }
+            other => panic!("expected multimodal content, got {:?}", other),
+        }
     }
 }

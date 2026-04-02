@@ -7,8 +7,12 @@ use std::pin::Pin;
 
 use crate::error::LlmError;
 
-// Re-export ChatStreamEvent from types module to avoid duplication
-pub use crate::types::ChatStreamEvent;
+// Re-export stable runtime stream types from the canonical types module.
+pub use crate::types::{
+    ChatStreamCustomContent, ChatStreamEvent, ChatStreamFileData, ChatStreamFilePart,
+    ChatStreamFinishInfo, ChatStreamPart, ChatStreamReplay, ChatStreamToolApprovalRequest,
+    ChatStreamToolCall, ChatStreamToolResult, StreamProviderMetadata,
+};
 
 /// Chat Stream - Main interface for streaming responses
 ///

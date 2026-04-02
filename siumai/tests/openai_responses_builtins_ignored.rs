@@ -27,6 +27,7 @@ async fn responses_with_advanced_builtins_smoke() {
         ChatMessage {
             role: MessageRole::User,
             content: MessageContent::Json(serde_json::json!({"query":"hello"})),
+            provider_options: siumai::prelude::unified::ProviderOptionsMap::default(),
             metadata: MessageMetadata::default(),
         }
     };

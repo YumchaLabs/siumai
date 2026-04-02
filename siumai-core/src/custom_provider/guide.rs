@@ -171,24 +171,31 @@ impl HuggingFaceProvider {
             .and_then(|reason| reason.as_str())
             .map(std::string::ToString::to_string);
 
-        let usage = response_data.get("usage").map(|usage_data| Usage {
-            prompt_tokens: usage_data
-                .get("prompt_tokens")
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32)
-                .unwrap_or(0),
-            completion_tokens: usage_data
-                .get("completion_tokens")
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32)
-                .unwrap_or(0),
-            total_tokens: usage_data
-                .get("total_tokens")
-                .and_then(serde_json::Value::as_u64)
-                .map(|v| v as u32)
-                .unwrap_or(0),
-            reasoning_tokens: None,
-            cached_tokens: None,
+        let usage = response_data.get("usage").map(|usage_data| {
+            Usage::builder()
+                .prompt_tokens(
+                    usage_data
+                        .get("prompt_tokens")
+                        .and_then(serde_json::Value::as_u64)
+                        .map(|v| v as u32)
+                        .unwrap_or(0),
+                )
+                .completion_tokens(
+                    usage_data
+                        .get("completion_tokens")
+                        .and_then(serde_json::Value::as_u64)
+                        .map(|v| v as u32)
+                        .unwrap_or(0),
+                )
+                .total_tokens(
+                    usage_data
+                        .get("total_tokens")
+                        .and_then(serde_json::Value::as_u64)
+                        .map(|v| v as u32)
+                        .unwrap_or(0),
+                )
+                .with_raw_usage_value(usage_data.clone())
+                .build()
         });
 
         let mut response = CustomChatResponse::new(content);

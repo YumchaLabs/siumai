@@ -26,6 +26,36 @@ fn parse_sse_frames(bytes: &[u8]) -> Vec<(String, serde_json::Value)> {
         .collect()
 }
 
+fn stream_part(
+    event: &Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>,
+) -> Option<crate::streaming::LanguageModelV3StreamPart> {
+    crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
+}
+
+fn openai_responses_raw_item(
+    event: &Result<crate::streaming::ChatStreamEvent, crate::error::LlmError>,
+) -> Option<&serde_json::Value> {
+    event
+        .as_ref()
+        .ok()?
+        .replay_ref()?
+        .openai_responses_ref()?
+        .raw_item
+        .as_ref()
+}
+
+fn openai_provider_metadata(value: serde_json::Value) -> crate::types::StreamProviderMetadata {
+    let mut provider_metadata = crate::types::StreamProviderMetadata::new();
+    provider_metadata.insert("openai".to_string(), value);
+    provider_metadata
+}
+
+fn parse_test_timestamp(timestamp: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(timestamp)
+        .expect("rfc3339 timestamp")
+        .with_timezone(&chrono::Utc)
+}
+
 #[test]
 fn test_responses_event_converter_content_delta() {
     let conv = OpenAiResponsesEventConverter::new();
@@ -80,7 +110,7 @@ fn test_responses_event_converter_usage_update() {
     let conv = OpenAiResponsesEventConverter::new();
     let event = eventsource_stream::Event {
         event: "message".to_string(),
-        data: r#"{"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}}"#.to_string(),
+        data: r#"{"usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8,"prompt_tokens_details":{"cached_tokens":1},"completion_tokens_details":{"reasoning_tokens":2}}}"#.to_string(),
         id: "1".to_string(),
         retry: None,
     };
@@ -90,9 +120,17 @@ fn test_responses_event_converter_usage_update() {
     let ev = events.first().unwrap().as_ref().unwrap();
     match ev {
         crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.prompt_tokens, 3);
-            assert_eq!(usage.completion_tokens, 5);
-            assert_eq!(usage.total_tokens, 8);
+            assert_eq!(usage.prompt_tokens(), Some(3));
+            assert_eq!(usage.completion_tokens(), Some(5));
+            assert_eq!(usage.total_tokens(), Some(8));
+            assert_eq!(usage.normalized_input_tokens().cache_read, Some(1));
+            assert_eq!(usage.normalized_input_tokens().no_cache, Some(2));
+            assert_eq!(usage.normalized_output_tokens().reasoning, Some(2));
+            assert_eq!(usage.normalized_output_tokens().text, Some(3));
+            assert_eq!(
+                usage.raw_usage_value().expect("raw usage")["prompt_tokens"],
+                serde_json::json!(3)
+            );
         }
         _ => panic!("expected UsageUpdate"),
     }
@@ -172,9 +210,11 @@ fn test_sse_named_events_routing() {
     let out3 = events3.first().unwrap().as_ref().unwrap();
     match out3 {
         crate::streaming::ChatStreamEvent::UsageUpdate { usage } => {
-            assert_eq!(usage.prompt_tokens, 4);
-            assert_eq!(usage.completion_tokens, 6);
-            assert_eq!(usage.total_tokens, 10);
+            assert_eq!(usage.prompt_tokens(), Some(4));
+            assert_eq!(usage.completion_tokens(), Some(6));
+            assert_eq!(usage.total_tokens(), Some(10));
+            assert_eq!(usage.normalized_input_tokens().no_cache, Some(4));
+            assert_eq!(usage.normalized_output_tokens().text, Some(6));
         }
         _ => panic!("expected UsageUpdate"),
     }
@@ -188,31 +228,39 @@ fn test_sse_named_events_routing() {
     };
     let out_added = futures::executor::block_on(conv.convert_event(ev_added));
     assert_eq!(out_added.len(), 3);
-    match out_added[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-input-start");
-            assert_eq!(data["id"], serde_json::json!("ws_1"));
-            assert_eq!(data["toolName"], serde_json::json!("web_search"));
-            assert_eq!(data["providerExecuted"], serde_json::json!(true));
+    match stream_part(&out_added[0]).expect("tool-input-start part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+            id,
+            tool_name,
+            provider_executed,
+            ..
+        } => {
+            assert_eq!(id, "ws_1");
+            assert_eq!(tool_name, "web_search");
+            assert_eq!(provider_executed, Some(true));
         }
-        other => panic!("expected Custom tool-input-start, got {other:?}"),
+        other => panic!("expected tool-input-start part, got {other:?}"),
     }
-    match out_added[1].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-input-end");
-            assert_eq!(data["id"], serde_json::json!("ws_1"));
+    match stream_part(&out_added[1]).expect("tool-input-end part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+            assert_eq!(id, "ws_1");
         }
-        other => panic!("expected Custom tool-input-end, got {other:?}"),
+        other => panic!("expected tool-input-end part, got {other:?}"),
     }
-    match out_added[2].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-call");
-            assert_eq!(data["toolCallId"], serde_json::json!("ws_1"));
-            assert_eq!(data["toolName"], serde_json::json!("web_search"));
-            assert_eq!(data["providerExecuted"], serde_json::json!(true));
+    match stream_part(&out_added[2]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "ws_1");
+            assert_eq!(call.tool_name, "web_search");
+            assert_eq!(call.provider_executed, Some(true));
         }
-        other => panic!("expected Custom tool-call, got {other:?}"),
+        other => panic!("expected tool-call part, got {other:?}"),
     }
+    assert_eq!(
+        openai_responses_raw_item(&out_added[2])
+            .and_then(|raw_item| raw_item.get("type"))
+            .and_then(|value| value.as_str()),
+        Some("web_search_call")
+    );
 
     let ev_done = eventsource_stream::Event {
         event: "".to_string(),
@@ -222,16 +270,20 @@ fn test_sse_named_events_routing() {
     };
     let out_done = futures::executor::block_on(conv.convert_event(ev_done));
     assert_eq!(out_done.len(), 1);
-    match out_done[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-result");
-            assert_eq!(data["toolCallId"], serde_json::json!("ws_1"));
-            assert_eq!(data["toolName"], serde_json::json!("web_search"));
-            assert_eq!(data["providerExecuted"], serde_json::json!(true));
-            assert_eq!(data["result"]["action"]["query"], serde_json::json!("rust"));
+    match stream_part(&out_done[0]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_call_id, "ws_1");
+            assert_eq!(result.tool_name, "web_search");
+            assert_eq!(result.result["action"]["query"], serde_json::json!("rust"));
         }
-        other => panic!("expected Custom tool-result, got {other:?}"),
+        other => panic!("expected tool-result part, got {other:?}"),
     }
+    assert_eq!(
+        openai_responses_raw_item(&out_done[0])
+            .and_then(|raw_item| raw_item.get("type"))
+            .and_then(|value| value.as_str()),
+        Some("web_search_call")
+    );
 
     // If the payload includes results, we also emit Vercel-aligned sources.
     let ev_done_with_results = eventsource_stream::Event {
@@ -242,12 +294,11 @@ fn test_sse_named_events_routing() {
     };
     let out_done = futures::executor::block_on(conv.convert_event(ev_done_with_results));
     assert_eq!(out_done.len(), 2);
-    match out_done[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-result");
-            assert_eq!(data["toolCallId"], serde_json::json!("ws_1"));
+    match stream_part(&out_done[0]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_call_id, "ws_1");
         }
-        other => panic!("expected Custom tool-result, got {other:?}"),
+        other => panic!("expected tool-result part, got {other:?}"),
     }
 
     match out_done[1].as_ref().unwrap() {
@@ -283,25 +334,21 @@ fn responses_provider_tool_name_uses_configured_web_search_preview() {
     let out_added = futures::executor::block_on(conv.convert_event(ev_added));
     // Vercel alignment: web search emits tool-input-start/end even with empty input.
     assert_eq!(out_added.len(), 3);
-    match out_added[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-input-start");
-            assert_eq!(data["toolName"], serde_json::json!("web_search_preview"));
+    match stream_part(&out_added[0]).expect("tool-input-start part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { tool_name, .. } => {
+            assert_eq!(tool_name, "web_search_preview");
         }
-        other => panic!("expected Custom tool-input-start, got {other:?}"),
+        other => panic!("expected tool-input-start part, got {other:?}"),
     }
-    match out_added[1].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, .. } => {
-            assert_eq!(event_type, "openai:tool-input-end");
-        }
-        other => panic!("expected Custom tool-input-end, got {other:?}"),
+    match stream_part(&out_added[1]).expect("tool-input-end part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { .. } => {}
+        other => panic!("expected tool-input-end part, got {other:?}"),
     }
-    match out_added[2].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-call");
-            assert_eq!(data["toolName"], serde_json::json!("web_search_preview"));
+    match stream_part(&out_added[2]).expect("tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_name, "web_search_preview");
         }
-        other => panic!("expected Custom tool-call, got {other:?}"),
+        other => panic!("expected tool-call part, got {other:?}"),
     }
 
     let ev_done = eventsource_stream::Event {
@@ -313,12 +360,11 @@ fn responses_provider_tool_name_uses_configured_web_search_preview() {
     };
     let out_done = futures::executor::block_on(conv.convert_event(ev_done));
     assert_eq!(out_done.len(), 1);
-    match out_done[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:tool-result");
-            assert_eq!(data["toolName"], serde_json::json!("web_search_preview"));
+    match stream_part(&out_done[0]).expect("tool-result part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolResult(result) => {
+            assert_eq!(result.tool_name, "web_search_preview");
         }
-        other => panic!("expected Custom tool-result, got {other:?}"),
+        other => panic!("expected tool-result part, got {other:?}"),
     }
 }
 
@@ -336,18 +382,18 @@ fn responses_output_text_annotation_added_emits_source() {
 
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
-    match out[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:source");
-            assert_eq!(data["sourceType"], serde_json::json!("url"));
-            assert_eq!(data["url"], serde_json::json!("https://www.rust-lang.org"));
+    match stream_part(&out[0]).expect("source part") {
+        crate::streaming::LanguageModelV3StreamPart::Source(
+            crate::streaming::LanguageModelV3Source::Url { url, .. },
+        ) => {
+            assert_eq!(url, "https://www.rust-lang.org");
         }
-        other => panic!("expected Custom source, got {other:?}"),
+        other => panic!("expected url source part, got {other:?}"),
     }
 
     let ev = eventsource_stream::Event {
         event: "".to_string(),
-        data: r#"{"type":"response.output_text.annotation.added","annotation":{"type":"file_citation","file_id":"file_123","filename":"notes.txt","quote":"Document","start_index":10,"end_index":20}}"#
+        data: r#"{"type":"response.output_text.annotation.added","annotation":{"type":"file_citation","file_id":"file_123","filename":"notes.txt","quote":"Document","index":7,"start_index":10,"end_index":20}}"#
             .to_string(),
         id: "2".to_string(),
         retry: None,
@@ -355,14 +401,42 @@ fn responses_output_text_annotation_added_emits_source() {
 
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
-    match out[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:source");
-            assert_eq!(data["sourceType"], serde_json::json!("document"));
-            assert_eq!(data["url"], serde_json::json!("file_123"));
-            assert_eq!(data["filename"], serde_json::json!("notes.txt"));
+    match stream_part(&out[0]).expect("source part") {
+        crate::streaming::LanguageModelV3StreamPart::Source(
+            crate::streaming::LanguageModelV3Source::Document {
+                media_type,
+                title,
+                filename,
+                provider_metadata,
+                ..
+            },
+        ) => {
+            assert_eq!(media_type, "text/plain");
+            assert_eq!(title, "Document");
+            assert_eq!(filename.as_deref(), Some("notes.txt"));
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("type")),
+                Some(&serde_json::json!("file_citation"))
+            );
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("fileId")),
+                Some(&serde_json::json!("file_123"))
+            );
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("index")),
+                Some(&serde_json::json!(7))
+            );
         }
-        other => panic!("expected Custom source, got {other:?}"),
+        other => panic!("expected document source part, got {other:?}"),
     }
 
     let ev = eventsource_stream::Event {
@@ -375,23 +449,40 @@ fn responses_output_text_annotation_added_emits_source() {
 
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
-    match out[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:source");
-            assert_eq!(data["sourceType"], serde_json::json!("document"));
-            assert_eq!(data["url"], serde_json::json!("file_container_1"));
-            assert_eq!(data["filename"], serde_json::json!("bundle.txt"));
-            assert_eq!(data["mediaType"], serde_json::json!("text/plain"));
+    match stream_part(&out[0]).expect("source part") {
+        crate::streaming::LanguageModelV3StreamPart::Source(
+            crate::streaming::LanguageModelV3Source::Document {
+                media_type,
+                filename,
+                provider_metadata,
+                ..
+            },
+        ) => {
+            assert_eq!(media_type, "text/plain");
+            assert_eq!(filename.as_deref(), Some("bundle.txt"));
             assert_eq!(
-                data["providerMetadata"]["openai"]["containerId"],
-                serde_json::json!("container_42")
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("type")),
+                Some(&serde_json::json!("container_file_citation"))
             );
             assert_eq!(
-                data["providerMetadata"]["openai"]["index"],
-                serde_json::json!(3)
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("containerId")),
+                Some(&serde_json::json!("container_42"))
+            );
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("index")),
+                Some(&serde_json::json!(3))
             );
         }
-        other => panic!("expected Custom source, got {other:?}"),
+        other => panic!("expected container document source part, got {other:?}"),
     }
 
     let ev = eventsource_stream::Event {
@@ -404,31 +495,45 @@ fn responses_output_text_annotation_added_emits_source() {
 
     let out = futures::executor::block_on(conv.convert_event(ev));
     assert_eq!(out.len(), 1);
-    match out[0].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:source");
-            assert_eq!(data["sourceType"], serde_json::json!("document"));
-            assert_eq!(data["url"], serde_json::json!("file_path_9"));
-            assert_eq!(data["filename"], serde_json::json!("artifact.bin"));
+    match stream_part(&out[0]).expect("source part") {
+        crate::streaming::LanguageModelV3StreamPart::Source(
+            crate::streaming::LanguageModelV3Source::Document {
+                media_type,
+                filename,
+                provider_metadata,
+                ..
+            },
+        ) => {
+            assert_eq!(media_type, "application/octet-stream");
+            assert_eq!(filename.as_deref(), Some("artifact.bin"));
             assert_eq!(
-                data["mediaType"],
-                serde_json::json!("application/octet-stream")
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("type")),
+                Some(&serde_json::json!("file_path"))
             );
             assert_eq!(
-                data["providerMetadata"]["openai"]["fileId"],
-                serde_json::json!("file_path_9")
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("fileId")),
+                Some(&serde_json::json!("file_path_9"))
             );
             assert_eq!(
-                data["providerMetadata"]["openai"]["index"],
-                serde_json::json!(5)
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("openai"))
+                    .and_then(|meta| meta.get("index")),
+                Some(&serde_json::json!(5))
             );
         }
-        other => panic!("expected Custom source, got {other:?}"),
+        other => panic!("expected file-path source part, got {other:?}"),
     }
 }
 
 #[test]
-fn responses_reasoning_summary_text_delta_emits_thinking_delta_and_custom_part() {
+fn responses_reasoning_summary_text_delta_emits_thinking_delta_and_part() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let ev = eventsource_stream::Event {
@@ -450,13 +555,189 @@ fn responses_reasoning_summary_text_delta_emits_thinking_delta_and_custom_part()
     }));
     assert!(out.iter().any(|event| {
         matches!(
-            event.as_ref().expect("custom reasoning event"),
-            crate::streaming::ChatStreamEvent::Custom { event_type, data }
-                if event_type == "openai:reasoning-delta"
-                    && data["delta"] == serde_json::json!("Let me think.")
-                    && data["providerMetadata"]["openai"]["itemId"] == serde_json::json!("rs_1")
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+                delta,
+                provider_metadata,
+                ..
+            })
+                if delta == "Let me think."
+                    && provider_metadata
+                        .as_ref()
+                        .and_then(|meta| meta.get("openai"))
+                        .and_then(|meta| meta.get("itemId"))
+                        == Some(&serde_json::json!("rs_1"))
         )
     }));
+}
+
+#[test]
+fn responses_created_emits_part_stream_start_and_response_metadata() {
+    let conv = OpenAiResponsesEventConverter::new();
+    let event = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.created","response":{"id":"resp_1","model":"gpt-test","created_at":1735689600}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let out = futures::executor::block_on(conv.convert_event(event));
+    assert_eq!(out.len(), 2);
+    assert!(out.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::StreamStart { warnings })
+                if warnings.is_empty()
+        )
+    }));
+    assert!(out.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ResponseMetadata(metadata))
+                if metadata.id.as_deref() == Some("resp_1")
+                    && metadata.model_id.as_deref() == Some("gpt-test")
+                    && metadata.timestamp == Some(parse_test_timestamp("2025-01-01T00:00:00Z"))
+        )
+    }));
+}
+
+#[test]
+fn responses_message_output_text_events_emit_text_parts() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","status":"in_progress","role":"assistant"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let added_out = futures::executor::block_on(conv.convert_event(added));
+    assert!(matches!(
+        stream_part(&added_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::TextStart {
+            id,
+            provider_metadata,
+        }) if id == "msg_1"
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("itemId"))
+                == Some(&serde_json::json!("msg_1"))
+    ));
+
+    let delta = eventsource_stream::Event {
+        event: "response.output_text.delta".to_string(),
+        data: r#"{"type":"response.output_text.delta","item_id":"msg_1","delta":"Hello"}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let delta_out = futures::executor::block_on(conv.convert_event(delta));
+    assert!(delta_out.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { id, delta, .. })
+                if id == "msg_1" && delta == "Hello"
+        )
+    }));
+    assert!(delta_out.iter().any(|event| {
+        matches!(
+            event.as_ref().expect("content delta event"),
+            crate::streaming::ChatStreamEvent::ContentDelta { delta, .. } if delta == "Hello"
+        )
+    }));
+
+    let done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"msg_1","type":"message","status":"completed","role":"assistant","content":[{"type":"output_text","text":"Hello","annotations":[]}]}}"#
+            .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let done_out = futures::executor::block_on(conv.convert_event(done));
+    assert!(matches!(
+        stream_part(&done_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::TextEnd {
+            id,
+            provider_metadata,
+        }) if id == "msg_1"
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("itemId"))
+                == Some(&serde_json::json!("msg_1"))
+    ));
+}
+
+#[test]
+fn responses_reasoning_item_events_emit_reasoning_parts() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"rs_1","type":"reasoning","status":"in_progress","summary":[],"encrypted_content":"enc_1"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let added_out = futures::executor::block_on(conv.convert_event(added));
+    assert!(matches!(
+        stream_part(&added_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart {
+            id,
+            provider_metadata,
+        }) if id == "rs_1:0"
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("reasoningEncryptedContent"))
+                == Some(&serde_json::json!("enc_1"))
+    ));
+
+    let delta = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.reasoning_summary_text.delta","item_id":"rs_1","summary_index":0,"delta":"Let me think."}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let delta_out = futures::executor::block_on(conv.convert_event(delta));
+    assert!(delta_out.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta { id, delta, .. })
+                if id == "rs_1:0" && delta == "Let me think."
+        )
+    }));
+    assert!(delta_out.iter().any(|event| {
+        matches!(
+            event.as_ref().expect("thinking delta event"),
+            crate::streaming::ChatStreamEvent::ThinkingDelta { delta } if delta == "Let me think."
+        )
+    }));
+
+    let done = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.done","output_index":0,"item":{"id":"rs_1","type":"reasoning","status":"completed","summary":[],"encrypted_content":"enc_2"}}"#
+            .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let done_out = futures::executor::block_on(conv.convert_event(done));
+    assert!(matches!(
+        stream_part(&done_out[0]),
+        Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+            id,
+            provider_metadata,
+        }) if id == "rs_1:0"
+            && provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("openai"))
+                .and_then(|meta| meta.get("reasoningEncryptedContent"))
+                == Some(&serde_json::json!("enc_2"))
+    ));
 }
 
 #[test]
@@ -532,6 +813,14 @@ fn responses_stream_proxy_serializes_basic_text_deltas() {
     assert_eq!(
         completed["response"]["status"],
         serde_json::json!("completed")
+    );
+    assert_eq!(
+        completed["response"]["usage"]["input_tokens"],
+        serde_json::json!(3)
+    );
+    assert_eq!(
+        completed["response"]["usage"]["output_tokens"],
+        serde_json::json!(5)
     );
 }
 
@@ -700,7 +989,7 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
                 "title": "Document",
                 "mediaType": "text/plain",
                 "filename": "notes.txt",
-                "providerMetadata": { "openai": { "fileId": "file_123" } },
+                "providerMetadata": { "openai": { "type": "file_citation", "fileId": "file_123", "index": 7 } },
             }),
         })
         .expect("serialize doc source");
@@ -709,6 +998,7 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
         ev == "response.output_text.annotation.added"
             && v["annotation"]["type"] == serde_json::json!("file_citation")
             && v["annotation"]["file_id"] == serde_json::json!("file_123")
+            && v["annotation"]["index"] == serde_json::json!(7)
             && v["annotation"]["filename"] == serde_json::json!("notes.txt")
     }));
 
@@ -723,7 +1013,7 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
                 "title": "Bundle",
                 "mediaType": "text/plain",
                 "filename": "bundle.txt",
-                "providerMetadata": { "openai": { "fileId": "file_container_1", "containerId": "container_42", "index": 3 } },
+                "providerMetadata": { "openai": { "type": "container_file_citation", "fileId": "file_container_1", "containerId": "container_42", "index": 3 } },
             }),
         })
         .expect("serialize container doc source");
@@ -748,7 +1038,7 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
                 "title": "artifact.bin",
                 "mediaType": "application/octet-stream",
                 "filename": "artifact.bin",
-                "providerMetadata": { "openai": { "fileId": "file_path_9", "index": 5 } },
+                "providerMetadata": { "openai": { "type": "file_path", "fileId": "file_path_9", "index": 5 } },
             }),
         })
         .expect("serialize file path source");
@@ -1166,26 +1456,23 @@ fn responses_stream_proxy_roundtrips_mcp_tool_parts_without_raw_item() {
 
     let tool_calls = events
         .iter()
-        .filter_map(|event| match event {
-            crate::streaming::ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-call"))
-                    && data.get("toolName") == Some(&serde_json::json!("mcp.web_search_exa"))
-                    && data.get("providerExecuted") == Some(&serde_json::json!(true)) =>
+        .filter_map(|event| match event.part_ref() {
+            Some(crate::types::ChatStreamPart::ToolCall(call))
+                if call.tool_name == "mcp.web_search_exa"
+                    && call.provider_executed == Some(true) =>
             {
-                Some(data.clone())
+                Some(call)
             }
             _ => None,
         })
         .count();
     let tool_results = events
         .iter()
-        .filter_map(|event| match event {
-            crate::streaming::ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-result"))
-                    && data.get("toolName") == Some(&serde_json::json!("mcp.web_search_exa"))
-                    && data.get("providerExecuted") == Some(&serde_json::json!(true)) =>
+        .filter_map(|event| match event.part_ref() {
+            Some(crate::types::ChatStreamPart::ToolResult(result))
+                if result.tool_name == "mcp.web_search_exa" =>
             {
-                Some(data.clone())
+                Some(result)
             }
             _ => None,
         })
@@ -1351,24 +1638,20 @@ fn responses_stream_proxy_serializes_stream_start_and_response_metadata_parts() 
     let conv = OpenAiResponsesEventConverter::new();
 
     let start_bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:stream-start".to_string(),
-            data: serde_json::json!({
-                "type": "stream-start",
-                "warnings": [],
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::StreamStart { warnings: vec![] },
         })
         .expect("serialize stream-start");
     assert!(start_bytes.is_empty());
 
     let meta_bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:response-metadata".to_string(),
-            data: serde_json::json!({
-                "type": "response-metadata",
-                "id": "resp_test",
-                "modelId": "gpt-test",
-                "timestamp": "2025-01-01T00:00:00.000Z",
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ResponseMetadata(crate::types::ResponseMetadata {
+                id: Some("resp_test".to_string()),
+                model: Some("gpt-test".to_string()),
+                created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
+                provider: "openai".to_string(),
+                request_id: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -1391,25 +1674,25 @@ fn responses_stream_proxy_serializes_text_start_and_end_parts() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:response-metadata".to_string(),
-            data: serde_json::json!({
-                "type": "response-metadata",
-                "id": "resp_test",
-                "modelId": "gpt-test",
-                "timestamp": "2025-01-01T00:00:00.000Z",
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ResponseMetadata(crate::types::ResponseMetadata {
+                id: Some("resp_test".to_string()),
+                model: Some("gpt-test".to_string()),
+                created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
+                provider: "openai".to_string(),
+                request_id: None,
             }),
         })
         .expect("serialize response-metadata");
 
     let start_bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-start".to_string(),
-            data: serde_json::json!({
-                "type": "text-start",
-                "id": "msg_1",
-                "providerMetadata": { "openai": { "itemId": "msg_1" } },
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextStart {
+                id: "msg_1".to_string(),
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "itemId": "msg_1"
+                }))),
+            },
         })
         .expect("serialize text-start");
     let start_frames = parse_sse_frames(&start_bytes);
@@ -1423,24 +1706,23 @@ fn responses_stream_proxy_serializes_text_start_and_end_parts() {
     );
 
     let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-delta".to_string(),
-            data: serde_json::json!({
-                "type": "text-delta",
-                "id": "msg_1",
-                "delta": "Hello",
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta {
+                id: "msg_1".to_string(),
+                delta: "Hello".to_string(),
+                provider_metadata: None,
+            },
         })
         .expect("serialize text-delta");
 
     let end_bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-end".to_string(),
-            data: serde_json::json!({
-                "type": "text-end",
-                "id": "msg_1",
-                "providerMetadata": { "openai": { "itemId": "msg_1" } },
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextEnd {
+                id: "msg_1".to_string(),
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "itemId": "msg_1"
+                }))),
+            },
         })
         .expect("serialize text-end");
     let end_frames = parse_sse_frames(&end_bytes);
@@ -1459,25 +1741,25 @@ fn responses_stream_proxy_serializes_reasoning_start_and_end_parts() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:response-metadata".to_string(),
-            data: serde_json::json!({
-                "type": "response-metadata",
-                "id": "resp_test",
-                "modelId": "gpt-test",
-                "timestamp": "2025-01-01T00:00:00.000Z",
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ResponseMetadata(crate::types::ResponseMetadata {
+                id: Some("resp_test".to_string()),
+                model: Some("gpt-test".to_string()),
+                created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
+                provider: "openai".to_string(),
+                request_id: None,
             }),
         })
         .expect("serialize response-metadata");
 
     let start_bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-start".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-start",
-                "id": "rs_1:0",
-                "providerMetadata": { "openai": { "itemId": "rs_1" } },
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningStart {
+                id: "rs_1:0".to_string(),
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "itemId": "rs_1"
+                }))),
+            },
         })
         .expect("serialize reasoning-start");
     let start_frames = parse_sse_frames(&start_bytes);
@@ -1486,13 +1768,13 @@ fn responses_stream_proxy_serializes_reasoning_start_and_end_parts() {
     }));
 
     let end_bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-end".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-end",
-                "id": "rs_1:0",
-                "providerMetadata": { "openai": { "itemId": "rs_1" } },
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningEnd {
+                id: "rs_1:0".to_string(),
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "itemId": "rs_1"
+                }))),
+            },
         })
         .expect("serialize reasoning-end");
     let end_frames = parse_sse_frames(&end_bytes);
@@ -1506,41 +1788,46 @@ fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:response-metadata".to_string(),
-            data: serde_json::json!({
-                "type": "response-metadata",
-                "id": "resp_test",
-                "modelId": "gpt-test",
-                "timestamp": "2025-01-01T00:00:00.000Z",
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ResponseMetadata(crate::types::ResponseMetadata {
+                id: Some("resp_test".to_string()),
+                model: Some("gpt-test".to_string()),
+                created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
+                provider: "openai".to_string(),
+                request_id: None,
             }),
         })
         .expect("serialize response-metadata");
 
     let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-delta".to_string(),
-            data: serde_json::json!({
-                "type": "text-delta",
-                "id": "msg_1",
-                "delta": "Hello",
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta {
+                id: "msg_1".to_string(),
+                delta: "Hello".to_string(),
+                provider_metadata: None,
+            },
         })
         .expect("serialize text-delta");
 
     let bytes = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:finish".to_string(),
-            data: serde_json::json!({
-                "type": "finish",
-                "finishReason": { "raw": null, "unified": "stop" },
-                "providerMetadata": { "openai": { "responseId": "resp_test" } },
-                "usage": {
-                    "inputTokens": { "total": 3, "cacheRead": 0, "cacheWrite": null, "noCache": 3 },
-                    "outputTokens": { "total": 5, "reasoning": 0, "text": 5 },
-                    "raw": null
-                }
-            }),
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Finish {
+                usage: Usage::builder()
+                    .with_input_total_tokens(3)
+                    .with_input_no_cache_tokens(3)
+                    .with_input_cache_read_tokens(0)
+                    .with_output_total_tokens(5)
+                    .with_output_text_tokens(5)
+                    .with_output_reasoning_tokens(0)
+                    .build(),
+                finish_reason: crate::types::ChatStreamFinishInfo {
+                    unified: FinishReason::Stop,
+                    raw: None,
+                },
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "responseId": "resp_test"
+                }))),
+            },
         })
         .expect("serialize finish");
     let frames = parse_sse_frames(&bytes);
@@ -1557,6 +1844,22 @@ fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
     assert_eq!(
         completed["response"]["status"],
         serde_json::json!("completed")
+    );
+    assert_eq!(
+        completed["response"]["usage"]["input_tokens"],
+        serde_json::json!(3)
+    );
+    assert_eq!(
+        completed["response"]["usage"]["output_tokens"],
+        serde_json::json!(5)
+    );
+    assert_eq!(
+        completed["response"]["usage"]["input_tokens_details"]["cached_tokens"],
+        serde_json::json!(0)
+    );
+    assert_eq!(
+        completed["response"]["usage"]["output_tokens_details"]["reasoning_tokens"],
+        serde_json::json!(0)
     );
 }
 
@@ -1591,77 +1894,177 @@ fn responses_stream_proxy_maps_v3_tool_finish_to_tool_calls_finish_reason() {
 }
 
 #[test]
-fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
+fn responses_failed_event_buffers_finish_with_unknown_usage_totals() {
+    let conv = OpenAiResponsesEventConverter::new();
+    let event = eventsource_stream::Event {
+        event: "response.failed".to_string(),
+        data: r#"{"type":"response.failed","response":{"id":"resp_failed_1","status":"failed"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+
+    let events = futures::executor::block_on(conv.convert_event(event));
+    assert!(
+        events.is_empty(),
+        "response.failed should only buffer finish"
+    );
+
+    let pending = conv.handle_stream_end_events();
+    assert_eq!(pending.len(), 1);
+
+    match pending[0].as_ref().expect("pending finish event") {
+        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
+            assert_eq!(event_type, "openai:finish");
+            assert_eq!(
+                data.pointer("/usage/inputTokens/total"),
+                Some(&serde_json::Value::Null)
+            );
+            assert_eq!(
+                data.pointer("/usage/outputTokens/total"),
+                Some(&serde_json::Value::Null)
+            );
+            assert_eq!(data.pointer("/usage/raw"), Some(&serde_json::Value::Null));
+        }
+        other => panic!("expected openai:finish custom event, got {other:?}"),
+    }
+}
+
+#[test]
+fn responses_stream_proxy_serializes_failed_finish_with_null_usage_totals() {
     let conv = OpenAiResponsesEventConverter::new();
 
     let _ = conv
         .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:response-metadata".to_string(),
+            event_type: "openai:error".to_string(),
             data: serde_json::json!({
-                "type": "response-metadata",
-                "id": "resp_test",
-                "modelId": "gpt-test",
-                "timestamp": "2025-01-01T00:00:00.000Z",
+                "type": "error",
+                "error": {
+                    "message": "boom"
+                }
             }),
         })
-        .expect("serialize response-metadata");
-
-    let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:text-delta".to_string(),
-            data: serde_json::json!({
-                "type": "text-delta",
-                "id": "msg_1",
-                "delta": "See files.",
-            }),
-        })
-        .expect("serialize text-delta");
-
-    let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:source".to_string(),
-            data: serde_json::json!({
-                "type": "source",
-                "sourceType": "document",
-                "id": "ann:doc:file_container_1",
-                "url": "file_container_1",
-                "title": "Bundle",
-                "mediaType": "text/plain",
-                "filename": "bundle.txt",
-                "providerMetadata": { "openai": { "fileId": "file_container_1", "containerId": "container_42", "index": 3 } },
-            }),
-        })
-        .expect("serialize container source");
-
-    let _ = conv
-        .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:source".to_string(),
-            data: serde_json::json!({
-                "type": "source",
-                "sourceType": "document",
-                "id": "ann:doc:file_path_9",
-                "url": "file_path_9",
-                "title": "artifact.bin",
-                "mediaType": "application/octet-stream",
-                "filename": "artifact.bin",
-                "providerMetadata": { "openai": { "fileId": "file_path_9", "index": 5 } },
-            }),
-        })
-        .expect("serialize file path source");
+        .expect("serialize error");
 
     let bytes = conv
         .serialize_event(&crate::streaming::ChatStreamEvent::Custom {
             event_type: "openai:finish".to_string(),
             data: serde_json::json!({
                 "type": "finish",
-                "finishReason": { "raw": null, "unified": "stop" },
-                "providerMetadata": { "openai": { "responseId": "resp_test" } },
+                "finishReason": { "raw": null, "unified": "other" },
                 "usage": {
-                    "inputTokens": { "total": 3, "cacheRead": 0, "cacheWrite": null, "noCache": 3 },
-                    "outputTokens": { "total": 5, "reasoning": 0, "text": 5 },
+                    "inputTokens": { "total": null, "cacheRead": null, "cacheWrite": null, "noCache": null },
+                    "outputTokens": { "total": null, "reasoning": null, "text": null },
                     "raw": null
                 }
             }),
+        })
+        .expect("serialize failed finish");
+
+    let failed = parse_sse_frames(&bytes)
+        .into_iter()
+        .find(|(ev, _)| ev == "response.failed")
+        .map(|(_, value)| value)
+        .expect("response.failed frame");
+
+    assert_eq!(failed["response"]["status"], serde_json::json!("failed"));
+    assert_eq!(
+        failed["response"]["usage"]["input_tokens"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        failed["response"]["usage"]["output_tokens"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        failed["response"]["usage"]["total_tokens"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ResponseMetadata(crate::types::ResponseMetadata {
+                id: Some("resp_test".to_string()),
+                model: Some("gpt-test".to_string()),
+                created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
+                provider: "openai".to_string(),
+                request_id: None,
+            }),
+        })
+        .expect("serialize response-metadata");
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta {
+                id: "msg_1".to_string(),
+                delta: "See files.".to_string(),
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize text-delta");
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Source {
+                id: "ann:doc:file_container_1".to_string(),
+                source: crate::types::SourcePart::Document {
+                    media_type: "text/plain".to_string(),
+                    title: "Bundle".to_string(),
+                    filename: Some("bundle.txt".to_string()),
+                },
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "type": "container_file_citation",
+                    "fileId": "file_container_1",
+                    "containerId": "container_42",
+                    "index": 3
+                }))),
+            },
+        })
+        .expect("serialize container source");
+
+    let _ = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Source {
+                id: "ann:doc:file_path_9".to_string(),
+                source: crate::types::SourcePart::Document {
+                    media_type: "application/octet-stream".to_string(),
+                    title: "artifact.bin".to_string(),
+                    filename: Some("artifact.bin".to_string()),
+                },
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "type": "file_path",
+                    "fileId": "file_path_9",
+                    "index": 5
+                }))),
+            },
+        })
+        .expect("serialize file path source");
+
+    let bytes = conv
+        .serialize_event(&crate::streaming::ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Finish {
+                usage: Usage::builder()
+                    .with_input_total_tokens(3)
+                    .with_input_no_cache_tokens(3)
+                    .with_input_cache_read_tokens(0)
+                    .with_output_total_tokens(5)
+                    .with_output_text_tokens(5)
+                    .with_output_reasoning_tokens(0)
+                    .build(),
+                finish_reason: crate::types::ChatStreamFinishInfo {
+                    unified: FinishReason::Stop,
+                    raw: None,
+                },
+                provider_metadata: Some(openai_provider_metadata(serde_json::json!({
+                    "responseId": "resp_test",
+                    "serviceTier": "default"
+                }))),
+            },
         })
         .expect("serialize finish");
 
@@ -1681,6 +2084,8 @@ fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
 
     let meta = crate::provider_metadata::openai::OpenAiChatResponseExt::openai_metadata(&response)
         .expect("openai metadata");
+    assert_eq!(meta.response_id.as_deref(), Some("resp_test"));
+    assert_eq!(meta.service_tier.as_deref(), Some("default"));
     let sources = meta.sources.expect("sources present");
 
     let container_source = sources
@@ -1690,6 +2095,10 @@ fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
     let container_meta =
         crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(container_source)
             .expect("container source metadata");
+    assert_eq!(
+        container_meta.metadata_type.as_deref(),
+        Some("container_file_citation")
+    );
     assert_eq!(container_meta.file_id.as_deref(), Some("file_container_1"));
     assert_eq!(container_meta.container_id.as_deref(), Some("container_42"));
     assert_eq!(container_meta.index, Some(3));
@@ -1701,6 +2110,7 @@ fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
     let file_path_meta =
         crate::provider_metadata::openai::OpenAiSourceExt::openai_metadata(file_path_source)
             .expect("file path source metadata");
+    assert_eq!(file_path_meta.metadata_type.as_deref(), Some("file_path"));
     assert_eq!(file_path_meta.file_id.as_deref(), Some("file_path_9"));
     assert!(file_path_meta.container_id.is_none());
     assert_eq!(file_path_meta.index, Some(5));
