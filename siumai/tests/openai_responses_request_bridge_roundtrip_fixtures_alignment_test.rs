@@ -1,11 +1,13 @@
 #![cfg(feature = "openai")]
 
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Value, json};
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_request_to_openai_responses_json,
 };
-use siumai::prelude::unified::ChatRequest;
+use siumai::prelude::unified::{
+    ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
+};
 use std::path::{Path, PathBuf};
 
 fn fixtures_dir() -> PathBuf {
@@ -98,7 +100,9 @@ fn openai_responses_request_bridge_roundtrip_fixture_exact_cases_match() {
         "assistant-tool-call-multiple",
         "structured-output-json-schema",
         "system-mode-system",
+        "tool-message-content-file-id-mixed",
         "user-text",
+        "user-image-detail-openai-low",
     ];
 
     for case in exact_cases {
@@ -109,4 +113,49 @@ fn openai_responses_request_bridge_roundtrip_fixture_exact_cases_match() {
             fixtures_dir().join(case).display()
         );
     }
+}
+
+#[test]
+fn openai_responses_request_bridge_ignores_assistant_tool_call_legacy_metadata_item_id() {
+    let request = ChatRequest::builder()
+        .message(siumai::prelude::unified::ChatMessage {
+            role: MessageRole::Assistant,
+            content: MessageContent::MultiModal(vec![ContentPart::ToolCall {
+                tool_call_id: "call_legacy".to_string(),
+                tool_name: "weather".to_string(),
+                arguments: json!({ "city": "Tokyo" }),
+                provider_executed: None,
+                provider_options: Default::default(),
+                provider_metadata: Some(std::collections::HashMap::from([(
+                    "openai".to_string(),
+                    json!({ "itemId": "fc_legacy_1" }),
+                )])),
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: Default::default(),
+        })
+        .provider_option("openai", json!({ "store": true }))
+        .model("gpt-4.1")
+        .build();
+
+    let bridged = bridge_chat_request_to_openai_responses_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge request");
+
+    assert!(
+        !bridged.is_rejected(),
+        "bridge rejected request with report {:?}",
+        bridged.report
+    );
+
+    let mut body = bridged.value.expect("bridged request body");
+    normalize_json(&mut body);
+
+    let input = body["input"].as_array().expect("input array");
+    assert_eq!(input.len(), 1);
+    assert_eq!(input[0]["type"], json!("function_call"));
+    assert!(input[0].get("id").is_none());
 }
