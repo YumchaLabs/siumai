@@ -164,35 +164,6 @@ fn build_create_body(
         );
     }
 
-    if request.prompt_optimizer.is_some() {
-        push_warning(
-            &mut warnings,
-            "prompt_optimizer",
-            "xAI video models do not expose `prompt_optimizer` on the provider-owned path.",
-        );
-    }
-    if request.fast_pretreatment.is_some() {
-        push_warning(
-            &mut warnings,
-            "fast_pretreatment",
-            "xAI video models do not expose `fast_pretreatment` on the provider-owned path.",
-        );
-    }
-    if request.callback_url.is_some() {
-        push_warning(
-            &mut warnings,
-            "callback_url",
-            "xAI video models do not expose callback URLs on the provider-owned path.",
-        );
-    }
-    if request.aigc_watermark.is_some() {
-        push_warning(
-            &mut warnings,
-            "aigc_watermark",
-            "xAI video models do not expose watermark controls on the provider-owned path.",
-        );
-    }
-
     if is_edit {
         if request.duration.is_some() {
             push_warning(
