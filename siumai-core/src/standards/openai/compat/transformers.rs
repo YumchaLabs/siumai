@@ -4,7 +4,6 @@
 //! across non-streaming and streaming paths.
 
 use super::adapter::ProviderAdapter;
-use super::metadata::extract_provider_metadata;
 use super::openai_config::OpenAiCompatibleConfig;
 use super::types::RequestType;
 use crate::error::LlmError;
@@ -426,7 +425,7 @@ impl ResponseTransformer for CompatResponseTransformer {
                 })
             });
 
-        let provider_metadata = extract_provider_metadata(&self.config.provider_id, raw);
+        let provider_metadata = self.adapter.extract_response_provider_metadata(raw);
 
         Ok(ChatResponse {
             id: Some(resp.id),
@@ -510,6 +509,9 @@ fn compat_source_part_id(response_id: Option<&str>, index: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::super::adapter::ProviderAdapter;
+    use super::super::provider_registry::{
+        ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
+    };
     use super::super::types as compat_types;
     use super::super::types::RequestType;
     use super::*;
@@ -551,7 +553,18 @@ mod tests {
 
     #[test]
     fn perplexity_extra_fields_are_exposed_as_provider_metadata() {
-        let adapter = Arc::new(DummyAdapter);
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("sonar-pro".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
         let config = OpenAiCompatibleConfig::new(
             "perplexity",
             "test-key",
@@ -691,7 +704,18 @@ mod tests {
 
     #[test]
     fn openai_compatible_transformer_preserves_top_level_chat_response_fields() {
-        let adapter = Arc::new(DummyAdapter);
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "openai".to_string(),
+                name: "OpenAI".to_string(),
+                base_url: "https://api.openai.com/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("gpt-4.1-mini".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
         let config = OpenAiCompatibleConfig::new(
             "openai",
             "test-key",
@@ -796,6 +820,63 @@ mod tests {
             openai.get("rejectedPredictionTokens"),
             Some(&serde_json::json!(6))
         );
+    }
+
+    #[test]
+    fn generic_openai_compatible_provider_does_not_infer_standard_metadata_by_default() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "test-provider".to_string(),
+                name: "Test Provider".to_string(),
+                base_url: "https://api.example.com/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("test-model".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "test-provider",
+            "test-key",
+            "https://api.example.com/v1",
+            adapter.clone(),
+        )
+        .with_model("test-model");
+
+        let tx = CompatResponseTransformer { config, adapter };
+        let raw = serde_json::json!({
+            "id": "chatcmpl_123",
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "hello"
+                },
+                "finish_reason": "stop",
+                "logprobs": {
+                    "content": [{
+                        "token": "hello",
+                        "logprob": -0.1,
+                        "bytes": [104, 101, 108, 108, 111],
+                        "top_logprobs": []
+                    }]
+                }
+            }],
+            "sources": [{
+                "url": "https://example.com"
+            }],
+            "usage": {
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": 5,
+                    "rejected_prediction_tokens": 6
+                }
+            }
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        assert!(resp.provider_metadata.is_none());
     }
 
     #[test]

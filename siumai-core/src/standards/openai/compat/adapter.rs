@@ -4,6 +4,7 @@
 //! It's inspired by Cherry Studio's RequestTransformer and ResponseChunkTransformer patterns
 //! and fully integrates with our existing traits and HTTP configuration system.
 
+use super::metadata::NestedProviderMetadata;
 use super::types::{FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig, RequestType};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
@@ -226,6 +227,18 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     /// This is needed because we store adapters in configurations.
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter>;
 
+    /// Extract provider-owned response metadata from a parsed OpenAI-compatible payload.
+    ///
+    /// This is the compat-layer analogue of AI SDK's provider-specific `metadataExtractor`.
+    /// Generic OpenAI-compatible plumbing should not infer provider metadata namespaces on its own;
+    /// providers/adapters opt into the extra fields they want to surface.
+    fn extract_response_provider_metadata(
+        &self,
+        _raw: &serde_json::Value,
+    ) -> Option<NestedProviderMetadata> {
+        None
+    }
+
     /// Check if provider supports image generation
     fn supports_image_generation(&self) -> bool {
         false
@@ -378,6 +391,16 @@ impl ProviderAdapter for OpenAiStandardAdapter {
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
         Box::new(self.clone())
     }
+
+    fn extract_response_provider_metadata(
+        &self,
+        raw: &serde_json::Value,
+    ) -> Option<NestedProviderMetadata> {
+        super::metadata::extract_openai_compatible_provider_metadata(
+            self.provider_id().as_ref(),
+            raw,
+        )
+    }
 }
 
 /// Adapter wrapper that merges extra request parameters before delegating.
@@ -473,6 +496,13 @@ impl ProviderAdapter for ParamMergingAdapter {
 
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
         Box::new(self.clone())
+    }
+
+    fn extract_response_provider_metadata(
+        &self,
+        raw: &serde_json::Value,
+    ) -> Option<NestedProviderMetadata> {
+        self.inner.extract_response_provider_metadata(raw)
     }
 
     fn supports_image_generation(&self) -> bool {
@@ -607,5 +637,44 @@ mod tests {
             .unwrap();
         assert!(emb_body.get("enable_reasoning").is_none());
         assert!(emb_body.get("reasoning_budget").is_none());
+    }
+
+    #[test]
+    fn openai_standard_adapter_extracts_response_metadata_via_adapter_hook() {
+        let adapter = OpenAiStandardAdapter {
+            base_url: "https://api.openai.com/v1".to_string(),
+        };
+        let raw = serde_json::json!({
+            "choices": [{
+                "logprobs": {
+                    "content": [{
+                        "token": "hello",
+                        "logprob": -0.1,
+                        "bytes": [104, 101, 108, 108, 111],
+                        "top_logprobs": []
+                    }]
+                }
+            }],
+            "usage": {
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": 4,
+                    "rejected_prediction_tokens": 2
+                }
+            }
+        });
+
+        let metadata = adapter
+            .extract_response_provider_metadata(&raw)
+            .expect("metadata");
+        let openai = metadata.get("openai").expect("openai namespace");
+        assert_eq!(openai["logprobs"][0]["token"], serde_json::json!("hello"));
+        assert_eq!(
+            openai.get("acceptedPredictionTokens"),
+            Some(&serde_json::json!(4))
+        );
+        assert_eq!(
+            openai.get("rejectedPredictionTokens"),
+            Some(&serde_json::json!(2))
+        );
     }
 }

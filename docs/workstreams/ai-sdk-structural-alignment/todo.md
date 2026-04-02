@@ -72,10 +72,16 @@ Status legend:
   user-visible request paths.
   - OpenAI Chat `imageDetail` now reads only canonical part `providerOptions.openai|azure`.
   - OpenAI-compatible extra request params now read only canonical message/part/tool-result
-    `providerOptions.openaiCompatible`; request-side `providerMetadata.openaiCompatible` and
-    `message.metadata.custom.openaiCompatible` are no longer treated as input.
+      `providerOptions.openaiCompatible`; request-side `providerMetadata.openaiCompatible` and
+      `message.metadata.custom.openaiCompatible` are no longer treated as input.
   - `ProviderOptionsMap` serde now normalizes JSON provider ids, so wire `openaiCompatible` keys
     resolve the same way as builder-inserted provider options.
+- [x] Move OpenAI-compatible response-metadata extraction behind provider-owned adapter policy.
+  - shared compat decoding no longer decides metadata namespaces through a hardcoded whitelist
+  - `OpenAiStandardAdapter` / `ConfigurableAdapter` now opt known providers into `sources`,
+    `logprobs`, and prediction-token metadata explicitly
+  - generic OpenAI-compatible providers now match AI SDK `openai-compatible` defaults more closely
+    by not inferring those metadata fields unless the provider adapter opts in
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.

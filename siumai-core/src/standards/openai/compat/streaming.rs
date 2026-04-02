@@ -21,9 +21,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use super::adapter::ProviderAdapter;
-use super::metadata::{
-    NestedProviderMetadata, extract_provider_metadata, merge_nested_provider_metadata,
-};
+use super::metadata::{NestedProviderMetadata, merge_nested_provider_metadata};
 use super::openai_config::OpenAiCompatibleConfig;
 
 #[derive(Debug, Default, Clone)]
@@ -399,7 +397,7 @@ impl OpenAiCompatibleEventConverter {
             builder = builder.add_usage_update(usage);
         }
 
-        if let Some(provider_metadata) = extract_provider_metadata(&self.config.provider_id, json) {
+        if let Some(provider_metadata) = self.adapter.extract_response_provider_metadata(json) {
             let mut latest = self.latest_provider_metadata.lock().unwrap();
             if let Some(current) = latest.as_mut() {
                 merge_nested_provider_metadata(current, provider_metadata);

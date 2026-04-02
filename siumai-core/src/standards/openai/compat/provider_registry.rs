@@ -5,6 +5,10 @@
 //! `ProviderAdapter` implementation.
 
 use super::adapter::ProviderAdapter;
+use super::metadata::{
+    NestedProviderMetadata, extract_openai_compatible_provider_metadata,
+    extract_perplexity_provider_metadata,
+};
 use super::types::{FieldAccessor, FieldMappings, JsonFieldAccessor, RequestType};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
@@ -317,6 +321,19 @@ impl ProviderAdapter for ConfigurableAdapter {
         Box::new(self.clone())
     }
 
+    fn extract_response_provider_metadata(
+        &self,
+        raw: &serde_json::Value,
+    ) -> Option<NestedProviderMetadata> {
+        match self.config.id.as_str() {
+            "perplexity" => extract_perplexity_provider_metadata(&self.config.id, raw),
+            "openai" | "openrouter" | "xai" | "groq" | "deepseek" => {
+                extract_openai_compatible_provider_metadata(&self.config.id, raw)
+            }
+            _ => None,
+        }
+    }
+
     fn supports_image_generation(&self) -> bool {
         self.config
             .capabilities
@@ -483,6 +500,47 @@ mod tests {
             adapter.audio_base_url(),
             Some("https://audio.fireworks.ai/v1")
         );
+    }
+
+    #[test]
+    fn configurable_adapter_only_extracts_metadata_for_opted_in_providers() {
+        let openai = ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("gpt-4.1-mini".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        });
+        let raw = serde_json::json!({
+            "choices": [{
+                "logprobs": {
+                    "content": [{
+                        "token": "hello",
+                        "logprob": -0.1,
+                        "bytes": [104, 101, 108, 108, 111],
+                        "top_logprobs": []
+                    }]
+                }
+            }]
+        });
+        assert!(openai.extract_response_provider_metadata(&raw).is_some());
+
+        let generic = ConfigurableAdapter::new(ProviderConfig {
+            id: "test-provider".to_string(),
+            name: "Test Provider".to_string(),
+            base_url: "https://api.example.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("test-model".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        });
+        assert!(generic.extract_response_provider_metadata(&raw).is_none());
     }
 
     #[test]

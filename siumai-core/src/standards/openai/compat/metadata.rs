@@ -4,7 +4,18 @@ use std::collections::HashMap;
 
 pub(super) type NestedProviderMetadata = HashMap<String, HashMap<String, serde_json::Value>>;
 
-fn extract_sources_and_logprobs(
+fn namespaced_provider_metadata(
+    provider_id: &str,
+    meta: HashMap<String, serde_json::Value>,
+) -> Option<NestedProviderMetadata> {
+    if meta.is_empty() {
+        None
+    } else {
+        Some(HashMap::from([(provider_id.to_string(), meta)]))
+    }
+}
+
+pub(super) fn extract_openai_compatible_provider_metadata(
     provider_id: &str,
     raw: &serde_json::Value,
 ) -> Option<NestedProviderMetadata> {
@@ -48,42 +59,27 @@ fn extract_sources_and_logprobs(
         }
     }
 
-    if meta.is_empty() {
-        None
-    } else {
-        Some(HashMap::from([(provider_id.to_string(), meta)]))
-    }
+    namespaced_provider_metadata(provider_id, meta)
 }
 
-pub(super) fn extract_provider_metadata(
+pub(super) fn extract_perplexity_provider_metadata(
     provider_id: &str,
     raw: &serde_json::Value,
 ) -> Option<NestedProviderMetadata> {
-    match provider_id {
-        // Perplexity extends the OpenAI-like response schema with extra fields such as
-        // `search_results` and `videos` (see Perplexity OpenAPI spec). These are intentionally
-        // exposed as provider metadata instead of being added to the unified surface.
-        "perplexity" => {
-            let mut meta = HashMap::<String, serde_json::Value>::new();
-            for key in ["search_results", "videos", "citations", "images"] {
-                if let Some(value) = raw.get(key).filter(|value| !value.is_null()) {
-                    meta.insert(key.to_string(), value.clone());
-                }
-            }
-            if let Some(usage) = raw.get("usage").filter(|value| !value.is_null()) {
-                meta.insert("usage".to_string(), usage.clone());
-            }
-            if meta.is_empty() {
-                None
-            } else {
-                Some(HashMap::from([(provider_id.to_string(), meta)]))
-            }
+    // Perplexity extends the OpenAI-like response schema with extra fields such as
+    // `search_results` and `videos` (see Perplexity OpenAPI spec). These are intentionally
+    // exposed as provider metadata instead of being added to the unified surface.
+    let mut meta = HashMap::<String, serde_json::Value>::new();
+    for key in ["search_results", "videos", "citations", "images"] {
+        if let Some(value) = raw.get(key).filter(|value| !value.is_null()) {
+            meta.insert(key.to_string(), value.clone());
         }
-        "openai" | "openrouter" | "xai" | "groq" | "deepseek" => {
-            extract_sources_and_logprobs(provider_id, raw)
-        }
-        _ => None,
     }
+    if let Some(usage) = raw.get("usage").filter(|value| !value.is_null()) {
+        meta.insert("usage".to_string(), usage.clone());
+    }
+
+    namespaced_provider_metadata(provider_id, meta)
 }
 
 pub(super) fn merge_nested_provider_metadata(
@@ -119,7 +115,8 @@ mod tests {
             }]
         });
 
-        let meta = extract_provider_metadata("perplexity", &raw).expect("metadata present");
+        let meta =
+            extract_perplexity_provider_metadata("perplexity", &raw).expect("metadata present");
         let perplexity = meta.get("perplexity").expect("perplexity namespace");
         assert_eq!(
             perplexity.get("citations"),
@@ -160,7 +157,8 @@ mod tests {
             }]
         });
 
-        let meta = extract_provider_metadata("xai", &raw).expect("metadata present");
+        let meta =
+            extract_openai_compatible_provider_metadata("xai", &raw).expect("metadata present");
         let xai = meta.get("xai").expect("xai namespace");
         assert_eq!(
             xai["sources"][0]["url"],
@@ -200,7 +198,8 @@ mod tests {
             }
         });
 
-        let meta = extract_provider_metadata("openai", &raw).expect("metadata present");
+        let meta =
+            extract_openai_compatible_provider_metadata("openai", &raw).expect("metadata present");
         let openai = meta.get("openai").expect("openai namespace");
         assert_eq!(openai["logprobs"][0]["token"], serde_json::json!("hello"));
         assert_eq!(
@@ -241,7 +240,8 @@ mod tests {
             }]
         });
 
-        let meta = extract_provider_metadata("openrouter", &raw).expect("metadata present");
+        let meta = extract_openai_compatible_provider_metadata("openrouter", &raw)
+            .expect("metadata present");
         let openrouter = meta.get("openrouter").expect("openrouter namespace");
         assert_eq!(
             openrouter["sources"][0]["url"],
