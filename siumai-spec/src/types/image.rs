@@ -1,5 +1,6 @@
 //! Image generation and processing types
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -46,13 +47,178 @@ pub struct ImageGenerationRequest {
     pub http_config: Option<HttpConfig>,
 }
 
+impl ImageGenerationRequest {
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        self.provider_options_map.insert(provider_id, options);
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeout, etc.).
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = Some(http_config);
+        self
+    }
+}
+
 /// Image edit request
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ImageEditFileData {
+    /// Base64-encoded file data.
+    Base64(String),
+    /// Binary file data.
+    Binary(Vec<u8>),
+}
+
+impl ImageEditFileData {
+    /// Create file data from binary bytes.
+    pub fn binary(data: impl Into<Vec<u8>>) -> Self {
+        Self::Binary(data.into())
+    }
+
+    /// Create file data from a base64 string.
+    pub fn base64(data: impl Into<String>) -> Self {
+        Self::Base64(data.into())
+    }
+
+    /// Convert the file data to a base64 string.
+    pub fn as_base64(&self) -> String {
+        match self {
+            Self::Base64(data) => data.clone(),
+            Self::Binary(data) => base64::engine::general_purpose::STANDARD.encode(data),
+        }
+    }
+
+    /// Convert the file data to bytes, decoding base64 when necessary.
+    pub fn as_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        match self {
+            Self::Base64(data) => base64::engine::general_purpose::STANDARD.decode(data),
+            Self::Binary(data) => Ok(data.clone()),
+        }
+    }
+}
+
+/// Image edit input aligned with AI SDK image model files.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ImageEditInput {
+    /// File-like image input backed by binary or base64 data.
+    File {
+        /// File payload.
+        data: ImageEditFileData,
+        /// Optional media type such as `image/png`.
+        #[serde(
+            rename = "mediaType",
+            alias = "media_type",
+            skip_serializing_if = "Option::is_none"
+        )]
+        media_type: Option<String>,
+    },
+    /// URL-like image input.
+    Url {
+        /// URL or data URL.
+        url: String,
+    },
+}
+
+impl ImageEditInput {
+    /// Create a file input from binary bytes.
+    pub fn file(data: impl Into<Vec<u8>>) -> Self {
+        Self::File {
+            data: ImageEditFileData::binary(data),
+            media_type: None,
+        }
+    }
+
+    /// Create a file input from binary bytes and media type.
+    pub fn file_with_media_type(data: impl Into<Vec<u8>>, media_type: impl Into<String>) -> Self {
+        Self::file(data).with_media_type(media_type)
+    }
+
+    /// Create a file input from a base64 string.
+    pub fn base64(data: impl Into<String>) -> Self {
+        Self::File {
+            data: ImageEditFileData::base64(data),
+            media_type: None,
+        }
+    }
+
+    /// Create a file input from a base64 string and media type.
+    pub fn base64_with_media_type(data: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self::base64(data).with_media_type(media_type)
+    }
+
+    /// Create a URL input.
+    pub fn url(url: impl Into<String>) -> Self {
+        Self::Url { url: url.into() }
+    }
+
+    /// Set the media type for file inputs.
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        if let Self::File {
+            media_type: current,
+            ..
+        } = &mut self
+        {
+            *current = Some(media_type.into());
+        }
+        self
+    }
+
+    /// Return the media type if available.
+    pub fn media_type(&self) -> Option<&str> {
+        match self {
+            Self::File { media_type, .. } => media_type.as_deref(),
+            Self::Url { .. } => None,
+        }
+    }
+
+    /// Return the URL when this input is URL-backed.
+    pub fn as_url(&self) -> Option<&str> {
+        match self {
+            Self::Url { url } => Some(url.as_str()),
+            Self::File { .. } => None,
+        }
+    }
+
+    /// Return the file payload when this input is file-backed.
+    pub fn file_data(&self) -> Option<&ImageEditFileData> {
+        match self {
+            Self::File { data, .. } => Some(data),
+            Self::Url { .. } => None,
+        }
+    }
+
+    /// Check whether the input is file-backed.
+    pub fn is_file(&self) -> bool {
+        matches!(self, Self::File { .. })
+    }
+
+    /// Check whether the input is URL-backed.
+    pub fn is_url(&self) -> bool {
+        matches!(self, Self::Url { .. })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageEditRequest {
-    /// Original image data
-    pub image: Vec<u8>,
-    /// Mask image data (optional)
-    pub mask: Option<Vec<u8>>,
+    /// Input images for image editing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<ImageEditInput>,
+    /// Mask image input (optional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<ImageEditInput>,
     /// Text prompt for editing
     pub prompt: String,
     /// Model to use for editing (provider-specific; optional).
@@ -78,6 +244,57 @@ pub struct ImageEditRequest {
     /// Per-request HTTP configuration (headers, timeout, etc.)
     #[serde(skip)]
     pub http_config: Option<HttpConfig>,
+}
+
+impl ImageEditRequest {
+    /// Replace the input images with a single image.
+    pub fn with_image(mut self, image: ImageEditInput) -> Self {
+        self.images = vec![image];
+        self
+    }
+
+    /// Replace the input images with a new image list.
+    pub fn with_images<I>(mut self, images: I) -> Self
+    where
+        I: IntoIterator<Item = ImageEditInput>,
+    {
+        self.images = images.into_iter().collect();
+        self
+    }
+
+    /// Append an image input.
+    pub fn push_image(mut self, image: ImageEditInput) -> Self {
+        self.images.push(image);
+        self
+    }
+
+    /// Set the mask input.
+    pub fn with_mask(mut self, mask: ImageEditInput) -> Self {
+        self.mask = Some(mask);
+        self
+    }
+
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        self.provider_options_map.insert(provider_id, options);
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeout, etc.).
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = Some(http_config);
+        self
+    }
 }
 
 /// Image variation request
@@ -107,6 +324,30 @@ pub struct ImageVariationRequest {
     /// Per-request HTTP configuration (headers, timeout, etc.)
     #[serde(skip)]
     pub http_config: Option<HttpConfig>,
+}
+
+impl ImageVariationRequest {
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        self.provider_options_map.insert(provider_id, options);
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeout, etc.).
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = Some(http_config);
+        self
+    }
 }
 
 /// Image generation response

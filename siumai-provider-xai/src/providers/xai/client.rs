@@ -12,12 +12,13 @@ use crate::streaming::ChatStream;
 use crate::traits::{
     AudioCapability, ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
     ModelListingCapability, RerankCapability, SpeechCapability, SpeechExtras,
-    TranscriptionCapability, TranscriptionExtras,
+    TranscriptionCapability, TranscriptionExtras, VideoGenerationCapability,
 };
 use crate::types::{
     ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, ImageEditRequest,
     ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest, ModelInfo,
-    RerankRequest, RerankResponse, Tool,
+    ProviderOptionsMap, RerankRequest, RerankResponse, Tool, VideoGenerationRequest,
+    VideoGenerationResponse, VideoTaskStatusResponse,
 };
 use async_trait::async_trait;
 use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleClient;
@@ -26,17 +27,25 @@ use std::sync::Arc;
 #[derive(Clone, Debug)]
 pub struct XaiClient {
     inner: OpenAiCompatibleClient,
+    default_provider_options_map: ProviderOptionsMap,
 }
 
 impl XaiClient {
-    pub fn new(inner: OpenAiCompatibleClient) -> Self {
-        Self { inner }
+    pub fn new(
+        inner: OpenAiCompatibleClient,
+        default_provider_options_map: ProviderOptionsMap,
+    ) -> Self {
+        Self {
+            inner,
+            default_provider_options_map,
+        }
     }
 
     /// Construct an `XaiClient` from `XaiConfig`.
     pub async fn from_config(config: super::XaiConfig) -> Result<Self, LlmError> {
+        let default_provider_options_map = config.default_provider_options_map.clone();
         let inner = OpenAiCompatibleClient::from_config(config.into_compatible_config()?).await?;
-        Ok(Self::new(inner))
+        Ok(Self::new(inner, default_provider_options_map))
     }
 
     /// Construct an `XaiClient` from `XaiConfig` with a caller-supplied HTTP client.
@@ -44,10 +53,11 @@ impl XaiClient {
         config: super::XaiConfig,
         http_client: reqwest::Client,
     ) -> Result<Self, LlmError> {
+        let default_provider_options_map = config.default_provider_options_map.clone();
         let inner =
             OpenAiCompatibleClient::with_http_client(config.into_compatible_config()?, http_client)
                 .await?;
-        Ok(Self::new(inner))
+        Ok(Self::new(inner, default_provider_options_map))
     }
 
     /// Construct an `XaiClient` from env (`XAI_API_KEY`).
@@ -93,6 +103,15 @@ impl XaiClient {
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
         self.inner.set_retry_options(options);
     }
+
+    pub(crate) fn merge_default_provider_options_map_non_chat(
+        &self,
+        request_map: &mut ProviderOptionsMap,
+    ) {
+        let mut merged = self.default_provider_options_map.clone();
+        merged.merge_overrides(request_map.clone());
+        *request_map = merged;
+    }
 }
 
 impl crate::traits::ModelMetadata for XaiClient {
@@ -114,7 +133,8 @@ mod tests {
     };
     use crate::provider_metadata::xai::XaiChatResponseExt;
     use crate::provider_options::{
-        SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+        RssSearchSource, SearchMode, WebSearchSource, XSearchSource, XaiOptions,
+        XaiResponsesOptions, XaiSearchParameters,
     };
     use crate::providers::xai::ext::XaiChatRequestExt;
     use crate::types::ToolChoice;
@@ -325,19 +345,22 @@ mod tests {
         let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
             XaiOptions::new()
                 .with_reasoning_effort("high")
+                .with_parallel_function_calling(false)
                 .with_search(XaiSearchParameters {
                     mode: SearchMode::On,
                     return_citations: Some(true),
                     max_search_results: Some(3),
                     from_date: Some("2025-01-01".to_string()),
                     to_date: Some("2025-01-31".to_string()),
-                    sources: Some(vec![SearchSource {
-                        source_type: SearchSourceType::Web,
-                        country: Some("US".to_string()),
-                        allowed_websites: Some(vec!["example.com".to_string()]),
-                        excluded_websites: None,
-                        safe_search: Some(true),
-                    }]),
+                    sources: Some(vec![
+                        WebSearchSource {
+                            country: Some("US".to_string()),
+                            allowed_websites: Some(vec!["example.com".to_string()]),
+                            excluded_websites: None,
+                            safe_search: Some(true),
+                        }
+                        .into(),
+                    ]),
                 }),
         );
 
@@ -345,6 +368,10 @@ mod tests {
         let captured = transport.take().expect("captured request");
 
         assert_eq!(captured.body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            captured.body["parallel_function_calling"],
+            serde_json::json!(false)
+        );
         assert_eq!(
             captured.body["search_parameters"]["mode"],
             serde_json::json!("on")
@@ -375,6 +402,148 @@ mod tests {
         );
         assert!(captured.body.get("reasoningEffort").is_none());
         assert!(captured.body.get("searchParameters").is_none());
+    }
+
+    #[tokio::test]
+    async fn xai_client_chat_request_typed_search_source_variants_serialize() {
+        let transport = CaptureTransport::default();
+        let cfg = super::super::config::XaiConfig::new("test-key")
+            .with_base_url("https://example.com/v1")
+            .with_model("grok-4")
+            .with_http_transport(Arc::new(transport.clone()));
+        let client = XaiClient::from_config(cfg).await.expect("from_config ok");
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
+            XaiOptions::new().with_search(XaiSearchParameters {
+                mode: SearchMode::On,
+                return_citations: Some(true),
+                max_search_results: Some(3),
+                from_date: None,
+                to_date: None,
+                sources: Some(vec![
+                    XSearchSource {
+                        excluded_x_handles: Some(vec!["spam".to_string()]),
+                        included_x_handles: Some(vec![
+                            "openai".to_string(),
+                            "deepmind".to_string(),
+                        ]),
+                        post_favorite_count: Some(10),
+                        post_view_count: Some(99),
+                    }
+                    .into(),
+                    RssSearchSource::new(["https://example.com/feed.xml"]).into(),
+                ]),
+            }),
+        );
+
+        let _ = client.chat_request(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][0]["type"],
+            serde_json::json!("x")
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][0]["included_x_handles"],
+            serde_json::json!(["openai", "deepmind"])
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][0]["excluded_x_handles"],
+            serde_json::json!(["spam"])
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][0]["post_favorite_count"],
+            serde_json::json!(10)
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][0]["post_view_count"],
+            serde_json::json!(99)
+        );
+        assert!(
+            captured.body["search_parameters"]["sources"][0]
+                .get("x_handles")
+                .is_none()
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][1]["type"],
+            serde_json::json!("rss")
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][1]["links"],
+            serde_json::json!(["https://example.com/feed.xml"])
+        );
+    }
+
+    #[tokio::test]
+    async fn xai_client_chat_request_normalizes_legacy_x_handles_alias() {
+        let transport = CaptureTransport::default();
+        let cfg = super::super::config::XaiConfig::new("test-key")
+            .with_base_url("https://example.com/v1")
+            .with_model("grok-4")
+            .with_http_transport(Arc::new(transport.clone()));
+        let client = XaiClient::from_config(cfg).await.expect("from_config ok");
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_provider_option(
+            "xai",
+            serde_json::json!({
+                "searchParameters": {
+                    "mode": "on",
+                    "sources": [
+                        {
+                            "type": "x",
+                            "xHandles": ["openai", "deepmind"],
+                            "excludedXHandles": ["grok"]
+                        }
+                    ]
+                }
+            }),
+        );
+
+        let _ = client.chat_request(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][0]["included_x_handles"],
+            serde_json::json!(["openai", "deepmind"])
+        );
+        assert_eq!(
+            captured.body["search_parameters"]["sources"][0]["excluded_x_handles"],
+            serde_json::json!(["grok"])
+        );
+        assert!(
+            captured.body["search_parameters"]["sources"][0]
+                .get("x_handles")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn xai_client_chat_request_normalizes_logprobs_and_drops_responses_only_fields() {
+        let transport = CaptureTransport::default();
+        let cfg = super::super::config::XaiConfig::new("test-key")
+            .with_base_url("https://example.com/v1")
+            .with_model("grok-4")
+            .with_http_transport(Arc::new(transport.clone()));
+        let client = XaiClient::from_config(cfg).await.expect("from_config ok");
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
+            XaiResponsesOptions::new()
+                .with_reasoning_summary("detailed")
+                .with_top_logprobs(2)
+                .with_store(false)
+                .with_previous_response("resp_prev_123")
+                .with_include(["file_search_call.results"]),
+        );
+
+        let _ = client.chat_request(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(captured.body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(captured.body["logprobs"], serde_json::json!(true));
+        assert!(captured.body.get("reasoning_summary").is_none());
+        assert!(captured.body.get("previous_response_id").is_none());
+        assert!(captured.body.get("include").is_none());
+        assert!(captured.body.get("store").is_none());
     }
 
     #[tokio::test]
@@ -502,13 +671,13 @@ mod tests {
                     max_search_results: Some(3),
                     from_date: Some("2025-01-01".to_string()),
                     to_date: Some("2025-01-31".to_string()),
-                    sources: Some(vec![SearchSource {
-                        source_type: SearchSourceType::Web,
+                    sources: Some(vec![WebSearchSource {
                         country: Some("US".to_string()),
                         allowed_websites: Some(vec!["example.com".to_string()]),
                         excluded_websites: Some(vec!["blocked.example.com".to_string()]),
                         safe_search: Some(true),
-                    }]),
+                    }
+                    .into()]),
                 },
             ));
 
@@ -620,7 +789,7 @@ mod tests {
         );
         assert_eq!(
             captured.body["search_parameters"]["max_search_results"],
-            serde_json::json!(5)
+            serde_json::json!(20)
         );
     }
 
@@ -844,12 +1013,9 @@ impl ModelListingCapability for XaiClient {
 impl ImageGenerationCapability for XaiClient {
     async fn generate_images(
         &self,
-        _request: ImageGenerationRequest,
+        request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "xAI does not currently expose image generation on the provider-owned xAI client path"
-                .to_string(),
-        ))
+        super::image::generate_images(self, request).await
     }
 }
 
@@ -857,22 +1023,16 @@ impl ImageGenerationCapability for XaiClient {
 impl ImageExtras for XaiClient {
     async fn edit_image(
         &self,
-        _request: ImageEditRequest,
+        request: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "xAI does not currently expose image editing on the provider-owned xAI client path"
-                .to_string(),
-        ))
+        super::image::edit_image(self, request).await
     }
 
     async fn create_variation(
         &self,
-        _request: ImageVariationRequest,
+        request: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "xAI does not currently expose image variation on the provider-owned xAI client path"
-                .to_string(),
-        ))
+        super::image::create_variation(self, request).await
     }
 
     fn get_supported_sizes(&self) -> Vec<String> {
@@ -880,15 +1040,41 @@ impl ImageExtras for XaiClient {
     }
 
     fn get_supported_formats(&self) -> Vec<String> {
-        Vec::new()
+        vec!["b64_json".to_string()]
     }
 
     fn supports_image_editing(&self) -> bool {
-        false
+        true
     }
 
     fn supports_image_variations(&self) -> bool {
         false
+    }
+}
+
+#[async_trait]
+impl VideoGenerationCapability for XaiClient {
+    async fn create_video_task(
+        &self,
+        request: VideoGenerationRequest,
+    ) -> Result<VideoGenerationResponse, LlmError> {
+        super::video::create_video_task(self, request).await
+    }
+
+    async fn query_video_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+        super::video::query_video_task(self, task_id).await
+    }
+
+    fn get_supported_models(&self) -> Vec<String> {
+        super::video::supported_models()
+    }
+
+    fn get_supported_resolutions(&self, model: &str) -> Vec<String> {
+        super::video::supported_resolutions(model)
+    }
+
+    fn get_supported_durations(&self, model: &str) -> Vec<u32> {
+        super::video::supported_durations(model)
     }
 }
 
@@ -907,7 +1093,9 @@ impl LlmClient for XaiClient {
             .with_streaming()
             .with_tools()
             .with_vision()
+            .with_image_generation()
             .with_speech()
+            .with_custom_feature("video", true)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -951,11 +1139,11 @@ impl LlmClient for XaiClient {
     }
 
     fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
-        None
+        Some(self)
     }
 
     fn as_image_extras(&self) -> Option<&dyn ImageExtras> {
-        None
+        Some(self)
     }
 
     fn as_rerank_capability(&self) -> Option<&dyn RerankCapability> {
@@ -963,6 +1151,10 @@ impl LlmClient for XaiClient {
     }
 
     fn as_model_listing_capability(&self) -> Option<&dyn ModelListingCapability> {
+        Some(self)
+    }
+
+    fn as_video_generation_capability(&self) -> Option<&dyn VideoGenerationCapability> {
         Some(self)
     }
 }

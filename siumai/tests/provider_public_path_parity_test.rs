@@ -970,7 +970,10 @@ mod openai_public_path {
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(3)
         );
         assert_eq!(
@@ -2337,6 +2340,125 @@ mod openai_public_path {
     }
 
     #[tokio::test]
+    async fn openai_chat_public_paths_use_canonical_image_detail_provider_options() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "gpt-4o-mini";
+        let base_url = "https://example.com/v1";
+
+        let siumai_client = Siumai::builder()
+            .openai_chat()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai_chat()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_use_responses_api(false)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_chat_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("openai-chat:gpt-4o-mini")
+            .expect("build registry language model");
+
+        let canonical_part = siumai::prelude::unified::ContentPart::File {
+            source: siumai::prelude::unified::MediaSource::Base64 {
+                data: "AAEC".to_string(),
+            },
+            media_type: "image/png".to_string(),
+            filename: None,
+            provider_options: {
+                let mut options = siumai::prelude::unified::ProviderOptionsMap::default();
+                options.insert(
+                    "openai",
+                    serde_json::json!({
+                        "imageDetail": "high"
+                    }),
+                );
+                options
+            },
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({
+                    "imageDetail": "low"
+                }),
+            )])),
+        };
+
+        let legacy_only_part = siumai::prelude::unified::ContentPart::File {
+            source: siumai::prelude::unified::MediaSource::Base64 {
+                data: "AQID".to_string(),
+            },
+            media_type: "image/png".to_string(),
+            filename: None,
+            provider_options: siumai::prelude::unified::ProviderOptionsMap::default(),
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({
+                    "imageDetail": "low"
+                }),
+            )])),
+        };
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![siumai::prelude::unified::ChatMessage {
+                role: siumai::prelude::unified::MessageRole::User,
+                content: siumai::prelude::unified::MessageContent::MultiModal(vec![
+                    canonical_part,
+                    legacy_only_part,
+                ]),
+                provider_options: siumai::prelude::unified::ProviderOptionsMap::default(),
+                metadata: siumai::prelude::unified::MessageMetadata::default(),
+            }])
+            .build();
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://example.com/v1/chat/completions");
+
+        let parts = siumai_req.body["messages"][0]["content"]
+            .as_array()
+            .expect("expected multimodal content array");
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0]["type"], serde_json::json!("image_url"));
+        assert_eq!(parts[0]["image_url"]["detail"], serde_json::json!("high"));
+        assert!(parts[1]["image_url"].get("detail").is_none());
+    }
+
+    #[tokio::test]
     async fn openai_registry_handle_prefers_provider_specific_build_overrides() {
         let global_transport = CaptureTransport::default();
         let openai_transport = CaptureTransport::default();
@@ -2913,7 +3035,11 @@ mod openai_public_path {
             "usage": {
                 "prompt_tokens": 11,
                 "completion_tokens": 3,
-                "total_tokens": 14
+                "total_tokens": 14,
+                "completion_tokens_details": {
+                    "accepted_prediction_tokens": 5,
+                    "rejected_prediction_tokens": 6
+                }
             }
         });
 
@@ -3004,15 +3130,24 @@ mod openai_public_path {
         assert_eq!(provider_resp.content_text(), Some("hello from openai chat"));
         assert_eq!(config_resp.content_text(), Some("hello from openai chat"));
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -3027,6 +3162,12 @@ mod openai_public_path {
         assert_eq!(siumai_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(provider_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(config_meta.logprobs, Some(expected_logprobs));
+        assert_eq!(siumai_meta.accepted_prediction_tokens, Some(5));
+        assert_eq!(provider_meta.accepted_prediction_tokens, Some(5));
+        assert_eq!(config_meta.accepted_prediction_tokens, Some(5));
+        assert_eq!(siumai_meta.rejected_prediction_tokens, Some(6));
+        assert_eq!(provider_meta.rejected_prediction_tokens, Some(6));
+        assert_eq!(config_meta.rejected_prediction_tokens, Some(6));
 
         let siumai_req = siumai_transport.take().expect("siumai request");
         let provider_req = provider_transport.take().expect("provider request");
@@ -3044,7 +3185,7 @@ mod openai_public_path {
         let model = "gpt-4o-mini";
         let stream_body = br#"data: {"id":"1","model":"gpt-4o-mini","created":1718345013,"choices":[{"index":0,"delta":{"content":"hello","role":"assistant"},"finish_reason":null}]}
 
-data: {"id":"1","model":"gpt-4o-mini","created":1718345013,"choices":[{"index":0,"delta":{"content":" from openai chat","role":null},"finish_reason":"stop","logprobs":{"content":[{"token":"hello","logprob":-0.1,"bytes":[104,101,108,108,111],"top_logprobs":[]}]}}],"usage":{"prompt_tokens":11,"completion_tokens":3,"total_tokens":14}}
+data: {"id":"1","model":"gpt-4o-mini","created":1718345013,"choices":[{"index":0,"delta":{"content":" from openai chat","role":null},"finish_reason":"stop","logprobs":{"content":[{"token":"hello","logprob":-0.1,"bytes":[104,101,108,108,111],"top_logprobs":[]}]}}],"usage":{"prompt_tokens":11,"completion_tokens":3,"total_tokens":14,"completion_tokens_details":{"accepted_prediction_tokens":5,"rejected_prediction_tokens":6}}}
 
 data: [DONE]
 
@@ -3179,15 +3320,24 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -3202,6 +3352,12 @@ data: [DONE]
         assert_eq!(siumai_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(provider_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(config_meta.logprobs, Some(expected_logprobs));
+        assert_eq!(siumai_meta.accepted_prediction_tokens, Some(5));
+        assert_eq!(provider_meta.accepted_prediction_tokens, Some(5));
+        assert_eq!(config_meta.accepted_prediction_tokens, Some(5));
+        assert_eq!(siumai_meta.rejected_prediction_tokens, Some(6));
+        assert_eq!(provider_meta.rejected_prediction_tokens, Some(6));
+        assert_eq!(config_meta.rejected_prediction_tokens, Some(6));
 
         let siumai_req = siumai_transport
             .take_stream()
@@ -3569,11 +3725,17 @@ data: [DONE]
         assert_eq!(config_resp.content_text(), Some("hello from openai chat"));
         assert_eq!(registry_resp.content_text(), Some("hello from openai chat"));
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -11041,15 +11203,24 @@ data: [DONE]
         assert_eq!(provider_resp.content_text(), Some("hello from deepseek"));
         assert_eq!(config_resp.content_text(), Some("hello from deepseek"));
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -11182,15 +11353,24 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -11308,11 +11488,17 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -11414,11 +11600,17 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -11529,7 +11721,10 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -11621,7 +11816,10 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -11704,8 +11902,12 @@ data: [DONE]
         assert_unsupported_operation(&siumai_err);
         assert_unsupported_operation(&provider_err);
         assert_unsupported_operation(&config_err);
-        assert_no_deferred_capability_leaks(&provider_client);
-        assert_no_deferred_capability_leaks(&config_client);
+        assert!(provider_client.as_embedding_capability().is_none());
+        assert!(config_client.as_embedding_capability().is_none());
+        assert!(provider_client.as_image_generation_capability().is_some());
+        assert!(config_client.as_image_generation_capability().is_some());
+        assert!(provider_client.as_rerank_capability().is_none());
+        assert!(config_client.as_rerank_capability().is_none());
         assert_capture_transports_unused(&[
             &siumai_transport,
             &provider_transport,
@@ -11767,8 +11969,12 @@ data: [DONE]
         assert_unsupported_operation(&siumai_err);
         assert_unsupported_operation(&provider_err);
         assert_unsupported_operation(&config_err);
-        assert_no_deferred_capability_leaks(&provider_client);
-        assert_no_deferred_capability_leaks(&config_client);
+        assert!(provider_client.as_embedding_capability().is_none());
+        assert!(config_client.as_embedding_capability().is_none());
+        assert!(provider_client.as_image_generation_capability().is_some());
+        assert!(config_client.as_image_generation_capability().is_some());
+        assert!(provider_client.as_rerank_capability().is_none());
+        assert!(config_client.as_rerank_capability().is_none());
         assert_capture_transports_unused(&[
             &siumai_transport,
             &provider_transport,
@@ -11830,8 +12036,12 @@ data: [DONE]
         assert_unsupported_operation(&siumai_err);
         assert_unsupported_operation(&provider_err);
         assert_unsupported_operation(&config_err);
-        assert_no_deferred_capability_leaks(&provider_client);
-        assert_no_deferred_capability_leaks(&config_client);
+        assert!(provider_client.as_embedding_capability().is_none());
+        assert!(config_client.as_embedding_capability().is_none());
+        assert!(provider_client.as_image_generation_capability().is_some());
+        assert!(config_client.as_image_generation_capability().is_some());
+        assert!(provider_client.as_rerank_capability().is_none());
+        assert!(config_client.as_rerank_capability().is_none());
         assert_capture_transports_unused(&[
             &siumai_transport,
             &provider_transport,
@@ -15690,15 +15900,24 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
 
@@ -16019,7 +16238,10 @@ data: [DONE]
         let metadata = response.perplexity_metadata().expect("perplexity metadata");
         assert_eq!(response.content_text(), Some("Rust ecosystem"));
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
@@ -16134,7 +16356,10 @@ data: [DONE]
             Some("Rust async tooling kept improving across the ecosystem.")
         );
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
@@ -16358,11 +16583,17 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
@@ -16969,6 +17200,235 @@ data: [DONE]
     }
 
     #[tokio::test]
+    async fn openrouter_public_paths_use_canonical_openai_compatible_provider_options() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "openai/gpt-4o";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .openrouter()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .openrouter()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client =
+            make_config_client("openrouter", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("openrouter", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model("openrouter:openai/gpt-4o")
+            .expect("build registry language model");
+
+        let mut system = ChatMessage::system("system prompt")
+            .with_provider_option(
+                "openaiCompatible",
+                serde_json::json!({
+                    "systemTag": "canonical-system"
+                }),
+            )
+            .build();
+        system.metadata.custom.insert(
+            "openaiCompatible".to_string(),
+            serde_json::json!({
+                "legacyOnlySystem": true,
+                "systemTag": "legacy-system"
+            }),
+        );
+
+        let user = siumai::prelude::unified::ChatMessage {
+            role: siumai::prelude::unified::MessageRole::User,
+            content: siumai::prelude::unified::MessageContent::MultiModal(vec![
+                siumai::prelude::unified::ContentPart::Text {
+                    text: "hello".to_string(),
+                    provider_options: {
+                        let mut options = siumai::prelude::unified::ProviderOptionsMap::default();
+                        options.insert(
+                            "openaiCompatible",
+                            serde_json::json!({
+                                "userTag": "canonical-user-part"
+                            }),
+                        );
+                        options
+                    },
+                    provider_metadata: Some(std::collections::HashMap::from([(
+                        "openaiCompatible".to_string(),
+                        serde_json::json!({
+                            "legacyOnlyUserPart": true,
+                            "userTag": "legacy-user-part"
+                        }),
+                    )])),
+                },
+            ]),
+            provider_options: {
+                let mut options = siumai::prelude::unified::ProviderOptionsMap::default();
+                options.insert(
+                    "openaiCompatible",
+                    serde_json::json!({
+                        "messageTagShouldBeIgnored": true
+                    }),
+                );
+                options
+            },
+            metadata: siumai::prelude::unified::MessageMetadata {
+                custom: std::collections::HashMap::from([(
+                    "openaiCompatible".to_string(),
+                    serde_json::json!({
+                        "legacyOnlyUserMessage": true,
+                        "userTag": "legacy-user-message"
+                    }),
+                )]),
+                ..Default::default()
+            },
+        };
+
+        let tool_call = siumai::prelude::unified::ContentPart::tool_call(
+            "call_1",
+            "get_weather",
+            serde_json::json!({
+                "city": "Tokyo"
+            }),
+            None,
+        )
+        .with_provider_option(
+            "openaiCompatible",
+            serde_json::json!({
+                "toolCallTag": "canonical-tool-call"
+            }),
+        );
+
+        let mut assistant = ChatMessage::assistant_with_content(vec![
+            siumai::prelude::unified::ContentPart::reasoning("Count carefully. "),
+            siumai::prelude::unified::ContentPart::text("There are three r characters."),
+            tool_call,
+        ])
+        .with_provider_option(
+            "openaiCompatible",
+            serde_json::json!({
+                "assistantTag": "canonical-assistant"
+            }),
+        )
+        .build();
+        assistant.metadata.custom.insert(
+            "openaiCompatible".to_string(),
+            serde_json::json!({
+                "legacyOnlyAssistant": true,
+                "assistantTag": "legacy-assistant"
+            }),
+        );
+
+        let mut tool_result = ChatMessage::tool_result_json(
+            "call_1",
+            "get_weather",
+            serde_json::json!({
+                "temperature": 18
+            }),
+        )
+        .build();
+        if let siumai::prelude::unified::MessageContent::MultiModal(parts) =
+            &mut tool_result.content
+            && let Some(part) = parts.first_mut()
+        {
+            part.provider_options_mut()
+                .expect("tool result provider options")
+                .insert(
+                    "openaiCompatible",
+                    serde_json::json!({
+                        "toolResultTag": "canonical-tool-result"
+                    }),
+                );
+
+            if let siumai::prelude::unified::ContentPart::ToolResult {
+                provider_metadata, ..
+            } = part
+            {
+                *provider_metadata = Some(std::collections::HashMap::from([(
+                    "openaiCompatible".to_string(),
+                    serde_json::json!({
+                        "legacyOnlyToolResult": true
+                    }),
+                )]));
+            }
+        }
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![system, user, assistant, tool_result])
+            .build();
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+
+        let messages = siumai_req.body["messages"]
+            .as_array()
+            .expect("expected messages array");
+        assert_eq!(messages.len(), 4);
+
+        assert_eq!(
+            messages[0]["systemTag"],
+            serde_json::json!("canonical-system")
+        );
+        assert!(messages[0].get("legacyOnlySystem").is_none());
+
+        assert_eq!(
+            messages[1]["userTag"],
+            serde_json::json!("canonical-user-part")
+        );
+        assert!(messages[1].get("legacyOnlyUserPart").is_none());
+        assert!(messages[1].get("legacyOnlyUserMessage").is_none());
+        assert!(messages[1].get("messageTagShouldBeIgnored").is_none());
+
+        assert_eq!(
+            messages[2]["assistantTag"],
+            serde_json::json!("canonical-assistant")
+        );
+        assert!(messages[2].get("legacyOnlyAssistant").is_none());
+        assert_eq!(
+            messages[2]["reasoning_content"],
+            serde_json::json!("Count carefully. ")
+        );
+        assert_eq!(
+            messages[2]["tool_calls"][0]["toolCallTag"],
+            serde_json::json!("canonical-tool-call")
+        );
+
+        assert_eq!(
+            messages[3]["toolResultTag"],
+            serde_json::json!("canonical-tool-result")
+        );
+        assert!(messages[3].get("legacyOnlyToolResult").is_none());
+    }
+
+    #[tokio::test]
     async fn openrouter_siumai_provider_config_chat_stream_request_options_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -17294,19 +17754,31 @@ data: [DONE]
             Some("hello from openrouter chat")
         );
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(siumai_meta.sources.as_ref().map(Vec::len), Some(1));
@@ -17564,19 +18036,31 @@ data: [DONE]
             Some(siumai::prelude::unified::FinishReason::Stop)
         );
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(siumai_meta.sources.as_ref().map(Vec::len), Some(1));
@@ -18033,7 +18517,10 @@ data: [DONE]
         let metadata = response.openrouter_metadata().expect("openrouter metadata");
         assert_eq!(response.content_text(), Some("hello from openrouter chat"));
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(metadata.sources.as_ref().map(Vec::len), Some(1));
@@ -18293,7 +18780,10 @@ data: [DONE]
         let metadata = response.openrouter_metadata().expect("openrouter metadata");
         assert_eq!(response.content_text(), Some("hello from openrouter"));
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(metadata.sources.as_ref().map(Vec::len), Some(1));
@@ -29572,15 +30062,24 @@ mod bedrock_public_path {
             Some(serde_json::json!("END_OF_TURN"))
         );
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
 
@@ -29706,11 +30205,17 @@ mod bedrock_public_path {
             Some(serde_json::json!("END_OF_TURN"))
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
 
@@ -29843,15 +30348,24 @@ mod bedrock_public_path {
         assert_eq!(provider_meta.is_json_response_from_tool, Some(true));
         assert_eq!(config_meta.is_json_response_from_tool, Some(true));
         assert_eq!(
-            siumai_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            siumai_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
         assert_eq!(
-            provider_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            provider_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
 
@@ -29960,11 +30474,17 @@ mod bedrock_public_path {
         assert_eq!(config_meta.is_json_response_from_tool, Some(true));
         assert_eq!(registry_meta.is_json_response_from_tool, Some(true));
         assert_eq!(
-            config_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            config_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
         assert_eq!(
-            registry_resp.usage.as_ref().map(|usage| usage.total_tokens),
+            registry_resp
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(57)
         );
 
@@ -37112,8 +37632,12 @@ mod vertex_public_path {
         .expect("build config client");
 
         let request = siumai::extensions::types::ImageEditRequest {
-            image: vec![1, 2, 3, 4],
-            mask: Some(vec![5, 6, 7, 8]),
+            images: vec![siumai::extensions::types::ImageEditInput::file(vec![
+                1, 2, 3, 4,
+            ])],
+            mask: Some(siumai::extensions::types::ImageEditInput::file(vec![
+                5, 6, 7, 8,
+            ])),
             prompt: "replace the masked region with a paper airplane".to_string(),
             model: Some("imagen-3.0-edit-001".to_string()),
             count: Some(1),
@@ -37170,8 +37694,12 @@ mod vertex_public_path {
             .expect("build registry image model");
 
         let request = siumai::extensions::types::ImageEditRequest {
-            image: vec![1, 2, 3, 4],
-            mask: Some(vec![5, 6, 7, 8]),
+            images: vec![siumai::extensions::types::ImageEditInput::file(vec![
+                1, 2, 3, 4,
+            ])],
+            mask: Some(siumai::extensions::types::ImageEditInput::file(vec![
+                5, 6, 7, 8,
+            ])),
             prompt: "replace the masked region with a paper airplane".to_string(),
             model: Some(model.to_string()),
             count: Some(1),
@@ -37263,8 +37791,12 @@ mod vertex_public_path {
         let generated = handle
             .edit_image(
                 siumai::extensions::types::ImageEditRequest {
-                    image: vec![1, 2, 3, 4],
-                    mask: Some(vec![5, 6, 7, 8]),
+                    images: vec![siumai::extensions::types::ImageEditInput::file(vec![
+                        1, 2, 3, 4,
+                    ])],
+                    mask: Some(siumai::extensions::types::ImageEditInput::file(vec![
+                        5, 6, 7, 8,
+                    ])),
                     prompt: "replace the masked region with a paper airplane".to_string(),
                     model: Some("imagen-3.0-edit-001".to_string()),
                     count: Some(1),
@@ -37320,17 +37852,23 @@ mod xai_public_path {
     use super::*;
     use futures_util::StreamExt;
     use siumai::experimental::client::LlmClient;
-    use siumai::extensions::SpeechExtras;
+    use siumai::extensions::types::{
+        ImageEditInput, ImageEditRequest, VideoGenerationInput, VideoGenerationRequest,
+    };
+    use siumai::extensions::{SpeechExtras, VideoGenerationCapability};
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
-        EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
+        EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice, Warning,
     };
     use siumai::provider_ext::xai::{
-        SearchMode, SearchSource, SearchSourceType, XaiChatRequestExt, XaiChatResponseExt,
-        XaiOptions, XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
+        SearchMode, WebSearchSource, XaiChatRequestExt, XaiChatResponseExt, XaiImageOptions,
+        XaiImageRequestExt, XaiOptions, XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
+        XaiVideoOptions, XaiVideoRequestExt,
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, Request as WiremockRequest, ResponseTemplate};
 
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
@@ -37477,16 +38015,18 @@ mod xai_public_path {
             max_search_results: Some(4),
             from_date: Some("2026-03-01".to_string()),
             to_date: Some("2026-03-12".to_string()),
-            sources: Some(vec![SearchSource {
-                source_type: SearchSourceType::Web,
-                country: Some("US".to_string()),
-                allowed_websites: Some(vec![
-                    "blog.rust-lang.org".to_string(),
-                    "this-week-in-rust.org".to_string(),
-                ]),
-                excluded_websites: Some(vec!["example.com".to_string()]),
-                safe_search: Some(true),
-            }]),
+            sources: Some(vec![
+                WebSearchSource {
+                    country: Some("US".to_string()),
+                    allowed_websites: Some(vec![
+                        "blog.rust-lang.org".to_string(),
+                        "this-week-in-rust.org".to_string(),
+                    ]),
+                    excluded_websites: Some(vec!["example.com".to_string()]),
+                    safe_search: Some(true),
+                }
+                .into(),
+            ]),
         }
     }
 
@@ -37551,6 +38091,227 @@ mod xai_public_path {
             header_value(req, "accept"),
             Some("text/event-stream".to_string())
         );
+    }
+
+    fn assert_xai_chat_request_filters_responses_only_options(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/chat/completions"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(req.body["logprobs"], serde_json::json!(true));
+        assert_eq!(req.body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(req.body["reasoning_effort"], serde_json::json!("high"));
+        assert!(req.body.get("reasoning_summary").is_none());
+        assert!(req.body.get("previous_response_id").is_none());
+        assert!(req.body.get("include").is_none());
+        assert!(req.body.get("store").is_none());
+    }
+
+    fn make_xai_image_generation_request(model: &str) -> ImageGenerationRequest {
+        ImageGenerationRequest {
+            prompt: "a tiny purple robot".to_string(),
+            negative_prompt: Some("blurry".to_string()),
+            size: Some("1024x1024".to_string()),
+            count: 1,
+            model: Some(model.to_string()),
+            quality: None,
+            style: Some("comic".to_string()),
+            seed: Some(7),
+            steps: Some(20),
+            guidance_scale: Some(7.5),
+            enhance_prompt: Some(true),
+            response_format: Some("url".to_string()),
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        }
+        .with_xai_image_options(
+            XaiImageOptions::new()
+                .with_aspect_ratio("16:9")
+                .with_output_format("png")
+                .with_sync_mode(true)
+                .with_resolution("2k")
+                .with_quality("high")
+                .with_user("user-123"),
+        )
+    }
+
+    fn assert_xai_image_generation_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/images/generations"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(req.body["prompt"], serde_json::json!("a tiny purple robot"));
+        assert_eq!(req.body["n"], serde_json::json!(1));
+        assert_eq!(req.body["response_format"], serde_json::json!("b64_json"));
+        assert_eq!(req.body["aspect_ratio"], serde_json::json!("16:9"));
+        assert_eq!(req.body["output_format"], serde_json::json!("png"));
+        assert_eq!(req.body["sync_mode"], serde_json::json!(true));
+        assert_eq!(req.body["resolution"], serde_json::json!("2k"));
+        assert_eq!(req.body["quality"], serde_json::json!("high"));
+        assert_eq!(req.body["user"], serde_json::json!("user-123"));
+        assert!(req.body.get("size").is_none());
+        assert!(req.body.get("negative_prompt").is_none());
+        assert!(req.body.get("seed").is_none());
+        assert!(req.body.get("style").is_none());
+        assert!(req.body.get("steps").is_none());
+        assert!(req.body.get("guidance_scale").is_none());
+        assert!(req.body.get("enhance_prompt").is_none());
+    }
+
+    fn make_xai_image_edit_request(model: &str) -> ImageEditRequest {
+        ImageEditRequest {
+            images: vec![ImageEditInput::file(vec![1, 2, 3, 4])],
+            mask: Some(ImageEditInput::file(vec![5, 6, 7, 8])),
+            prompt: "replace the background with a neon city".to_string(),
+            model: Some(model.to_string()),
+            count: Some(1),
+            size: Some("1024x1024".to_string()),
+            response_format: Some("url".to_string()),
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        }
+        .with_xai_image_options(
+            XaiImageOptions::new()
+                .with_aspect_ratio("9:16")
+                .with_output_format("webp")
+                .with_quality("medium"),
+        )
+    }
+
+    fn make_xai_multi_image_edit_request(model: &str) -> ImageEditRequest {
+        ImageEditRequest {
+            images: vec![
+                ImageEditInput::file(vec![1, 2, 3, 4]),
+                ImageEditInput::url("https://example.com/input-2.png"),
+            ],
+            mask: Some(ImageEditInput::file(vec![5, 6, 7, 8])),
+            prompt: "blend the two source images into a synthwave poster".to_string(),
+            model: Some(model.to_string()),
+            count: Some(2),
+            size: Some("1024x1024".to_string()),
+            response_format: Some("url".to_string()),
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        }
+        .with_xai_image_options(
+            XaiImageOptions::new()
+                .with_aspect_ratio("1:1")
+                .with_output_format("png")
+                .with_quality("high"),
+        )
+    }
+
+    fn assert_xai_image_edit_request(req: &HttpTransportRequest, base_url: &str, model: &str) {
+        assert_eq!(req.url, format!("{base_url}/images/edits"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["prompt"],
+            serde_json::json!("replace the background with a neon city")
+        );
+        assert_eq!(req.body["n"], serde_json::json!(1));
+        assert_eq!(req.body["response_format"], serde_json::json!("b64_json"));
+        assert_eq!(req.body["aspect_ratio"], serde_json::json!("9:16"));
+        assert_eq!(req.body["output_format"], serde_json::json!("webp"));
+        assert_eq!(req.body["quality"], serde_json::json!("medium"));
+        assert_eq!(req.body["image"]["type"], serde_json::json!("image_url"));
+        assert!(
+            req.body["image"]["url"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("data:image/png;base64,"))
+        );
+        assert!(req.body.get("mask").is_none());
+        assert!(req.body.get("size").is_none());
+    }
+
+    fn assert_xai_multi_image_edit_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/images/edits"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["prompt"],
+            serde_json::json!("blend the two source images into a synthwave poster")
+        );
+        assert_eq!(req.body["n"], serde_json::json!(2));
+        assert_eq!(req.body["response_format"], serde_json::json!("b64_json"));
+        assert_eq!(req.body["aspect_ratio"], serde_json::json!("1:1"));
+        assert_eq!(req.body["output_format"], serde_json::json!("png"));
+        assert_eq!(req.body["quality"], serde_json::json!("high"));
+        assert!(req.body.get("image").is_none());
+        assert_eq!(
+            req.body["images"][0]["type"],
+            serde_json::json!("image_url")
+        );
+        assert!(
+            req.body["images"][0]["url"]
+                .as_str()
+                .is_some_and(|value| value.starts_with("data:image/png;base64,"))
+        );
+        assert_eq!(
+            req.body["images"][1]["url"],
+            serde_json::json!("https://example.com/input-2.png")
+        );
+        assert!(req.body.get("mask").is_none());
+        assert!(req.body.get("size").is_none());
+    }
+
+    fn make_xai_video_generation_request(model: &str) -> VideoGenerationRequest {
+        VideoGenerationRequest::new(model, "a tiny robot walking in rain")
+            .with_count(2)
+            .with_duration(5)
+            .with_aspect_ratio("16:9")
+            .with_fps(24)
+            .with_seed(7)
+            .with_image(VideoGenerationInput::url(
+                "https://example.com/start-frame.png",
+            ))
+            .with_xai_video_options(
+                XaiVideoOptions::new()
+                    .with_resolution("720p")
+                    .with_poll_interval_ms(1200)
+                    .with_poll_timeout_ms(30_000)
+                    .with_extra_field("style", serde_json::json!("cinematic")),
+            )
+            .with_header("x-video-test", "1")
+    }
+
+    fn assert_xai_video_create_request(req: &HttpTransportRequest, base_url: &str, model: &str) {
+        assert_eq!(req.url, format!("{base_url}/videos/generations"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            req.body["prompt"],
+            serde_json::json!("a tiny robot walking in rain")
+        );
+        assert_eq!(
+            req.body["image"]["url"],
+            serde_json::json!("https://example.com/start-frame.png")
+        );
+        assert_eq!(req.body["duration"], serde_json::json!(5));
+        assert_eq!(req.body["aspect_ratio"], serde_json::json!("16:9"));
+        assert_eq!(req.body["resolution"], serde_json::json!("720p"));
+        assert_eq!(req.body["style"], serde_json::json!("cinematic"));
+        assert_eq!(header_value(req, "x-video-test"), Some("1".to_string()));
+        assert!(req.body.get("poll_interval_ms").is_none());
+        assert!(req.body.get("poll_timeout_ms").is_none());
+        assert!(req.body.get("fps").is_none());
+        assert!(req.body.get("seed").is_none());
+        assert!(req.body.get("n").is_none());
+    }
+
+    fn wiremock_header_value(req: &WiremockRequest, key: &str) -> Option<String> {
+        req.headers
+            .get(key)
+            .and_then(|value| value.to_str().ok())
+            .map(ToString::to_string)
     }
 
     async fn collect_streamed_tool_call(
@@ -37814,6 +38575,76 @@ mod xai_public_path {
                 }
             })
         );
+    }
+
+    #[tokio::test]
+    async fn xai_siumai_provider_config_filters_responses_only_chat_options_consistently() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let model = "grok-4";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_xai_reasoning_effort("high")
+            .with_xai_reasoning_summary("detailed")
+            .with_xai_top_logprobs(2)
+            .with_xai_store(false)
+            .with_xai_previous_response("resp_prev_123")
+            .with_xai_include(["file_search_call.results"])
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .with_reasoning_effort("high")
+            .with_reasoning_summary("detailed")
+            .with_top_logprobs(2)
+            .with_store(false)
+            .with_previous_response("resp_prev_123")
+            .with_include(["file_search_call.results"])
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_reasoning_effort("high")
+                .with_reasoning_summary("detailed")
+                .with_top_logprobs(2)
+                .with_store(false)
+                .with_previous_response("resp_prev_123")
+                .with_include(["file_search_call.results"])
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_xai_chat_request_filters_responses_only_options(&siumai_req, base_url, model);
     }
 
     #[tokio::test]
@@ -38765,6 +39596,64 @@ data: [DONE]
     }
 
     #[tokio::test]
+    async fn xai_registry_filters_responses_only_chat_options_match_config_path() {
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "grok-4";
+        let base_url = "https://example.com/custom/v1";
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model("xai:grok-4")
+            .expect("build registry language model");
+
+        let mut request_options = serde_json::to_value(
+            siumai::provider_ext::xai::XaiOptions::new().with_reasoning_effort("high"),
+        )
+        .expect("serialize xai chat options");
+        let responses_options = serde_json::to_value(
+            siumai::provider_ext::xai::XaiResponsesOptions::new()
+                .with_reasoning_summary("detailed")
+                .with_top_logprobs(2)
+                .with_store(false)
+                .with_previous_response("resp_prev_123")
+                .with_include(["file_search_call.results"]),
+        )
+        .expect("serialize xai responses options");
+        request_options
+            .as_object_mut()
+            .expect("xai request options object")
+            .extend(
+                responses_options
+                    .as_object()
+                    .expect("xai responses options object")
+                    .clone(),
+            );
+
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_xai_options(request_options);
+
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_xai_chat_request_filters_responses_only_options(&registry_req, base_url, model);
+    }
+
+    #[tokio::test]
     async fn xai_registry_chat_stream_request_with_explicit_request_model_match_config_path() {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
@@ -39577,22 +40466,25 @@ data: [DONE]
         let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
             siumai::provider_ext::xai::XaiOptions::new()
                 .with_reasoning_effort("high")
+                .with_parallel_function_calling(false)
                 .with_search(siumai::provider_ext::xai::XaiSearchParameters {
                     mode: siumai::provider_ext::xai::SearchMode::On,
                     return_citations: Some(true),
                     max_search_results: Some(5),
                     from_date: Some("2026-03-01".to_string()),
                     to_date: Some("2026-03-11".to_string()),
-                    sources: Some(vec![siumai::provider_ext::xai::SearchSource {
-                        source_type: siumai::provider_ext::xai::SearchSourceType::Web,
-                        country: Some("US".to_string()),
-                        allowed_websites: Some(vec![
-                            "blog.rust-lang.org".to_string(),
-                            "this-week-in-rust.org".to_string(),
-                        ]),
-                        excluded_websites: Some(vec!["example.com".to_string()]),
-                        safe_search: Some(true),
-                    }]),
+                    sources: Some(vec![
+                        siumai::provider_ext::xai::WebSearchSource {
+                            country: Some("US".to_string()),
+                            allowed_websites: Some(vec![
+                                "blog.rust-lang.org".to_string(),
+                                "this-week-in-rust.org".to_string(),
+                            ]),
+                            excluded_websites: Some(vec!["example.com".to_string()]),
+                            safe_search: Some(true),
+                        }
+                        .into(),
+                    ]),
                 }),
         );
 
@@ -39609,6 +40501,10 @@ data: [DONE]
         assert_eq!(
             siumai_req.body["reasoning_effort"],
             serde_json::json!("high")
+        );
+        assert_eq!(
+            siumai_req.body["parallel_function_calling"],
+            serde_json::json!(false)
         );
         assert_eq!(
             siumai_req.body["search_parameters"]["mode"],
@@ -39677,22 +40573,25 @@ data: [DONE]
         let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
             siumai::provider_ext::xai::XaiOptions::new()
                 .with_reasoning_effort("high")
+                .with_parallel_function_calling(false)
                 .with_search(siumai::provider_ext::xai::XaiSearchParameters {
                     mode: siumai::provider_ext::xai::SearchMode::On,
                     return_citations: Some(true),
                     max_search_results: Some(5),
                     from_date: Some("2026-03-01".to_string()),
                     to_date: Some("2026-03-11".to_string()),
-                    sources: Some(vec![siumai::provider_ext::xai::SearchSource {
-                        source_type: siumai::provider_ext::xai::SearchSourceType::Web,
-                        country: Some("US".to_string()),
-                        allowed_websites: Some(vec![
-                            "blog.rust-lang.org".to_string(),
-                            "this-week-in-rust.org".to_string(),
-                        ]),
-                        excluded_websites: Some(vec!["example.com".to_string()]),
-                        safe_search: Some(true),
-                    }]),
+                    sources: Some(vec![
+                        siumai::provider_ext::xai::WebSearchSource {
+                            country: Some("US".to_string()),
+                            allowed_websites: Some(vec![
+                                "blog.rust-lang.org".to_string(),
+                                "this-week-in-rust.org".to_string(),
+                            ]),
+                            excluded_websites: Some(vec!["example.com".to_string()]),
+                            safe_search: Some(true),
+                        }
+                        .into(),
+                    ]),
                 }),
         );
 
@@ -39706,6 +40605,10 @@ data: [DONE]
         assert_eq!(
             registry_req.body["reasoning_effort"],
             serde_json::json!("high")
+        );
+        assert_eq!(
+            registry_req.body["parallel_function_calling"],
+            serde_json::json!(false)
         );
         assert_eq!(
             registry_req.body["search_parameters"]["mode"],
@@ -40181,22 +41084,25 @@ data: [DONE]
         let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
             siumai::provider_ext::xai::XaiOptions::new()
                 .with_reasoning_effort("high")
+                .with_parallel_function_calling(false)
                 .with_search(siumai::provider_ext::xai::XaiSearchParameters {
                     mode: siumai::provider_ext::xai::SearchMode::On,
                     return_citations: Some(true),
                     max_search_results: Some(5),
                     from_date: Some("2026-03-01".to_string()),
                     to_date: Some("2026-03-11".to_string()),
-                    sources: Some(vec![siumai::provider_ext::xai::SearchSource {
-                        source_type: siumai::provider_ext::xai::SearchSourceType::Web,
-                        country: Some("US".to_string()),
-                        allowed_websites: Some(vec![
-                            "blog.rust-lang.org".to_string(),
-                            "this-week-in-rust.org".to_string(),
-                        ]),
-                        excluded_websites: Some(vec!["example.com".to_string()]),
-                        safe_search: Some(true),
-                    }]),
+                    sources: Some(vec![
+                        siumai::provider_ext::xai::WebSearchSource {
+                            country: Some("US".to_string()),
+                            allowed_websites: Some(vec![
+                                "blog.rust-lang.org".to_string(),
+                                "this-week-in-rust.org".to_string(),
+                            ]),
+                            excluded_websites: Some(vec!["example.com".to_string()]),
+                            safe_search: Some(true),
+                        }
+                        .into(),
+                    ]),
                 }),
         );
 
@@ -40234,6 +41140,10 @@ data: [DONE]
         assert_eq!(
             siumai_req.body["reasoning_effort"],
             serde_json::json!("high")
+        );
+        assert_eq!(
+            siumai_req.body["parallel_function_calling"],
+            serde_json::json!(false)
         );
         assert_eq!(
             siumai_req.body["search_parameters"]["mode"],
@@ -40306,22 +41216,25 @@ data: [DONE]
         let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
             siumai::provider_ext::xai::XaiOptions::new()
                 .with_reasoning_effort("high")
+                .with_parallel_function_calling(false)
                 .with_search(siumai::provider_ext::xai::XaiSearchParameters {
                     mode: siumai::provider_ext::xai::SearchMode::On,
                     return_citations: Some(true),
                     max_search_results: Some(5),
                     from_date: Some("2026-03-01".to_string()),
                     to_date: Some("2026-03-11".to_string()),
-                    sources: Some(vec![siumai::provider_ext::xai::SearchSource {
-                        source_type: siumai::provider_ext::xai::SearchSourceType::Web,
-                        country: Some("US".to_string()),
-                        allowed_websites: Some(vec![
-                            "blog.rust-lang.org".to_string(),
-                            "this-week-in-rust.org".to_string(),
-                        ]),
-                        excluded_websites: Some(vec!["example.com".to_string()]),
-                        safe_search: Some(true),
-                    }]),
+                    sources: Some(vec![
+                        siumai::provider_ext::xai::WebSearchSource {
+                            country: Some("US".to_string()),
+                            allowed_websites: Some(vec![
+                                "blog.rust-lang.org".to_string(),
+                                "this-week-in-rust.org".to_string(),
+                            ]),
+                            excluded_websites: Some(vec!["example.com".to_string()]),
+                            safe_search: Some(true),
+                        }
+                        .into(),
+                    ]),
                 }),
         );
 
@@ -40350,6 +41263,10 @@ data: [DONE]
         assert_eq!(
             registry_req.body["reasoning_effort"],
             serde_json::json!("high")
+        );
+        assert_eq!(
+            registry_req.body["parallel_function_calling"],
+            serde_json::json!(false)
         );
         assert_eq!(
             registry_req.body["search_parameters"]["mode"],
@@ -40433,22 +41350,25 @@ data: [DONE]
                 ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
                     siumai::provider_ext::xai::XaiOptions::new()
                         .with_reasoning_effort("high")
+                        .with_parallel_function_calling(false)
                         .with_search(siumai::provider_ext::xai::XaiSearchParameters {
                             mode: siumai::provider_ext::xai::SearchMode::On,
                             return_citations: Some(true),
                             max_search_results: Some(5),
                             from_date: Some("2026-03-01".to_string()),
                             to_date: Some("2026-03-11".to_string()),
-                            sources: Some(vec![siumai::provider_ext::xai::SearchSource {
-                                source_type: siumai::provider_ext::xai::SearchSourceType::Web,
-                                country: Some("US".to_string()),
-                                allowed_websites: Some(vec![
-                                    "blog.rust-lang.org".to_string(),
-                                    "this-week-in-rust.org".to_string(),
-                                ]),
-                                excluded_websites: Some(vec!["example.com".to_string()]),
-                                safe_search: Some(true),
-                            }]),
+                            sources: Some(vec![
+                                siumai::provider_ext::xai::WebSearchSource {
+                                    country: Some("US".to_string()),
+                                    allowed_websites: Some(vec![
+                                        "blog.rust-lang.org".to_string(),
+                                        "this-week-in-rust.org".to_string(),
+                                    ]),
+                                    excluded_websites: Some(vec!["example.com".to_string()]),
+                                    safe_search: Some(true),
+                                }
+                                .into(),
+                            ]),
                         }),
                 ),
             )
@@ -40463,6 +41383,10 @@ data: [DONE]
         assert_eq!(req.url, "https://example.com/xai/v1/chat/completions");
         assert_eq!(req.body["model"], serde_json::json!("grok-4"));
         assert_eq!(req.body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            req.body["parallel_function_calling"],
+            serde_json::json!(false)
+        );
         assert_eq!(
             req.body["search_parameters"]["mode"],
             serde_json::json!("on")
@@ -40513,22 +41437,25 @@ data: [DONE]
                 ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_xai_options(
                     siumai::provider_ext::xai::XaiOptions::new()
                         .with_reasoning_effort("high")
+                        .with_parallel_function_calling(false)
                         .with_search(siumai::provider_ext::xai::XaiSearchParameters {
                             mode: siumai::provider_ext::xai::SearchMode::On,
                             return_citations: Some(true),
                             max_search_results: Some(5),
                             from_date: Some("2026-03-01".to_string()),
                             to_date: Some("2026-03-11".to_string()),
-                            sources: Some(vec![siumai::provider_ext::xai::SearchSource {
-                                source_type: siumai::provider_ext::xai::SearchSourceType::Web,
-                                country: Some("US".to_string()),
-                                allowed_websites: Some(vec![
-                                    "blog.rust-lang.org".to_string(),
-                                    "this-week-in-rust.org".to_string(),
-                                ]),
-                                excluded_websites: Some(vec!["example.com".to_string()]),
-                                safe_search: Some(true),
-                            }]),
+                            sources: Some(vec![
+                                siumai::provider_ext::xai::WebSearchSource {
+                                    country: Some("US".to_string()),
+                                    allowed_websites: Some(vec![
+                                        "blog.rust-lang.org".to_string(),
+                                        "this-week-in-rust.org".to_string(),
+                                    ]),
+                                    excluded_websites: Some(vec!["example.com".to_string()]),
+                                    safe_search: Some(true),
+                                }
+                                .into(),
+                            ]),
                         }),
                 ),
             )
@@ -40551,6 +41478,10 @@ data: [DONE]
         assert_eq!(req.body["model"], serde_json::json!("grok-4"));
         assert_eq!(req.body["stream"], serde_json::json!(true));
         assert_eq!(req.body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(
+            req.body["parallel_function_calling"],
+            serde_json::json!(false)
+        );
         assert_eq!(
             req.body["search_parameters"]["mode"],
             serde_json::json!("on")
@@ -40618,8 +41549,12 @@ data: [DONE]
         assert_unsupported_operation(&siumai_err);
         assert_unsupported_operation(&provider_err);
         assert_unsupported_operation(&config_err);
-        assert_no_deferred_capability_leaks(&provider_client);
-        assert_no_deferred_capability_leaks(&config_client);
+        assert!(provider_client.as_embedding_capability().is_none());
+        assert!(config_client.as_embedding_capability().is_none());
+        assert!(provider_client.as_image_generation_capability().is_some());
+        assert!(config_client.as_image_generation_capability().is_some());
+        assert!(provider_client.as_rerank_capability().is_none());
+        assert!(config_client.as_rerank_capability().is_none());
         assert_capture_transports_unused(&[
             &siumai_transport,
             &provider_transport,
@@ -40687,17 +41622,30 @@ data: [DONE]
     }
 
     #[tokio::test]
-    async fn xai_siumai_provider_config_image_request_is_intentionally_unsupported() {
-        let siumai_transport = CaptureTransport::default();
-        let provider_transport = CaptureTransport::default();
-        let config_transport = CaptureTransport::default();
+    async fn xai_siumai_provider_config_image_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "data": [
+                {
+                    "b64_json": "aGVsbG8=",
+                    "revised_prompt": "a tiny purple robot"
+                }
+            ],
+            "usage": {
+                "cost_in_usd_ticks": 321
+            }
+        });
 
-        let model = "grok-image-test";
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-image";
+        let base_url = "https://example.com/custom/v1";
 
         let siumai_client = Siumai::builder()
             .xai()
             .api_key("test-key")
-            .base_url("https://example.com/custom/v1")
+            .base_url(base_url)
             .model(model)
             .fetch(Arc::new(siumai_transport.clone()))
             .build()
@@ -40706,7 +41654,7 @@ data: [DONE]
 
         let provider_client = Provider::xai()
             .api_key("test-key")
-            .base_url("https://example.com/custom/v1")
+            .base_url(base_url)
             .model(model)
             .fetch(Arc::new(provider_transport.clone()))
             .build()
@@ -40715,38 +41663,525 @@ data: [DONE]
 
         let config_client = siumai::provider_ext::xai::XaiClient::from_config(
             siumai::provider_ext::xai::XaiConfig::new("test-key")
-                .with_base_url("https://example.com/custom/v1")
+                .with_base_url(base_url)
                 .with_model(model)
                 .with_http_transport(Arc::new(config_transport.clone())),
         )
         .await
         .expect("build config client");
 
-        let request = make_image_request_with_model(model);
+        let request = make_xai_image_generation_request(model);
 
-        let siumai_err = siumai_client
+        let siumai_resp = siumai_client
             .generate_images(request.clone())
             .await
-            .expect_err("xai image generation should be unsupported");
-        let provider_err = provider_client
+            .expect("siumai image generation ok");
+        let provider_resp = provider_client
             .generate_images(request.clone())
             .await
-            .expect_err("xai image generation should be unsupported");
-        let config_err = config_client
+            .expect("provider image generation ok");
+        let config_resp = config_client
             .generate_images(request)
             .await
-            .expect_err("xai image generation should be unsupported");
+            .expect("config image generation ok");
 
-        assert_unsupported_operation(&siumai_err);
-        assert_unsupported_operation(&provider_err);
-        assert_unsupported_operation(&config_err);
-        assert_no_deferred_capability_leaks(&provider_client);
-        assert_no_deferred_capability_leaks(&config_client);
-        assert_capture_transports_unused(&[
-            &siumai_transport,
-            &provider_transport,
-            &config_transport,
-        ]);
+        assert_eq!(siumai_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            provider_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(config_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_xai_image_generation_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_registry_image_request_options_match_config_path() {
+        let response_json = serde_json::json!({
+            "data": [
+                {
+                    "b64_json": "aGVsbG8="
+                }
+            ]
+        });
+
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-image-pro";
+        let base_url = "https://example.com/custom/v1";
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .image_model("xai:grok-imagine-image-pro")
+            .expect("build registry image model");
+
+        let request = make_xai_image_generation_request(model);
+
+        let _ = config_client.generate_images(request.clone()).await;
+        let _ = registry_model.generate_images(request).await;
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_xai_image_generation_request(&registry_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_siumai_provider_config_image_edit_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "data": [
+                {
+                    "b64_json": "aGVsbG8="
+                }
+            ]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-image";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_xai_image_edit_request(model);
+
+        let _ = siumai_client.edit_image(request.clone()).await;
+        let _ = provider_client.edit_image(request.clone()).await;
+        let _ = config_client.edit_image(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_xai_image_edit_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_registry_image_edit_request_options_match_config_path() {
+        let response_json = serde_json::json!({
+            "data": [
+                {
+                    "b64_json": "aGVsbG8="
+                }
+            ]
+        });
+
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-image";
+        let base_url = "https://example.com/custom/v1";
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .image_model("xai:grok-imagine-image")
+            .expect("build registry image model");
+
+        let request = make_xai_image_edit_request(model);
+
+        let _ = config_client.edit_image(request.clone()).await;
+        let _ = registry_model.edit_image(request).await;
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_xai_image_edit_request(&registry_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_siumai_provider_config_multi_image_edit_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "data": [
+                {
+                    "b64_json": "aGVsbG8="
+                }
+            ]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-image";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let request = make_xai_multi_image_edit_request(model);
+
+        let _ = siumai_client.edit_image(request.clone()).await;
+        let _ = provider_client.edit_image(request.clone()).await;
+        let _ = config_client.edit_image(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_xai_multi_image_edit_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_siumai_provider_config_registry_video_create_are_equivalent() {
+        let response_json = serde_json::json!({
+            "request_id": "task-123",
+            "queued": true
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-video";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()));
+        let registry_client = registry
+            .language_model("xai:grok-imagine-video")
+            .expect("build registry language model");
+
+        let request = make_xai_video_generation_request(model);
+
+        let siumai_resp = siumai_client
+            .create_video_task(request.clone())
+            .await
+            .expect("siumai create video ok");
+        let provider_resp = provider_client
+            .create_video_task(request.clone())
+            .await
+            .expect("provider create video ok");
+        let config_resp = config_client
+            .create_video_task(request.clone())
+            .await
+            .expect("config create video ok");
+        let registry_resp = registry_client
+            .create_video_task(request)
+            .await
+            .expect("registry create video ok");
+
+        assert_eq!(siumai_resp.task_id, "task-123");
+        assert_eq!(provider_resp.task_id, "task-123");
+        assert_eq!(config_resp.task_id, "task-123");
+        assert_eq!(registry_resp.task_id, "task-123");
+        assert_eq!(
+            siumai_resp.warnings,
+            Some(vec![
+                Warning::unsupported(
+                    "n",
+                    Some("xAI video models do not support generating multiple videos per call."),
+                ),
+                Warning::unsupported("fps", Some("xAI video models do not support custom FPS."),),
+                Warning::unsupported(
+                    "seed",
+                    Some("xAI video models do not support deterministic seeds."),
+                ),
+            ])
+        );
+        assert_eq!(provider_resp.warnings, siumai_resp.warnings);
+        assert_eq!(config_resp.warnings, siumai_resp.warnings);
+        assert_eq!(registry_resp.warnings, siumai_resp.warnings);
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_xai_video_create_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_siumai_provider_config_registry_query_video_task_are_equivalent() {
+        async fn mount_video_query_server() -> MockServer {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/v1/videos/task-123"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "status": "done",
+                    "model": "grok-imagine-video",
+                    "video": {
+                        "url": "https://cdn.example.com/video.mp4",
+                        "duration": 6.5,
+                        "respect_moderation": true,
+                        "poster": "https://cdn.example.com/poster.jpg"
+                    },
+                    "usage": {
+                        "cost_in_usd_ticks": 456
+                    },
+                    "request_type": "generation"
+                })))
+                .mount(&server)
+                .await;
+            server
+        }
+
+        let siumai_server = mount_video_query_server().await;
+        let provider_server = mount_video_query_server().await;
+        let config_server = mount_video_query_server().await;
+        let registry_server = mount_video_query_server().await;
+
+        let model = "grok-imagine-video";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(format!("{}/v1", siumai_server.uri()))
+            .model(model)
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(format!("{}/v1", provider_server.uri()))
+            .model(model)
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(format!("{}/v1", config_server.uri()))
+                .with_model(model),
+        )
+        .await
+        .expect("build config client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "xai".to_string(),
+            Arc::new(siumai::registry::factories::XAIProviderFactory)
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "xai".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("test-key")
+                .with_base_url(format!("{}/v1", registry_server.uri())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: true,
+            }),
+        );
+        let registry_client = registry
+            .language_model("xai:grok-imagine-video")
+            .expect("build registry language model");
+
+        let siumai_resp = siumai_client
+            .query_video_task("task-123")
+            .await
+            .expect("siumai query video ok");
+        let provider_resp = provider_client
+            .query_video_task("task-123")
+            .await
+            .expect("provider query video ok");
+        let config_resp = config_client
+            .query_video_task("task-123")
+            .await
+            .expect("config query video ok");
+        let registry_resp = registry_client
+            .query_video_task("task-123")
+            .await
+            .expect("registry query video ok");
+
+        assert_eq!(siumai_resp.status.to_string(), "Success");
+        assert_eq!(provider_resp.status.to_string(), "Success");
+        assert_eq!(config_resp.status.to_string(), "Success");
+        assert_eq!(registry_resp.status.to_string(), "Success");
+        assert_eq!(
+            siumai_resp.video_url.as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
+        assert_eq!(
+            registry_resp.video_url.as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
+        assert_eq!(siumai_resp.duration, Some(6.5));
+        assert_eq!(registry_resp.duration, Some(6.5));
+
+        let siumai_req = siumai_server
+            .received_requests()
+            .await
+            .expect("recorded siumai requests")
+            .into_iter()
+            .next()
+            .expect("siumai query request");
+        let provider_req = provider_server
+            .received_requests()
+            .await
+            .expect("recorded provider requests")
+            .into_iter()
+            .next()
+            .expect("provider query request");
+        let config_req = config_server
+            .received_requests()
+            .await
+            .expect("recorded config requests")
+            .into_iter()
+            .next()
+            .expect("config query request");
+        let registry_req = registry_server
+            .received_requests()
+            .await
+            .expect("recorded registry requests")
+            .into_iter()
+            .next()
+            .expect("registry query request");
+
+        assert_eq!(siumai_req.url.path(), "/v1/videos/task-123");
+        assert_eq!(provider_req.url.path(), "/v1/videos/task-123");
+        assert_eq!(config_req.url.path(), "/v1/videos/task-123");
+        assert_eq!(registry_req.url.path(), "/v1/videos/task-123");
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "authorization"),
+            Some("Bearer test-key".to_string())
+        );
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "authorization"),
+            wiremock_header_value(&provider_req, "authorization")
+        );
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "authorization"),
+            wiremock_header_value(&config_req, "authorization")
+        );
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "authorization"),
+            wiremock_header_value(&registry_req, "authorization")
+        );
     }
 
     #[tokio::test]

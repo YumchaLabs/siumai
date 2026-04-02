@@ -6,7 +6,10 @@
 use crate::builder::BuilderBase;
 use crate::error::LlmError;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
-use crate::provider_options::{XaiOptions, XaiSearchParameters};
+use crate::provider_options::{
+    XaiChatReasoningEffort, XaiImageOptions, XaiOptions, XaiReasoningSummary, XaiResponseInclude,
+    XaiResponsesOptions, XaiSearchParameters, XaiVideoOptions,
+};
 use crate::retry_api::RetryOptions;
 use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleBuilder;
 use std::collections::HashMap;
@@ -22,6 +25,7 @@ pub struct XaiBuilder {
     retry_options: Option<RetryOptions>,
     extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     provider_specific_config: HashMap<String, serde_json::Value>,
+    default_provider_options_map: crate::types::ProviderOptionsMap,
 }
 
 impl XaiBuilder {
@@ -32,6 +36,7 @@ impl XaiBuilder {
             retry_options: None,
             extra_model_middlewares: Vec::new(),
             provider_specific_config: HashMap::new(),
+            default_provider_options_map: crate::types::ProviderOptionsMap::default(),
         }
     }
 
@@ -191,7 +196,13 @@ impl XaiBuilder {
         self
     }
 
-    pub fn with_xai_options(mut self, options: XaiOptions) -> Self {
+    /// Replace the full non-chat default provider options map.
+    pub fn with_provider_options_map(mut self, map: crate::types::ProviderOptionsMap) -> Self {
+        self.default_provider_options_map = map;
+        self
+    }
+
+    fn merge_serialized_xai_provider_options<T: serde::Serialize>(mut self, options: T) -> Self {
         if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
             self.provider_specific_config
                 .extend(obj.into_iter().filter(|(_, value)| !value.is_null()));
@@ -199,8 +210,71 @@ impl XaiBuilder {
         self
     }
 
-    pub fn with_reasoning_effort(self, effort: impl Into<String>) -> Self {
+    fn merge_non_chat_xai_provider_options<T: serde::Serialize>(mut self, options: T) -> Self {
+        if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
+            let mut overrides = crate::types::ProviderOptionsMap::default();
+            overrides.insert("xai", serde_json::Value::Object(obj));
+            self.default_provider_options_map.merge_overrides(overrides);
+        }
+        self
+    }
+
+    pub fn with_xai_options(self, options: XaiOptions) -> Self {
+        self.merge_serialized_xai_provider_options(options)
+    }
+
+    /// Merge xAI image defaults into non-chat request `providerOptions`.
+    pub fn with_xai_image_options(self, options: XaiImageOptions) -> Self {
+        self.merge_non_chat_xai_provider_options(options)
+    }
+
+    /// Merge xAI video defaults into non-chat request `providerOptions`.
+    pub fn with_xai_video_options(self, options: XaiVideoOptions) -> Self {
+        self.merge_non_chat_xai_provider_options(options)
+    }
+
+    pub fn with_reasoning_effort(self, effort: impl Into<XaiChatReasoningEffort>) -> Self {
         self.with_xai_options(XaiOptions::new().with_reasoning_effort(effort))
+    }
+
+    /// Compatibility helper for xAI Responses-style provider options.
+    pub fn with_reasoning_summary(self, summary: impl Into<XaiReasoningSummary>) -> Self {
+        self.merge_serialized_xai_provider_options(
+            XaiResponsesOptions::new().with_reasoning_summary(summary),
+        )
+    }
+
+    pub fn with_logprobs(self, enabled: bool) -> Self {
+        self.with_xai_options(XaiOptions::new().with_logprobs(enabled))
+    }
+
+    pub fn with_top_logprobs(self, count: u32) -> Self {
+        self.with_xai_options(XaiOptions::new().with_top_logprobs(count))
+    }
+
+    pub fn with_parallel_function_calling(self, enabled: bool) -> Self {
+        self.with_xai_options(XaiOptions::new().with_parallel_function_calling(enabled))
+    }
+
+    /// Compatibility helper for xAI Responses-style provider options.
+    pub fn with_store(self, store: bool) -> Self {
+        self.merge_serialized_xai_provider_options(XaiResponsesOptions::new().with_store(store))
+    }
+
+    /// Compatibility helper for xAI Responses-style provider options.
+    pub fn with_previous_response(self, response_id: impl Into<String>) -> Self {
+        self.merge_serialized_xai_provider_options(
+            XaiResponsesOptions::new().with_previous_response(response_id),
+        )
+    }
+
+    /// Compatibility helper for xAI Responses-style provider options.
+    pub fn with_include<I, S>(self, include: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<XaiResponseInclude>,
+    {
+        self.merge_serialized_xai_provider_options(XaiResponsesOptions::new().with_include(include))
     }
 
     pub fn with_search_parameters(self, params: XaiSearchParameters) -> Self {
@@ -216,6 +290,9 @@ impl XaiBuilder {
         let mut config = super::XaiConfig::from_compatible_config(compat)?;
         if !self.provider_specific_config.is_empty() {
             config = config.with_provider_specific_config(self.provider_specific_config);
+        }
+        if !self.default_provider_options_map.is_empty() {
+            config = config.with_provider_options_map(self.default_provider_options_map);
         }
         if !self.extra_model_middlewares.is_empty() {
             let mut middlewares = config.model_middlewares.clone();
@@ -263,6 +340,12 @@ mod tests {
             .reasoning(true)
             .reasoning_budget(2048)
             .with_reasoning_effort("high")
+            .with_reasoning_summary("detailed")
+            .with_top_logprobs(2)
+            .with_parallel_function_calling(false)
+            .with_store(false)
+            .with_previous_response("resp_prev_123")
+            .with_include(["file_search_call.results"])
             .with_default_search()
             .timeout(Duration::from_secs(11))
             .connect_timeout(Duration::from_secs(4))
@@ -299,6 +382,16 @@ mod tests {
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
         assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(params["logprobs"], serde_json::json!(true));
+        assert_eq!(params["top_logprobs"], serde_json::json!(2));
+        assert_eq!(
+            params["parallel_function_calling"],
+            serde_json::json!(false)
+        );
+        assert!(params.get("reasoning_summary").is_none());
+        assert!(params.get("store").is_none());
+        assert!(params.get("previous_response_id").is_none());
+        assert!(params.get("include").is_none());
         assert_eq!(
             params["search_parameters"]["mode"],
             serde_json::json!("auto")
@@ -309,7 +402,7 @@ mod tests {
         );
         assert_eq!(
             params["search_parameters"]["max_search_results"],
-            serde_json::json!(5)
+            serde_json::json!(20)
         );
         assert_eq!(config.http_config.timeout, Some(Duration::from_secs(11)));
         assert_eq!(
@@ -332,6 +425,12 @@ mod tests {
             .reasoning(true)
             .reasoning_budget(2048)
             .with_reasoning_effort("high")
+            .with_reasoning_summary("detailed")
+            .with_top_logprobs(2)
+            .with_parallel_function_calling(false)
+            .with_store(false)
+            .with_previous_response("resp_prev_123")
+            .with_include(["file_search_call.results"])
             .with_default_search()
             .timeout(Duration::from_secs(11))
             .connect_timeout(Duration::from_secs(4))
@@ -351,6 +450,12 @@ mod tests {
             .with_reasoning(true)
             .with_reasoning_budget(2048)
             .with_reasoning_effort("high")
+            .with_reasoning_summary("detailed")
+            .with_top_logprobs(2)
+            .with_parallel_function_calling(false)
+            .with_store(false)
+            .with_previous_response("resp_prev_123")
+            .with_include(["file_search_call.results"])
             .with_default_search()
             .with_timeout(Duration::from_secs(11))
             .with_connect_timeout(Duration::from_secs(4))

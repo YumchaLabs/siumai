@@ -6,11 +6,86 @@ use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
-use crate::provider_options::{XaiOptions, XaiSearchParameters};
-use crate::types::{CommonParams, HttpConfig};
+use crate::provider_options::{
+    XaiChatReasoningEffort, XaiImageOptions, XaiOptions, XaiReasoningSummary, XaiResponseInclude,
+    XaiResponsesOptions, XaiSearchParameters, XaiVideoOptions,
+};
+use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap};
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 use std::sync::Arc;
+
+fn rename_field(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
+    if let Some(value) = obj.remove(from) {
+        obj.entry(to.to_string()).or_insert(value);
+    }
+}
+
+fn normalize_xai_search_parameters(value: &mut serde_json::Value) {
+    let Some(obj) = value.as_object_mut() else {
+        return;
+    };
+
+    rename_field(obj, "returnCitations", "return_citations");
+    rename_field(obj, "maxSearchResults", "max_search_results");
+    rename_field(obj, "fromDate", "from_date");
+    rename_field(obj, "toDate", "to_date");
+
+    if let Some(sources) = obj
+        .get_mut("sources")
+        .and_then(|value| value.as_array_mut())
+    {
+        for source in sources {
+            let Some(source_obj) = source.as_object_mut() else {
+                continue;
+            };
+
+            rename_field(source_obj, "allowedWebsites", "allowed_websites");
+            rename_field(source_obj, "excludedWebsites", "excluded_websites");
+            rename_field(source_obj, "safeSearch", "safe_search");
+            rename_field(source_obj, "excludedXHandles", "excluded_x_handles");
+            rename_field(source_obj, "includedXHandles", "included_x_handles");
+            rename_field(source_obj, "postFavoriteCount", "post_favorite_count");
+            rename_field(source_obj, "postViewCount", "post_view_count");
+            rename_field(source_obj, "xHandles", "x_handles");
+
+            if source_obj.get("included_x_handles").is_none() {
+                if let Some(value) = source_obj.remove("x_handles") {
+                    source_obj.insert("included_x_handles".to_string(), value);
+                }
+            } else {
+                source_obj.remove("x_handles");
+            }
+        }
+    }
+}
+
+fn normalize_xai_chat_defaults(
+    mut params: HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    let mut obj = serde_json::Map::from_iter(params.drain());
+
+    rename_field(&mut obj, "reasoningEffort", "reasoning_effort");
+    rename_field(&mut obj, "reasoningSummary", "reasoning_summary");
+    rename_field(&mut obj, "searchParameters", "search_parameters");
+    rename_field(&mut obj, "topLogprobs", "top_logprobs");
+    rename_field(&mut obj, "previousResponseId", "previous_response_id");
+
+    if let Some(value) = obj.get_mut("search_parameters") {
+        normalize_xai_search_parameters(value);
+    }
+
+    if obj.get("top_logprobs").is_some() {
+        obj.insert("logprobs".to_string(), serde_json::json!(true));
+    }
+
+    obj.remove("reasoning_summary");
+    obj.remove("previous_response_id");
+    obj.remove("include");
+    obj.remove("store");
+
+    HashMap::from_iter(obj)
+}
 
 /// `xAI` configuration (provider layer).
 #[derive(Clone)]
@@ -31,6 +106,8 @@ pub struct XaiConfig {
     pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Provider-specific request defaults merged into chat requests.
     pub provider_specific_config: HashMap<String, serde_json::Value>,
+    /// Non-chat default provider options merged into request `providerOptions`.
+    pub default_provider_options_map: ProviderOptionsMap,
 }
 
 impl std::fmt::Debug for XaiConfig {
@@ -48,6 +125,12 @@ impl std::fmt::Debug for XaiConfig {
         }
         if !self.provider_specific_config.is_empty() {
             ds.field("provider_specific_config", &self.provider_specific_config);
+        }
+        if !self.default_provider_options_map.is_empty() {
+            ds.field(
+                "default_provider_options_map",
+                &self.default_provider_options_map,
+            );
         }
 
         ds.finish()
@@ -69,6 +152,7 @@ impl XaiConfig {
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
             provider_specific_config: HashMap::new(),
+            default_provider_options_map: ProviderOptionsMap::default(),
         }
     }
 
@@ -174,13 +258,42 @@ impl XaiConfig {
         self
     }
 
+    /// Replace the full non-chat default provider options map.
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.default_provider_options_map = map;
+        self
+    }
+
+    fn merge_non_chat_xai_provider_options<T: serde::Serialize>(mut self, options: T) -> Self {
+        if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
+            let mut overrides = ProviderOptionsMap::default();
+            overrides.insert("xai", serde_json::Value::Object(obj));
+            self.default_provider_options_map.merge_overrides(overrides);
+        }
+        self
+    }
+
     /// Merge typed xAI options into config defaults.
-    pub fn with_xai_options(mut self, options: XaiOptions) -> Self {
+    fn merge_serialized_xai_provider_options<T: serde::Serialize>(mut self, options: T) -> Self {
         if let Ok(serde_json::Value::Object(obj)) = serde_json::to_value(options) {
             self.provider_specific_config
                 .extend(obj.into_iter().filter(|(_, value)| !value.is_null()));
         }
         self
+    }
+
+    pub fn with_xai_options(self, options: XaiOptions) -> Self {
+        self.merge_serialized_xai_provider_options(options)
+    }
+
+    /// Merge xAI image defaults into non-chat request `providerOptions`.
+    pub fn with_xai_image_options(self, options: XaiImageOptions) -> Self {
+        self.merge_non_chat_xai_provider_options(options)
+    }
+
+    /// Merge xAI video defaults into non-chat request `providerOptions`.
+    pub fn with_xai_video_options(self, options: XaiVideoOptions) -> Self {
+        self.merge_non_chat_xai_provider_options(options)
     }
 
     /// Enable provider-native reasoning mode when supported.
@@ -207,8 +320,51 @@ impl XaiConfig {
     }
 
     /// Set xAI-specific reasoning effort.
-    pub fn with_reasoning_effort(self, effort: impl Into<String>) -> Self {
+    pub fn with_reasoning_effort(self, effort: impl Into<XaiChatReasoningEffort>) -> Self {
         self.with_xai_options(XaiOptions::new().with_reasoning_effort(effort))
+    }
+
+    /// Set xAI-specific reasoning summary verbosity.
+    pub fn with_reasoning_summary(self, summary: impl Into<XaiReasoningSummary>) -> Self {
+        self.merge_serialized_xai_provider_options(
+            XaiResponsesOptions::new().with_reasoning_summary(summary),
+        )
+    }
+
+    /// Enable or disable logprobs by default.
+    pub fn with_logprobs(self, enabled: bool) -> Self {
+        self.with_xai_options(XaiOptions::new().with_logprobs(enabled))
+    }
+
+    /// Set top-logprobs by default.
+    pub fn with_top_logprobs(self, count: u32) -> Self {
+        self.with_xai_options(XaiOptions::new().with_top_logprobs(count))
+    }
+
+    /// Enable or disable parallel function calling by default.
+    pub fn with_parallel_function_calling(self, enabled: bool) -> Self {
+        self.with_xai_options(XaiOptions::new().with_parallel_function_calling(enabled))
+    }
+
+    /// Control response storage for Responses-style APIs.
+    pub fn with_store(self, store: bool) -> Self {
+        self.merge_serialized_xai_provider_options(XaiResponsesOptions::new().with_store(store))
+    }
+
+    /// Continue from a previous response id by default.
+    pub fn with_previous_response(self, response_id: impl Into<String>) -> Self {
+        self.merge_serialized_xai_provider_options(
+            XaiResponsesOptions::new().with_previous_response(response_id),
+        )
+    }
+
+    /// Include extra response sections by default.
+    pub fn with_include<I, S>(self, include: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<XaiResponseInclude>,
+    {
+        self.merge_serialized_xai_provider_options(XaiResponsesOptions::new().with_include(include))
     }
 
     /// Set xAI-specific search parameters.
@@ -271,6 +427,7 @@ impl XaiConfig {
             http_interceptors: config.http_interceptors,
             model_middlewares: config.model_middlewares,
             provider_specific_config,
+            default_provider_options_map: ProviderOptionsMap::default(),
         })
     }
 
@@ -296,10 +453,12 @@ impl XaiConfig {
 
         let mut adapter: Box<dyn ProviderAdapter> = Box::new(ConfigurableAdapter::new(provider));
         if !self.provider_specific_config.is_empty() {
+            let normalized_defaults =
+                normalize_xai_chat_defaults(self.provider_specific_config.clone());
             adapter = Box::new(
                 siumai_provider_openai_compatible::providers::openai_compatible::adapter::ParamMergingAdapter::new(
                     adapter,
-                    self.provider_specific_config.clone(),
+                    normalized_defaults,
                 ),
             );
         }
@@ -345,6 +504,12 @@ mod tests {
             .with_reasoning(true)
             .with_reasoning_budget(4096)
             .with_reasoning_effort("high")
+            .with_reasoning_summary("detailed")
+            .with_top_logprobs(2)
+            .with_parallel_function_calling(false)
+            .with_store(false)
+            .with_previous_response("resp_prev_123")
+            .with_include(["file_search_call.results"])
             .with_default_search()
             .with_http_config(http_config.clone());
 
@@ -367,13 +532,23 @@ mod tests {
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(4096));
         assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(params["logprobs"], serde_json::json!(true));
+        assert_eq!(params["top_logprobs"], serde_json::json!(2));
+        assert_eq!(
+            params["parallel_function_calling"],
+            serde_json::json!(false)
+        );
+        assert!(params.get("reasoning_summary").is_none());
+        assert!(params.get("store").is_none());
+        assert!(params.get("previous_response_id").is_none());
+        assert!(params.get("include").is_none());
         assert_eq!(
             params["search_parameters"]["return_citations"],
             serde_json::json!(true)
         );
         assert_eq!(
             params["search_parameters"]["max_search_results"],
-            serde_json::json!(5)
+            serde_json::json!(20)
         );
     }
 

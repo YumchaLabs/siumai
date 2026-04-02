@@ -26,10 +26,40 @@ use crate::error::LlmError;
 use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer};
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::{
-    ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
+    ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse,
+    ImageVariationRequest,
 };
 use crate::{core::ProviderContext, core::ProviderSpec};
 use std::sync::Arc;
+
+fn openai_image_edit_part(
+    input: &ImageEditInput,
+    file_name: &str,
+) -> Result<reqwest::multipart::Part, LlmError> {
+    use reqwest::multipart::Part;
+
+    match input {
+        ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(
+            "OpenAI-compatible image edit multipart requests do not support URL-backed image inputs yet. Provide file/base64 image data instead.".to_string(),
+        )),
+        ImageEditInput::File { data, media_type } => {
+            let bytes = data.as_bytes().map_err(|err| {
+                LlmError::InvalidParameter(format!("Invalid OpenAI image edit file data: {err}"))
+            })?;
+            let mime = media_type
+                .clone()
+                .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
+            Part::bytes(bytes)
+                .file_name(file_name.to_string())
+                .mime_str(&mime)
+                .map_err(|e| {
+                    LlmError::InvalidParameter(format!(
+                        "Invalid image MIME type '{mime}': {e}"
+                    ))
+                })
+        }
+    }
+}
 
 /// OpenAI Image API Standard
 ///
@@ -334,7 +364,13 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
     }
 
     fn transform_image_edit(&self, req: &ImageEditRequest) -> Result<ImageHttpBody, LlmError> {
-        use reqwest::multipart::{Form, Part};
+        use reqwest::multipart::Form;
+
+        if req.images.is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "OpenAI image editing requires at least one source image".to_string(),
+            ));
+        }
 
         // Build multipart form for OpenAI Images Edit
         let mut form = Form::new().text("prompt", req.prompt.clone());
@@ -343,23 +379,18 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             form = form.text("model", model.clone());
         }
 
-        let image_mime = crate::utils::guess_mime(Some(&req.image), None);
-        let image_part = Part::bytes(req.image.clone())
-            .file_name("image")
-            .mime_str(&image_mime)
-            .map_err(|e| {
-                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
-            })?;
-        form = form.part("image", image_part);
+        let image_field = if req.images.len() == 1 {
+            "image"
+        } else {
+            "image[]"
+        };
+        for (index, image) in req.images.iter().enumerate() {
+            let image_part = openai_image_edit_part(image, &format!("image-{index}"))?;
+            form = form.part(image_field, image_part);
+        }
 
         if let Some(mask) = &req.mask {
-            let mask_mime = crate::utils::guess_mime(Some(mask), None);
-            let mask_part = Part::bytes(mask.clone())
-                .file_name("mask")
-                .mime_str(&mask_mime)
-                .map_err(|e| {
-                    LlmError::InvalidParameter(format!("Invalid mask MIME type '{mask_mime}': {e}"))
-                })?;
+            let mask_part = openai_image_edit_part(mask, "mask")?;
             form = form.part("mask", mask_part);
         }
 
@@ -690,8 +721,8 @@ mod tests {
         let transformers = standard.create_transformers("test-provider");
 
         let request = ImageEditRequest {
-            image: vec![1, 2, 3, 4],
-            mask: Some(vec![5, 6, 7, 8]),
+            images: vec![ImageEditInput::file(vec![1, 2, 3, 4])],
+            mask: Some(ImageEditInput::file(vec![5, 6, 7, 8])),
             prompt: "Add a rainbow".to_string(),
             model: None,
             count: Some(1),
@@ -712,6 +743,62 @@ mod tests {
             }
             _ => panic!("Expected multipart form"),
         }
+    }
+
+    #[test]
+    fn test_image_edit_request_transformer_supports_multiple_images() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let request = ImageEditRequest {
+            images: vec![
+                ImageEditInput::file(vec![1, 2, 3, 4]),
+                ImageEditInput::file_with_media_type(vec![9, 8, 7, 6], "image/jpeg"),
+            ],
+            mask: None,
+            prompt: "Blend the source images".to_string(),
+            model: Some("gpt-image-1".to_string()),
+            count: Some(2),
+            size: None,
+            response_format: Some("b64_json".to_string()),
+            extra_params: std::collections::HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        let result = transformers.request.transform_image_edit(&request);
+        assert!(result.is_ok());
+        match result.unwrap() {
+            ImageHttpBody::Multipart(_) => {}
+            _ => panic!("Expected multipart form"),
+        }
+    }
+
+    #[test]
+    fn test_image_edit_request_transformer_rejects_url_inputs() {
+        let standard = OpenAiImageStandard::new();
+        let transformers = standard.create_transformers("test-provider");
+
+        let request = ImageEditRequest {
+            images: vec![ImageEditInput::url("https://example.com/input.png")],
+            mask: None,
+            prompt: "Edit a remote image".to_string(),
+            model: Some("gpt-image-1".to_string()),
+            count: Some(1),
+            size: None,
+            response_format: Some("b64_json".to_string()),
+            extra_params: std::collections::HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        let result = transformers.request.transform_image_edit(&request);
+        assert!(result.is_err());
+        let err = result.err().expect("url-backed edit should fail");
+        assert!(
+            err.to_string().contains("URL-backed image inputs"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

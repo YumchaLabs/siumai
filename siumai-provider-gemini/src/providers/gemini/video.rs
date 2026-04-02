@@ -11,11 +11,11 @@ use crate::execution::executors::common::{HttpBody, execute_get_request, execute
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
+use crate::types::Warning;
 use crate::types::video::{
-    BaseResponse, VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus,
-    VideoTaskStatusResponse,
+    BaseResponse, VideoGenerationInput, VideoGenerationRequest, VideoGenerationResponse,
+    VideoTaskStatus, VideoTaskStatusResponse,
 };
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -61,21 +61,74 @@ fn take_u64_opt(map: &mut HashMap<String, serde_json::Value>, key: &str) -> Opti
     map.remove(key).and_then(|v| v.as_u64())
 }
 
-fn build_veo_image_from_bytes(bytes: Vec<u8>) -> VeoImage {
-    let mime_type = crate::utils::mime::guess_mime_from_bytes(&bytes)
-        .unwrap_or_else(|| "image/png".to_string());
-    VeoImage {
-        image_bytes: base64::engine::general_purpose::STANDARD.encode(bytes),
-        mime_type,
+fn build_veo_image_from_input(input: &VideoGenerationInput) -> Result<Option<VeoImage>, Warning> {
+    match input {
+        VideoGenerationInput::Url { .. } => Err(Warning::unsupported(
+            "URL-based image input",
+            Some(
+                "Gemini video models currently require file-backed image inputs on the provider-owned path.",
+            ),
+        )),
+        VideoGenerationInput::File { data, media_type } => {
+            let mime_type = if let Some(media_type) = media_type {
+                media_type.clone()
+            } else {
+                let bytes = data.as_bytes().map_err(|err| {
+                    Warning::compatibility(
+                        "image",
+                        Some(format!(
+                            "Failed to decode base64 image input for Gemini video request: {err}"
+                        )),
+                    )
+                })?;
+                crate::utils::mime::guess_mime_from_bytes(&bytes)
+                    .unwrap_or_else(|| "image/png".to_string())
+            };
+            Ok(Some(VeoImage {
+                image_bytes: data.as_base64(),
+                mime_type,
+            }))
+        }
     }
 }
 
-fn build_veo_video_from_bytes(bytes: Vec<u8>) -> VeoVideo {
-    let mime_type = crate::utils::mime::guess_mime_from_bytes(&bytes)
-        .unwrap_or_else(|| "video/mp4".to_string());
-    VeoVideo {
-        video_bytes: base64::engine::general_purpose::STANDARD.encode(bytes),
-        mime_type,
+fn build_veo_video_from_input(input: &VideoGenerationInput) -> Result<Option<VeoVideo>, Warning> {
+    match input {
+        VideoGenerationInput::Url { .. } => Err(Warning::unsupported(
+            "URL-based video input",
+            Some(
+                "Gemini video models currently require file-backed video inputs on the provider-owned path.",
+            ),
+        )),
+        VideoGenerationInput::File { data, media_type } => {
+            let mime_type = if let Some(media_type) = media_type {
+                media_type.clone()
+            } else {
+                let bytes = data.as_bytes().map_err(|err| {
+                    Warning::compatibility(
+                        "video",
+                        Some(format!(
+                            "Failed to decode base64 video input for Gemini video request: {err}"
+                        )),
+                    )
+                })?;
+                crate::utils::mime::guess_mime_from_bytes(&bytes)
+                    .unwrap_or_else(|| "video/mp4".to_string())
+            };
+            Ok(Some(VeoVideo {
+                video_bytes: data.as_base64(),
+                mime_type,
+            }))
+        }
+    }
+}
+
+fn map_google_resolution(value: &str) -> String {
+    match value.trim() {
+        "1280x720" => "720p".to_string(),
+        "1920x1080" => "1080p".to_string(),
+        "3840x2160" => "4k".to_string(),
+        other => other.to_string(),
     }
 }
 
@@ -154,17 +207,22 @@ fn build_operation_get_url(base_url: &str, op_name: &str) -> String {
 
 fn build_video_request_body(
     request: VideoGenerationRequest,
-) -> Result<serde_json::Value, LlmError> {
+) -> Result<(serde_json::Value, Vec<Warning>), LlmError> {
     let mut extra_params: HashMap<String, serde_json::Value> =
         request.extra_params.unwrap_or_default();
+    let mut warnings = Vec::new();
 
     let negative_prompt = take_string_opt(&mut extra_params, "negativePrompt")
         .or_else(|| take_string_opt(&mut extra_params, "negative_prompt"));
-    let aspect_ratio = take_string_opt(&mut extra_params, "aspectRatio")
-        .or_else(|| take_string_opt(&mut extra_params, "aspect_ratio"));
+    let aspect_ratio = request.aspect_ratio.clone().or_else(|| {
+        take_string_opt(&mut extra_params, "aspectRatio")
+            .or_else(|| take_string_opt(&mut extra_params, "aspect_ratio"))
+    });
     let person_generation = take_string_opt(&mut extra_params, "personGeneration")
         .or_else(|| take_string_opt(&mut extra_params, "person_generation"));
-    let seed = take_u64_opt(&mut extra_params, "seed");
+    let seed = request
+        .seed
+        .or_else(|| take_u64_opt(&mut extra_params, "seed"));
 
     let mut instance = serde_json::Map::new();
     instance.insert("prompt".to_string(), serde_json::json!(request.prompt));
@@ -189,28 +247,43 @@ fn build_video_request_body(
     }
 
     if !instance.contains_key("image")
-        && let Some(bytes) = request.seed_image
+        && let Some(image_input) = request.image.as_ref()
     {
-        let image = build_veo_image_from_bytes(bytes);
-        instance.insert(
-            "image".to_string(),
-            serde_json::to_value(image)
-                .map_err(|e| LlmError::ParseError(format!("Failed to serialize Veo image: {e}")))?,
-        );
+        match build_veo_image_from_input(image_input) {
+            Ok(Some(image)) => {
+                instance.insert(
+                    "image".to_string(),
+                    serde_json::to_value(image).map_err(|e| {
+                        LlmError::ParseError(format!("Failed to serialize Veo image: {e}"))
+                    })?,
+                );
+            }
+            Ok(None) => {}
+            Err(warning) => warnings.push(warning),
+        }
     }
 
     if !instance.contains_key("video")
-        && let Some(bytes) = request.seed_video
+        && let Some(video_input) = request.video.as_ref()
     {
-        let video = build_veo_video_from_bytes(bytes);
-        instance.insert(
-            "video".to_string(),
-            serde_json::to_value(video)
-                .map_err(|e| LlmError::ParseError(format!("Failed to serialize Veo video: {e}")))?,
-        );
+        match build_veo_video_from_input(video_input) {
+            Ok(Some(video)) => {
+                instance.insert(
+                    "video".to_string(),
+                    serde_json::to_value(video).map_err(|e| {
+                        LlmError::ParseError(format!("Failed to serialize Veo video: {e}"))
+                    })?,
+                );
+            }
+            Ok(None) => {}
+            Err(warning) => warnings.push(warning),
+        }
     }
 
     let mut parameters = serde_json::Map::new();
+    if let Some(count) = request.count {
+        parameters.insert("sampleCount".to_string(), serde_json::json!(count));
+    }
     if let Some(negative_prompt) = negative_prompt {
         parameters.insert(
             "negativePrompt".to_string(),
@@ -224,7 +297,10 @@ fn build_video_request_body(
         parameters.insert("durationSeconds".to_string(), serde_json::json!(duration));
     }
     if let Some(resolution) = request.resolution {
-        parameters.insert("resolution".to_string(), serde_json::json!(resolution));
+        parameters.insert(
+            "resolution".to_string(),
+            serde_json::json!(map_google_resolution(&resolution)),
+        );
     }
     if let Some(person_generation) = person_generation {
         parameters.insert(
@@ -234,6 +310,12 @@ fn build_video_request_body(
     }
     if let Some(seed) = seed {
         parameters.insert("seed".to_string(), serde_json::json!(seed));
+    }
+    if request.fps.is_some() {
+        warnings.push(Warning::unsupported(
+            "fps",
+            Some("Gemini video models do not expose custom FPS on the provider-owned path."),
+        ));
     }
 
     // Preserve any remaining provider-specific parameters.
@@ -252,7 +334,7 @@ fn build_video_request_body(
             serde_json::Value::Object(parameters),
         );
     }
-    Ok(serde_json::Value::Object(root))
+    Ok((serde_json::Value::Object(root), warnings))
 }
 
 /// Provider-specific helper for Veo video generation.
@@ -296,7 +378,7 @@ impl GeminiVideo {
         );
         let cfg = wiring.config(Arc::new(super::spec::GeminiSpec));
         let url = build_predict_long_running_url(&cfg.provider_context.base_url, &request.model);
-        let body = build_video_request_body(request)?;
+        let (body, warnings) = build_video_request_body(request)?;
         let res = execute_json_request(&cfg, &url, HttpBody::Json(body), None, false).await?;
         let op: LongRunningOperation = serde_json::from_value(res.json).map_err(|e| {
             LlmError::ParseError(format!(
@@ -310,6 +392,9 @@ impl GeminiVideo {
                 status_code: 0,
                 status_msg: "OK".to_string(),
             }),
+            metadata: HashMap::new(),
+            warnings: (!warnings.is_empty()).then_some(warnings),
+            response: None,
         })
     }
 
@@ -337,9 +422,13 @@ impl GeminiVideo {
                 task_id: op.name,
                 status: VideoTaskStatus::Processing,
                 file_id: None,
+                video_url: None,
+                duration: None,
                 video_width: None,
                 video_height: None,
                 base_resp: None,
+                metadata: HashMap::new(),
+                response: None,
             });
         }
 
@@ -348,9 +437,13 @@ impl GeminiVideo {
                 task_id: op.name,
                 status: VideoTaskStatus::Fail,
                 file_id: None,
+                video_url: None,
+                duration: None,
                 video_width: None,
                 video_height: None,
                 base_resp: Some(map_operation_error_to_base(&err)),
+                metadata: HashMap::new(),
+                response: None,
             });
         }
 
@@ -370,12 +463,16 @@ impl GeminiVideo {
             task_id: op.name,
             status: VideoTaskStatus::Success,
             file_id,
+            video_url: None,
+            duration: None,
             video_width: None,
             video_height: None,
             base_resp: Some(BaseResponse {
                 status_code: 0,
                 status_msg: "OK".to_string(),
             }),
+            metadata: HashMap::new(),
+            response: None,
         })
     }
 }
@@ -427,18 +524,59 @@ mod tests {
     #[test]
     fn build_request_body_includes_prompt_and_parameters() {
         let req = VideoGenerationRequest::new("veo-3.1-generate-preview", "hi")
+            .with_count(2)
+            .with_aspect_ratio("16:9")
             .with_duration(6)
-            .with_resolution("720p")
+            .with_resolution("1280x720")
+            .with_seed(9)
+            .with_image(VideoGenerationInput::file_with_media_type(
+                vec![1, 2, 3],
+                "image/png",
+            ))
             .with_extra_param("negativePrompt", serde_json::json!("no cats"));
 
-        let body = build_video_request_body(req).unwrap();
+        let (body, warnings) = build_video_request_body(req).unwrap();
+        assert!(warnings.is_empty());
         assert_eq!(body["instances"][0]["prompt"], serde_json::json!("hi"));
+        assert_eq!(
+            body["instances"][0]["image"]["imageBytes"],
+            serde_json::json!("AQID")
+        );
+        assert_eq!(
+            body["instances"][0]["image"]["mimeType"],
+            serde_json::json!("image/png")
+        );
+        assert_eq!(body["parameters"]["sampleCount"], serde_json::json!(2));
+        assert_eq!(body["parameters"]["aspectRatio"], serde_json::json!("16:9"));
         assert_eq!(body["parameters"]["durationSeconds"], serde_json::json!(6));
         assert_eq!(body["parameters"]["resolution"], serde_json::json!("720p"));
+        assert_eq!(body["parameters"]["seed"], serde_json::json!(9));
         assert_eq!(
             body["parameters"]["negativePrompt"],
             serde_json::json!("no cats")
         );
+    }
+
+    #[test]
+    fn build_request_body_surfaces_url_and_fps_warnings() {
+        let req = VideoGenerationRequest::new("veo-3.1-generate-preview", "hi")
+            .with_fps(24)
+            .with_image(VideoGenerationInput::url("https://example.com/start.png"));
+
+        let (body, warnings) = build_video_request_body(req).unwrap();
+        assert!(body["instances"][0].get("image").is_none());
+
+        let warning_features = warnings
+            .into_iter()
+            .map(|warning| match warning {
+                Warning::Unsupported { feature, .. } => feature,
+                Warning::UnsupportedSetting { setting, .. } => setting,
+                Warning::UnsupportedTool { tool_name, .. } => tool_name,
+                Warning::Compatibility { feature, .. } => feature,
+                Warning::Other { message } => message,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(warning_features, vec!["URL-based image input", "fps"]);
     }
 
     #[test]

@@ -14,6 +14,9 @@ impl crate::traits::VideoGenerationCapability for BridgeVideoClient {
         Ok(crate::types::VideoGenerationResponse {
             task_id: format!("task:{}", request.prompt),
             base_resp: None,
+            metadata: HashMap::new(),
+            warnings: None,
+            response: None,
         })
     }
 
@@ -25,9 +28,13 @@ impl crate::traits::VideoGenerationCapability for BridgeVideoClient {
             task_id: task_id.to_string(),
             status: crate::types::VideoTaskStatus::Success,
             file_id: Some("file-123".to_string()),
+            video_url: Some("https://example.com/video.mp4".to_string()),
+            duration: Some(6.0),
             video_width: Some(1920),
             video_height: Some(1080),
             base_resp: None,
+            metadata: HashMap::new(),
+            response: None,
         })
     }
 

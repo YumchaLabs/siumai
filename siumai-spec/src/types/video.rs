@@ -2,8 +2,151 @@
 //!
 //! Type definitions for video generation requests and responses.
 
+use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use super::{HttpConfig, HttpResponseInfo, ProviderOptionsMap, Warning};
+
+/// Video generation file payload aligned with AI SDK file inputs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum VideoGenerationFileData {
+    /// Base64-encoded file data.
+    Base64(String),
+    /// Binary file data.
+    Binary(Vec<u8>),
+}
+
+impl VideoGenerationFileData {
+    /// Create file data from binary bytes.
+    pub fn binary(data: impl Into<Vec<u8>>) -> Self {
+        Self::Binary(data.into())
+    }
+
+    /// Create file data from a base64 string.
+    pub fn base64(data: impl Into<String>) -> Self {
+        Self::Base64(data.into())
+    }
+
+    /// Convert the file data to a base64 string.
+    pub fn as_base64(&self) -> String {
+        match self {
+            Self::Base64(data) => data.clone(),
+            Self::Binary(data) => base64::engine::general_purpose::STANDARD.encode(data),
+        }
+    }
+
+    /// Convert the file data to bytes, decoding base64 when necessary.
+    pub fn as_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        match self {
+            Self::Base64(data) => base64::engine::general_purpose::STANDARD.decode(data),
+            Self::Binary(data) => Ok(data.clone()),
+        }
+    }
+}
+
+/// Video/image input for video generation or editing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum VideoGenerationInput {
+    /// File-like input backed by binary or base64 data.
+    File {
+        /// File payload.
+        data: VideoGenerationFileData,
+        /// Optional media type such as `image/png` or `video/mp4`.
+        #[serde(
+            rename = "mediaType",
+            alias = "media_type",
+            skip_serializing_if = "Option::is_none"
+        )]
+        media_type: Option<String>,
+    },
+    /// URL-like input.
+    Url {
+        /// URL or data URL.
+        url: String,
+    },
+}
+
+impl VideoGenerationInput {
+    /// Create a file input from binary bytes.
+    pub fn file(data: impl Into<Vec<u8>>) -> Self {
+        Self::File {
+            data: VideoGenerationFileData::binary(data),
+            media_type: None,
+        }
+    }
+
+    /// Create a file input from binary bytes and media type.
+    pub fn file_with_media_type(data: impl Into<Vec<u8>>, media_type: impl Into<String>) -> Self {
+        Self::file(data).with_media_type(media_type)
+    }
+
+    /// Create a file input from a base64 string.
+    pub fn base64(data: impl Into<String>) -> Self {
+        Self::File {
+            data: VideoGenerationFileData::base64(data),
+            media_type: None,
+        }
+    }
+
+    /// Create a file input from a base64 string and media type.
+    pub fn base64_with_media_type(data: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self::base64(data).with_media_type(media_type)
+    }
+
+    /// Create a URL input.
+    pub fn url(url: impl Into<String>) -> Self {
+        Self::Url { url: url.into() }
+    }
+
+    /// Set the media type for file inputs.
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        if let Self::File {
+            media_type: current,
+            ..
+        } = &mut self
+        {
+            *current = Some(media_type.into());
+        }
+        self
+    }
+
+    /// Return the media type if available.
+    pub fn media_type(&self) -> Option<&str> {
+        match self {
+            Self::File { media_type, .. } => media_type.as_deref(),
+            Self::Url { .. } => None,
+        }
+    }
+
+    /// Return the URL when this input is URL-backed.
+    pub fn as_url(&self) -> Option<&str> {
+        match self {
+            Self::Url { url } => Some(url.as_str()),
+            Self::File { .. } => None,
+        }
+    }
+
+    /// Return the file payload when this input is file-backed.
+    pub fn file_data(&self) -> Option<&VideoGenerationFileData> {
+        match self {
+            Self::File { data, .. } => Some(data),
+            Self::Url { .. } => None,
+        }
+    }
+
+    /// Check whether the input is file-backed.
+    pub fn is_file(&self) -> bool {
+        matches!(self, Self::File { .. })
+    }
+
+    /// Check whether the input is URL-backed.
+    pub fn is_url(&self) -> bool {
+        matches!(self, Self::Url { .. })
+    }
+}
 
 /// Video generation request
 ///
@@ -17,6 +160,10 @@ pub struct VideoGenerationRequest {
 
     /// Text description for video generation
     pub prompt: String,
+
+    /// Number of videos to generate (AI SDK `n`).
+    #[serde(skip_serializing_if = "Option::is_none", alias = "n")]
+    pub count: Option<u32>,
 
     /// Video duration in seconds
     ///
@@ -36,17 +183,25 @@ pub struct VideoGenerationRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<String>,
 
-    /// Seed image for image-to-video generation
-    ///
-    /// Some providers support generating video from a starting image.
+    /// Video aspect ratio (e.g. "16:9", "9:16")
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed_image: Option<Vec<u8>>,
+    pub aspect_ratio: Option<String>,
 
-    /// Seed video for video-to-video transformation
-    ///
-    /// Some providers support style transfer or video editing.
+    /// Frames per second.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed_video: Option<Vec<u8>>,
+    pub fps: Option<u32>,
+
+    /// Random seed for reproducibility.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+
+    /// Seed image for image-to-video generation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<VideoGenerationInput>,
+
+    /// Provider-conditional input video for video editing or video-to-video flows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video: Option<VideoGenerationInput>,
 
     /// Whether to automatically optimize prompt (MiniMaxi-specific)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,6 +227,18 @@ pub struct VideoGenerationRequest {
     /// - Sora: `{"aspect_ratio": "16:9", "quality": "high"}`
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extra_params: Option<HashMap<String, serde_json::Value>>,
+
+    /// Open provider options map (Vercel-aligned).
+    #[serde(
+        default,
+        rename = "providerOptions",
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options_map: ProviderOptionsMap,
+
+    /// Optional per-request HTTP configuration (headers, timeout, etc.).
+    #[serde(skip)]
+    pub http_config: Option<HttpConfig>,
 }
 
 impl VideoGenerationRequest {
@@ -91,15 +258,21 @@ impl VideoGenerationRequest {
         Self {
             model: model.into(),
             prompt: prompt.into(),
+            count: None,
             duration: None,
             resolution: None,
-            seed_image: None,
-            seed_video: None,
+            aspect_ratio: None,
+            fps: None,
+            seed: None,
+            image: None,
+            video: None,
             prompt_optimizer: None,
             fast_pretreatment: None,
             callback_url: None,
             aigc_watermark: None,
             extra_params: None,
+            provider_options_map: ProviderOptionsMap::default(),
+            http_config: None,
         }
     }
 
@@ -109,9 +282,50 @@ impl VideoGenerationRequest {
         self
     }
 
+    /// Set the number of videos to generate (AI SDK `n`).
+    pub fn with_count(mut self, count: u32) -> Self {
+        self.count = Some(count);
+        self
+    }
+
+    /// Alias for `with_count`, matching AI SDK naming.
+    pub fn with_n(self, count: u32) -> Self {
+        self.with_count(count)
+    }
+
     /// Set video resolution
     pub fn with_resolution(mut self, resolution: impl Into<String>) -> Self {
         self.resolution = Some(resolution.into());
+        self
+    }
+
+    /// Set video aspect ratio
+    pub fn with_aspect_ratio(mut self, aspect_ratio: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(aspect_ratio.into());
+        self
+    }
+
+    /// Set frames per second.
+    pub fn with_fps(mut self, fps: u32) -> Self {
+        self.fps = Some(fps);
+        self
+    }
+
+    /// Set random seed for reproducibility.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    /// Attach an image input for image-to-video generation.
+    pub fn with_image(mut self, image: VideoGenerationInput) -> Self {
+        self.image = Some(image);
+        self
+    }
+
+    /// Attach a video input for provider-conditional video editing flows.
+    pub fn with_video(mut self, video: VideoGenerationInput) -> Self {
+        self.video = Some(video);
         self
     }
 
@@ -139,23 +353,41 @@ impl VideoGenerationRequest {
         self
     }
 
-    /// Set seed image for image-to-video generation
-    pub fn with_seed_image(mut self, image: Vec<u8>) -> Self {
-        self.seed_image = Some(image);
-        self
-    }
-
-    /// Set seed video for video-to-video transformation
-    pub fn with_seed_video(mut self, video: Vec<u8>) -> Self {
-        self.seed_video = Some(video);
-        self
-    }
-
     /// Add a provider-specific parameter
     pub fn with_extra_param(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.extra_params
             .get_or_insert_with(HashMap::new)
             .insert(key.into(), value);
+        self
+    }
+
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        self.provider_options_map.insert(provider_id, options);
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeout, etc.).
+    pub fn with_http_config(mut self, config: HttpConfig) -> Self {
+        self.http_config = Some(config);
+        self
+    }
+
+    /// Add a custom header for this request.
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        let mut config = self.http_config.take().unwrap_or_else(HttpConfig::empty);
+        config.headers.insert(key.into(), value.into());
+        self.http_config = Some(config);
         self
     }
 }
@@ -169,6 +401,18 @@ pub struct VideoGenerationResponse {
     /// Base response with status information
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_resp: Option<BaseResponse>,
+
+    /// Additional provider-specific metadata.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
+
+    /// Warnings surfaced while creating the task.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<Warning>>,
+
+    /// HTTP response envelope (timestamp, model id, headers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<HttpResponseInfo>,
 }
 
 /// Base response structure
@@ -225,6 +469,14 @@ pub struct VideoTaskStatusResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_id: Option<String>,
 
+    /// Video URL (available when the provider exposes a directly downloadable asset URL).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub video_url: Option<String>,
+
+    /// Video duration in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration: Option<f32>,
+
     /// Video width in pixels (available when status is Success)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub video_width: Option<u32>,
@@ -236,6 +488,14 @@ pub struct VideoTaskStatusResponse {
     /// Base response with status information
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_resp: Option<BaseResponse>,
+
+    /// Additional provider-specific metadata.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub metadata: HashMap<String, serde_json::Value>,
+
+    /// HTTP response envelope (timestamp, model id, headers).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<HttpResponseInfo>,
 }
 
 impl VideoTaskStatusResponse {
@@ -273,15 +533,48 @@ mod tests {
     #[test]
     fn test_video_generation_request_builder() {
         let req = VideoGenerationRequest::new("hailuo-2.3", "A beautiful sunset")
+            .with_count(2)
             .with_duration(6)
+            .with_fps(24)
+            .with_seed(7)
             .with_resolution("1080P")
+            .with_image(VideoGenerationInput::url("https://example.com/start.png"))
             .with_prompt_optimizer(true);
 
         assert_eq!(req.model, "hailuo-2.3");
         assert_eq!(req.prompt, "A beautiful sunset");
+        assert_eq!(req.count, Some(2));
         assert_eq!(req.duration, Some(6));
+        assert_eq!(req.fps, Some(24));
+        assert_eq!(req.seed, Some(7));
         assert_eq!(req.resolution, Some("1080P".to_string()));
+        assert_eq!(req.aspect_ratio, None);
+        assert_eq!(
+            req.image.as_ref().and_then(VideoGenerationInput::as_url),
+            Some("https://example.com/start.png")
+        );
         assert_eq!(req.prompt_optimizer, Some(true));
+    }
+
+    #[test]
+    fn test_video_generation_input_helpers() {
+        let file = VideoGenerationInput::file(vec![1, 2, 3]).with_media_type("image/png");
+        assert!(file.is_file());
+        assert!(!file.is_url());
+        assert_eq!(file.media_type(), Some("image/png"));
+        assert_eq!(
+            file.file_data()
+                .expect("file data")
+                .as_bytes()
+                .expect("bytes"),
+            vec![1, 2, 3]
+        );
+
+        let url = VideoGenerationInput::url("https://example.com/video.mp4");
+        assert!(url.is_url());
+        assert!(!url.is_file());
+        assert_eq!(url.as_url(), Some("https://example.com/video.mp4"));
+        assert!(url.file_data().is_none());
     }
 
     #[test]
@@ -290,9 +583,13 @@ mod tests {
             task_id: "123".to_string(),
             status: VideoTaskStatus::Processing,
             file_id: None,
+            video_url: None,
+            duration: None,
             video_width: None,
             video_height: None,
             base_resp: None,
+            metadata: HashMap::new(),
+            response: None,
         };
 
         assert!(response.is_in_progress());
@@ -307,5 +604,34 @@ mod tests {
         assert!(response.is_complete());
         assert!(response.is_failed());
         assert!(!response.is_success());
+    }
+
+    #[test]
+    fn test_video_generation_request_provider_options_and_http_config_helpers() {
+        let request = VideoGenerationRequest::new("grok-imagine-video", "A neon city")
+            .with_aspect_ratio("16:9")
+            .with_provider_option(
+                "xai",
+                serde_json::json!({ "videoUrl": "https://example.com/video.mp4" }),
+            )
+            .with_header("x-test", "1");
+
+        assert_eq!(request.aspect_ratio.as_deref(), Some("16:9"));
+        assert_eq!(
+            request
+                .provider_options_map
+                .get("xai")
+                .and_then(|value| value.get("videoUrl"))
+                .and_then(|value| value.as_str()),
+            Some("https://example.com/video.mp4")
+        );
+        assert_eq!(
+            request
+                .http_config
+                .as_ref()
+                .and_then(|config| config.headers.get("x-test"))
+                .map(String::as_str),
+            Some("1")
+        );
     }
 }

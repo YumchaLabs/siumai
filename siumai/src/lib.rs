@@ -194,9 +194,15 @@ pub mod experimental {
     /// gateways/proxies that need to re-serialize streams into provider-native wire formats.
     pub mod streaming {
         pub use siumai_core::streaming::{
-            ChatByteStream, LanguageModelV3StreamPart, OpenAiResponsesStreamPartsBridge,
-            StreamPartNamespace, V3UnsupportedPartBehavior, encode_chat_stream_as_jsonl,
-            encode_chat_stream_as_sse, ensure_stream_end, transform_chat_event_stream,
+            ChatByteStream, LanguageModelV3StreamPart, LanguageModelV4CustomContent,
+            LanguageModelV4File, LanguageModelV4FileData, LanguageModelV4FinishReason,
+            LanguageModelV4InputTokens, LanguageModelV4OutputTokens, LanguageModelV4ReasoningFile,
+            LanguageModelV4ResponseMetadata, LanguageModelV4Source, LanguageModelV4StreamPart,
+            LanguageModelV4ToolApprovalRequest, LanguageModelV4ToolCall, LanguageModelV4ToolResult,
+            LanguageModelV4Usage, OpenAiResponsesStreamPartsBridge, SharedV4ProviderMetadata,
+            SharedV4Warning, StreamPartNamespace, V3UnsupportedPartBehavior,
+            encode_chat_stream_as_jsonl, encode_chat_stream_as_sse, ensure_stream_end,
+            transform_chat_event_stream,
         };
     }
 
@@ -923,6 +929,11 @@ pub mod provider_ext {
             XaiChatResponseExt, XaiMetadata, XaiSource, XaiSourceExt, XaiSourceMetadata,
         };
 
+        /// Provider tool factories that return `Tool` directly (Vercel-aligned).
+        pub mod tools {
+            pub use crate::tools::xai::*;
+        }
+
         /// Vercel-style provider tool factories that return `Tool` directly.
         pub mod provider_tools {
             pub use crate::tools::xai::*;
@@ -931,18 +942,25 @@ pub mod provider_ext {
         /// Typed provider options (`provider_options_map["xai"]`).
         pub mod options {
             pub use siumai_provider_xai::providers::xai::ext::{
-                XaiChatRequestExt, XaiTtsRequestExt,
+                XaiChatRequestExt, XaiImageRequestExt, XaiTtsRequestExt, XaiVideoRequestExt,
             };
             pub use siumai_provider_xai::providers::xai::{
-                SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
-                XaiTtsOptions,
+                NewsSearchSource, RssSearchSource, SearchMode, SearchSource, WebSearchSource,
+                XSearchSource, XaiChatOptions, XaiChatReasoningEffort, XaiImageOptions,
+                XaiImageQuality, XaiImageResolution, XaiOptions, XaiReasoningSummary,
+                XaiResponseInclude, XaiResponsesOptions, XaiResponsesReasoningEffort,
+                XaiSearchParameters, XaiTtsOptions, XaiVideoOptions, XaiVideoResolution,
             };
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
         pub use options::{
-            SearchMode, SearchSource, SearchSourceType, XaiChatRequestExt, XaiOptions,
-            XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
+            NewsSearchSource, RssSearchSource, SearchMode, SearchSource, WebSearchSource,
+            XSearchSource, XaiChatOptions, XaiChatReasoningEffort, XaiChatRequestExt,
+            XaiImageOptions, XaiImageQuality, XaiImageRequestExt, XaiImageResolution, XaiOptions,
+            XaiReasoningSummary, XaiResponseInclude, XaiResponsesOptions,
+            XaiResponsesReasoningEffort, XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
+            XaiVideoOptions, XaiVideoRequestExt, XaiVideoResolution,
         };
 
         /// Non-unified xAI extension APIs (escape hatches).
@@ -1006,9 +1024,9 @@ pub mod extensions {
     pub mod types {
         pub use siumai_core::types::{
             FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
-            ImageEditRequest, ImageVariationRequest, ModerationRequest, ModerationResponse,
-            VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus,
-            VideoTaskStatusResponse,
+            ImageEditInput, ImageEditRequest, ImageVariationRequest, ModerationRequest,
+            ModerationResponse, VideoGenerationInput, VideoGenerationRequest,
+            VideoGenerationResponse, VideoTaskStatus, VideoTaskStatusResponse,
         };
     }
 }

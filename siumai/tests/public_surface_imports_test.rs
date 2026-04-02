@@ -157,6 +157,24 @@ fn public_surface_compat_prelude_imports_compile() {
     let _ = size_of::<SiumaiBuilder>();
 }
 
+#[test]
+fn public_surface_streaming_aliases_compile() {
+    use siumai::experimental::streaming::{
+        LanguageModelV3StreamPart, LanguageModelV4File, LanguageModelV4FinishReason,
+        LanguageModelV4StreamPart, LanguageModelV4ToolCall, LanguageModelV4Usage,
+        SharedV4ProviderMetadata, SharedV4Warning,
+    };
+
+    let _ = size_of::<LanguageModelV3StreamPart>();
+    let _ = size_of::<LanguageModelV4StreamPart>();
+    let _ = size_of::<LanguageModelV4ToolCall>();
+    let _ = size_of::<LanguageModelV4File>();
+    let _ = size_of::<LanguageModelV4Usage>();
+    let _ = size_of::<LanguageModelV4FinishReason>();
+    let _ = size_of::<SharedV4ProviderMetadata>();
+    let _ = size_of::<SharedV4Warning>();
+}
+
 #[cfg(feature = "openai")]
 #[test]
 fn public_surface_openai_provider_ext_compiles() {
@@ -304,6 +322,7 @@ fn public_surface_openrouter_provider_ext_compiles() {
 
     let part = ContentPart::Reasoning {
         text: "thinking".to_string(),
+        provider_options: ProviderOptionsMap::default(),
         provider_metadata: Some(HashMap::from([(
             "openrouter".to_string(),
             serde_json::json!({
@@ -830,8 +849,19 @@ fn public_surface_xai_provider_ext_compiles() {
 
     let _ = size_of::<XaiClient>();
     let _ = size_of::<XaiConfig>();
+    let _ = size_of::<XaiChatOptions>();
+    let _ = size_of::<XaiChatReasoningEffort>();
+    let _ = size_of::<XaiImageOptions>();
+    let _ = size_of::<XaiImageQuality>();
+    let _ = size_of::<XaiImageResolution>();
     let _ = size_of::<XaiOptions>();
+    let _ = size_of::<XaiReasoningSummary>();
+    let _ = size_of::<XaiResponseInclude>();
+    let _ = size_of::<XaiResponsesOptions>();
+    let _ = size_of::<XaiResponsesReasoningEffort>();
     let _ = size_of::<XaiTtsOptions>();
+    let _ = size_of::<XaiVideoOptions>();
+    let _ = size_of::<XaiVideoResolution>();
     let _ = XaiClient::provider_context;
     let _ = XaiClient::base_url;
     let _ = XaiClient::http_client;
@@ -844,11 +874,16 @@ fn public_surface_xai_provider_ext_compiles() {
     let _ = size_of::<XaiSourceMetadata>();
 
     fn _assert_req_ext<T: XaiChatRequestExt>() {}
+    fn _assert_image_req_ext<T: XaiImageRequestExt>() {}
     fn _assert_tts_req_ext<T: XaiTtsRequestExt>() {}
+    fn _assert_video_req_ext<T: XaiVideoRequestExt>() {}
     fn _assert_resp_ext<T: XaiChatResponseExt>() {}
     fn _assert_source_ext<T: XaiSourceExt>() {}
     _assert_req_ext::<siumai::prelude::unified::ChatRequest>();
+    _assert_image_req_ext::<ImageGenerationRequest>();
+    _assert_image_req_ext::<siumai::extensions::types::ImageEditRequest>();
     _assert_tts_req_ext::<TtsRequest>();
+    _assert_video_req_ext::<siumai::extensions::types::VideoGenerationRequest>();
     _assert_resp_ext::<ChatResponse>();
     _assert_source_ext::<XaiSource>();
 
@@ -896,9 +931,80 @@ fn public_surface_xai_provider_ext_compiles() {
                 .with_sample_rate(44_100)
                 .with_bit_rate(192_000),
         );
+    let _ = ImageGenerationRequest {
+        prompt: "hi".to_string(),
+        count: 1,
+        ..Default::default()
+    }
+    .with_xai_image_options(
+        XaiImageOptions::new()
+            .with_aspect_ratio("16:9")
+            .with_resolution("2k")
+            .with_quality("high"),
+    );
+    let _ = siumai::extensions::types::ImageEditRequest {
+        images: vec![siumai::extensions::types::ImageEditInput::file(vec![
+            1, 2, 3,
+        ])],
+        mask: None,
+        prompt: "edit".to_string(),
+        model: Some("grok-imagine-image".to_string()),
+        count: Some(1),
+        size: None,
+        response_format: Some("b64_json".to_string()),
+        extra_params: Default::default(),
+        provider_options_map: Default::default(),
+        http_config: None,
+    }
+    .with_xai_image_options(XaiImageOptions::new().with_output_format("png"));
+    let _ = siumai::extensions::types::ImageEditInput::url("https://example.com/input.png");
+    let _ =
+        siumai::extensions::types::VideoGenerationInput::url("https://example.com/start-frame.png");
+    let _ = siumai::extensions::types::VideoGenerationRequest::new("grok-imagine-video", "hi")
+        .with_count(2)
+        .with_fps(24)
+        .with_seed(7)
+        .with_image(
+            siumai::extensions::types::VideoGenerationInput::file_with_media_type(
+                vec![1, 2, 3],
+                "image/png",
+            ),
+        )
+        .with_xai_video_options(
+            XaiVideoOptions::new()
+                .with_video_url("https://example.com/video.mp4")
+                .with_resolution("720p"),
+        );
+    let _ = siumai::provider_ext::xai::tools::web_search();
+    let _ = siumai::provider_ext::xai::tools::x_search();
+    let _ = siumai::provider_ext::xai::tools::code_execution();
+    let _ = siumai::provider_ext::xai::tools::view_image();
+    let _ = siumai::provider_ext::xai::tools::view_x_video();
+    let _ = siumai::provider_ext::xai::tools::file_search(vec!["collection_1".to_string()]);
+    let _ = siumai::provider_ext::xai::tools::file_search_with(
+        siumai::provider_ext::xai::tools::FileSearchArgs::new(["collection_1"])
+            .with_max_num_results(5),
+    );
+    let _ = siumai::provider_ext::xai::tools::mcp("https://example.com/mcp");
+    let _ = siumai::provider_ext::xai::tools::web_search_with(
+        siumai::provider_ext::xai::tools::WebSearchArgs::new()
+            .with_allowed_domains(["wikipedia.org"]),
+    );
+    let _ = siumai::provider_ext::xai::tools::x_search_with(
+        siumai::provider_ext::xai::tools::XSearchArgs::new().with_allowed_x_handles(["xai"]),
+    );
+    let _ = siumai::provider_ext::xai::tools::mcp_server_with(
+        siumai::provider_ext::xai::tools::McpArgs::new("https://example.com/mcp")
+            .with_server_label("docs"),
+    );
     let _ = siumai::provider_ext::xai::provider_tools::web_search();
     let _ = siumai::provider_ext::xai::provider_tools::x_search();
     let _ = siumai::provider_ext::xai::provider_tools::code_execution();
+    let _ = siumai::provider_ext::xai::provider_tools::view_image();
+    let _ = siumai::provider_ext::xai::provider_tools::view_x_video();
+    let _ =
+        siumai::provider_ext::xai::provider_tools::file_search(vec!["collection_1".to_string()]);
+    let _ = siumai::provider_ext::xai::provider_tools::mcp("https://example.com/mcp");
     let _ = siumai::Provider::xai();
 }
 

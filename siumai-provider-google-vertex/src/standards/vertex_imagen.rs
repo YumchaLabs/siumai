@@ -10,7 +10,9 @@ use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer};
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::types::Warning;
-use crate::types::{ChatRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest};
+use crate::types::{
+    ChatRequest, ImageEditInput, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
+};
 use base64::Engine;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
@@ -64,6 +66,25 @@ fn bytes_to_inline_image(bytes: &[u8]) -> serde_json::Value {
     serde_json::json!({
         "bytesBase64Encoded": b64,
     })
+}
+
+fn vertex_inline_image_input(
+    input: &ImageEditInput,
+    label: &str,
+) -> Result<serde_json::Value, LlmError> {
+    match input {
+        ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(format!(
+            "Vertex Imagen image editing does not support URL-backed {label} inputs on this path. Provide file/base64 image data instead."
+        ))),
+        ImageEditInput::File { data, .. } => {
+            let bytes = data.as_bytes().map_err(|err| {
+                LlmError::InvalidParameter(format!(
+                    "Invalid Vertex Imagen image edit {label} data: {err}"
+                ))
+            })?;
+            Ok(bytes_to_inline_image(&bytes))
+        }
+    }
 }
 
 fn extract_vertex_imagen_options(
@@ -284,21 +305,29 @@ impl RequestTransformer for VertexImagenRequestTransformer {
     fn transform_image_edit(&self, req: &ImageEditRequest) -> Result<ImageHttpBody, LlmError> {
         let provider_opts = extract_vertex_imagen_options(&req.provider_options_map);
 
+        if req.images.is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "Vertex Imagen image editing requires at least one source image".to_string(),
+            ));
+        }
+
         let mut instance = serde_json::Map::new();
         instance.insert("prompt".to_string(), serde_json::json!(req.prompt));
 
         let mut reference_images = Vec::new();
-        reference_images.push(serde_json::json!({
-            "referenceId": 1,
-            "referenceType": "REFERENCE_TYPE_RAW",
-            "referenceImage": bytes_to_inline_image(&req.image),
-        }));
+        for (index, image) in req.images.iter().enumerate() {
+            reference_images.push(serde_json::json!({
+                "referenceId": index + 1,
+                "referenceType": "REFERENCE_TYPE_RAW",
+                "referenceImage": vertex_inline_image_input(image, "image")?,
+            }));
+        }
 
         if let Some(mask) = &req.mask {
             let mut mask_obj = serde_json::json!({
-                "referenceId": 2,
+                "referenceId": req.images.len() + 1,
                 "referenceType": "REFERENCE_TYPE_MASK",
-                "referenceImage": bytes_to_inline_image(mask),
+                "referenceImage": vertex_inline_image_input(mask, "mask")?,
                 "maskImageConfig": { "maskMode": "MASK_MODE_USER_PROVIDED" }
             });
 
@@ -687,7 +716,7 @@ mod tests {
         );
 
         let edit = ImageEditRequest {
-            image: vec![1, 2, 3],
+            images: vec![ImageEditInput::file(vec![1, 2, 3])],
             mask: None,
             prompt: "edit".to_string(),
             model: Some("imagen-4.0-generate-001".to_string()),

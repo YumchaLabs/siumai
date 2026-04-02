@@ -2978,7 +2978,10 @@ mod openai_contract {
         let metadata = response.openai_metadata().expect("openai metadata");
         assert_eq!(response.content_text(), Some("hello from openai chat"));
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(
@@ -4963,7 +4966,10 @@ mod openai_contract {
         let metadata = response.openrouter_metadata().expect("openrouter metadata");
         assert_eq!(response.content_text(), Some("hello from openrouter chat"));
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(metadata.sources.as_ref().map(Vec::len), Some(1));
@@ -5052,7 +5058,10 @@ data: [DONE]
         let metadata = response.openrouter_metadata().expect("openrouter metadata");
         assert_eq!(response.content_text(), Some("hello from openrouter"));
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
         assert_eq!(metadata.sources.as_ref().map(Vec::len), Some(1));
@@ -5259,7 +5268,10 @@ data: [DONE]
         let metadata = response.perplexity_metadata().expect("perplexity metadata");
         assert_eq!(response.content_text(), Some("Rust ecosystem"));
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
@@ -5371,7 +5383,10 @@ data: [DONE]
             Some("Rust async tooling kept improving across the ecosystem.")
         );
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(28)
         );
         assert_eq!(
@@ -7662,7 +7677,10 @@ mod deepseek_contract {
             Some(crate::types::FinishReason::Stop)
         );
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -7757,7 +7775,10 @@ data: [DONE]
             Some(crate::types::FinishReason::Stop)
         );
         assert_eq!(
-            response.usage.as_ref().map(|usage| usage.total_tokens),
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
             Some(14)
         );
 
@@ -9708,7 +9729,7 @@ mod xai_contract {
     use reqwest::header::AUTHORIZATION;
     use siumai_provider_xai::provider_metadata::xai::XaiChatResponseExt;
     use siumai_provider_xai::provider_options::xai::{
-        SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters,
+        SearchMode, WebSearchSource, XaiOptions, XaiSearchParameters,
     };
     use siumai_provider_xai::providers::xai::ext::request_options::XaiChatRequestExt;
 
@@ -9835,7 +9856,10 @@ mod xai_contract {
             .await
             .expect("build provider-owned Xai client");
 
-        assert_no_deferred_capability_leaks(client.as_ref());
+        assert!(client.as_embedding_capability().is_none());
+        assert!(client.as_image_generation_capability().is_some());
+        assert!(client.as_rerank_capability().is_none());
+        assert!(client.as_video_generation_capability().is_some());
 
         let typed = client
             .as_any()
@@ -9855,8 +9879,11 @@ mod xai_contract {
 
         assert!(caps.supports("speech"));
         assert!(caps.supports("audio"));
+        assert!(caps.supports("image_generation"));
+        assert!(caps.supports("video"));
         assert!(!caps.supports("transcription"));
-        assert_embedding_image_rerank_capabilities_absent(&caps);
+        assert!(!caps.supports("embedding"));
+        assert!(!caps.supports("rerank"));
     }
 
     #[tokio::test]
@@ -9915,7 +9942,7 @@ mod xai_contract {
     }
 
     #[tokio::test]
-    async fn xai_factory_rejects_native_image_family_path() {
+    async fn xai_factory_supports_native_image_family_path() {
         let _lock = lock_env();
 
         let factory = crate::registry::factories::XAIProviderFactory;
@@ -9926,16 +9953,23 @@ mod xai_contract {
             ..Default::default()
         };
 
-        match factory
+        let model = factory
             .image_model_family_with_ctx("grok-image-test", &ctx)
             .await
-        {
-            Ok(_) => panic!("expected UnsupportedOperation for xai image family path"),
-            Err(LlmError::UnsupportedOperation(message)) => {
-                assert!(message.contains("image family path"));
-            }
-            Err(other) => panic!("unexpected error: {other:?}"),
-        }
+            .expect("build native image-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "xai"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "grok-image-test"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
     }
 
     #[tokio::test]
@@ -9967,6 +10001,13 @@ mod xai_contract {
         let source = include_str!("xai.rs");
 
         assert!(source.contains("async fn speech_model_family_with_ctx("));
+    }
+
+    #[test]
+    fn xai_factory_source_declares_native_image_family_override() {
+        let source = include_str!("xai.rs");
+
+        assert!(source.contains("async fn image_model_family_with_ctx("));
     }
 
     #[test]
@@ -10314,19 +10355,22 @@ mod xai_contract {
         let request = make_chat_request_with_model("grok-beta").with_xai_options(
             XaiOptions::new()
                 .with_reasoning_effort("high")
+                .with_parallel_function_calling(false)
                 .with_search(XaiSearchParameters {
                     mode: SearchMode::On,
                     return_citations: Some(true),
                     max_search_results: Some(3),
                     from_date: Some("2025-01-01".to_string()),
                     to_date: Some("2025-01-31".to_string()),
-                    sources: Some(vec![SearchSource {
-                        source_type: SearchSourceType::Web,
-                        country: Some("US".to_string()),
-                        allowed_websites: Some(vec!["example.com".to_string()]),
-                        excluded_websites: Some(vec!["blocked.example.com".to_string()]),
-                        safe_search: Some(true),
-                    }]),
+                    sources: Some(vec![
+                        WebSearchSource {
+                            country: Some("US".to_string()),
+                            allowed_websites: Some(vec!["example.com".to_string()]),
+                            excluded_websites: Some(vec!["blocked.example.com".to_string()]),
+                            safe_search: Some(true),
+                        }
+                        .into(),
+                    ]),
                 }),
         );
 
@@ -10343,6 +10387,10 @@ mod xai_contract {
         assert_eq!(
             builder_req.body["reasoning_effort"],
             serde_json::json!("high")
+        );
+        assert_eq!(
+            builder_req.body["parallel_function_calling"],
+            serde_json::json!(false)
         );
         assert_eq!(
             builder_req.body["search_parameters"]["mode"],
@@ -10424,19 +10472,22 @@ mod xai_contract {
         let request = make_chat_request_with_model("grok-beta").with_xai_options(
             XaiOptions::new()
                 .with_reasoning_effort("high")
+                .with_parallel_function_calling(false)
                 .with_search(XaiSearchParameters {
                     mode: SearchMode::On,
                     return_citations: Some(true),
                     max_search_results: Some(3),
                     from_date: Some("2025-01-01".to_string()),
                     to_date: Some("2025-01-31".to_string()),
-                    sources: Some(vec![SearchSource {
-                        source_type: SearchSourceType::Web,
-                        country: Some("US".to_string()),
-                        allowed_websites: Some(vec!["example.com".to_string()]),
-                        excluded_websites: Some(vec!["blocked.example.com".to_string()]),
-                        safe_search: Some(true),
-                    }]),
+                    sources: Some(vec![
+                        WebSearchSource {
+                            country: Some("US".to_string()),
+                            allowed_websites: Some(vec!["example.com".to_string()]),
+                            excluded_websites: Some(vec!["blocked.example.com".to_string()]),
+                            safe_search: Some(true),
+                        }
+                        .into(),
+                    ]),
                 }),
         );
 
@@ -10464,6 +10515,10 @@ mod xai_contract {
         assert_eq!(
             builder_req.body["reasoning_effort"],
             serde_json::json!("high")
+        );
+        assert_eq!(
+            builder_req.body["parallel_function_calling"],
+            serde_json::json!(false)
         );
         assert_eq!(
             builder_req.body["search_parameters"]["mode"],

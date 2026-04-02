@@ -236,9 +236,13 @@ mod minimaxi_tests {
             task_id: "task_123".to_string(),
             status: VideoTaskStatus::Processing,
             file_id: None,
+            video_url: None,
+            duration: None,
             video_width: None,
             video_height: None,
             base_resp: None,
+            metadata: std::collections::HashMap::new(),
+            response: None,
         };
 
         assert!(response.is_in_progress());

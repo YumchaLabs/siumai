@@ -27,7 +27,10 @@ use siumai_provider_ollama::provider_options::ollama::OllamaOptions;
 #[cfg(feature = "openai")]
 use siumai_provider_openai::provider_options::openai::OpenAiOptions;
 #[cfg(feature = "xai")]
-use siumai_provider_xai::provider_options::xai::{XaiOptions, XaiSearchParameters};
+use siumai_provider_xai::provider_options::xai::{
+    XaiChatReasoningEffort, XaiOptions, XaiReasoningSummary, XaiResponseInclude,
+    XaiResponsesOptions, XaiSearchParameters,
+};
 
 #[cfg(feature = "anthropic")]
 #[derive(Clone)]
@@ -199,7 +202,7 @@ impl LanguageModelMiddleware for GroqDefaultOptionsMiddleware {
 
 #[cfg(feature = "xai")]
 impl XaiDefaultOptionsMiddleware {
-    fn new(options: XaiOptions) -> Self {
+    fn new<T: serde::Serialize>(options: T) -> Self {
         let mut defaults = crate::types::ProviderOptionsMap::new();
         defaults.insert(
             "xai",
@@ -665,7 +668,7 @@ impl SiumaiBuilder {
     }
 
     #[cfg(feature = "xai")]
-    fn push_xai_default_options(mut self, options: XaiOptions) -> Self {
+    fn push_xai_default_options<T: serde::Serialize>(mut self, options: T) -> Self {
         self.model_middlewares
             .insert(0, Arc::new(XaiDefaultOptionsMiddleware::new(options)));
         self
@@ -679,8 +682,56 @@ impl SiumaiBuilder {
 
     #[cfg(feature = "xai")]
     /// Set xAI default reasoning-effort on the shared builder text path.
-    pub fn with_xai_reasoning_effort(self, effort: impl Into<String>) -> Self {
+    pub fn with_xai_reasoning_effort(self, effort: impl Into<XaiChatReasoningEffort>) -> Self {
         self.with_xai_options(XaiOptions::new().with_reasoning_effort(effort))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Set xAI default reasoning-summary on the shared builder text path.
+    pub fn with_xai_reasoning_summary(self, summary: impl Into<XaiReasoningSummary>) -> Self {
+        self.push_xai_default_options(XaiResponsesOptions::new().with_reasoning_summary(summary))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Enable xAI default logprobs on the shared builder text path.
+    pub fn with_xai_logprobs(self, enabled: bool) -> Self {
+        self.with_xai_options(XaiOptions::new().with_logprobs(enabled))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Set xAI default top-logprobs on the shared builder text path.
+    pub fn with_xai_top_logprobs(self, count: u32) -> Self {
+        self.with_xai_options(XaiOptions::new().with_top_logprobs(count))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Control xAI parallel function calling on the shared builder text path.
+    pub fn with_xai_parallel_function_calling(self, enabled: bool) -> Self {
+        self.with_xai_options(XaiOptions::new().with_parallel_function_calling(enabled))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Control xAI default response storage on the shared builder text path.
+    pub fn with_xai_store(self, store: bool) -> Self {
+        self.push_xai_default_options(XaiResponsesOptions::new().with_store(store))
+    }
+
+    #[cfg(feature = "xai")]
+    /// Set xAI default previous-response id on the shared builder text path.
+    pub fn with_xai_previous_response(self, response_id: impl Into<String>) -> Self {
+        self.push_xai_default_options(
+            XaiResponsesOptions::new().with_previous_response(response_id),
+        )
+    }
+
+    #[cfg(feature = "xai")]
+    /// Set xAI default include list on the shared builder text path.
+    pub fn with_xai_include<I, S>(self, include: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<XaiResponseInclude>,
+    {
+        self.push_xai_default_options(XaiResponsesOptions::new().with_include(include))
     }
 
     #[cfg(feature = "xai")]

@@ -34,7 +34,10 @@ mod client;
 pub mod config;
 /// xAI extension APIs (non-unified surface)
 pub mod ext;
+mod http;
+mod image;
 pub mod models;
+mod video;
 
 pub use builder::XaiBuilder;
 pub use client::XaiClient;
@@ -42,5 +45,9 @@ pub use config::XaiConfig;
 
 // Provider-owned typed options live at the crate root; re-export them under the provider path.
 pub use crate::provider_options::{
-    SearchMode, SearchSource, SearchSourceType, XaiOptions, XaiSearchParameters, XaiTtsOptions,
+    NewsSearchSource, RssSearchSource, SearchMode, SearchSource, WebSearchSource, XSearchSource,
+    XaiChatOptions, XaiChatReasoningEffort, XaiImageOptions, XaiImageQuality, XaiImageResolution,
+    XaiOptions, XaiReasoningSummary, XaiResponseInclude, XaiResponsesOptions,
+    XaiResponsesReasoningEffort, XaiSearchParameters, XaiTtsOptions, XaiVideoOptions,
+    XaiVideoResolution,
 };

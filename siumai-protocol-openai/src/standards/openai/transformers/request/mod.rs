@@ -7,13 +7,37 @@ use crate::execution::transformers::request::{
 };
 use crate::execution::transformers::request::{ImageHttpBody, RequestTransformer};
 use crate::types::{
-    ChatRequest, EmbeddingRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
-    ModerationRequest, RerankRequest,
+    ChatRequest, EmbeddingRequest, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
+    ImageVariationRequest, ModerationRequest, RerankRequest,
 };
 use reqwest::multipart::{Form, Part};
 
 #[derive(Clone)]
 pub struct OpenAiRequestTransformer;
+
+fn openai_image_edit_part(input: &ImageEditInput, file_name: &str) -> Result<Part, LlmError> {
+    match input {
+        ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(
+            "OpenAI-compatible image edit multipart requests do not support URL-backed image inputs yet. Provide file/base64 image data instead.".to_string(),
+        )),
+        ImageEditInput::File { data, media_type } => {
+            let bytes = data.as_bytes().map_err(|err| {
+                LlmError::InvalidParameter(format!("Invalid OpenAI image edit file data: {err}"))
+            })?;
+            let mime = media_type
+                .clone()
+                .unwrap_or_else(|| crate::utils::guess_mime(Some(bytes.as_slice()), None));
+            Part::bytes(bytes)
+                .file_name(file_name.to_string())
+                .mime_str(&mime)
+                .map_err(|e| {
+                    LlmError::InvalidParameter(format!(
+                        "Invalid image MIME type '{mime}': {e}"
+                    ))
+                })
+        }
+    }
+}
 
 impl RequestTransformer for OpenAiRequestTransformer {
     fn provider_id(&self) -> &str {
@@ -302,24 +326,25 @@ impl RequestTransformer for OpenAiRequestTransformer {
     }
 
     fn transform_image_edit(&self, req: &ImageEditRequest) -> Result<ImageHttpBody, LlmError> {
+        if req.images.is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "OpenAI image editing requires at least one source image".to_string(),
+            ));
+        }
+
         // Build multipart form for OpenAI Images Edit
         let mut form = Form::new().text("prompt", req.prompt.clone());
-        let image_mime = crate::utils::guess_mime(Some(&req.image), None);
-        let image_part = Part::bytes(req.image.clone())
-            .file_name("image")
-            .mime_str(&image_mime)
-            .map_err(|e| {
-                LlmError::InvalidParameter(format!("Invalid image MIME type '{image_mime}': {e}"))
-            })?;
-        form = form.part("image", image_part);
+        let image_field = if req.images.len() == 1 {
+            "image"
+        } else {
+            "image[]"
+        };
+        for (index, image) in req.images.iter().enumerate() {
+            let image_part = openai_image_edit_part(image, &format!("image-{index}"))?;
+            form = form.part(image_field, image_part);
+        }
         if let Some(mask) = &req.mask {
-            let mask_mime = crate::utils::guess_mime(Some(mask), None);
-            let mask_part = Part::bytes(mask.clone())
-                .file_name("mask")
-                .mime_str(&mask_mime)
-                .map_err(|e| {
-                    LlmError::InvalidParameter(format!("Invalid mask MIME type '{mask_mime}': {e}"))
-                })?;
+            let mask_part = openai_image_edit_part(mask, "mask")?;
             form = form.part("mask", mask_part);
         }
         if let Some(size) = &req.size {

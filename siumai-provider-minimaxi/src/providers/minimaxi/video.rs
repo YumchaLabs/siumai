@@ -15,6 +15,48 @@ use std::sync::Arc;
 
 use super::spec::MinimaxiVideoSpec;
 
+fn build_request_body(request: VideoGenerationRequest) -> serde_json::Value {
+    let mut body = serde_json::Map::new();
+    body.insert("model".to_string(), serde_json::json!(request.model));
+    body.insert("prompt".to_string(), serde_json::json!(request.prompt));
+
+    if let Some(duration) = request.duration {
+        body.insert("duration".to_string(), serde_json::json!(duration));
+    }
+    if let Some(resolution) = request.resolution {
+        body.insert("resolution".to_string(), serde_json::json!(resolution));
+    }
+    if let Some(prompt_optimizer) = request.prompt_optimizer {
+        body.insert(
+            "prompt_optimizer".to_string(),
+            serde_json::json!(prompt_optimizer),
+        );
+    }
+    if let Some(fast_pretreatment) = request.fast_pretreatment {
+        body.insert(
+            "fast_pretreatment".to_string(),
+            serde_json::json!(fast_pretreatment),
+        );
+    }
+    if let Some(callback_url) = request.callback_url {
+        body.insert("callback_url".to_string(), serde_json::json!(callback_url));
+    }
+    if let Some(aigc_watermark) = request.aigc_watermark {
+        body.insert(
+            "aigc_watermark".to_string(),
+            serde_json::json!(aigc_watermark),
+        );
+    }
+
+    if let Some(extra_params) = request.extra_params {
+        for (key, value) in extra_params {
+            body.entry(key).or_insert(value);
+        }
+    }
+
+    serde_json::Value::Object(body)
+}
+
 fn build_wiring(
     api_key: &str,
     base_url: &str,
@@ -63,8 +105,7 @@ pub(super) async fn create_video_task(
     let config = wiring.config(Arc::new(MinimaxiVideoSpec::new()));
     let url = MinimaxiVideoSpec::new().video_generation_url(&config.provider_context);
 
-    let body = serde_json::to_value(request)
-        .map_err(|e| LlmError::ParseError(format!("Failed to serialize video request: {}", e)))?;
+    let body = build_request_body(request);
     let res = execute_json_request(&config, &url, HttpBody::Json(body), None, false).await?;
     serde_json::from_value(res.json).map_err(|e| {
         LlmError::ParseError(format!("Failed to parse video generation response: {}", e))

@@ -179,14 +179,16 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
     out.push(NativeProviderMetadata {
         id: "xai",
         name: "xAI",
-        description: "xAI Grok models with reasoning, vision, and provider-owned speech capabilities",
+        description: "xAI Grok models with reasoning, vision, provider-owned image generation, speech, and video task APIs",
         default_base_url: Some("https://api.x.ai/v1"),
         capabilities: ProviderCapabilities::new()
             .with_chat()
             .with_streaming()
             .with_tools()
             .with_vision()
-            .with_speech(),
+            .with_image_generation()
+            .with_speech()
+            .with_custom_feature("video", true),
     });
 
     // Ollama

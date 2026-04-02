@@ -55,18 +55,6 @@ impl MinimaxiVideoRequestBuilder {
         self
     }
 
-    /// Attach a seed image (image-to-video).
-    pub fn seed_image(mut self, image: Vec<u8>) -> Self {
-        self.request = self.request.with_seed_image(image);
-        self
-    }
-
-    /// Attach a seed video (video-to-video).
-    pub fn seed_video(mut self, video: Vec<u8>) -> Self {
-        self.request = self.request.with_seed_video(video);
-        self
-    }
-
     /// Add a provider-specific parameter.
     pub fn extra_param(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.request = self.request.with_extra_param(key, value);

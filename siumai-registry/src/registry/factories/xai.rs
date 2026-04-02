@@ -1,6 +1,7 @@
 //! Provider factory implementations.
 
 use super::*;
+use crate::image::ImageModel as FamilyImageModel;
 use crate::provider::ids;
 use crate::text::LanguageModel as FamilyLanguageModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
@@ -119,12 +120,20 @@ impl ProviderFactory for XAIProviderFactory {
 
     async fn image_model_with_ctx(
         &self,
-        _model_id: &str,
-        _ctx: &BuildContext,
+        model_id: &str,
+        ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "xAI does not currently expose a provider-owned image family path".to_string(),
-        ))
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn image_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyImageModel>, LlmError> {
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
     }
 
     async fn speech_model_with_ctx(
