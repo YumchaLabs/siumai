@@ -27,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Axum server adapters now expose policy-aware request/upstream body read helpers for enforcing
   request-body and upstream-read limits at route/runtime level.
 
+### Fixed
+
+- `stream_object` and the extras tool-loop gateway now consume the upgraded stable
+  `ChatStreamEvent::Part` tool lifecycle directly instead of depending on legacy delta/custom-only
+  accumulation.
+- The Axum SSE helper now forwards stable runtime `Part` / `PartWithReplay` events as explicit
+  `event: part` frames, so the AI-SDK-aligned semantic stream lane is observable outside the core
+  crate.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

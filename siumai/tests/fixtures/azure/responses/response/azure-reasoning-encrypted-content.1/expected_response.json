@@ -14,7 +14,12 @@
       },
       {
         "type": "text",
-        "text": "(12 + 7) = 19\n19 × 3 = 57\n57 × 10 = 570\n\nFinal result: 570"
+        "text": "(12 + 7) = 19\n19 × 3 = 57\n57 × 10 = 570\n\nFinal result: 570",
+        "providerMetadata": {
+          "azure": {
+            "itemId": "msg_09d58369f84fca7901693cb83b12388196b17d2b310fe6c361"
+          }
+        }
       }
     ]
   },
@@ -30,6 +35,27 @@
     },
     "completion_tokens_details": {
       "reasoning_tokens": 64
+    },
+    "inputTokens": {
+      "total": 564,
+      "noCache": 564,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 101,
+      "text": 37,
+      "reasoning": 64
+    },
+    "raw": {
+      "input_tokens": 564,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 101,
+      "output_tokens_details": {
+        "reasoning_tokens": 64
+      },
+      "total_tokens": 665
     }
   },
   "finish_reason": "stop",
@@ -37,7 +63,8 @@
   "service_tier": "default",
   "provider_metadata": {
     "azure": {
-      "itemId": "msg_09d58369f84fca7901693cb83b12388196b17d2b310fe6c361"
+      "responseId": "resp_09d58369f84fca7901693cb8381f608196acdaff061ff8de58",
+      "serviceTier": "default"
     }
   }
 }

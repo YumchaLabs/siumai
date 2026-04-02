@@ -525,7 +525,10 @@ data: [DONE]
             })
             .expect("stream end event");
         assert_eq!(end.content_text(), Some("hello from deepseek"));
-        assert_eq!(end.usage.as_ref().map(|usage| usage.total_tokens), Some(14));
+        assert_eq!(
+            end.usage.as_ref().and_then(|usage| usage.total_tokens()),
+            Some(14)
+        );
 
         let meta = end.deepseek_metadata().expect("deepseek metadata");
         assert_eq!(

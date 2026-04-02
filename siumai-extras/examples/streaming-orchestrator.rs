@@ -123,6 +123,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }) => {
                 println!("\n  [Tool call: {}]", name);
             }
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputStart { tool_name, .. },
+            }) => {
+                println!("\n  [Tool input start: {}]", tool_name);
+            }
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolCall(call),
+            }) => {
+                println!("\n  [Tool call ready: {}]", call.tool_name);
+            }
             Ok(ChatStreamEvent::StreamEnd { .. }) => {
                 println!("\n  [Stream complete]");
             }
@@ -154,7 +164,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(usage) = &step.usage {
             println!(
                 "  Usage: {} prompt + {} completion = {} total",
-                usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                usage.prompt_tokens().unwrap_or(0),
+                usage.completion_tokens().unwrap_or(0),
+                usage.total_tokens().unwrap_or(0)
             );
         }
     }

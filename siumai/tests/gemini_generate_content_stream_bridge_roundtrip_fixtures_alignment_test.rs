@@ -265,10 +265,12 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
                 summary.text.push_str(delta);
             }
             ChatStreamEvent::UsageUpdate { usage } => {
-                if usage.prompt_tokens > 0 || usage.completion_tokens > 0 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
-                    summary.total_tokens = Some(usage.total_tokens);
+                if usage.prompt_tokens().unwrap_or(0) > 0
+                    || usage.completion_tokens().unwrap_or(0) > 0
+                {
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
+                    summary.total_tokens = usage.total_tokens();
                 }
             }
             ChatStreamEvent::StreamEnd { response } => {
@@ -281,9 +283,9 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
                 if summary.prompt_tokens.is_none()
                     && let Some(usage) = response.usage.as_ref()
                 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
-                    summary.total_tokens = Some(usage.total_tokens);
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
+                    summary.total_tokens = usage.total_tokens();
                 }
             }
             ChatStreamEvent::Custom { data, .. } => {

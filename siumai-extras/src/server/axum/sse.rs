@@ -129,6 +129,18 @@ pub fn to_sse_response(
                 let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
                 Some(Event::default().event("reasoning").data(data_str))
             }
+            Ok(ChatStreamEvent::Part { part }) => {
+                let data = serde_json::to_string(&part).unwrap_or_else(|_| "{}".to_string());
+                Some(Event::default().event("part").data(data))
+            }
+            Ok(ChatStreamEvent::PartWithReplay { part, replay }) => {
+                let data = serde_json::json!({
+                    "part": part,
+                    "replay": replay,
+                });
+                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
+                Some(Event::default().event("part").data(data_str))
+            }
             Ok(ChatStreamEvent::UsageUpdate { usage }) => {
                 if opts.include_usage {
                     let data = serde_json::to_string(&usage).unwrap_or_else(|_| "{}".to_string());

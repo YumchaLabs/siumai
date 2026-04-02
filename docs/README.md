@@ -29,6 +29,12 @@ This folder is intentionally organized by **concern** to keep the Alpha.5 refact
 ## Workstreams
 
 - Fearless refactor (design + TODOs + milestones): `docs/workstreams/fearless-refactor/`
+- AI SDK structural alignment: `docs/workstreams/ai-sdk-structural-alignment/`
+  - covers the next semantic refactor pass against `repo-ref/ai` provider v3/v4 contracts
+  - includes the current structural audit for `providerOptions` / `providerMetadata`, stable
+    content/stream shapes, and usage convergence
+  - prompt/content boundary review: `docs/workstreams/ai-sdk-structural-alignment/prompt-boundary-review.md`
+  - runtime consumer parity: `docs/workstreams/ai-sdk-structural-alignment/runtime-consumer-parity.md`
 - Protocol bridge + gateway runtime: `docs/workstreams/protocol-bridge-gateway/`
   - covers the hybrid bridge strategy: normalized backbone + selected direct bridges + gateway policy
   - migration note: `docs/workstreams/protocol-bridge-gateway/migration.md`

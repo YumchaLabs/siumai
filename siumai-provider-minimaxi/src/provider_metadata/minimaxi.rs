@@ -124,6 +124,7 @@ mod tests {
             tool_name: "rollDie".to_string(),
             arguments: serde_json::json!({"player":"player1"}),
             provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "minimaxi".to_string(),
                 serde_json::json!({
@@ -156,6 +157,7 @@ mod tests {
             tool_name: "rollDie".to_string(),
             arguments: serde_json::json!({"player":"player2"}),
             provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({

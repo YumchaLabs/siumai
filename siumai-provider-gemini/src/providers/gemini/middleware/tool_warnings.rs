@@ -206,9 +206,12 @@ mod tests {
         let mw = GeminiToolWarningsMiddleware::new();
         let out = mw.post_generate(&req, dummy_resp()).unwrap();
         assert!(out.warnings.is_some());
-        assert!(out.warnings.unwrap().iter().any(
-            |w| matches!(w, Warning::UnsupportedSetting { setting, .. } if setting == "tools")
-        ));
+        assert!(
+            out.warnings
+                .unwrap()
+                .iter()
+                .any(|w| matches!(w, Warning::Unsupported { feature, .. } if feature == "tools"))
+        );
     }
 
     #[test]
@@ -225,8 +228,8 @@ mod tests {
         let mw = GeminiToolWarningsMiddleware::new();
         let out = mw.post_generate(&req, dummy_resp()).unwrap();
         let warnings = out.warnings.unwrap_or_default();
-        assert!(
-            warnings.iter().any(|w| matches!(w, Warning::UnsupportedTool { tool_name, .. } if tool_name == "google.url_context"))
-        );
+        assert!(warnings.iter().any(
+            |w| matches!(w, Warning::Unsupported { feature, .. } if feature == "google.url_context")
+        ));
     }
 }

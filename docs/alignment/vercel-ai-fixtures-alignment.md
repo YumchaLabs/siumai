@@ -153,6 +153,15 @@ Provider id: `gemini` (tools use `google.*` ids)
 - [x] Streaming `reasoning-start`/`reasoning-delta`/`reasoning-end` custom events carry `providerMetadata.google.thoughtSignature`
 - [x] Vercel-aligned response `provider_metadata["google"]` keys (`promptFeedback`, `groundingMetadata`, `urlContextMetadata`, `safetyRatings`)
 - [x] ProviderMetadata key selection parity (`google` vs `vertex`) when provider id includes `vertex`
+- [x] Stable AI SDK V4 part parity on the Gemini path:
+  - assistant request conversion now accepts `reasoning-file` plus `providerOptions.{google|vertex}.thoughtSignature`
+  - file/thought parts can preserve the Gemini `thought` flag instead of only text/reasoning blocks
+  - unsupported assistant-side `custom` parts are skipped like upstream instead of forcing an ad-hoc wire fallback
+- [x] Gemini usage / streaming parity was tightened to the current audited AI SDK contract:
+  - normalized usage now treats `candidatesTokenCount + thoughtsTokenCount` as total output usage
+  - `cachedContentTokenCount` and `trafficType` survive non-stream and SSE replay
+  - runtime parsing/serialization now accepts direct `ChatStreamEvent::Part(ChatStreamPart)` semantics for reasoning/source/provider-executed tools instead of requiring provider-scoped custom events first
+- [x] Shared unsupported warning fixtures now converge on the AI SDK-style `unsupported { feature }` compatibility shape for Gemini provider tools.
 
 ### Next
 
@@ -205,6 +214,23 @@ Provider id: `groq`
 - [x] OpenAI-compatible error envelope parity (preserve `error.message`)
   - Test: `siumai/tests/groq_http_error_fixtures_alignment_test.rs`
   - Fixtures: `siumai/tests/fixtures/groq/errors/*`
+
+## xAI (OpenAI-compatible Chat)
+
+Provider id: `xai`
+
+### Done
+
+- [x] Chat request normalization now keeps supported xAI chat fields (`reasoningEffort`, `searchParameters`, `topLogprobs -> logprobs`) while filtering Responses-only fields (`reasoningSummary`, `previousResponseId`, `include`, `store`) on the `/chat/completions` path.
+  - Test: `siumai/tests/xai_chat_request_fixtures_alignment_test.rs`
+  - Fixtures: `siumai/tests/fixtures/xai/chat-requests/*`
+- [x] xAI chat request alignment now also matches the audited AI SDK typed surface more closely:
+  - `parallel_function_calling` is exposed on the typed xAI provider options/builder/config/shared facade surface
+  - deprecated `xHandles` input is normalized to wire `included_x_handles` instead of being forwarded as a raw `x_handles` field
+  - `with_default_search()` now matches the upstream `maxSearchResults=20` default
+  - typed `SearchSource` is now modeled as a discriminated union (`web` / `news` / `x` / `rss`) instead of a single wide struct with mutually-exclusive fields
+  - the provider-owned typed surface is now split into `XaiChatOptions` and `XaiResponsesOptions`, and the main reasoning/include knobs now use enum-backed wrappers instead of raw `String` / `Vec<String>`
+  - Fixtures: `siumai/tests/fixtures/xai/chat-requests/xai-search-xhandles-alias.1/*`
 
 ## OpenAI Responses Web Search
 
@@ -321,7 +347,7 @@ Provider id: `openai` (Responses API)
 - [x] Provider tool calls parsing (`computer_call` -> `tool-call` + `tool-result` parts, `toolName: "computer_use"`, empty input)
 - [x] Reasoning parsing (`reasoning` -> `type: "reasoning"` parts, summary blocks + `providerMetadata.openai.reasoningEncryptedContent`)
 - [x] Usage details parity (cached + reasoning tokens)
-- [x] Response metadata parity (`system_fingerprint`, `service_tier`) + message `itemId` surfaced via `provider_metadata.openai.itemId`
+- [x] Response metadata parity (`system_fingerprint`, `service_tier`) + message `itemId` preserved on AI SDK-style text-part `providerMetadata.openai.itemId` (the main OpenAI/Azure parsed response path no longer emits a duplicate top-level response `itemId`)
 
 ## OpenAI HTTP Errors (Fixtures)
 
@@ -389,6 +415,16 @@ Provider id: `xai` (Responses API)
 - [x] doGenerate web_search tool call + sources (xai-web-search-tool.1)
 - [x] doGenerate x_search tool call + sources (xai-x-search-tool.1)
 - [x] Provider presets for Responses API response + SSE (avoid shared heuristics): `XaiResponsesResponseTransformer`, `XaiResponsesEventConverter`
+- [x] Non-stream xAI response fixtures now follow the current AI SDK xAI boundary:
+  - text and source parts intentionally omit provider metadata
+  - reasoning parts use `providerMetadata.xai.itemId`
+  - top-level response `provider_metadata` is omitted
+  - fixture baselines now also lock canonical `Usage.inputTokens` / `Usage.outputTokens` / `Usage.raw`
+- [x] Direct xAI Responses request parity tests now also pin the audited request-side deltas that are not covered by the shared chat fixtures:
+  - top-level `reasoning.{effort,summary}`, `top_logprobs -> logprobs=true`, `previous_response_id`, and `store=false -> include += reasoning.encrypted_content`
+  - assistant xAI message `providerOptions.xai.itemId` remains a direct item id instead of becoming an OpenAI-style `item_reference`
+  - assistant xAI tool calls now emit `id`, `call_id`, and `status: "completed"` like the audited AI SDK request shape
+  - the Rust typed provider surface now mirrors that split explicitly: chat-only knobs stay on `XaiChatOptions`, Responses-only knobs live on `XaiResponsesOptions`, and request-side tests now compose the two typed structs into one canonical `providerOptions.xai` object before transport normalization
 
 ## xAI Responses (Streaming)
 
@@ -399,6 +435,10 @@ Provider id: `xai` (Responses API)
 - [x] Streaming SSE emits `web_search` tool input (xai-web-search-tool.1)
 - [x] Streaming SSE emits `x_search` custom tool input mapping (xai-x-search-tool.1)
 - [x] Streaming SSE emits xAI-style `reasoning-*` / `text-*` ids + `finishReason.raw: "completed"` via fixtures
+- [x] Streaming SSE now matches the audited AI SDK xAI metadata split:
+  - `reasoning-start` / `reasoning-delta` / `reasoning-end` carry `providerMetadata.xai.itemId`
+  - `text-*` and `finish` remain metadata-free
+  - `response.output_item.done` backfills a missing `reasoning-start` before `reasoning-end`
 
 ## OpenAI Responses Multi-response Streams (Streaming)
 

@@ -69,9 +69,9 @@ async fn test_ollama_chat_non_streaming() {
 
     // Verify usage
     let usage = response.usage.expect("Usage should be present");
-    assert_eq!(usage.prompt_tokens, 26);
-    assert_eq!(usage.completion_tokens, 298);
-    assert_eq!(usage.total_tokens, 324);
+    assert_eq!(usage.prompt_tokens(), Some(26));
+    assert_eq!(usage.completion_tokens(), Some(298));
+    assert_eq!(usage.total_tokens(), Some(324));
 }
 
 #[tokio::test]

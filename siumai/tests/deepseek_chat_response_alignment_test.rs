@@ -69,8 +69,8 @@ fn deepseek_reasoning_response_maps_reasoning_content_to_reasoning_part() {
     );
 
     let usage = resp.usage.expect("usage");
-    assert_eq!(usage.prompt_tokens, 18);
-    assert_eq!(usage.total_tokens, 363);
+    assert_eq!(usage.prompt_tokens(), Some(18));
+    assert_eq!(usage.total_tokens(), Some(363));
     assert_eq!(
         usage
             .completion_tokens_details

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Gemini content-part metadata helpers now include stable `reasoning-file` and `custom` parts so
+  the V4-capable content model does not regress typed metadata extraction.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

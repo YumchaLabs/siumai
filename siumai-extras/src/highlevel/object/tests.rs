@@ -224,3 +224,86 @@ async fn stream_object_emits_partial_updates() {
     assert!(saw_partial, "should emit at least one partial object");
     assert!(saw_final, "should emit final object");
 }
+
+#[tokio::test]
+async fn stream_object_accepts_stable_tool_parts() {
+    use futures::StreamExt;
+
+    struct MockStableToolStreamModel;
+
+    #[async_trait]
+    impl ChatCapability for MockStableToolStreamModel {
+        async fn chat_with_tools(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatResponse, LlmError> {
+            Err(LlmError::UnsupportedOperation("no sync".into()))
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatStream, LlmError> {
+            let s = async_stream::try_stream! {
+                yield ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolInputStart {
+                        id: "call_1".into(),
+                        tool_name: "submit_object".into(),
+                        provider_metadata: None,
+                        provider_executed: None,
+                        dynamic: None,
+                        title: None,
+                    }
+                };
+                yield ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolInputDelta {
+                        id: "call_1".into(),
+                        delta: "{\"name\":\"Ada\",\"age\":36}".into(),
+                        provider_metadata: None,
+                    }
+                };
+                yield ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                        tool_call_id: "call_1".into(),
+                        tool_name: "submit_object".into(),
+                        input: "{\"name\":\"Ada\",\"age\":36}".into(),
+                        provider_executed: None,
+                        dynamic: None,
+                        provider_metadata: None,
+                    })
+                };
+                yield ChatStreamEvent::StreamEnd {
+                    response: ChatResponse::new(MessageContent::Text(String::new())),
+                };
+            };
+            Ok(Box::pin(s))
+        }
+    }
+
+    let model = MockStableToolStreamModel;
+    let mut s = stream_object::<User>(
+        &model,
+        vec![ChatMessage::user("user").build()],
+        None,
+        StreamObjectOptions::default(),
+    )
+    .await
+    .expect("stream");
+
+    let mut final_user: Option<User> = None;
+    while let Some(ev) = s.next().await {
+        if let StreamObjectEvent::Final { object, .. } = ev.expect("ok") {
+            final_user = Some(object);
+        }
+    }
+
+    assert_eq!(
+        final_user,
+        Some(User {
+            name: "Ada".into(),
+            age: 36,
+        })
+    );
+}

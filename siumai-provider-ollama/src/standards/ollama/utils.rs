@@ -328,6 +328,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
     if !message.content.is_empty() {
         parts.push(crate::types::ContentPart::Text {
             text: message.content.clone(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -338,6 +339,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
             parts.push(crate::types::ContentPart::Image {
                 source: crate::types::chat::MediaSource::Base64 { data: data.clone() },
                 detail: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             });
         }
@@ -372,6 +374,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
     ChatMessage {
         role,
         content,
+        provider_options: crate::types::ProviderOptionsMap::default(),
         metadata: crate::types::MessageMetadata::default(),
     }
 }
@@ -610,25 +613,29 @@ pub fn build_chat_request(
 
                 fn tool_result_output_to_text(output: &crate::types::ToolResultOutput) -> String {
                     match output {
-                        crate::types::ToolResultOutput::Text { value } => value.clone(),
-                        crate::types::ToolResultOutput::Json { value } => {
+                        crate::types::ToolResultOutput::Text { value, .. } => value.clone(),
+                        crate::types::ToolResultOutput::Json { value, .. } => {
                             serde_json::to_string(value).unwrap_or_default()
                         }
-                        crate::types::ToolResultOutput::ExecutionDenied { reason } => reason
+                        crate::types::ToolResultOutput::ExecutionDenied { reason, .. } => reason
                             .clone()
                             .unwrap_or_else(|| "Execution denied".to_string()),
-                        crate::types::ToolResultOutput::ErrorText { value } => value.clone(),
-                        crate::types::ToolResultOutput::ErrorJson { value } => {
+                        crate::types::ToolResultOutput::ErrorText { value, .. } => value.clone(),
+                        crate::types::ToolResultOutput::ErrorJson { value, .. } => {
                             serde_json::to_string(value).unwrap_or_default()
                         }
-                        crate::types::ToolResultOutput::Content { value } => value
+                        crate::types::ToolResultOutput::Content { value, .. } => value
                             .iter()
                             .map(|p| match p {
-                                crate::types::ToolResultContentPart::Text { text } => text.clone(),
-                                crate::types::ToolResultContentPart::Image { .. } => {
+                                crate::types::ToolResultContentPart::Text { text, .. } => {
+                                    text.clone()
+                                }
+                                crate::types::ToolResultContentPart::ImageData { .. }
+                                | crate::types::ToolResultContentPart::ImageUrl { .. }
+                                | crate::types::ToolResultContentPart::ImageFileId { .. } => {
                                     "[Image]".to_string()
                                 }
-                                crate::types::ToolResultContentPart::File {
+                                crate::types::ToolResultContentPart::FileData {
                                     filename,
                                     media_type,
                                     ..
@@ -636,6 +643,18 @@ pub fn build_chat_request(
                                     .as_deref()
                                     .map(|n| format!("[File: {n}]"))
                                     .unwrap_or_else(|| format!("[File: {media_type}]")),
+                                crate::types::ToolResultContentPart::FileUrl { url, .. } => {
+                                    format!("[File: {url}]")
+                                }
+                                crate::types::ToolResultContentPart::FileId { file_id, .. } => {
+                                    file_id
+                                        .preferred_value(&["ollama", "openai", "anthropic"])
+                                        .map(|value| format!("[File: {value}]"))
+                                        .unwrap_or_else(|| "[File]".to_string())
+                                }
+                                crate::types::ToolResultContentPart::Custom { .. } => {
+                                    "[Custom Content]".to_string()
+                                }
                             })
                             .collect::<Vec<_>>()
                             .join("\n"),
@@ -1053,6 +1072,7 @@ mod tests {
             content: crate::types::MessageContent::MultiModal(vec![
                 crate::types::ContentPart::Text {
                     text: "Hello".to_string(),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,
                 },
                 crate::types::ContentPart::Image {
@@ -1060,9 +1080,11 @@ mod tests {
                         url: "image1".to_string(),
                     },
                     detail: None,
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,
                 },
             ]),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             metadata: crate::types::MessageMetadata::default(),
         };
 

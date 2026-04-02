@@ -176,6 +176,71 @@ pub enum StreamObjectEvent<T> {
     },
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ToolArgumentStreamSource {
+    LegacyDelta,
+    StablePart,
+}
+
+fn maybe_accumulate_tool_arguments_from_runtime_part(
+    part: &ChatStreamPart,
+    tool_args_acc: &mut String,
+    tool_args_source: &mut Option<ToolArgumentStreamSource>,
+) -> bool {
+    match part {
+        ChatStreamPart::ToolInputDelta { delta, .. } => {
+            match tool_args_source {
+                Some(ToolArgumentStreamSource::LegacyDelta) => return true,
+                Some(ToolArgumentStreamSource::StablePart) | None => {
+                    *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
+                }
+            }
+            tool_args_acc.push_str(delta);
+            true
+        }
+        ChatStreamPart::ToolCall(call) => {
+            *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
+            *tool_args_acc = call.input.clone();
+            true
+        }
+        _ => false,
+    }
+}
+
+fn maybe_accumulate_tool_arguments_from_loose_part(
+    data: &serde_json::Value,
+    tool_args_acc: &mut String,
+    tool_args_source: &mut Option<ToolArgumentStreamSource>,
+) -> bool {
+    let Some(part) =
+        siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
+    else {
+        return false;
+    };
+
+    match part {
+        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+            delta,
+            ..
+        } => {
+            match tool_args_source {
+                Some(ToolArgumentStreamSource::LegacyDelta) => return true,
+                Some(ToolArgumentStreamSource::StablePart) | None => {
+                    *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
+                }
+            }
+            tool_args_acc.push_str(&delta);
+            true
+        }
+        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            *tool_args_source = Some(ToolArgumentStreamSource::StablePart);
+            *tool_args_acc = call.input;
+            true
+        }
+        _ => false,
+    }
+}
+
 /// Stream a typed object `T` from a chat model.
 ///
 /// Minimal strategy: accumulate text deltas; on stream end attempt parse + optional
@@ -212,6 +277,7 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
         let mut acc = String::new();
         let mut final_resp: Option<ChatResponse> = None;
         let mut tool_args_acc = String::new();
+        let mut tool_args_source: Option<ToolArgumentStreamSource> = None;
         let mut last_partial: Option<serde_json::Value> = None;
         while let Some(item) = stream.next().await {
             match item? {
@@ -236,7 +302,27 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                     }
                 }
                 ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
-                    tool_args_acc.push_str(&d);
+                    match tool_args_source {
+                        Some(ToolArgumentStreamSource::StablePart) => {}
+                        Some(ToolArgumentStreamSource::LegacyDelta) | None => {
+                            tool_args_source = Some(ToolArgumentStreamSource::LegacyDelta);
+                            tool_args_acc.push_str(&d);
+                        }
+                    }
+                }
+                ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                    let _ = maybe_accumulate_tool_arguments_from_runtime_part(
+                        &part,
+                        &mut tool_args_acc,
+                        &mut tool_args_source,
+                    );
+                }
+                ChatStreamEvent::Custom { data, .. } => {
+                    let _ = maybe_accumulate_tool_arguments_from_loose_part(
+                        &data,
+                        &mut tool_args_acc,
+                        &mut tool_args_source,
+                    );
                 }
                 ChatStreamEvent::UsageUpdate { usage } => {
                     yield StreamObjectEvent::UsageUpdate { usage };

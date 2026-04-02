@@ -146,12 +146,18 @@ impl MockStreamingProvider {
         // 5. Add usage information if requested
         if self.include_usage {
             events.push(Ok(ChatStreamEvent::UsageUpdate {
-                usage: Usage {
-                    prompt_tokens: 10,
-                    completion_tokens: words.len() as u32,
-                    total_tokens: 10 + words.len() as u32,
-                    reasoning_tokens: if self.include_thinking { Some(5) } else { None },
-                    cached_tokens: None,
+                usage: {
+                    #[allow(deprecated)]
+                    {
+                        let mut builder = Usage::builder()
+                            .prompt_tokens(10)
+                            .completion_tokens(words.len() as u32)
+                            .total_tokens(10 + words.len() as u32);
+                        if self.include_thinking {
+                            builder = builder.with_reasoning_tokens(5);
+                        }
+                        builder.build()
+                    }
                 },
             }));
         }
@@ -163,12 +169,18 @@ impl MockStreamingProvider {
                 content: MessageContent::Text(self.content.clone()),
                 model: self.metadata.model.clone(),
                 usage: if self.include_usage {
-                    Some(Usage {
-                        prompt_tokens: 10,
-                        completion_tokens: words.len() as u32,
-                        total_tokens: 10 + words.len() as u32,
-                        reasoning_tokens: if self.include_thinking { Some(5) } else { None },
-                        cached_tokens: None,
+                    Some({
+                        #[allow(deprecated)]
+                        {
+                            let mut builder = Usage::builder()
+                                .prompt_tokens(10)
+                                .completion_tokens(words.len() as u32)
+                                .total_tokens(10 + words.len() as u32);
+                            if self.include_thinking {
+                                builder = builder.with_reasoning_tokens(5);
+                            }
+                            builder.build()
+                        }
                     })
                 } else {
                     None

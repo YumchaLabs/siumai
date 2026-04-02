@@ -43,7 +43,7 @@ impl TelemetryExporter for ConsoleExporter {
             TelemetryEvent::Generation(generation) => {
                 println!("🤖 [GEN] {}/{}", generation.provider, generation.model);
                 if let Some(usage) = &generation.usage {
-                    println!("   Tokens: {}", usage.total_tokens);
+                    println!("   Tokens: {}", usage.total_tokens().unwrap_or(0));
                 }
             }
             _ => {}

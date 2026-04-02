@@ -230,6 +230,7 @@ where
             let assistant_built = ChatMessage {
                 role: MessageRole::Assistant,
                 content: resp.content.clone(),
+                provider_options: ProviderOptionsMap::default(),
                 metadata: MessageMetadata::default(),
             };
             history.push(assistant_built.clone());

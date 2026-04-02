@@ -10,17 +10,9 @@ fn main() {
     // Example 1: Basic usage (old way vs new way)
     println!("1. Basic Usage:");
 
-    // Old way - verbose and error-prone
+    // Legacy compatibility constructor
     #[allow(deprecated)]
-    let usage_old = Usage {
-        prompt_tokens: 100,
-        completion_tokens: 50,
-        total_tokens: 150,
-        cached_tokens: None,
-        reasoning_tokens: None,
-        prompt_tokens_details: None,
-        completion_tokens_details: None,
-    };
+    let usage_old = Usage::with_legacy_fields(100, 50, 150, None, None);
     println!("  Old way: {:?}", usage_old);
 
     // New way - clean and simple

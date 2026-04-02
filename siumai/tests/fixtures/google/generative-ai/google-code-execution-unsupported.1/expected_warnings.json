@@ -1,7 +1,7 @@
 [
   {
-    "type": "unsupported-tool",
-    "tool_name": "google.code_execution",
-    "details": "The code execution tools is not supported with other Gemini models than Gemini 2."
+    "type": "unsupported",
+    "details": "The code execution tools is not supported with other Gemini models than Gemini 2.",
+    "feature": "google.code_execution"
   }
 ]

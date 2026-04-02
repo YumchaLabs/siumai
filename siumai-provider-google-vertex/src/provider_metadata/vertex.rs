@@ -103,6 +103,12 @@ impl VertexContentPartExt for crate::types::ContentPart {
             | ContentPart::ToolResult {
                 provider_metadata, ..
             }
+            | ContentPart::ReasoningFile {
+                provider_metadata, ..
+            }
+            | ContentPart::Custom {
+                provider_metadata, ..
+            }
             | ContentPart::Reasoning {
                 provider_metadata, ..
             } => provider_metadata.as_ref()?,
@@ -200,6 +206,7 @@ mod tests {
     fn vertex_content_part_metadata_reads_thought_signature() {
         let part = crate::types::ContentPart::Reasoning {
             text: "thinking".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "vertex".to_string(),
                 serde_json::json!({

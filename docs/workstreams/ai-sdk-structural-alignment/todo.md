@@ -231,6 +231,11 @@ Status legend:
 - [x] Expose AI SDK-aligned `LanguageModelV4*` public aliases for the upgraded typed stream-part
   overlay so new code no longer has to use the historical `LanguageModelV3*` names.
 - [~] Ensure bridge/gateway serializers use that stronger stream-part contract where appropriate.
+  - [x] extras Axum SSE adapters now surface direct runtime `Part` / `PartWithReplay` as explicit
+    `event: part` frames instead of dropping the upgraded semantic lane
+  - [x] extras high-level consumers (`stream_object`, tool-loop gateway) now consume stable tool
+    lifecycle parts before falling back to legacy deltas, with source-aware deduplication for
+    mixed streams
 - [x] Normalize serializer re-entry so `Part -> Custom` compatibility bridging does not deadlock
   when protocol serializers hold internal state locks.
 - [~] Migrate provider parsers to emit `ChatStreamEvent::Part` directly where the richer semantic

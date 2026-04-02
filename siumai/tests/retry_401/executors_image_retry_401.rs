@@ -256,7 +256,7 @@ async fn image_executor_retries_on_401() {
     // edit
     let out = exec
         .execute_edit(ImageEditRequest {
-            image: vec![],
+            images: vec![],
             mask: None,
             prompt: "p".into(),
             model: None,

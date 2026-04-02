@@ -327,4 +327,7 @@ pub struct UsageMetadata {
     /// Number of tokens used for thinking (only for thinking models).
     #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtsTokenCount")]
     pub thoughts_token_count: Option<i32>,
+    /// Traffic class used for the request.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "trafficType")]
+    pub traffic_type: Option<String>,
 }

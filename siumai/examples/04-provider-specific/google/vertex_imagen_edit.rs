@@ -73,8 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let req = siumai::extensions::types::ImageEditRequest {
-        image: input_image,
-        mask: mask_image,
+        images: vec![siumai::extensions::types::ImageEditInput::file(input_image)],
+        mask: mask_image.map(siumai::extensions::types::ImageEditInput::file),
         prompt: "Fill the masked area with a cute cat".to_string(),
         // Model is required by Vertex Imagen because it is part of the URL.
         model: Some("imagen-3.0-edit-001".to_string()),

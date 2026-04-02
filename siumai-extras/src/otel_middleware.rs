@@ -131,15 +131,15 @@ impl OpenTelemetryMiddleware {
         if let Some(ref usage) = response.usage {
             span.set_attribute(KeyValue::new(
                 "llm.usage.prompt_tokens",
-                usage.prompt_tokens as i64,
+                usage.prompt_tokens().unwrap_or(0) as i64,
             ));
             span.set_attribute(KeyValue::new(
                 "llm.usage.completion_tokens",
-                usage.completion_tokens as i64,
+                usage.completion_tokens().unwrap_or(0) as i64,
             ));
             span.set_attribute(KeyValue::new(
                 "llm.usage.total_tokens",
-                usage.total_tokens as i64,
+                usage.total_tokens().unwrap_or(0) as i64,
             ));
         }
 

@@ -67,8 +67,8 @@ async fn gemini_warns_on_mixed_function_and_provider_tools() {
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedSetting { setting, details: Some(d) }
-                if setting == "tools" && d == "combination of function and provider-defined tools"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "tools" && d == "combination of function and provider-defined tools"
         )),
         "expected mixed-tools warning, got: {warnings:?}"
     );
@@ -107,8 +107,8 @@ async fn gemini_warns_on_unsupported_url_context_tool_for_non_gemini2_models() {
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, details: Some(d) }
-                if tool_name == "google.url_context"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "google.url_context"
                     && d == "The URL context tool is not supported with other Gemini models than Gemini 2."
         )),
         "expected url_context unsupported warning, got: {warnings:?}"
@@ -150,8 +150,8 @@ async fn gemini_warns_on_unsupported_file_search_tool_for_non_gemini_2_5_or_3_mo
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, details: Some(d) }
-                if tool_name == "google.file_search"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "google.file_search"
                     && d == "The file search tool is only supported with Gemini 2.5 models and Gemini 3 models."
         )),
         "expected file_search unsupported warning, got: {warnings:?}"
@@ -191,8 +191,8 @@ async fn gemini_warns_on_unsupported_code_execution_tool_for_non_gemini2_models(
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, details: Some(d) }
-                if tool_name == "google.code_execution"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "google.code_execution"
                     && d == "The code execution tools is not supported with other Gemini models than Gemini 2."
         )),
         "expected code_execution unsupported warning, got: {warnings:?}"
@@ -235,8 +235,8 @@ async fn gemini_warns_on_unknown_provider_tool() {
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, details: None }
-                if tool_name == "google.unknown_tool"
+            Warning::Unsupported { feature, details: None }
+                if feature == "google.unknown_tool"
         )),
         "expected unknown tool warning, got: {warnings:?}"
     );
@@ -275,8 +275,8 @@ async fn gemini_warns_on_unsupported_enterprise_web_search_tool_for_non_gemini2_
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, details: Some(d) }
-                if tool_name == "google.enterprise_web_search"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "google.enterprise_web_search"
                     && d == "Enterprise Web Search requires Gemini 2.0 or newer."
         )),
         "expected enterprise_web_search unsupported warning, got: {warnings:?}"
@@ -318,8 +318,8 @@ async fn gemini_warns_on_unsupported_vertex_rag_store_tool_for_non_gemini2_model
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, details: Some(d) }
-                if tool_name == "google.vertex_rag_store"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "google.vertex_rag_store"
                     && d == "The RAG store tool is not supported with other Gemini models than Gemini 2."
         )),
         "expected vertex_rag_store unsupported warning, got: {warnings:?}"
@@ -359,8 +359,8 @@ async fn gemini_warns_on_unsupported_google_maps_tool_for_non_gemini2_models() {
     assert!(
         warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, details: Some(d) }
-                if tool_name == "google.google_maps"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "google.google_maps"
                     && d == "The Google Maps grounding tool is not supported with Gemini models other than Gemini 2 or newer."
         )),
         "expected google_maps unsupported warning, got: {warnings:?}"

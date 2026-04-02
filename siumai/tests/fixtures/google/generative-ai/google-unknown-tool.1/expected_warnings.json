@@ -1,6 +1,6 @@
 [
   {
-    "type": "unsupported-tool",
-    "tool_name": "google.unknown_tool"
+    "type": "unsupported",
+    "feature": "google.unknown_tool"
   }
 ]

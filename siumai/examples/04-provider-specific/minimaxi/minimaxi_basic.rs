@@ -78,6 +78,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ChatStreamEvent::StreamStart { .. }
             | ChatStreamEvent::UsageUpdate { .. }
             | ChatStreamEvent::ToolCallDelta { .. }
+            | ChatStreamEvent::Part { .. }
+            | ChatStreamEvent::PartWithReplay { .. }
             | ChatStreamEvent::Custom { .. } => {}
             ChatStreamEvent::StreamEnd { response } => {
                 if !printed_any_content {
@@ -91,7 +93,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(usage) = &response.usage {
                     println!(
                         "\nUsage: total={} prompt={} completion={}",
-                        usage.total_tokens, usage.prompt_tokens, usage.completion_tokens
+                        usage.total_tokens().unwrap_or(0),
+                        usage.prompt_tokens().unwrap_or(0),
+                        usage.completion_tokens().unwrap_or(0)
                     );
                 }
             }
@@ -104,7 +108,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(usage) = &resp.usage {
         println!(
             "\nUsage: total={} prompt={} completion={}",
-            usage.total_tokens, usage.prompt_tokens, usage.completion_tokens
+            usage.total_tokens().unwrap_or(0),
+            usage.prompt_tokens().unwrap_or(0),
+            usage.completion_tokens().unwrap_or(0)
         );
     }
 

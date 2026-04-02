@@ -753,7 +753,7 @@ async fn test_non_streaming_chat<T: ChatCapability>(
                 format!(
                     "content='{}' total_tokens={}",
                     preview_text(content.trim()),
-                    usage.total_tokens
+                    usage.total_tokens().unwrap_or(0)
                 )
             } else {
                 format!("content='{}'", preview_text(content.trim()))
@@ -797,7 +797,7 @@ async fn test_streaming_chat<T: ChatCapability>(
                         }
                         ChatStreamEvent::StreamEnd { response } => {
                             final_content = response.content_text().unwrap_or_default().to_string();
-                            total_tokens = response.usage.map(|usage| usage.total_tokens);
+                            total_tokens = response.usage.and_then(|usage| usage.total_tokens());
                             saw_stream_end = true;
                             break;
                         }
@@ -937,7 +937,10 @@ fn reasoning_pass_outcome(model: &str, response: ChatResponse) -> LiveCheckOutco
         detail.push_str(&format!(" reasoning_chars={reasoning_chars}"));
     }
     if let Some(usage) = response.usage {
-        detail.push_str(&format!(" total_tokens={}", usage.total_tokens));
+        detail.push_str(&format!(
+            " total_tokens={}",
+            usage.total_tokens().unwrap_or(0)
+        ));
     }
 
     LiveCheckOutcome::pass("reasoning", detail)

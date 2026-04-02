@@ -4,7 +4,8 @@
 use crate::encoding::{JsonEncodeOptions, JsonResponseConverter};
 use crate::error::LlmError;
 use crate::types::{
-    ChatResponse, ContentPart as UnifiedContentPart, FinishReason, MessageContent, Usage,
+    ChatResponse, ContentPart as UnifiedContentPart, FinishReason, MessageContent, SourcePart,
+    Usage,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -28,34 +29,49 @@ fn gemini_finish_reason(reason: Option<&FinishReason>) -> Option<GeminiFinishRea
 }
 
 fn usage_json(usage: &Usage) -> UsageMetadata {
-    let cached = usage
-        .prompt_tokens_details
-        .as_ref()
-        .and_then(|details| details.cached_tokens)
-        .or({
-            #[allow(deprecated)]
-            {
-                usage.cached_tokens
-            }
-        });
-    let thoughts = usage
-        .completion_tokens_details
-        .as_ref()
-        .and_then(|details| details.reasoning_tokens)
-        .or({
-            #[allow(deprecated)]
-            {
-                usage.reasoning_tokens
-            }
+    let normalized_input = usage.normalized_input_tokens();
+    let normalized_output = usage.normalized_output_tokens();
+    let prompt_total = normalized_input
+        .total
+        .or_else(|| usage.prompt_tokens_value());
+    let output_total = normalized_output
+        .total
+        .or_else(|| usage.completion_tokens_value());
+    let total_tokens = usage.total_tokens_value().or_else(|| {
+        prompt_total
+            .zip(output_total)
+            .map(|(prompt, completion)| prompt.saturating_add(completion))
+    });
+    let mut metadata = usage
+        .raw_usage_value()
+        .and_then(|value| serde_json::from_value::<UsageMetadata>(value).ok())
+        .unwrap_or_else(|| UsageMetadata {
+            prompt_token_count: None,
+            total_token_count: None,
+            cached_content_token_count: None,
+            candidates_token_count: None,
+            thoughts_token_count: None,
+            traffic_type: None,
         });
 
-    UsageMetadata {
-        prompt_token_count: Some(usage.prompt_tokens as i32),
-        total_token_count: Some(usage.total_tokens as i32),
-        cached_content_token_count: cached.map(|value| value as i32),
-        candidates_token_count: Some(usage.completion_tokens as i32),
-        thoughts_token_count: thoughts.map(|value| value as i32),
+    if let Some(prompt_total) = prompt_total {
+        metadata.prompt_token_count = Some(i32::try_from(prompt_total).unwrap_or(i32::MAX));
     }
+    if let Some(total_tokens) = total_tokens {
+        metadata.total_token_count = Some(i32::try_from(total_tokens).unwrap_or(i32::MAX));
+    }
+    if let Some(cached_tokens) = normalized_input.cache_read {
+        metadata.cached_content_token_count =
+            Some(i32::try_from(cached_tokens).unwrap_or(i32::MAX));
+    }
+    if let Some(text_tokens) = normalized_output.text {
+        metadata.candidates_token_count = Some(i32::try_from(text_tokens).unwrap_or(i32::MAX));
+    }
+    if let Some(reasoning_tokens) = normalized_output.reasoning {
+        metadata.thoughts_token_count = Some(i32::try_from(reasoning_tokens).unwrap_or(i32::MAX));
+    }
+
+    metadata
 }
 
 fn google_response_metadata(
@@ -80,29 +96,30 @@ fn google_response_metadata_value<T: DeserializeOwned>(
 }
 
 fn source_grounding_chunk(part: &UnifiedContentPart) -> Option<Value> {
-    let UnifiedContentPart::Source {
-        source_type,
-        url,
-        title,
-        ..
-    } = part
-    else {
+    let UnifiedContentPart::Source { source, .. } = part else {
         return None;
     };
 
-    match source_type.as_str() {
-        "url" => Some(json!({
+    match source {
+        SourcePart::Url { url, title } => Some(json!({
             "web": {
                 "uri": url,
-                "title": title,
+                "title": title.clone().unwrap_or_else(|| url.clone()),
             }
         })),
-        _ => Some(json!({
-            "retrievedContext": {
-                "uri": url,
-                "title": title,
-            }
-        })),
+        SourcePart::Document {
+            media_type,
+            title,
+            filename,
+        } => {
+            let uri = filename.clone().unwrap_or_else(|| media_type.clone());
+            Some(json!({
+                "retrievedContext": {
+                    "uri": uri,
+                    "title": title,
+                }
+            }))
+        }
     }
 }
 
@@ -250,5 +267,120 @@ impl JsonResponseConverter for GeminiGenerateContentJsonResponseConverter {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_encoder_serializes_normalized_usage_and_preserves_raw_metadata() {
+        let mut response = ChatResponse::new(MessageContent::Text("hello".to_string()));
+        response.model = Some("gemini-2.5-pro".to_string());
+        response.usage = Some(
+            Usage::builder()
+                .prompt_tokens(12)
+                .completion_tokens(9)
+                .total_tokens(21)
+                .with_input_total_tokens(12)
+                .with_input_no_cache_tokens(7)
+                .with_input_cache_read_tokens(5)
+                .with_output_total_tokens(9)
+                .with_output_text_tokens(6)
+                .with_output_reasoning_tokens(3)
+                .with_raw_usage_value(serde_json::json!({
+                    "trafficType": "ON_DEMAND"
+                }))
+                .build(),
+        );
+
+        let mut out = Vec::new();
+        GeminiGenerateContentJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["usageMetadata"]["promptTokenCount"],
+            serde_json::json!(12)
+        );
+        assert_eq!(
+            value["usageMetadata"]["cachedContentTokenCount"],
+            serde_json::json!(5)
+        );
+        assert_eq!(
+            value["usageMetadata"]["candidatesTokenCount"],
+            serde_json::json!(6)
+        );
+        assert_eq!(
+            value["usageMetadata"]["thoughtsTokenCount"],
+            serde_json::json!(3)
+        );
+        assert_eq!(
+            value["usageMetadata"]["trafficType"],
+            serde_json::json!("ON_DEMAND")
+        );
+    }
+
+    #[test]
+    fn gemini_encoder_omits_unknown_usage_totals_in_usage_metadata() {
+        let mut response = ChatResponse::new(MessageContent::Text("hello".to_string()));
+        response.model = Some("gemini-2.5-pro".to_string());
+        response.usage = Some(
+            Usage::builder()
+                .with_raw_usage_value(serde_json::json!({
+                    "trafficType": "ON_DEMAND"
+                }))
+                .build(),
+        );
+
+        let mut out = Vec::new();
+        GeminiGenerateContentJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        let usage_metadata = value["usageMetadata"]
+            .as_object()
+            .expect("usageMetadata object");
+
+        assert!(!usage_metadata.contains_key("promptTokenCount"));
+        assert!(!usage_metadata.contains_key("totalTokenCount"));
+        assert!(!usage_metadata.contains_key("candidatesTokenCount"));
+        assert!(!usage_metadata.contains_key("thoughtsTokenCount"));
+        assert_eq!(
+            value["usageMetadata"]["trafficType"],
+            serde_json::json!("ON_DEMAND")
+        );
+    }
+
+    #[test]
+    fn gemini_encoder_serializes_document_sources_into_grounding_chunks() {
+        let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+            UnifiedContentPart::text("See attached design document."),
+            UnifiedContentPart::source_document(
+                "doc_1",
+                "application/pdf",
+                "Design Doc",
+                Some("design.pdf".to_string()),
+            ),
+        ]));
+        response.model = Some("gemini-2.5-pro".to_string());
+
+        let mut out = Vec::new();
+        GeminiGenerateContentJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["candidates"][0]["groundingMetadata"]["groundingChunks"][0]["retrievedContext"]["uri"],
+            serde_json::json!("design.pdf")
+        );
+        assert_eq!(
+            value["candidates"][0]["groundingMetadata"]["groundingChunks"][0]["retrievedContext"]["title"],
+            serde_json::json!("Design Doc")
+        );
     }
 }

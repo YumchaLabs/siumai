@@ -9,6 +9,20 @@ fn create_test_config() -> GeminiConfig {
     GeminiConfig::new("test-key")
 }
 
+fn stream_part(
+    event: &ChatStreamEvent,
+) -> Option<siumai_protocol_gemini::streaming::LanguageModelV3StreamPart> {
+    siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::try_from_chat_event(event)
+}
+
+fn google_provider_metadata(
+    value: serde_json::Value,
+) -> siumai_protocol_gemini::types::StreamProviderMetadata {
+    let mut provider_metadata = siumai_protocol_gemini::types::StreamProviderMetadata::new();
+    provider_metadata.insert("google".to_string(), value);
+    provider_metadata
+}
+
 fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
     let text = String::from_utf8_lossy(bytes);
     text.split("\n\n")
@@ -54,33 +68,35 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
     let encoder = GeminiEventConverter::new(create_test_config());
 
     let tool_call_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-call".to_string(),
-            data: serde_json::json!({
-                "type": "tool-call",
-                "toolCallId": "call_1",
-                "toolName": "code_execution",
-                "providerExecuted": true,
-                "input": {
-                    "language": "PYTHON",
-                    "code": "print(1)"
-                }
-            }),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: siumai_protocol_gemini::types::ChatStreamPart::ToolCall(
+                siumai_protocol_gemini::types::ChatStreamToolCall {
+                    tool_call_id: "call_1".to_string(),
+                    tool_name: "code_execution".to_string(),
+                    input: r#"{"language":"PYTHON","code":"print(1)"}"#.to_string(),
+                    provider_executed: Some(true),
+                    dynamic: None,
+                    provider_metadata: None,
+                },
+            ),
         })
         .expect("serialize tool-call");
     let tool_result_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-result".to_string(),
-            data: serde_json::json!({
-                "type": "tool-result",
-                "toolCallId": "call_1",
-                "toolName": "code_execution",
-                "providerExecuted": true,
-                "result": {
-                    "outcome": "OUTCOME_OK",
-                    "output": "1"
-                }
-            }),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: siumai_protocol_gemini::types::ChatStreamPart::ToolResult(
+                siumai_protocol_gemini::types::ChatStreamToolResult {
+                    tool_call_id: "call_1".to_string(),
+                    tool_name: "code_execution".to_string(),
+                    result: serde_json::json!({
+                        "outcome": "OUTCOME_OK",
+                        "output": "1"
+                    }),
+                    is_error: None,
+                    preliminary: None,
+                    dynamic: None,
+                    provider_metadata: None,
+                },
+            ),
         })
         .expect("serialize tool-result");
 
@@ -120,12 +136,10 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
         .iter()
         .filter(|event| {
             matches!(
-                event,
-                ChatStreamEvent::Custom { event_type, data }
-                    if event_type == "gemini:tool"
-                        && data.get("type") == Some(&serde_json::json!("tool-call"))
-                        && data.get("toolName") == Some(&serde_json::json!("code_execution"))
-                        && data.get("providerExecuted") == Some(&serde_json::json!(true))
+                stream_part(event),
+                Some(siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::ToolCall(call))
+                    if call.tool_name == "code_execution"
+                        && call.provider_executed == Some(true)
             )
         })
         .count();
@@ -133,12 +147,9 @@ async fn gemini_public_feature_surface_roundtrips_provider_executed_code_executi
         .iter()
         .filter(|event| {
             matches!(
-                event,
-                ChatStreamEvent::Custom { event_type, data }
-                    if event_type == "gemini:tool"
-                        && data.get("type") == Some(&serde_json::json!("tool-result"))
-                        && data.get("toolName") == Some(&serde_json::json!("code_execution"))
-                        && data.get("providerExecuted") == Some(&serde_json::json!(true))
+                stream_part(event),
+                Some(siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::ToolResult(result))
+                    if result.tool_name == "code_execution"
             )
         })
         .count();
@@ -152,32 +163,24 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_without_dupl
     let encoder = GeminiEventConverter::new(create_test_config());
 
     let start_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-start".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-start",
-                "id": "rs_1",
-                "providerMetadata": {
-                    "google": {
-                        "thoughtSignature": "stream_sig"
-                    }
-                }
-            }),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: siumai_protocol_gemini::types::ChatStreamPart::ReasoningStart {
+                id: "rs_1".to_string(),
+                provider_metadata: Some(google_provider_metadata(serde_json::json!({
+                    "thoughtSignature": "stream_sig"
+                }))),
+            },
         })
         .expect("serialize reasoning-start");
     let delta_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-delta".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-delta",
-                "id": "rs_1",
-                "delta": "thinking...",
-                "providerMetadata": {
-                    "google": {
-                        "thoughtSignature": "stream_sig"
-                    }
-                }
-            }),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: siumai_protocol_gemini::types::ChatStreamPart::ReasoningDelta {
+                id: "rs_1".to_string(),
+                delta: "thinking...".to_string(),
+                provider_metadata: Some(google_provider_metadata(serde_json::json!({
+                    "thoughtSignature": "stream_sig"
+                }))),
+            },
         })
         .expect("serialize reasoning-delta");
     let thinking_bytes = encoder
@@ -226,16 +229,16 @@ async fn gemini_public_feature_surface_preserves_reasoning_metadata_without_dupl
         .iter()
         .filter(|event| {
             matches!(
-                event,
-                ChatStreamEvent::Custom { event_type, data }
-                    if event_type == "gemini:reasoning"
-                        && data.get("type") == Some(&serde_json::json!("reasoning-delta"))
-                        && data.get("providerMetadata")
-                            == Some(&serde_json::json!({
-                                "google": {
-                                    "thoughtSignature": "stream_sig"
-                                }
-                            }))
+                stream_part(event),
+                Some(siumai_protocol_gemini::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+                    delta,
+                    provider_metadata,
+                    ..
+                }) if delta == "thinking..."
+                    && provider_metadata.as_ref()
+                        .and_then(|meta| meta.get("google"))
+                        .and_then(|meta| meta.get("thoughtSignature"))
+                        == Some(&serde_json::json!("stream_sig"))
             )
         })
         .count();

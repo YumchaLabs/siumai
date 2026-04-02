@@ -171,9 +171,9 @@ mod tests {
 
         usage1.merge(&usage2);
 
-        assert_eq!(usage1.prompt_tokens, 300);
-        assert_eq!(usage1.completion_tokens, 125);
-        assert_eq!(usage1.total_tokens, 425);
+        assert_eq!(usage1.prompt_tokens(), Some(300));
+        assert_eq!(usage1.completion_tokens(), Some(125));
+        assert_eq!(usage1.total_tokens(), Some(425));
         assert_eq!(
             usage1
                 .completion_tokens_details

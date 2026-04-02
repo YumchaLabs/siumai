@@ -67,9 +67,9 @@ mod minimaxi_tests {
         assert_eq!(content_text, "你好！我是 MiniMaxi 的 AI 助手。");
         assert!(response.usage.is_some());
         let usage = response.usage.unwrap();
-        assert_eq!(usage.prompt_tokens, 10);
-        assert_eq!(usage.completion_tokens, 20);
-        assert_eq!(usage.total_tokens, 30);
+        assert_eq!(usage.prompt_tokens(), Some(10));
+        assert_eq!(usage.completion_tokens(), Some(20));
+        assert_eq!(usage.total_tokens(), Some(30));
     }
 
     /// Test chat with tools (function calling)

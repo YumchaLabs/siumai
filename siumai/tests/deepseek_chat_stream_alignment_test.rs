@@ -103,9 +103,11 @@ fn deepseek_text_stream_emits_content_usage_and_stream_end() {
         _ => None,
     });
     assert!(
-        usage.is_some_and(|u| u.prompt_tokens == 13
-            && u.completion_tokens == 400
-            && u.total_tokens == 413),
+        usage.is_some_and(|u| {
+            u.prompt_tokens() == Some(13)
+                && u.completion_tokens() == Some(400)
+                && u.total_tokens() == Some(413)
+        }),
         "expected final usage to match fixture"
     );
 
@@ -145,9 +147,9 @@ fn deepseek_reasoning_stream_emits_thinking_then_text() {
     });
     assert!(
         usage.is_some_and(|u| {
-            u.prompt_tokens == 18
-                && u.completion_tokens == 219
-                && u.total_tokens == 237
+            u.prompt_tokens() == Some(18)
+                && u.completion_tokens() == Some(219)
+                && u.total_tokens() == Some(237)
                 && u.completion_tokens_details
                     .as_ref()
                     .and_then(|d| d.reasoning_tokens)
@@ -209,9 +211,9 @@ fn deepseek_tool_call_stream_emits_tool_call_deltas() {
     });
     assert!(
         usage.is_some_and(|u| {
-            u.prompt_tokens == 339
-                && u.completion_tokens == 83
-                && u.total_tokens == 422
+            u.prompt_tokens() == Some(339)
+                && u.completion_tokens() == Some(83)
+                && u.total_tokens() == Some(422)
                 && u.prompt_tokens_details
                     .as_ref()
                     .and_then(|d| d.cached_tokens)

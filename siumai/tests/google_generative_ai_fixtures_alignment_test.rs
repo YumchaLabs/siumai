@@ -184,7 +184,7 @@ fn google_code_execution_response_emits_tool_call_and_result() {
             ContentPart::ToolResult {
                 tool_call_id,
                 tool_name,
-                output: ToolResultOutput::Json { value },
+                output: ToolResultOutput::Json { value, .. },
                 provider_executed: Some(true),
                 ..
             } if tool_name == "code_execution" => {

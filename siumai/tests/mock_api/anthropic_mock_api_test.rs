@@ -118,9 +118,9 @@ async fn test_anthropic_messages_non_streaming() {
     // Verify usage
     assert!(response.usage.is_some());
     let usage = response.usage.unwrap();
-    assert_eq!(usage.prompt_tokens, 10);
-    assert_eq!(usage.completion_tokens, 15);
-    assert_eq!(usage.total_tokens, 25);
+    assert_eq!(usage.prompt_tokens(), Some(10));
+    assert_eq!(usage.completion_tokens(), Some(15));
+    assert_eq!(usage.total_tokens(), Some(25));
 }
 
 #[tokio::test]

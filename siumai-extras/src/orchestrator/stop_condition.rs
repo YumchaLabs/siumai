@@ -288,7 +288,7 @@ pub fn has_no_tool_calls() -> Box<dyn StopCondition> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai::prelude::unified::ChatMessage;
+    use siumai::prelude::unified::{ChatMessage, ProviderOptionsMap};
 
     fn create_step_with_tools(tool_names: Vec<&str>) -> StepResult {
         use siumai::prelude::unified::ContentPart;
@@ -426,6 +426,7 @@ mod tests {
             tool_results: vec![ContentPart::Text {
                 text: "result".to_string(),
                 provider_metadata: None,
+                provider_options: ProviderOptionsMap::default(),
             }],
             warnings: None,
             provider_metadata: None,

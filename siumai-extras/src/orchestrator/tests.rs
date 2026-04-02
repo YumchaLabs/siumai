@@ -189,9 +189,9 @@ fn test_step_result_merge_usage() {
     ];
 
     let merged = StepResult::merge_usage(&steps).unwrap();
-    assert_eq!(merged.prompt_tokens, 300); // 100 + 200
-    assert_eq!(merged.completion_tokens, 150); // 50 + 100
-    assert_eq!(merged.total_tokens, 450); // 150 + 300 (simple addition, Vercel AI style)
+    assert_eq!(merged.prompt_tokens(), Some(300)); // 100 + 200
+    assert_eq!(merged.completion_tokens(), Some(150)); // 50 + 100
+    assert_eq!(merged.total_tokens(), Some(450)); // 150 + 300 (simple addition, Vercel AI style)
     assert_eq!(
         merged
             .prompt_tokens_details
@@ -996,8 +996,8 @@ fn test_step_result_merge_usage_partial() {
     ];
 
     let merged = StepResult::merge_usage(&steps).unwrap();
-    assert_eq!(merged.prompt_tokens, 100);
-    assert_eq!(merged.completion_tokens, 50);
+    assert_eq!(merged.prompt_tokens(), Some(100));
+    assert_eq!(merged.completion_tokens(), Some(50));
     // Simple addition: only first step has usage, so total_tokens = 150
-    assert_eq!(merged.total_tokens, 150);
+    assert_eq!(merged.total_tokens(), Some(150));
 }

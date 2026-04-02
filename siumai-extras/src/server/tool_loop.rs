@@ -49,6 +49,13 @@ struct ToolCallAcc {
     tool_name: Option<String>,
     args_json: String,
     provider_executed: Option<bool>,
+    source: Option<ToolCallAccSource>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolCallAccSource {
+    LegacyDelta,
+    StablePart,
 }
 
 fn parse_json_best_effort(s: &str) -> Value {
@@ -57,6 +64,137 @@ fn parse_json_best_effort(s: &str) -> Value {
         return serde_json::json!({});
     }
     serde_json::from_str::<Value>(s).unwrap_or_else(|_| Value::String(s.to_string()))
+}
+
+fn ensure_tool_call_acc<'a>(
+    acc: &'a mut HashMap<String, ToolCallAcc>,
+    order: &mut Vec<String>,
+    id: &str,
+    source: ToolCallAccSource,
+) -> Option<&'a mut ToolCallAcc> {
+    match acc.entry(id.to_string()) {
+        Entry::Vacant(entry) => {
+            order.push(id.to_string());
+            let slot = entry.insert(ToolCallAcc {
+                source: Some(source),
+                ..ToolCallAcc::default()
+            });
+            Some(slot)
+        }
+        Entry::Occupied(entry) => {
+            let slot = entry.into_mut();
+            match slot.source {
+                Some(existing) if existing != source => None,
+                Some(_) => Some(slot),
+                None => {
+                    slot.source = Some(source);
+                    Some(slot)
+                }
+            }
+        }
+    }
+}
+
+fn accumulate_runtime_tool_part(
+    part: &ChatStreamPart,
+    acc: &mut HashMap<String, ToolCallAcc>,
+    order: &mut Vec<String>,
+) -> bool {
+    match part {
+        ChatStreamPart::ToolInputStart {
+            id,
+            tool_name,
+            provider_executed,
+            ..
+        } => {
+            let Some(entry) = ensure_tool_call_acc(acc, order, id, ToolCallAccSource::StablePart)
+            else {
+                return true;
+            };
+            entry.tool_name = Some(tool_name.clone());
+            entry.provider_executed = *provider_executed;
+            true
+        }
+        ChatStreamPart::ToolInputDelta { id, delta, .. } => {
+            let Some(entry) = ensure_tool_call_acc(acc, order, id, ToolCallAccSource::StablePart)
+            else {
+                return true;
+            };
+            entry.args_json.push_str(delta);
+            true
+        }
+        ChatStreamPart::ToolCall(call) => {
+            let Some(entry) = ensure_tool_call_acc(
+                acc,
+                order,
+                &call.tool_call_id,
+                ToolCallAccSource::StablePart,
+            ) else {
+                return true;
+            };
+            entry.tool_name = Some(call.tool_name.clone());
+            entry.args_json = call.input.clone();
+            entry.provider_executed = call.provider_executed;
+            true
+        }
+        _ => false,
+    }
+}
+
+fn accumulate_loose_tool_part(
+    data: &Value,
+    acc: &mut HashMap<String, ToolCallAcc>,
+    order: &mut Vec<String>,
+) -> bool {
+    let Some(part) =
+        siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
+    else {
+        return false;
+    };
+
+    match part {
+        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolInputStart {
+            id,
+            tool_name,
+            provider_executed,
+            ..
+        } => {
+            let Some(entry) = ensure_tool_call_acc(acc, order, &id, ToolCallAccSource::StablePart)
+            else {
+                return true;
+            };
+            entry.tool_name = Some(tool_name);
+            entry.provider_executed = provider_executed;
+            true
+        }
+        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+            id,
+            delta,
+            ..
+        } => {
+            let Some(entry) = ensure_tool_call_acc(acc, order, &id, ToolCallAccSource::StablePart)
+            else {
+                return true;
+            };
+            entry.args_json.push_str(&delta);
+            true
+        }
+        siumai::experimental::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            let Some(entry) = ensure_tool_call_acc(
+                acc,
+                order,
+                &call.tool_call_id,
+                ToolCallAccSource::StablePart,
+            ) else {
+                return true;
+            };
+            entry.tool_name = Some(call.tool_name);
+            entry.args_json = call.input;
+            entry.provider_executed = call.provider_executed;
+            true
+        }
+        _ => false,
+    }
 }
 
 fn tool_calls_from_acc_ordered(
@@ -78,6 +216,7 @@ fn tool_calls_from_acc_ordered(
             tool_name: name,
             arguments: args,
             provider_executed: item.provider_executed,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -95,6 +234,7 @@ fn tool_calls_from_acc_ordered(
             tool_name: name,
             arguments: args,
             provider_executed: item.provider_executed,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -218,12 +358,17 @@ pub async fn tool_loop_chat_stream(
                         arguments_delta,
                         ..
                     } => {
-                        let entry = match tool_calls_acc.entry(id.clone()) {
-                            Entry::Vacant(v) => {
-                                tool_call_order.push(id.clone());
-                                v.insert(ToolCallAcc::default())
+                        let Some(entry) = ensure_tool_call_acc(
+                            &mut tool_calls_acc,
+                            &mut tool_call_order,
+                            id,
+                            ToolCallAccSource::LegacyDelta,
+                        ) else {
+                            if sender.send(Ok(ev)).await.is_err() {
+                                cancel.cancel();
+                                break 'outer;
                             }
-                            Entry::Occupied(o) => o.into_mut(),
+                            continue;
                         };
                         if let Some(name) = function_name.clone()
                             && !name.trim().is_empty()
@@ -238,21 +383,24 @@ pub async fn tool_loop_chat_stream(
                             break 'outer;
                         }
                     }
-                    ChatStreamEvent::Custom { data, .. } => {
-                        if let Some(part) = siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
-                            && let siumai::experimental::streaming::LanguageModelV3StreamPart::ToolCall(call) = part
-                        {
-                            let entry = match tool_calls_acc.entry(call.tool_call_id.clone()) {
-                                Entry::Vacant(v) => {
-                                    tool_call_order.push(call.tool_call_id.clone());
-                                    v.insert(ToolCallAcc::default())
-                                }
-                                Entry::Occupied(o) => o.into_mut(),
-                            };
-                            entry.tool_name = Some(call.tool_name.clone());
-                            entry.args_json = call.input.clone();
-                            entry.provider_executed = call.provider_executed;
+                    ChatStreamEvent::Part { part }
+                    | ChatStreamEvent::PartWithReplay { part, .. } => {
+                        let _ = accumulate_runtime_tool_part(
+                            part,
+                            &mut tool_calls_acc,
+                            &mut tool_call_order,
+                        );
+                        if sender.send(Ok(ev)).await.is_err() {
+                            cancel.cancel();
+                            break 'outer;
                         }
+                    }
+                    ChatStreamEvent::Custom { data, .. } => {
+                        let _ = accumulate_loose_tool_part(
+                            data,
+                            &mut tool_calls_acc,
+                            &mut tool_call_order,
+                        );
                         if sender.send(Ok(ev)).await.is_err() {
                             cancel.cancel();
                             break 'outer;
@@ -276,6 +424,7 @@ pub async fn tool_loop_chat_stream(
             if !acc_text.trim().is_empty() {
                 assistant_parts.push(ContentPart::Text {
                     text: acc_text.clone(),
+                    provider_options: ProviderOptionsMap::default(),
                     provider_metadata: None,
                 });
             }
@@ -293,6 +442,7 @@ pub async fn tool_loop_chat_stream(
                 } else {
                     MessageContent::MultiModal(assistant_parts)
                 },
+                provider_options: ProviderOptionsMap::default(),
                 metadata: MessageMetadata::default(),
             });
 
@@ -428,6 +578,7 @@ mod tests {
     use async_trait::async_trait;
     use futures::stream;
     use serde_json::json;
+    use siumai::prelude::unified::ChatStreamToolCall;
     use siumai::prelude::unified::ResponseMetadata;
     use std::sync::Mutex;
 
@@ -606,6 +757,168 @@ mod tests {
         assert!(
             recorded[1].iter().any(|m| m.role == MessageRole::Tool),
             "second upstream request should include tool result messages"
+        );
+    }
+
+    #[derive(Default)]
+    struct StablePartToolModel {
+        calls: Mutex<usize>,
+    }
+
+    #[async_trait]
+    impl ChatCapability for StablePartToolModel {
+        async fn chat_with_tools(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatResponse, LlmError> {
+            Ok(ChatResponse::new(MessageContent::Text("ok".to_string())))
+        }
+
+        async fn chat_stream(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatStream, LlmError> {
+            let idx = {
+                let mut g = self.calls.lock().unwrap();
+                let idx = *g;
+                *g += 1;
+                idx
+            };
+
+            let meta = ResponseMetadata {
+                id: Some(format!("stable_resp_{idx}")),
+                model: Some("mock".to_string()),
+                created: None,
+                provider: "mock".to_string(),
+                request_id: None,
+            };
+
+            match idx {
+                0 => {
+                    let events = vec![
+                        Ok(ChatStreamEvent::StreamStart { metadata: meta }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputStart {
+                                id: "call_1".to_string(),
+                                tool_name: "get_weather".to_string(),
+                                provider_metadata: None,
+                                provider_executed: None,
+                                dynamic: None,
+                                title: None,
+                            },
+                        }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputDelta {
+                                id: "call_1".to_string(),
+                                delta: "{\"city\":\"Guangzhou\"}".to_string(),
+                                provider_metadata: None,
+                            },
+                        }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputEnd {
+                                id: "call_1".to_string(),
+                                provider_metadata: None,
+                            },
+                        }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                                tool_call_id: "call_1".to_string(),
+                                tool_name: "get_weather".to_string(),
+                                input: "{\"city\":\"Guangzhou\"}".to_string(),
+                                provider_executed: None,
+                                dynamic: None,
+                                provider_metadata: None,
+                            }),
+                        }),
+                        Ok(ChatStreamEvent::StreamEnd {
+                            response: ChatResponse {
+                                id: Some("stable_resp_0".to_string()),
+                                model: Some("mock".to_string()),
+                                content: MessageContent::MultiModal(vec![ContentPart::tool_call(
+                                    "call_1",
+                                    "get_weather",
+                                    json!({"city":"Guangzhou"}),
+                                    None,
+                                )]),
+                                usage: None,
+                                finish_reason: Some(FinishReason::ToolCalls),
+                                audio: None,
+                                system_fingerprint: None,
+                                service_tier: None,
+                                warnings: None,
+                                provider_metadata: None,
+                            },
+                        }),
+                    ];
+                    Ok(Box::pin(stream::iter(events)))
+                }
+                _ => {
+                    let events = vec![
+                        Ok(ChatStreamEvent::StreamStart { metadata: meta }),
+                        Ok(ChatStreamEvent::ContentDelta {
+                            delta: "Stable parts worked.".to_string(),
+                            index: None,
+                        }),
+                        Ok(ChatStreamEvent::StreamEnd {
+                            response: ChatResponse::new(MessageContent::Text(
+                                "Stable parts worked.".to_string(),
+                            )),
+                        }),
+                    ];
+                    Ok(Box::pin(stream::iter(events)))
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_loop_accepts_stable_tool_parts() {
+        let model: Arc<dyn ChatCapability + Send + Sync> = Arc::new(StablePartToolModel::default());
+        let resolver: Arc<dyn ToolResolver + Send + Sync> = Arc::new(MockResolver);
+
+        let tools = vec![Tool::function(
+            "get_weather".to_string(),
+            "Get weather".to_string(),
+            json!({
+                "type": "object",
+                "properties": { "city": { "type": "string" } },
+                "required": ["city"]
+            }),
+        )];
+
+        let mut stream = tool_loop_chat_stream(
+            model,
+            vec![ChatMessage::user("weather?").build()],
+            tools,
+            resolver,
+            ToolLoopGatewayOptions { max_steps: 4 },
+        )
+        .await
+        .expect("create stable-part tool-loop stream");
+
+        let mut saw_tool_call_part = false;
+        let mut saw_final_text = false;
+
+        while let Some(item) = stream.next().await {
+            match item.expect("event") {
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(call),
+                } if call.tool_call_id == "call_1" && call.tool_name == "get_weather" => {
+                    saw_tool_call_part = true;
+                }
+                ChatStreamEvent::ContentDelta { delta, .. } if delta.contains("Stable parts") => {
+                    saw_final_text = true;
+                }
+                _ => {}
+            }
+        }
+
+        assert!(saw_tool_call_part, "should forward stable tool-call part");
+        assert!(
+            saw_final_text,
+            "should continue to the post-tool answer step"
         );
     }
 }

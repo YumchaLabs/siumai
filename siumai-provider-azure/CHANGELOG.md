@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Azure content-part metadata helpers now preserve metadata on stable `reasoning-file` and
+  `custom` parts in addition to the older content-part variants.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

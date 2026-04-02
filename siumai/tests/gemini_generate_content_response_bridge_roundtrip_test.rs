@@ -140,9 +140,9 @@ fn gemini_generate_content_response_bridge_roundtrip_preserves_projected_visible
     assert_eq!(info.arguments, &serde_json::json!({ "city": "Tokyo" }));
 
     let usage = roundtripped.usage.as_ref().expect("usage");
-    assert_eq!(usage.prompt_tokens, 11);
-    assert_eq!(usage.completion_tokens, 7);
-    assert_eq!(usage.total_tokens, 18);
+    assert_eq!(usage.prompt_tokens(), Some(11));
+    assert_eq!(usage.completion_tokens(), Some(11));
+    assert_eq!(usage.total_tokens(), Some(18));
     assert_eq!(
         usage
             .completion_tokens_details

@@ -15,6 +15,18 @@ fn create_test_config() -> GeminiConfig {
     }
 }
 
+fn stream_part(
+    event: &Result<ChatStreamEvent, crate::error::LlmError>,
+) -> Option<crate::streaming::LanguageModelV3StreamPart> {
+    crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(event.as_ref().ok()?)
+}
+
+fn google_provider_metadata(value: serde_json::Value) -> crate::types::StreamProviderMetadata {
+    let mut provider_metadata = crate::types::StreamProviderMetadata::new();
+    provider_metadata.insert("google".to_string(), value);
+    provider_metadata
+}
+
 #[tokio::test]
 async fn test_gemini_streaming_conversion() {
     let config = create_test_config();
@@ -45,7 +57,7 @@ async fn test_gemini_streaming_conversion() {
 }
 
 #[tokio::test]
-async fn test_gemini_streaming_emits_source_events_and_dedups() {
+async fn test_gemini_streaming_emits_source_parts_and_dedups() {
     let config = create_test_config();
     let converter = GeminiEventConverter::new(config);
 
@@ -59,8 +71,15 @@ async fn test_gemini_streaming_emits_source_events_and_dedups() {
 
     let r1 = converter.convert_event(event).await;
     assert!(
-        r1.iter().any(|e| matches!(e, Ok(ChatStreamEvent::Custom { event_type, .. }) if event_type == "gemini:source")),
-        "expected gemini:source in first chunk: {r1:?}"
+        r1.iter().any(|event| {
+            matches!(
+                stream_part(event),
+                Some(crate::streaming::LanguageModelV3StreamPart::Source(
+                    crate::streaming::LanguageModelV3Source::Url { url, .. }
+                )) if url == "https://www.rust-lang.org/"
+            )
+        }),
+        "expected source part in first chunk: {r1:?}"
     );
 
     // Same payload again should not emit a duplicate source event.
@@ -72,9 +91,122 @@ async fn test_gemini_streaming_emits_source_events_and_dedups() {
     };
     let r2 = converter.convert_event(event2).await;
     assert!(
-        !r2.iter().any(|e| matches!(e, Ok(ChatStreamEvent::Custom { event_type, .. }) if event_type == "gemini:source")),
-        "expected no duplicate gemini:source in second chunk: {r2:?}"
+        !r2.iter().any(|event| matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Source(_))
+        )),
+        "expected no duplicate source part in second chunk: {r2:?}"
     );
+}
+
+#[tokio::test]
+async fn test_gemini_streaming_emits_reasoning_parts_with_signature() {
+    let config = create_test_config();
+    let converter = GeminiEventConverter::new(config);
+    let json = r#"{"candidates":[{"content":{"parts":[{"text":"thinking..","thought":true,"thoughtSignature":"sig_1"}]}}]}"#;
+    let event = eventsource_stream::Event {
+        event: "".into(),
+        data: json.into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart {
+                provider_metadata,
+                ..
+            }) if provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("google"))
+                .and_then(|meta| meta.get("thoughtSignature"))
+                == Some(&serde_json::json!("sig_1"))
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+                delta,
+                provider_metadata,
+                ..
+            }) if delta == "thinking.."
+                && provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("google"))
+                    .and_then(|meta| meta.get("thoughtSignature"))
+                    == Some(&serde_json::json!("sig_1"))
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            event.as_ref().expect("thinking delta event"),
+            ChatStreamEvent::ThinkingDelta { delta } if delta == "thinking.."
+        )
+    }));
+}
+
+#[tokio::test]
+async fn test_gemini_streaming_emits_provider_executed_code_execution_parts() {
+    let config = create_test_config();
+    let converter = GeminiEventConverter::new(config);
+    let json = r#"{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(1)"}},{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"1"}}]}}]}"#;
+    let event = eventsource_stream::Event {
+        event: "".into(),
+        data: json.into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+                if call.tool_name == "code_execution"
+                    && call.provider_executed == Some(true)
+                    && call.input.contains("\"language\":\"PYTHON\"")
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ToolResult(result))
+                if result.tool_name == "code_execution"
+                    && result.result["output"] == serde_json::json!("1")
+        )
+    }));
+}
+
+#[tokio::test]
+async fn test_gemini_emit_v3_tool_call_parts_uses_part_channel() {
+    let converter =
+        GeminiEventConverter::new(create_test_config()).with_emit_v3_tool_call_parts(true);
+    let json = r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"weather","args":{"city":"Tokyo"}},"thoughtSignature":"sig_2"}]}}]}"#;
+    let event = eventsource_stream::Event {
+        event: "".into(),
+        data: json.into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+                if call.tool_name == "weather"
+                    && call.input.contains("\"city\":\"Tokyo\"")
+                    && call
+                        .provider_metadata
+                        .as_ref()
+                        .and_then(|meta| meta.get("google"))
+                        .and_then(|meta| meta.get("thoughtSignature"))
+                        == Some(&serde_json::json!("sig_2"))
+        )
+    }));
 }
 
 #[tokio::test]
@@ -525,7 +657,133 @@ async fn gemini_stream_proxy_serializes_usage_update() {
     let out = converter.convert_event(event).await;
     assert!(out.iter().any(|e| matches!(
         e,
-        Ok(ChatStreamEvent::UsageUpdate { usage }) if usage.prompt_tokens == 3
+        Ok(ChatStreamEvent::UsageUpdate { usage }) if usage.prompt_tokens() == Some(3)
+    )));
+}
+
+#[tokio::test]
+async fn gemini_stream_proxy_preserves_reasoning_cache_and_unknown_usage_totals() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::UsageUpdate {
+            usage: Usage::builder()
+                .with_raw_usage_value(serde_json::json!({
+                    "trafficType": "ON_DEMAND"
+                }))
+                .build(),
+        })
+        .expect("serialize ok");
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(frames.len(), 1);
+    let usage_metadata = frames[0]["usageMetadata"]
+        .as_object()
+        .expect("usageMetadata object");
+    assert!(!usage_metadata.contains_key("promptTokenCount"));
+    assert!(!usage_metadata.contains_key("candidatesTokenCount"));
+    assert!(!usage_metadata.contains_key("totalTokenCount"));
+    assert_eq!(
+        frames[0]["usageMetadata"]["trafficType"],
+        serde_json::json!("ON_DEMAND")
+    );
+
+    let event = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::to_string(&frames[0]).expect("json"),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out = converter.convert_event(event).await;
+    assert!(out.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::UsageUpdate { usage })
+            if usage.prompt_tokens_value().is_none()
+                && usage.completion_tokens_value().is_none()
+                && usage.total_tokens_value().is_none()
+                && usage
+                    .raw_usage_value()
+                    .as_ref()
+                    .and_then(|raw| raw.get("trafficType"))
+                    == Some(&serde_json::json!("ON_DEMAND"))
+    )));
+}
+
+#[tokio::test]
+async fn gemini_stream_proxy_preserves_raw_cached_content_counts() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::UsageUpdate {
+            usage: Usage::builder()
+                .with_raw_usage_value(serde_json::json!({
+                    "cachedContentTokenCount": 5,
+                    "trafficType": "ON_DEMAND"
+                }))
+                .build(),
+        })
+        .expect("serialize ok");
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(
+        frames[0]["usageMetadata"]["cachedContentTokenCount"],
+        serde_json::json!(5)
+    );
+
+    let event = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::to_string(&frames[0]).expect("json"),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out = converter.convert_event(event).await;
+    assert!(out.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::UsageUpdate { usage })
+            if usage.normalized_input_tokens().cache_read == Some(5)
+                && usage
+                    .raw_usage_value()
+                    .as_ref()
+                    .and_then(|raw| raw.get("trafficType"))
+                    == Some(&serde_json::json!("ON_DEMAND"))
+    )));
+}
+
+#[tokio::test]
+async fn gemini_stream_proxy_parses_reasoning_usage_into_output_totals() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let event = eventsource_stream::Event {
+        event: "".to_string(),
+        data: serde_json::json!({
+            "usageMetadata": {
+                "promptTokenCount": 12,
+                "cachedContentTokenCount": 5,
+                "candidatesTokenCount": 6,
+                "thoughtsTokenCount": 3,
+                "totalTokenCount": 21,
+                "trafficType": "ON_DEMAND"
+            }
+        })
+        .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let out = converter.convert_event(event).await;
+    assert!(out.iter().any(|e| matches!(
+        e,
+        Ok(ChatStreamEvent::UsageUpdate { usage })
+            if usage.prompt_tokens() == Some(12)
+                && usage.completion_tokens() == Some(9)
+                && usage.total_tokens() == Some(21)
+                && usage.normalized_input_tokens().no_cache == Some(7)
+                && usage.normalized_input_tokens().cache_read == Some(5)
+                && usage.normalized_output_tokens().text == Some(6)
+                && usage.normalized_output_tokens().reasoning == Some(3)
+                && usage
+                    .raw_usage_value()
+                    .as_ref()
+                    .and_then(|raw| raw.get("trafficType"))
+                    == Some(&serde_json::json!("ON_DEMAND"))
     )));
 }
 
@@ -658,15 +916,15 @@ fn gemini_serializes_v3_source_part_as_grounding_chunk() {
     let converter = GeminiEventConverter::new(config);
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "anthropic:source".to_string(),
-            data: serde_json::json!({
-                "type": "source",
-                "sourceType": "url",
-                "id": "src_1",
-                "url": "https://www.rust-lang.org/",
-                "title": "Rust",
-            }),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Source {
+                id: "src_1".to_string(),
+                source: crate::types::SourcePart::Url {
+                    url: "https://www.rust-lang.org/".to_string(),
+                    title: Some("Rust".to_string()),
+                },
+                provider_metadata: None,
+            },
         })
         .expect("serialize v3 source");
 
@@ -713,13 +971,15 @@ fn gemini_serializes_v3_code_execution_tool_result_as_code_execution_result_part
     let converter = GeminiEventConverter::new(config);
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-result".to_string(),
-            data: serde_json::json!({
-                "type": "tool-result",
-                "toolCallId": "call_1",
-                "toolName": "code_execution",
-                "result": { "outcome": "OUTCOME_OK", "output": "1" }
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolResult(crate::types::ChatStreamToolResult {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                result: serde_json::json!({ "outcome": "OUTCOME_OK", "output": "1" }),
+                is_error: None,
+                preliminary: None,
+                dynamic: None,
+                provider_metadata: None,
             }),
         })
         .expect("serialize v3 tool-result");
@@ -741,17 +1001,14 @@ fn gemini_serializes_provider_executed_code_execution_tool_call_as_executable_co
     let converter = GeminiEventConverter::new(config);
 
     let bytes = converter
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-call".to_string(),
-            data: serde_json::json!({
-                "type": "tool-call",
-                "toolCallId": "call_1",
-                "toolName": "code_execution",
-                "providerExecuted": true,
-                "input": {
-                    "language": "PYTHON",
-                    "code": "print(1)"
-                }
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                input: r#"{"language":"PYTHON","code":"print(1)"}"#.to_string(),
+                provider_executed: Some(true),
+                dynamic: None,
+                provider_metadata: None,
             }),
         })
         .expect("serialize provider-executed code_execution tool-call");
@@ -773,17 +1030,13 @@ fn gemini_serializes_reasoning_metadata_through_thinking_delta_without_duplicate
     let converter = GeminiEventConverter::new(config);
 
     let start_bytes = converter
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-start".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-start",
-                "id": "rs_1",
-                "providerMetadata": {
-                    "google": {
-                        "thoughtSignature": "stream_sig"
-                    }
-                }
-            }),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningStart {
+                id: "rs_1".to_string(),
+                provider_metadata: Some(google_provider_metadata(serde_json::json!({
+                    "thoughtSignature": "stream_sig"
+                }))),
+            },
         })
         .expect("serialize reasoning-start");
     assert!(
@@ -792,18 +1045,14 @@ fn gemini_serializes_reasoning_metadata_through_thinking_delta_without_duplicate
     );
 
     let delta_bytes = converter
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:reasoning-delta".to_string(),
-            data: serde_json::json!({
-                "type": "reasoning-delta",
-                "id": "rs_1",
-                "delta": "thinking...",
-                "providerMetadata": {
-                    "google": {
-                        "thoughtSignature": "stream_sig"
-                    }
-                }
-            }),
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningDelta {
+                id: "rs_1".to_string(),
+                delta: "thinking...".to_string(),
+                provider_metadata: Some(google_provider_metadata(serde_json::json!({
+                    "thoughtSignature": "stream_sig"
+                }))),
+            },
         })
         .expect("serialize reasoning-delta");
     assert!(

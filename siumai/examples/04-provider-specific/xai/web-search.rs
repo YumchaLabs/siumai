@@ -16,8 +16,8 @@
 use siumai::models;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::xai::{
-    SearchMode, SearchSource, SearchSourceType, XaiChatRequestExt, XaiChatResponseExt, XaiClient,
-    XaiOptions, XaiSearchParameters,
+    SearchMode, WebSearchSource, XaiChatRequestExt, XaiChatResponseExt, XaiClient, XaiOptions,
+    XaiSearchParameters,
 };
 
 #[tokio::main]
@@ -30,16 +30,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         max_search_results: Some(5),
         from_date: None,
         to_date: None,
-        sources: Some(vec![SearchSource {
-            source_type: SearchSourceType::Web,
-            country: Some("US".to_string()),
-            allowed_websites: Some(vec![
-                "blog.rust-lang.org".to_string(),
-                "this-week-in-rust.org".to_string(),
-            ]),
-            excluded_websites: None,
-            safe_search: Some(true),
-        }]),
+        sources: Some(vec![
+            WebSearchSource {
+                country: Some("US".to_string()),
+                allowed_websites: Some(vec![
+                    "blog.rust-lang.org".to_string(),
+                    "this-week-in-rust.org".to_string(),
+                ]),
+                excluded_websites: None,
+                safe_search: Some(true),
+            }
+            .into(),
+        ]),
     };
 
     let request = ChatRequest::new(vec![user!(

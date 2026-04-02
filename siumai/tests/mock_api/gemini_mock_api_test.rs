@@ -127,9 +127,9 @@ async fn test_gemini_generate_content_non_streaming() {
 
     // Verify usage metadata (now correctly parsed)
     let usage = response.usage.expect("Usage should be present");
-    assert_eq!(usage.prompt_tokens, 5);
-    assert_eq!(usage.completion_tokens, 10);
-    assert_eq!(usage.total_tokens, 15);
+    assert_eq!(usage.prompt_tokens(), Some(5));
+    assert_eq!(usage.completion_tokens(), Some(10));
+    assert_eq!(usage.total_tokens(), Some(15));
 
     // Verify finish reason (now correctly parsed)
     assert_eq!(response.finish_reason, Some(FinishReason::Stop));

@@ -130,9 +130,9 @@ async fn test_xai_chat_non_streaming() {
     assert!(response.usage.is_some());
 
     let usage = response.usage.unwrap();
-    assert_eq!(usage.prompt_tokens, 10);
-    assert_eq!(usage.completion_tokens, 12);
-    assert_eq!(usage.total_tokens, 22);
+    assert_eq!(usage.prompt_tokens(), Some(10));
+    assert_eq!(usage.completion_tokens(), Some(12));
+    assert_eq!(usage.total_tokens(), Some(22));
 }
 
 #[tokio::test]

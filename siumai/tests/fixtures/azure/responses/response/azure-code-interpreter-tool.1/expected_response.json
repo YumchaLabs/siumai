@@ -38,7 +38,12 @@
       },
       {
         "type": "text",
-        "text": "I ran the program and produced five random numbers between 1 and 100 with two decimal places. Results shown above:\n\n1: 74.07\n2: 94.14\n3: 53.74\n4: 77.29\n5: 87.68\n\nIf you want the code to be saved to a file, run multiple sets, or use a fixed seed for reproducible results, tell me and I can adjust."
+        "text": "I ran the program and produced five random numbers between 1 and 100 with two decimal places. Results shown above:\n\n1: 74.07\n2: 94.14\n3: 53.74\n4: 77.29\n5: 87.68\n\nIf you want the code to be saved to a file, run multiple sets, or use a fixed seed for reproducible results, tell me and I can adjust.",
+        "providerMetadata": {
+          "azure": {
+            "itemId": "msg_02ffbc38ae6fca1a0068ec8768f35c81979428e19fa11468f1"
+          }
+        }
       }
     ]
   },
@@ -54,6 +59,27 @@
     },
     "completion_tokens_details": {
       "reasoning_tokens": 192
+    },
+    "inputTokens": {
+      "total": 1750,
+      "noCache": 1750,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 400,
+      "text": 208,
+      "reasoning": 192
+    },
+    "raw": {
+      "input_tokens": 1750,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 400,
+      "output_tokens_details": {
+        "reasoning_tokens": 192
+      },
+      "total_tokens": 2150
     }
   },
   "finish_reason": "stop",
@@ -61,7 +87,8 @@
   "service_tier": "default",
   "provider_metadata": {
     "azure": {
-      "itemId": "msg_02ffbc38ae6fca1a0068ec8768f35c81979428e19fa11468f1"
+      "responseId": "resp_02ffbc38ae6fca1a0068ec87605cfc819793efdf27e5496675",
+      "serviceTier": "default"
     }
   }
 }

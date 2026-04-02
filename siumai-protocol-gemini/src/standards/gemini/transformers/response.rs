@@ -105,6 +105,80 @@ mod tests_gemini_metadata {
     }
 
     #[test]
+    fn gemini_response_usage_counts_reasoning_inside_completion_totals() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-pro".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": { "parts": [ { "text": "hello" } ] },
+                    "finishReason": "STOP"
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 12,
+                "cachedContentTokenCount": 5,
+                "candidatesTokenCount": 6,
+                "thoughtsTokenCount": 3,
+                "totalTokenCount": 21,
+                "trafficType": "ON_DEMAND"
+            },
+            "modelVersion": "gemini-2.5-pro"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let usage = resp.usage.expect("usage");
+
+        assert_eq!(usage.prompt_tokens(), Some(12));
+        assert_eq!(usage.completion_tokens(), Some(9));
+        assert_eq!(usage.total_tokens(), Some(21));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(7));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(5));
+        assert_eq!(usage.normalized_output_tokens().total, Some(9));
+        assert_eq!(usage.normalized_output_tokens().text, Some(6));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(3));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["trafficType"],
+            serde_json::json!("ON_DEMAND")
+        );
+    }
+
+    #[test]
+    fn gemini_response_usage_preserves_unknown_totals() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-pro".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": { "parts": [ { "text": "hello" } ] },
+                    "finishReason": "STOP"
+                }
+            ],
+            "usageMetadata": {
+                "trafficType": "ON_DEMAND"
+            },
+            "modelVersion": "gemini-2.5-pro"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let usage = resp.usage.expect("usage");
+
+        assert_eq!(usage.prompt_tokens_value(), None);
+        assert_eq!(usage.completion_tokens_value(), None);
+        assert_eq!(usage.total_tokens_value(), None);
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["trafficType"],
+            serde_json::json!("ON_DEMAND")
+        );
+    }
+
+    #[test]
     fn gemini_chat_response_maps_function_call_parts_into_tool_call_content_parts() {
         let cfg = GeminiConfig::default()
             .with_model("gemini-2.0-flash-exp".into())
@@ -187,6 +261,56 @@ mod tests_gemini_metadata {
             .and_then(|v| v.as_array())
             .expect("chosenCandidates array");
         assert_eq!(chosen.len(), 2);
+    }
+
+    #[test]
+    fn gemini_response_maps_thought_files_to_reasoning_file_parts() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-pro".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "inlineData": {
+                                    "mimeType": "application/pdf",
+                                    "data": "aGVsbG8="
+                                },
+                                "thought": true,
+                                "thoughtSignature": "sig_file"
+                            }
+                        ]
+                    }
+                }
+            ],
+            "modelVersion": "gemini-2.5-pro"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let parts = resp.content.as_multimodal().expect("multimodal content");
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            ContentPart::ReasoningFile {
+                media_type,
+                provider_metadata,
+                ..
+            } => {
+                assert_eq!(media_type, "application/pdf");
+                assert_eq!(
+                    provider_metadata
+                        .as_ref()
+                        .and_then(|meta| meta.get("google"))
+                        .and_then(|value| value.get("thoughtSignature"))
+                        .and_then(|value| value.as_str()),
+                    Some("sig_file")
+                );
+            }
+            other => panic!("expected reasoning file part, got: {other:?}"),
+        }
     }
 }
 
@@ -276,6 +400,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         // Add reasoning content
                         content_parts.push(ContentPart::Reasoning {
                             text: text.clone(),
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
                     } else {
@@ -285,19 +410,38 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         text_content.push_str(text);
                         content_parts.push(ContentPart::Text {
                             text: text.clone(),
+                            provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
                     }
                 }
-                Part::InlineData { inline_data, .. } => {
+                Part::InlineData {
+                    inline_data,
+                    thought,
+                    thought_signature,
+                } => {
                     _has_multimodal_content = true;
-                    if inline_data.mime_type.starts_with("image/") {
+                    let provider_metadata = thought_signature_provider_metadata(
+                        provider_key,
+                        thought_signature.as_ref(),
+                    );
+                    if thought.unwrap_or(false) {
+                        content_parts.push(crate::types::ContentPart::ReasoningFile {
+                            source: crate::types::chat::MediaSource::Base64 {
+                                data: inline_data.data.clone(),
+                            },
+                            media_type: inline_data.mime_type.clone(),
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
+                        });
+                    } else if inline_data.mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
                             source: crate::types::chat::MediaSource::Base64 {
                                 data: inline_data.data.clone(),
                             },
                             detail: None,
-                            provider_metadata: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
                         });
                     } else if inline_data.mime_type.starts_with("audio/") {
                         content_parts.push(crate::types::ContentPart::Audio {
@@ -305,7 +449,8 @@ impl ResponseTransformer for GeminiResponseTransformer {
                                 data: inline_data.data.clone(),
                             },
                             media_type: Some(inline_data.mime_type.clone()),
-                            provider_metadata: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
                         });
                     } else {
                         // Other file types
@@ -315,23 +460,42 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             },
                             media_type: inline_data.mime_type.clone(),
                             filename: None,
-                            provider_metadata: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
                         });
                     }
                 }
-                Part::FileData { file_data, .. } => {
+                Part::FileData {
+                    file_data,
+                    thought,
+                    thought_signature,
+                } => {
                     _has_multimodal_content = true;
                     let mime_type = file_data
                         .mime_type
                         .as_deref()
                         .unwrap_or("application/octet-stream");
-                    if mime_type.starts_with("image/") {
+                    let provider_metadata = thought_signature_provider_metadata(
+                        provider_key,
+                        thought_signature.as_ref(),
+                    );
+                    if thought.unwrap_or(false) {
+                        content_parts.push(crate::types::ContentPart::ReasoningFile {
+                            source: crate::types::chat::MediaSource::Url {
+                                url: file_data.file_uri.clone(),
+                            },
+                            media_type: mime_type.to_string(),
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
+                        });
+                    } else if mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
                             source: crate::types::chat::MediaSource::Url {
                                 url: file_data.file_uri.clone(),
                             },
                             detail: None,
-                            provider_metadata: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
                         });
                     } else if mime_type.starts_with("audio/") {
                         content_parts.push(crate::types::ContentPart::Audio {
@@ -339,7 +503,8 @@ impl ResponseTransformer for GeminiResponseTransformer {
                                 url: file_data.file_uri.clone(),
                             },
                             media_type: Some(mime_type.to_string()),
-                            provider_metadata: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
                         });
                     } else {
                         // Other file types
@@ -349,7 +514,8 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             },
                             media_type: mime_type.to_string(),
                             filename: None,
-                            provider_metadata: None,
+                            provider_options: crate::types::ProviderOptionsMap::default(),
+                            provider_metadata,
                         });
                     }
                 }
@@ -370,6 +536,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         tool_name: function_call.name.clone(),
                         arguments,
                         provider_executed: None,
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
                 }
@@ -397,6 +564,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             "code": executable_code.code.clone()
                         }),
                         provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
                 }
@@ -429,6 +597,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                             "output": code_execution_result.output.clone()
                         })),
                         provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
                 }
@@ -436,28 +605,62 @@ impl ResponseTransformer for GeminiResponseTransformer {
             }
         }
 
-        let usage = response.usage_metadata.as_ref().map(|m| Usage {
-            prompt_tokens: m.prompt_token_count.unwrap_or(0) as u32,
-            completion_tokens: m.candidates_token_count.unwrap_or(0) as u32,
-            total_tokens: m.total_token_count.unwrap_or(0) as u32,
-            #[allow(deprecated)]
-            cached_tokens: m.cached_content_token_count.map(|t| t as u32),
-            #[allow(deprecated)]
-            reasoning_tokens: m.thoughts_token_count.map(|t| t as u32),
-            prompt_tokens_details: m.cached_content_token_count.map(|cached| {
-                crate::types::PromptTokensDetails {
-                    audio_tokens: None,
-                    cached_tokens: Some(cached as u32),
-                }
-            }),
-            completion_tokens_details: m.thoughts_token_count.map(|reasoning| {
-                crate::types::CompletionTokensDetails {
-                    reasoning_tokens: Some(reasoning as u32),
-                    audio_tokens: None,
-                    accepted_prediction_tokens: None,
-                    rejected_prediction_tokens: None,
-                }
-            }),
+        let usage = response.usage_metadata.as_ref().map(|m| {
+            let prompt_tokens = m.prompt_token_count.and_then(|t| u32::try_from(t).ok());
+            let text_tokens = m.candidates_token_count.and_then(|t| u32::try_from(t).ok());
+            let total_tokens = m.total_token_count.and_then(|t| u32::try_from(t).ok());
+            let cached_tokens = m
+                .cached_content_token_count
+                .and_then(|t| u32::try_from(t).ok());
+            let reasoning_tokens = m.thoughts_token_count.and_then(|t| u32::try_from(t).ok());
+            let completion_tokens = text_tokens
+                .zip(reasoning_tokens)
+                .map(|(text, reasoning)| text.saturating_add(reasoning))
+                .or(text_tokens)
+                .or_else(|| {
+                    total_tokens
+                        .zip(prompt_tokens)
+                        .map(|(total, prompt)| total.saturating_sub(prompt))
+                });
+            let output_text_tokens = text_tokens.or_else(|| {
+                completion_tokens.map(|total| total.saturating_sub(reasoning_tokens.unwrap_or(0)))
+            });
+
+            let mut builder = Usage::builder()
+                .with_raw_usage_value(serde_json::to_value(m).unwrap_or(serde_json::Value::Null));
+
+            if let Some(prompt_tokens) = prompt_tokens {
+                builder = builder
+                    .prompt_tokens(prompt_tokens)
+                    .with_input_total_tokens(prompt_tokens)
+                    .with_input_no_cache_tokens(
+                        prompt_tokens.saturating_sub(cached_tokens.unwrap_or(0)),
+                    );
+            }
+            if let Some(completion_tokens) = completion_tokens {
+                builder = builder
+                    .completion_tokens(completion_tokens)
+                    .with_output_total_tokens(completion_tokens);
+            }
+            if let Some(output_text_tokens) = output_text_tokens {
+                builder = builder.with_output_text_tokens(output_text_tokens);
+            }
+            if let Some(total_tokens) = total_tokens {
+                builder = builder.total_tokens(total_tokens);
+            }
+
+            if let Some(cached_tokens) = cached_tokens {
+                builder = builder
+                    .with_cached_tokens(cached_tokens)
+                    .with_input_cache_read_tokens(cached_tokens);
+            }
+            if let Some(reasoning_tokens) = reasoning_tokens {
+                builder = builder
+                    .with_reasoning_tokens(reasoning_tokens)
+                    .with_output_reasoning_tokens(reasoning_tokens);
+            }
+
+            builder.build()
         });
 
         let finish_reason = candidate.finish_reason.as_ref().map(|reason| match reason {

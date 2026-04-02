@@ -90,9 +90,9 @@ async fn test_openai_chat_completion_non_streaming() {
 
     // Verify usage
     let usage = response.usage.unwrap();
-    assert_eq!(usage.prompt_tokens, 9);
-    assert_eq!(usage.completion_tokens, 12);
-    assert_eq!(usage.total_tokens, 21);
+    assert_eq!(usage.prompt_tokens(), Some(9));
+    assert_eq!(usage.completion_tokens(), Some(12));
+    assert_eq!(usage.total_tokens(), Some(21));
 }
 
 #[tokio::test]

@@ -28,6 +28,9 @@ pub enum Part {
     InlineData {
         #[serde(rename = "inlineData")]
         inline_data: Blob,
+        /// Optional. Whether this is a reasoning/thought file.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thought: Option<bool>,
         /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
         #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
         thought_signature: Option<String>,
@@ -36,6 +39,9 @@ pub enum Part {
     FileData {
         #[serde(rename = "fileData")]
         file_data: FileData,
+        /// Optional. Whether this is a reasoning/thought file.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thought: Option<bool>,
         /// Optional. An opaque signature for the thought so it can be reused in subsequent requests.
         #[serde(skip_serializing_if = "Option::is_none", rename = "thoughtSignature")]
         thought_signature: Option<String>,
@@ -77,6 +83,7 @@ pub enum Part {
 /// Raw media bytes with MIME type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Blob {
+    #[serde(rename = "mimeType", alias = "mime_type")]
     pub mime_type: String,
     pub data: String,
 }
@@ -84,8 +91,13 @@ pub struct Blob {
 /// URI based data.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileData {
+    #[serde(rename = "fileUri", alias = "file_uri")]
     pub file_uri: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "mimeType",
+        alias = "mime_type"
+    )]
     pub mime_type: Option<String>,
 }
 
@@ -633,6 +645,7 @@ impl Part {
     pub const fn inline_data(mime_type: String, data: String) -> Self {
         Self::InlineData {
             inline_data: Blob { mime_type, data },
+            thought: None,
             thought_signature: None,
         }
     }
@@ -643,6 +656,7 @@ impl Part {
                 file_uri,
                 mime_type,
             },
+            thought: None,
             thought_signature: None,
         }
     }

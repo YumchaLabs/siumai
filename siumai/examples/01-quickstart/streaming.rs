@@ -45,7 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if let Some(usage) = &response.usage {
                     println!(
                         "📊 Usage: {} tokens ({} prompt + {} completion)",
-                        usage.total_tokens, usage.prompt_tokens, usage.completion_tokens
+                        usage.total_tokens().unwrap_or(0),
+                        usage.prompt_tokens().unwrap_or(0),
+                        usage.completion_tokens().unwrap_or(0)
                     );
                 }
             }

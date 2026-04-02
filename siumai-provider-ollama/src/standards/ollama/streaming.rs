@@ -317,8 +317,8 @@ impl JsonEventConverter for OllamaEventConverter {
                 }
 
                 let usage = response.usage.clone();
-                let prompt_eval_count = usage.as_ref().map(|u| u.prompt_tokens);
-                let eval_count = usage.as_ref().map(|u| u.completion_tokens);
+                let prompt_eval_count = usage.as_ref().and_then(|u| u.prompt_tokens());
+                let eval_count = usage.as_ref().and_then(|u| u.completion_tokens());
 
                 let model = self.stream_model.lock().ok().and_then(|v| v.clone());
                 let body = serde_json::json!({
@@ -345,6 +345,8 @@ impl JsonEventConverter for OllamaEventConverter {
             }
             ChatStreamEvent::UsageUpdate { .. }
             | ChatStreamEvent::ToolCallDelta { .. }
+            | ChatStreamEvent::Part { .. }
+            | ChatStreamEvent::PartWithReplay { .. }
             | ChatStreamEvent::Custom { .. } => Ok(Vec::new()),
         }
     }
@@ -399,8 +401,8 @@ mod tests {
             .find(|event| matches!(event, Ok(ChatStreamEvent::UsageUpdate { .. })));
 
         if let Some(Ok(ChatStreamEvent::UsageUpdate { usage })) = usage_event {
-            assert_eq!(usage.prompt_tokens, 10);
-            assert_eq!(usage.completion_tokens, 20);
+            assert_eq!(usage.prompt_tokens(), Some(10));
+            assert_eq!(usage.completion_tokens(), Some(20));
         } else {
             panic!("Expected UsageUpdate event in results: {:?}", result);
         }

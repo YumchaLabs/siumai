@@ -13,9 +13,33 @@ use super::types::{
 };
 use crate::types::{ToolResultContentPart, ToolResultOutput};
 
+fn provider_options_object<'a>(
+    provider_options: Option<&'a crate::types::ProviderOptionsMap>,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    provider_options.and_then(|provider_options| {
+        provider_options
+            .get_object("google")
+            .or_else(|| provider_options.get_object("vertex"))
+    })
+}
+
 fn extract_thought_signature(
+    provider_options: Option<&crate::types::ProviderOptionsMap>,
     provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
 ) -> Option<String> {
+    if let Some(sig) = provider_options_object(provider_options)
+        .and_then(|map| {
+            map.get("thoughtSignature")
+                .or_else(|| map.get("thought_signature"))
+        })
+        .and_then(|value| value.as_str())
+    {
+        let sig = sig.trim();
+        if !sig.is_empty() {
+            return Some(sig.to_string());
+        }
+    }
+
     let map = provider_metadata.as_ref()?;
     for v in map.values() {
         if let Some(sig) = v.get("thoughtSignature").and_then(|s| s.as_str()) {
@@ -35,6 +59,23 @@ fn extract_thought_signature(
         return Some(sig.to_string());
     }
     None
+}
+
+fn extract_thought_flag(
+    provider_options: Option<&crate::types::ProviderOptionsMap>,
+    provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
+) -> bool {
+    provider_options_object(provider_options)
+        .and_then(|map| map.get("thought"))
+        .and_then(|value| value.as_bool())
+        .or_else(|| {
+            provider_metadata.as_ref().and_then(|map| {
+                map.values()
+                    .find_map(|value| value.get("thought").and_then(|value| value.as_bool()))
+                    .or_else(|| map.get("thought").and_then(|value| value.as_bool()))
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn is_empty_object_schema(json_schema: &serde_json::Value) -> bool {
@@ -357,10 +398,14 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                 match content_part {
                     crate::types::ContentPart::Text {
                         text,
+                        provider_options,
                         provider_metadata,
                     } => {
                         if !text.is_empty() {
-                            let thought_signature = extract_thought_signature(provider_metadata);
+                            let thought_signature = extract_thought_signature(
+                                Some(provider_options),
+                                provider_metadata,
+                            );
                             parts.push(Part::Text {
                                 text: text.clone(),
                                 thought: None,
@@ -370,20 +415,27 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                     }
                     crate::types::ContentPart::Image {
                         source,
+                        provider_options,
                         provider_metadata,
                         ..
                     }
                     | crate::types::ContentPart::Audio {
                         source,
+                        provider_options,
                         provider_metadata,
                         ..
                     }
                     | crate::types::ContentPart::File {
                         source,
+                        provider_options,
                         provider_metadata,
                         ..
                     } => {
-                        let thought_signature = extract_thought_signature(provider_metadata);
+                        let thought_signature =
+                            extract_thought_signature(Some(provider_options), provider_metadata);
+                        let thought =
+                            extract_thought_flag(Some(provider_options), provider_metadata)
+                                .then_some(true);
                         match source {
                             crate::types::chat::MediaSource::Url { url } => {
                                 // Vercel AI SDK alignment: assistant messages cannot reference URL-based file data.
@@ -399,6 +451,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                     if let Some((mime_type, data)) = parse_data_url(url) {
                                         parts.push(Part::InlineData {
                                             inline_data: super::types::Blob { mime_type, data },
+                                            thought,
                                             thought_signature,
                                         });
                                     }
@@ -427,6 +480,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                             file_uri: url.clone(),
                                             mime_type,
                                         },
+                                        thought,
                                         thought_signature,
                                     });
                                 }
@@ -448,6 +502,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                         mime_type: mime_type.to_string(),
                                         data: data.clone(),
                                     },
+                                    thought,
                                     thought_signature,
                                 });
                             }
@@ -470,10 +525,56 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                         mime_type: mime_type.to_string(),
                                         data: encoded,
                                     },
+                                    thought,
                                     thought_signature,
                                 });
                             }
                         }
+                    }
+                    crate::types::ContentPart::ReasoningFile {
+                        source,
+                        media_type,
+                        provider_options,
+                        provider_metadata,
+                    } => {
+                        if role.as_deref() != Some("model") {
+                            continue;
+                        }
+
+                        let thought_signature =
+                            extract_thought_signature(Some(provider_options), provider_metadata);
+                        match source {
+                            crate::types::chat::MediaSource::Url { .. } => {
+                                return Err(LlmError::InvalidParameter(
+                                    "File data URLs in assistant messages are not supported"
+                                        .to_string(),
+                                ));
+                            }
+                            crate::types::chat::MediaSource::Base64 { data } => {
+                                parts.push(Part::InlineData {
+                                    inline_data: super::types::Blob {
+                                        mime_type: media_type.clone(),
+                                        data: data.clone(),
+                                    },
+                                    thought: Some(true),
+                                    thought_signature,
+                                });
+                            }
+                            crate::types::chat::MediaSource::Binary { data } => {
+                                parts.push(Part::InlineData {
+                                    inline_data: super::types::Blob {
+                                        mime_type: media_type.clone(),
+                                        data: base64::engine::general_purpose::STANDARD
+                                            .encode(data),
+                                    },
+                                    thought: Some(true),
+                                    thought_signature,
+                                });
+                            }
+                        }
+                    }
+                    crate::types::ContentPart::Custom { .. } => {
+                        // Vercel AI SDK's Google conversion silently skips unsupported custom parts.
                     }
                     crate::types::ContentPart::ToolCall { .. } => {
                         // Tool calls are handled separately in convert_messages
@@ -485,11 +586,15 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                     }
                     crate::types::ContentPart::Reasoning {
                         text,
+                        provider_options,
                         provider_metadata,
                     } => {
                         // Vercel-aligned: assistant reasoning is represented as a "thought" text part.
                         if role.as_deref() == Some("model") && !text.trim().is_empty() {
-                            let thought_signature = extract_thought_signature(provider_metadata);
+                            let thought_signature = extract_thought_signature(
+                                Some(provider_options),
+                                provider_metadata,
+                            );
                             parts.push(Part::Text {
                                 text: text.clone(),
                                 thought: Some(true),
@@ -530,11 +635,13 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
             tool_name,
             arguments,
             provider_executed,
+            provider_options,
             provider_metadata,
             ..
         } = part
         {
-            let thought_signature = extract_thought_signature(provider_metadata);
+            let thought_signature =
+                extract_thought_signature(Some(provider_options), provider_metadata);
             if *provider_executed == Some(true) && tool_name == "code_execution" {
                 let language = match arguments.get("language").and_then(|value| value.as_str()) {
                     Some("PYTHON") => super::types::CodeLanguage::Python,
@@ -568,11 +675,13 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
             tool_name,
             output,
             provider_executed,
+            provider_options,
             provider_metadata,
             ..
         } = part
         {
-            let thought_signature = extract_thought_signature(provider_metadata);
+            let thought_signature =
+                extract_thought_signature(Some(provider_options), provider_metadata);
 
             fn json_value_to_option_string(value: &serde_json::Value) -> Option<String> {
                 match value {
@@ -597,7 +706,8 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
 
             if *provider_executed == Some(true) && tool_name == "code_execution" {
                 let code_execution_result = match output {
-                    ToolResultOutput::Json { value } | ToolResultOutput::ErrorJson { value } => {
+                    ToolResultOutput::Json { value, .. }
+                    | ToolResultOutput::ErrorJson { value, .. } => {
                         let obj = value.as_object();
                         super::types::CodeExecutionResult {
                             outcome: parse_code_execution_outcome(
@@ -609,17 +719,18 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                 .and_then(json_value_to_option_string),
                         }
                     }
-                    ToolResultOutput::Text { value } | ToolResultOutput::ErrorText { value } => {
+                    ToolResultOutput::Text { value, .. }
+                    | ToolResultOutput::ErrorText { value, .. } => {
                         super::types::CodeExecutionResult {
                             outcome: super::types::CodeExecutionOutcome::Unspecified,
                             output: Some(value.clone()),
                         }
                     }
-                    ToolResultOutput::Content { value } => super::types::CodeExecutionResult {
+                    ToolResultOutput::Content { value, .. } => super::types::CodeExecutionResult {
                         outcome: super::types::CodeExecutionOutcome::Unspecified,
                         output: Some(format!("Multimodal content with {} parts", value.len())),
                     },
-                    ToolResultOutput::ExecutionDenied { reason } => {
+                    ToolResultOutput::ExecutionDenied { reason, .. } => {
                         super::types::CodeExecutionResult {
                             outcome: super::types::CodeExecutionOutcome::Failed,
                             output: reason.clone(),
@@ -653,7 +764,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
             }
 
             match output {
-                ToolResultOutput::Text { value } => {
+                ToolResultOutput::Text { value, .. } => {
                     push_function_response_part(
                         &mut parts,
                         tool_name,
@@ -661,7 +772,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         thought_signature,
                     );
                 }
-                ToolResultOutput::Json { value } => {
+                ToolResultOutput::Json { value, .. } => {
                     push_function_response_part(
                         &mut parts,
                         tool_name,
@@ -669,7 +780,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         thought_signature,
                     );
                 }
-                ToolResultOutput::ExecutionDenied { reason } => {
+                ToolResultOutput::ExecutionDenied { reason, .. } => {
                     let msg = reason
                         .clone()
                         .unwrap_or_else(|| "Tool execution denied.".to_string());
@@ -680,7 +791,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         thought_signature,
                     );
                 }
-                ToolResultOutput::ErrorText { value } => {
+                ToolResultOutput::ErrorText { value, .. } => {
                     push_function_response_part(
                         &mut parts,
                         tool_name,
@@ -688,7 +799,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         thought_signature,
                     );
                 }
-                ToolResultOutput::ErrorJson { value } => {
+                ToolResultOutput::ErrorJson { value, .. } => {
                     push_function_response_part(
                         &mut parts,
                         tool_name,
@@ -696,10 +807,10 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         thought_signature,
                     );
                 }
-                ToolResultOutput::Content { value } => {
+                ToolResultOutput::Content { value, .. } => {
                     for content_part in value {
                         match content_part {
-                            ToolResultContentPart::Text { text } => {
+                            ToolResultContentPart::Text { text, .. } => {
                                 push_function_response_part(
                                     &mut parts,
                                     tool_name,
@@ -707,15 +818,15 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                     thought_signature.clone(),
                                 );
                             }
-                            ToolResultContentPart::Image {
-                                source: crate::types::chat::MediaSource::Base64 { data },
-                                ..
+                            ToolResultContentPart::ImageData {
+                                data, media_type, ..
                             } => {
                                 parts.push(Part::InlineData {
                                     inline_data: super::types::Blob {
-                                        mime_type: "image/jpeg".to_string(),
+                                        mime_type: media_type.clone(),
                                         data: data.clone(),
                                     },
+                                    thought: None,
                                     thought_signature: thought_signature.clone(),
                                 });
                                 parts.push(Part::Text {
@@ -725,7 +836,8 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                                     thought_signature: thought_signature.clone(),
                                 });
                             }
-                            content_part @ ToolResultContentPart::Image { .. } => {
+                            content_part @ (ToolResultContentPart::ImageUrl { .. }
+                            | ToolResultContentPart::ImageFileId { .. }) => {
                                 let as_json =
                                     serde_json::to_string(&content_part).unwrap_or_default();
                                 parts.push(Part::Text {
@@ -1649,6 +1761,7 @@ mod system_and_tool_message_tests {
                 ),
             ]),
             metadata: Default::default(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
         };
 
         let req = build_request_body(&cfg, &[msg], None).unwrap();
@@ -1706,5 +1819,32 @@ mod system_and_tool_message_tests {
             err.to_string()
                 .contains("File data URLs in assistant messages are not supported")
         );
+    }
+
+    #[test]
+    fn assistant_reasoning_file_uses_inline_thought_part_and_provider_options_signature() {
+        let message = crate::types::ChatMessage::assistant_with_content(vec![
+            crate::types::ContentPart::reasoning_file_base64("aGVsbG8=", "application/pdf")
+                .with_provider_option("google", serde_json::json!({ "thoughtSignature": "sig_1" })),
+        ])
+        .build();
+
+        let content = convert_message_to_content(&message).expect("convert");
+        assert_eq!(content.role.as_deref(), Some("model"));
+        assert_eq!(content.parts.len(), 1);
+
+        match &content.parts[0] {
+            Part::InlineData {
+                inline_data,
+                thought,
+                thought_signature,
+            } => {
+                assert_eq!(inline_data.mime_type, "application/pdf");
+                assert_eq!(inline_data.data, "aGVsbG8=");
+                assert_eq!(*thought, Some(true));
+                assert_eq!(thought_signature.as_deref(), Some("sig_1"));
+            }
+            other => panic!("expected inline thought file part, got: {other:?}"),
+        }
     }
 }

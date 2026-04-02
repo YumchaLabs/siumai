@@ -123,7 +123,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(usage) = &step.usage {
                 println!(
                     "     - Tokens: {} prompt + {} completion = {} total",
-                    usage.prompt_tokens, usage.completion_tokens, usage.total_tokens
+                    usage.prompt_tokens().unwrap_or(0),
+                    usage.completion_tokens().unwrap_or(0),
+                    usage.total_tokens().unwrap_or(0)
                 );
             }
         })),
@@ -133,9 +135,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(total_usage) = StepResult::merge_usage(steps) {
                 println!(
                     "     - Total tokens: {} prompt + {} completion = {} total",
-                    total_usage.prompt_tokens,
-                    total_usage.completion_tokens,
-                    total_usage.total_tokens
+                    total_usage.prompt_tokens().unwrap_or(0),
+                    total_usage.completion_tokens().unwrap_or(0),
+                    total_usage.total_tokens().unwrap_or(0)
                 );
             }
         })),
@@ -167,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         steps.iter().map(|s| s.tool_calls.len()).sum::<usize>());
 
     if let Some(total_usage) = StepResult::merge_usage(&steps) {
-        println!("  - Total tokens: {}", total_usage.total_tokens);
+        println!("  - Total tokens: {}", total_usage.total_tokens().unwrap_or(0));
     }
 
     println!("\n✅ Example completed successfully!");

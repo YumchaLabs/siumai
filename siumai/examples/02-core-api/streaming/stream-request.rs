@@ -36,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ChatStreamEvent::StreamEnd { response } => {
                 println!("\n\n✅ Stream completed!");
                 if let Some(usage) = &response.usage {
-                    println!("📊 Tokens: {}", usage.total_tokens);
+                    println!("📊 Tokens: {}", usage.total_tokens().unwrap_or(0));
                 }
             }
             _ => {}

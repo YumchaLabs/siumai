@@ -48,7 +48,21 @@
       },
       {
         "type": "text",
-        "text": "Here are three major news stories from today, November 19, 2025:\n\n1. President Donald Trump hosted Saudi Crown Prince Mohammed bin Salman (MBS) at the White House. Trump defended the Saudi prince over the 2018 murder of journalist Jamal Khashoggi, dismissing it as \"things happened\" and praising MBS's human rights record. The visit included a lavish military parade and the announcement of a $1.3 trillion investment pledge by Saudi Arabia in the U.S. [The Straits Times](https://www.straitstimes.com/world/while-you-were-sleeping-5-stories-you-might-have-missed-nov-19-2025)\n\n2. The U.S. House of Representatives voted overwhelmingly (427-1) to compel the Justice Department to release all unclassified files related to Jeffrey Epstein. This followed a shift from Trump who had initially opposed the release. The resolution now moves to the Senate for consideration. [The Straits Times](https://www.straitstimes.com/world/while-you-were-sleeping-5-stories-you-might-have-missed-nov-19-2025)\n\n3. Spain pledged €817 million (approximately $1.2 billion) in military and other aid to Ukraine to help bolster Kyiv’s air defenses against ongoing Russian attacks. The aid is part of a 10-year bilateral security and defense agreement signed in 2024 and includes purchasing U.S. military equipment under NATO’s prioritization. [The Straits Times](https://www.straitstimes.com/world/while-you-were-sleeping-5-stories-you-might-have-missed-nov-19-2025)\n\nIf you want more details or other news stories, feel free to ask!"
+        "text": "Here are three major news stories from today, November 19, 2025:\n\n1. President Donald Trump hosted Saudi Crown Prince Mohammed bin Salman (MBS) at the White House. Trump defended the Saudi prince over the 2018 murder of journalist Jamal Khashoggi, dismissing it as \"things happened\" and praising MBS's human rights record. The visit included a lavish military parade and the announcement of a $1.3 trillion investment pledge by Saudi Arabia in the U.S. [The Straits Times](https://www.straitstimes.com/world/while-you-were-sleeping-5-stories-you-might-have-missed-nov-19-2025)\n\n2. The U.S. House of Representatives voted overwhelmingly (427-1) to compel the Justice Department to release all unclassified files related to Jeffrey Epstein. This followed a shift from Trump who had initially opposed the release. The resolution now moves to the Senate for consideration. [The Straits Times](https://www.straitstimes.com/world/while-you-were-sleeping-5-stories-you-might-have-missed-nov-19-2025)\n\n3. Spain pledged €817 million (approximately $1.2 billion) in military and other aid to Ukraine to help bolster Kyiv’s air defenses against ongoing Russian attacks. The aid is part of a 10-year bilateral security and defense agreement signed in 2024 and includes purchasing U.S. military equipment under NATO’s prioritization. [The Straits Times](https://www.straitstimes.com/world/while-you-were-sleeping-5-stories-you-might-have-missed-nov-19-2025)\n\nIf you want more details or other news stories, feel free to ask!",
+        "providerMetadata": {
+          "azure": {
+            "itemId": "msg_015f6a6b41cacae400691daacf3e70819397c7d2d5d05e1605",
+            "annotations": [
+              {
+                "type": "url_citation",
+                "end_index": 576,
+                "start_index": 453,
+                "title": "While You Were Sleeping: 5 stories you might have missed, Nov 19, 2025",
+                "url": "https://www.straitstimes.com/world/while-you-were-sleeping-5-stories-you-might-have-missed-nov-19-2025"
+              }
+            ]
+          }
+        }
       }
     ]
   },
@@ -64,6 +78,27 @@
     },
     "completion_tokens_details": {
       "reasoning_tokens": 0
+    },
+    "inputTokens": {
+      "total": 10188,
+      "noCache": 10188,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 405,
+      "text": 405,
+      "reasoning": 0
+    },
+    "raw": {
+      "input_tokens": 10188,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 405,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 10593
     }
   },
   "finish_reason": "stop",
@@ -79,7 +114,8 @@
           "title": "While You Were Sleeping: 5 stories you might have missed, Nov 19, 2025"
         }
       ],
-      "itemId": "msg_015f6a6b41cacae400691daacf3e70819397c7d2d5d05e1605"
+      "responseId": "resp_015f6a6b41cacae400691daacaec1c8193aa7694e479437a70",
+      "serviceTier": "default"
     }
   }
 }

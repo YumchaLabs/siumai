@@ -130,15 +130,43 @@ struct GeminiSiumaiMetadata {
 /// Gemini usage metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct GeminiUsageMetadata {
-    #[serde(rename = "promptTokenCount")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "promptTokenCount"
+    )]
     prompt_token_count: Option<u32>,
-    #[serde(rename = "candidatesTokenCount")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "cachedContentTokenCount"
+    )]
+    cached_content_token_count: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "candidatesTokenCount"
+    )]
     candidates_token_count: Option<u32>,
-    #[serde(rename = "totalTokenCount")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "totalTokenCount"
+    )]
     total_token_count: Option<u32>,
     /// Number of tokens used for thinking (only for thinking models)
-    #[serde(rename = "thoughtsTokenCount")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "thoughtsTokenCount"
+    )]
     thoughts_token_count: Option<u32>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "trafficType"
+    )]
+    traffic_type: Option<String>,
 }
 
 /// Gemini event converter
@@ -192,12 +220,12 @@ impl GeminiEventConverter {
         self
     }
 
-    /// Emit Vercel-aligned v3 `tool-call` parts (as `ChatStreamEvent::Custom`) for `functionCall`
+    /// Emit Vercel-aligned v3 `tool-call` parts (as `ChatStreamEvent::Part`) for `functionCall`
     /// stream chunks.
     ///
     /// Notes:
-    /// - When enabled, the converter emits `ChatStreamEvent::Custom` events instead of
-    ///   `ChatStreamEvent::ToolCallDelta` for `functionCall` chunks.
+    /// - When enabled, the converter emits first-class `ChatStreamEvent::Part` tool-call events
+    ///   instead of `ChatStreamEvent::ToolCallDelta` for `functionCall` chunks.
     /// - This is useful for gateways/proxies that want to preserve Gemini-only metadata such as
     ///   `thoughtSignature` across transcoding.
     pub fn with_emit_v3_tool_call_parts(mut self, enabled: bool) -> Self {
@@ -237,16 +265,24 @@ impl GeminiEventConverter {
         }
     }
 
-    fn thought_signature_provider_metadata_value(
+    fn thought_signature_provider_metadata(
         &self,
         sig: Option<&String>,
-    ) -> Option<serde_json::Value> {
+    ) -> Option<crate::types::StreamProviderMetadata> {
         let sig = sig?;
         if sig.trim().is_empty() {
             return None;
         }
         let key = self.provider_metadata_key();
-        Some(serde_json::json!({ key: { "thoughtSignature": sig } }))
+        let mut inner = serde_json::Map::new();
+        inner.insert(
+            "thoughtSignature".to_string(),
+            serde_json::Value::String(sig.clone()),
+        );
+
+        let mut provider_metadata = crate::types::StreamProviderMetadata::new();
+        provider_metadata.insert(key.to_string(), serde_json::Value::Object(inner));
+        Some(provider_metadata)
     }
 
     fn take_reasoning_block_id(&self) -> Option<String> {
@@ -280,13 +316,12 @@ impl GeminiEventConverter {
         }
 
         // Process thinking content (if supported).
-        // Also emit Vercel-aligned custom reasoning events with providerMetadata.thoughtSignature.
         for (thinking, sig) in self.extract_thinking_parts(&response) {
             if thinking.is_empty() {
                 continue;
             }
 
-            let provider_metadata = self.thought_signature_provider_metadata_value(sig.as_ref());
+            let provider_metadata = self.thought_signature_provider_metadata(sig.as_ref());
 
             // reasoning-start
             let id = {
@@ -300,48 +335,27 @@ impl GeminiEventConverter {
                     let next = self.next_block_id.fetch_add(1, Ordering::Relaxed);
                     let id = next.to_string();
                     *lock = Some(id.clone());
-                    let mut obj = serde_json::Map::new();
-                    obj.insert(
-                        "type".to_string(),
-                        serde_json::Value::String("reasoning-start".to_string()),
-                    );
-                    obj.insert("id".to_string(), serde_json::Value::String(id.clone()));
-                    if let Some(pm) = provider_metadata.clone() {
-                        obj.insert("providerMetadata".to_string(), pm);
-                    }
-                    builder = builder.add_custom_event(
-                        "gemini:reasoning".to_string(),
-                        serde_json::Value::Object(obj),
-                    );
+                    builder = builder.add_part(crate::types::ChatStreamPart::ReasoningStart {
+                        id: id.clone(),
+                        provider_metadata: provider_metadata.clone(),
+                    });
                     id
                 }
             };
 
             // reasoning-delta
-            let mut obj = serde_json::Map::new();
-            obj.insert(
-                "type".to_string(),
-                serde_json::Value::String("reasoning-delta".to_string()),
-            );
-            obj.insert("id".to_string(), serde_json::Value::String(id));
-            obj.insert(
-                "delta".to_string(),
-                serde_json::Value::String(thinking.clone()),
-            );
-            if let Some(pm) = provider_metadata {
-                obj.insert("providerMetadata".to_string(), pm);
-            }
-            builder = builder.add_custom_event(
-                "gemini:reasoning".to_string(),
-                serde_json::Value::Object(obj),
-            );
+            builder = builder.add_part(crate::types::ChatStreamPart::ReasoningDelta {
+                id,
+                delta: thinking.clone(),
+                provider_metadata,
+            });
 
             builder = builder.add_thinking_delta(thinking);
         }
 
-        // Process provider-executed tool parts (Vercel-aligned tool-call/tool-result events).
-        for data in self.extract_code_execution_events(&response) {
-            builder = builder.add_custom_event("gemini:tool".to_string(), data);
+        // Process provider-executed tool parts.
+        for part in self.extract_code_execution_parts(&response) {
+            builder = builder.add_part(part);
         }
 
         // Process client-executed tool calls (functionCall parts).
@@ -350,28 +364,24 @@ impl GeminiEventConverter {
             let call_id = format!("call_{id_num}");
 
             if self.emit_v3_tool_call_parts {
-                let mut obj = serde_json::Map::new();
-                obj.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("tool-call".to_string()),
-                );
-                obj.insert("toolCallId".to_string(), serde_json::Value::String(call_id));
-                obj.insert("toolName".to_string(), serde_json::Value::String(tool_name));
-                obj.insert("input".to_string(), serde_json::Value::String(args_json));
-                if let Some(pm) =
-                    self.thought_signature_provider_metadata_value(thought_sig.as_ref())
-                {
-                    obj.insert("providerMetadata".to_string(), pm);
-                }
-                builder = builder
-                    .add_custom_event("gemini:tool".to_string(), serde_json::Value::Object(obj));
+                builder = builder.add_part(crate::types::ChatStreamPart::ToolCall(
+                    crate::types::ChatStreamToolCall {
+                        tool_call_id: call_id,
+                        tool_name,
+                        input: args_json,
+                        provider_executed: None,
+                        dynamic: None,
+                        provider_metadata: self
+                            .thought_signature_provider_metadata(thought_sig.as_ref()),
+                    },
+                ));
             } else {
                 builder =
                     builder.add_tool_call_delta(call_id, Some(tool_name), Some(args_json), None);
             }
         }
 
-        // Process client-provided tool results (functionResponse parts) as v3 tool-result events.
+        // Process client-provided tool results (functionResponse parts).
         for (tool_name, result, thought_sig) in self.extract_function_response_events(&response) {
             let id_num = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
             let tool_call_id = response
@@ -380,23 +390,18 @@ impl GeminiEventConverter {
                 .and_then(|m| m.tool_call_id.clone())
                 .unwrap_or_else(|| format!("call_{id_num}"));
 
-            let mut obj = serde_json::Map::new();
-            obj.insert(
-                "type".to_string(),
-                serde_json::Value::String("tool-result".to_string()),
-            );
-            obj.insert(
-                "toolCallId".to_string(),
-                serde_json::Value::String(tool_call_id),
-            );
-            obj.insert("toolName".to_string(), serde_json::Value::String(tool_name));
-            obj.insert("result".to_string(), result);
-            if let Some(pm) = self.thought_signature_provider_metadata_value(thought_sig.as_ref()) {
-                obj.insert("providerMetadata".to_string(), pm);
-            }
-
-            builder =
-                builder.add_custom_event("gemini:tool".to_string(), serde_json::Value::Object(obj));
+            builder = builder.add_part(crate::types::ChatStreamPart::ToolResult(
+                crate::types::ChatStreamToolResult {
+                    tool_call_id,
+                    tool_name,
+                    result,
+                    is_error: None,
+                    preliminary: None,
+                    dynamic: None,
+                    provider_metadata: self
+                        .thought_signature_provider_metadata(thought_sig.as_ref()),
+                },
+            ));
         }
 
         // Process usage update if available
@@ -404,24 +409,18 @@ impl GeminiEventConverter {
             builder = builder.add_usage_update(usage);
         }
 
-        // Emit normalized sources (Vercel-aligned) if grounding chunks are present.
-        for data in self.extract_source_events(&response) {
-            builder = builder.add_custom_event("gemini:source".to_string(), data);
+        // Emit normalized sources if grounding chunks are present.
+        for part in self.extract_source_parts(&response) {
+            builder = builder.add_part(part);
         }
 
         // Handle completion/finish reason
         if let Some(end_response) = self.extract_completion(&response) {
             if let Some(id) = self.take_reasoning_block_id() {
-                let mut obj = serde_json::Map::new();
-                obj.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("reasoning-end".to_string()),
-                );
-                obj.insert("id".to_string(), serde_json::Value::String(id));
-                builder = builder.add_custom_event(
-                    "gemini:reasoning".to_string(),
-                    serde_json::Value::Object(obj),
-                );
+                builder = builder.add_part(crate::types::ChatStreamPart::ReasoningEnd {
+                    id,
+                    provider_metadata: None,
+                });
             }
             builder = builder.add_stream_end(end_response);
         }
@@ -555,11 +554,11 @@ impl GeminiEventConverter {
         false
     }
 
-    fn extract_code_execution_events(
+    fn extract_code_execution_parts(
         &self,
         response: &GeminiStreamResponse,
-    ) -> Vec<serde_json::Value> {
-        let mut out: Vec<serde_json::Value> = Vec::new();
+    ) -> Vec<crate::types::ChatStreamPart> {
+        let mut out: Vec<crate::types::ChatStreamPart> = Vec::new();
 
         let Some(candidates) = response.candidates.as_ref() else {
             return out;
@@ -588,13 +587,17 @@ impl GeminiEventConverter {
                         "code": exec.code.clone().unwrap_or_default()
                     });
 
-                    out.push(serde_json::json!({
-                        "type": "tool-call",
-                        "toolCallId": id,
-                        "toolName": "code_execution",
-                        "providerExecuted": true,
-                        "input": input
-                    }));
+                    out.push(crate::types::ChatStreamPart::ToolCall(
+                        crate::types::ChatStreamToolCall {
+                            tool_call_id: id,
+                            tool_name: "code_execution".to_string(),
+                            input: serde_json::to_string(&input)
+                                .unwrap_or_else(|_| "{}".to_string()),
+                            provider_executed: Some(true),
+                            dynamic: None,
+                            provider_metadata: None,
+                        },
+                    ));
                 }
 
                 if let Some(res) = part.code_execution_result.as_ref() {
@@ -605,16 +608,20 @@ impl GeminiEventConverter {
                         format!("call_{}", uuid::Uuid::new_v4())
                     };
 
-                    out.push(serde_json::json!({
-                        "type": "tool-result",
-                        "toolCallId": id,
-                        "toolName": "code_execution",
-                        "providerExecuted": true,
-                        "result": {
-                            "outcome": res.outcome.clone().unwrap_or_else(|| "OUTCOME_OK".to_string()),
-                            "output": res.output.clone().unwrap_or_default()
-                        }
-                    }));
+                    out.push(crate::types::ChatStreamPart::ToolResult(
+                        crate::types::ChatStreamToolResult {
+                            tool_call_id: id,
+                            tool_name: "code_execution".to_string(),
+                            result: serde_json::json!({
+                                "outcome": res.outcome.clone().unwrap_or_else(|| "OUTCOME_OK".to_string()),
+                                "output": res.output.clone().unwrap_or_default()
+                            }),
+                            is_error: None,
+                            preliminary: None,
+                            dynamic: None,
+                            provider_metadata: None,
+                        },
+                    ));
                 }
             }
         }
@@ -648,9 +655,12 @@ impl GeminiEventConverter {
         out
     }
 
-    /// Extract Vercel-aligned source events from grounding metadata (deduplicated across stream).
-    fn extract_source_events(&self, response: &GeminiStreamResponse) -> Vec<serde_json::Value> {
-        let mut out: Vec<serde_json::Value> = Vec::new();
+    /// Extract normalized source parts from grounding metadata (deduplicated across stream).
+    fn extract_source_parts(
+        &self,
+        response: &GeminiStreamResponse,
+    ) -> Vec<crate::types::ChatStreamPart> {
+        let mut out: Vec<crate::types::ChatStreamPart> = Vec::new();
 
         let Some(candidates) = response.candidates.as_ref() else {
             return out;
@@ -670,37 +680,37 @@ impl GeminiEventConverter {
                 }
 
                 let id_num = self.next_source_id.fetch_add(1, Ordering::Relaxed);
-                let mut obj = serde_json::Map::new();
-                obj.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("source".to_string()),
-                );
-                obj.insert(
-                    "sourceType".to_string(),
-                    serde_json::Value::String(source.source_type.clone()),
-                );
-                obj.insert(
-                    "id".to_string(),
-                    serde_json::Value::String(format!("src_{id_num}")),
-                );
+                let id = format!("src_{id_num}");
+                let source_part = match source.source_type.as_str() {
+                    "url" => {
+                        let Some(url) = source.url else {
+                            continue;
+                        };
+                        crate::types::SourcePart::Url {
+                            url,
+                            title: source.title,
+                        }
+                    }
+                    "document" => {
+                        let Some(media_type) = source.media_type else {
+                            continue;
+                        };
+                        crate::types::SourcePart::Document {
+                            media_type,
+                            title: source
+                                .title
+                                .unwrap_or_else(|| "Unknown Document".to_string()),
+                            filename: source.filename,
+                        }
+                    }
+                    _ => continue,
+                };
 
-                if let Some(url) = source.url {
-                    obj.insert("url".to_string(), serde_json::Value::String(url));
-                }
-                if let Some(title) = source.title {
-                    obj.insert("title".to_string(), serde_json::Value::String(title));
-                }
-                if let Some(media_type) = source.media_type {
-                    obj.insert(
-                        "mediaType".to_string(),
-                        serde_json::Value::String(media_type),
-                    );
-                }
-                if let Some(filename) = source.filename {
-                    obj.insert("filename".to_string(), serde_json::Value::String(filename));
-                }
-
-                out.push(serde_json::Value::Object(obj));
+                out.push(crate::types::ChatStreamPart::Source {
+                    id,
+                    source: source_part,
+                    provider_metadata: None,
+                });
             }
         }
 
@@ -801,26 +811,60 @@ impl GeminiEventConverter {
     /// Extract usage information
     fn extract_usage(&self, response: &GeminiStreamResponse) -> Option<Usage> {
         if let Some(meta) = &response.usage_metadata {
-            return Some(Usage {
-                prompt_tokens: meta.prompt_token_count.unwrap_or(0),
-                completion_tokens: meta.candidates_token_count.unwrap_or(0),
-                total_tokens: meta.total_token_count.unwrap_or(
-                    meta.prompt_token_count.unwrap_or(0) + meta.candidates_token_count.unwrap_or(0),
-                ),
-                #[allow(deprecated)]
-                cached_tokens: None,
-                #[allow(deprecated)]
-                reasoning_tokens: meta.thoughts_token_count,
-                prompt_tokens_details: None,
-                completion_tokens_details: meta.thoughts_token_count.map(|reasoning| {
-                    crate::types::CompletionTokensDetails {
-                        reasoning_tokens: Some(reasoning),
-                        audio_tokens: None,
-                        accepted_prediction_tokens: None,
-                        rejected_prediction_tokens: None,
-                    }
-                }),
+            let prompt_tokens = meta.prompt_token_count;
+            let text_tokens = meta.candidates_token_count;
+            let total_tokens = meta.total_token_count;
+            let cached_tokens = meta.cached_content_token_count;
+            let reasoning_tokens = meta.thoughts_token_count;
+            let completion_tokens = text_tokens
+                .zip(reasoning_tokens)
+                .map(|(text, reasoning)| text.saturating_add(reasoning))
+                .or(text_tokens)
+                .or_else(|| {
+                    total_tokens
+                        .zip(prompt_tokens)
+                        .map(|(total, prompt)| total.saturating_sub(prompt))
+                });
+            let output_text_tokens = text_tokens.or_else(|| {
+                completion_tokens.map(|total| total.saturating_sub(reasoning_tokens.unwrap_or(0)))
             });
+
+            let mut builder = Usage::builder().with_raw_usage_value(
+                serde_json::to_value(meta).unwrap_or(serde_json::Value::Null),
+            );
+
+            if let Some(prompt_tokens) = prompt_tokens {
+                builder = builder
+                    .prompt_tokens(prompt_tokens)
+                    .with_input_total_tokens(prompt_tokens)
+                    .with_input_no_cache_tokens(
+                        prompt_tokens.saturating_sub(cached_tokens.unwrap_or(0)),
+                    );
+            }
+            if let Some(completion_tokens) = completion_tokens {
+                builder = builder
+                    .completion_tokens(completion_tokens)
+                    .with_output_total_tokens(completion_tokens);
+            }
+            if let Some(output_text_tokens) = output_text_tokens {
+                builder = builder.with_output_text_tokens(output_text_tokens);
+            }
+            if let Some(total_tokens) = total_tokens {
+                builder = builder.total_tokens(total_tokens);
+            }
+            if let Some(cached_tokens) = cached_tokens {
+                builder = builder
+                    .with_cached_tokens(cached_tokens)
+                    .with_input_cache_read_tokens(cached_tokens);
+            }
+
+            if let Some(reasoning_tokens) = reasoning_tokens {
+                builder = builder
+                    .with_reasoning_tokens(reasoning_tokens)
+                    .with_output_reasoning_tokens(reasoning_tokens);
+            }
+
+            return Some(builder.build());
         }
         None
     }

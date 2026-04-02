@@ -79,6 +79,52 @@ pub(super) fn serialize_event(
         sse_data_frame(&payload)
     }
 
+    fn usage_metadata_payload(usage: &Usage) -> serde_json::Value {
+        let normalized_input = usage.normalized_input_tokens();
+        let normalized_output = usage.normalized_output_tokens();
+        let prompt_tokens = normalized_input
+            .total
+            .or_else(|| usage.prompt_tokens_value());
+        let output_tokens = normalized_output
+            .total
+            .or_else(|| usage.completion_tokens_value());
+        let total_tokens = usage.total_tokens_value().or_else(|| {
+            prompt_tokens
+                .zip(output_tokens)
+                .map(|(prompt, completion)| prompt.saturating_add(completion))
+        });
+
+        let mut usage_metadata = usage
+            .raw_usage_value()
+            .and_then(|value| serde_json::from_value::<GeminiUsageMetadata>(value).ok())
+            .unwrap_or(GeminiUsageMetadata {
+                prompt_token_count: None,
+                cached_content_token_count: None,
+                candidates_token_count: None,
+                total_token_count: None,
+                thoughts_token_count: None,
+                traffic_type: None,
+            });
+
+        if let Some(prompt_tokens) = prompt_tokens {
+            usage_metadata.prompt_token_count = Some(prompt_tokens);
+        }
+        if let Some(cached_tokens) = normalized_input.cache_read {
+            usage_metadata.cached_content_token_count = Some(cached_tokens);
+        }
+        if let Some(text_tokens) = normalized_output.text {
+            usage_metadata.candidates_token_count = Some(text_tokens);
+        }
+        if let Some(total_tokens) = total_tokens {
+            usage_metadata.total_token_count = Some(total_tokens);
+        }
+        if let Some(reasoning_tokens) = normalized_output.reasoning {
+            usage_metadata.thoughts_token_count = Some(reasoning_tokens);
+        }
+
+        serde_json::to_value(usage_metadata).unwrap_or(serde_json::json!({}))
+    }
+
     fn flush_pending_reasoning_chunk(this: &GeminiEventConverter) -> Result<Vec<u8>, LlmError> {
         let pending = {
             let mut state = this.serialize_state.lock().map_err(|_| {
@@ -145,24 +191,8 @@ pub(super) fn serialize_event(
         }
         ChatStreamEvent::UsageUpdate { usage } => {
             let mut out = flush_pending_reasoning_chunk(this)?;
-            let thoughts = usage
-                .completion_tokens_details
-                .as_ref()
-                .and_then(|d| d.reasoning_tokens)
-                .or({
-                    #[allow(deprecated)]
-                    {
-                        usage.reasoning_tokens
-                    }
-                });
-
             let payload = serde_json::json!({
-                "usageMetadata": {
-                    "promptTokenCount": usage.prompt_tokens,
-                    "candidatesTokenCount": usage.completion_tokens,
-                    "totalTokenCount": usage.total_tokens,
-                    "thoughtsTokenCount": thoughts,
-                }
+                "usageMetadata": usage_metadata_payload(usage)
             });
             out.extend_from_slice(&sse_data_frame(&payload)?);
             Ok(out)
@@ -250,27 +280,7 @@ pub(super) fn serialize_event(
                 .as_ref()
                 .map(map_finish_reason)
                 .unwrap_or("STOP");
-
-            let thoughts = response
-                .usage
-                .as_ref()
-                .and_then(|u| u.completion_tokens_details.as_ref())
-                .and_then(|d| d.reasoning_tokens)
-                .or_else(|| {
-                    #[allow(deprecated)]
-                    {
-                        response.usage.as_ref().and_then(|u| u.reasoning_tokens)
-                    }
-                });
-
-            let usage = response.usage.as_ref().map(|u| {
-                serde_json::json!({
-                    "promptTokenCount": u.prompt_tokens,
-                    "candidatesTokenCount": u.completion_tokens,
-                    "totalTokenCount": u.total_tokens,
-                    "thoughtsTokenCount": thoughts,
-                })
-            });
+            let usage = response.usage.as_ref().map(usage_metadata_payload);
 
             // Flush pending tool calls (best-effort) before finish chunk.
             if let Ok(mut state) = this.serialize_state.lock() {
@@ -346,6 +356,17 @@ pub(super) fn serialize_event(
             });
             out.extend_from_slice(&sse_data_frame(&payload)?);
             Ok(out)
+        }
+        ChatStreamEvent::Part { .. } | ChatStreamEvent::PartWithReplay { .. } => {
+            let Some(part) = LanguageModelV3StreamPart::try_from_chat_event(event) else {
+                return Ok(Vec::new());
+            };
+            let Some(custom_event) =
+                part.to_custom_event(crate::streaming::StreamPartNamespace::Gemini)
+            else {
+                return Ok(Vec::new());
+            };
+            serialize_event(this, &custom_event)
         }
         ChatStreamEvent::Custom { data, .. } => {
             let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) else {

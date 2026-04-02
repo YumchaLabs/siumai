@@ -1,7 +1,7 @@
 [
   {
-    "type": "unsupported-setting",
-    "setting": "tools",
-    "details": "combination of function and provider-defined tools"
+    "type": "unsupported",
+    "details": "combination of function and provider-defined tools",
+    "feature": "tools"
   }
 ]
