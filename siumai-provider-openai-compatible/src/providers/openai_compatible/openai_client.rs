@@ -11,6 +11,7 @@ use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleStructuredOutputsWarningMiddleware;
+use crate::providers::openai_compatible::middleware::OpenAiCompatibleToolWarningsMiddleware;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
@@ -133,6 +134,8 @@ fn compat_model_middlewares(
             OpenAiCompatibleStructuredOutputsWarningMiddleware::new(),
         ));
     }
+
+    middlewares.push(Arc::new(OpenAiCompatibleToolWarningsMiddleware::new()));
 
     middlewares
 }
@@ -3110,6 +3113,74 @@ mod tests {
         );
         assert!(captured.body.get("strictJsonSchema").is_none());
         assert!(captured.body.get("textVerbosity").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_provider_defined_tools_emit_ai_sdk_warning() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl_tool_warning",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "ok"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![Tool::provider_defined(
+                "openai.web_search",
+                "web_search",
+            )])
+            .build();
+
+        let response = client.chat_request(request).await.expect("response ok");
+        let captured = transport.take().expect("captured request");
+
+        assert!(captured.body.get("tools").is_none());
+        assert_eq!(
+            response.warnings,
+            Some(vec![crate::types::Warning::unsupported(
+                "provider-defined tool openai.web_search",
+                None::<String>,
+            )])
+        );
     }
 
     #[tokio::test]

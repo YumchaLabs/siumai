@@ -25,9 +25,10 @@ impl OpenAiCompatibleToolWarningsMiddleware {
         tools
             .iter()
             .filter_map(|t| match t {
-                Tool::ProviderDefined(t) => {
-                    Some(Warning::unsupported_tool(t.id.clone(), None::<String>))
-                }
+                Tool::ProviderDefined(t) => Some(Warning::unsupported(
+                    format!("provider-defined tool {}", t.id),
+                    None::<String>,
+                )),
                 _ => None,
             })
             .collect()
@@ -94,11 +95,11 @@ mod tests {
 
         assert!(warnings.iter().any(|w| matches!(
             w,
-            Warning::Unsupported { feature, .. } if feature == "openai.web_search"
+            Warning::Unsupported { feature, .. } if feature == "provider-defined tool openai.web_search"
         )));
         assert!(warnings.iter().any(|w| matches!(
             w,
-            Warning::Unsupported { feature, .. } if feature == "google.google_search"
+            Warning::Unsupported { feature, .. } if feature == "provider-defined tool google.google_search"
         )));
     }
 }

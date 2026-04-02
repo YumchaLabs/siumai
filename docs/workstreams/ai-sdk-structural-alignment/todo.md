@@ -111,6 +111,9 @@ Status legend:
     `openai-compatible`, canonical `openaiCompatible`, and provider-owned keys:
     `user`, `reasoningEffort`, `textVerbosity`, and `strictJsonSchema` now map to wire
     `user`, `reasoning_effort`, `verbosity`, and `response_format.json_schema.strict`
+  - provider-defined tools now also emit AI SDK-style
+    `unsupported { feature: "provider-defined tool <id>" }` warnings on the default compat
+    runtime response path while still being filtered from Chat Completions requests
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.

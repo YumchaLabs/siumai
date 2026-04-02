@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reasoningEffort`, `textVerbosity`, and `strictJsonSchema` now map to wire `user`,
   `reasoning_effort`, `verbosity`, and `response_format.json_schema.strict` instead of leaking as
   raw camelCase request fields.
+- OpenAI-compatible chat runtime now also installs AI SDK-style provider-defined tool warnings on
+  the default response path: provider-defined tools remain filtered out of Chat Completions
+  requests, and successful chat responses now emit `unsupported { feature: "provider-defined tool
+  <id>" }` warnings without extra user-installed middleware.
 
 ## [0.11.0-beta.5] - 2026-01-15
 
