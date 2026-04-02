@@ -5,7 +5,7 @@ use crate::core::{
 use crate::error::LlmError;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::traits::ProviderCapabilities;
-use crate::types::{ChatRequest, RerankRequest};
+use crate::types::{ChatRequest, ImageEditRequest, ImageVariationRequest, RerankRequest};
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -128,22 +128,29 @@ fn apply_chat_request_settings(
     body_obj: &mut serde_json::Map<String, serde_json::Value>,
     settings: &OpenAiCompatibleRequestSettings,
     supports_stream_usage_hints: bool,
+    request_uses_structured_outputs: bool,
 ) {
     let stream = body_obj
         .get("stream")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
-    if !stream {
-        return;
+
+    if stream {
+        if settings.include_usage == Some(true) && supports_stream_usage_hints {
+            body_obj.insert(
+                "stream_options".to_string(),
+                serde_json::json!({ "include_usage": true }),
+            );
+        } else {
+            body_obj.remove("stream_options");
+        }
     }
 
-    if settings.include_usage == Some(true) && supports_stream_usage_hints {
+    if settings.supports_structured_outputs == Some(false) && request_uses_structured_outputs {
         body_obj.insert(
-            "stream_options".to_string(),
-            serde_json::json!({ "include_usage": true }),
+            "response_format".to_string(),
+            serde_json::json!({ "type": "json_object" }),
         );
-    } else {
-        body_obj.remove("stream_options");
     }
 }
 
@@ -171,6 +178,7 @@ fn chat_request_settings_hook(
     map: &crate::types::ProviderOptionsMap,
     settings: &OpenAiCompatibleRequestSettings,
     supports_stream_usage_hints: bool,
+    request_uses_structured_outputs: bool,
 ) -> crate::execution::executors::BeforeSendHook {
     let provider_id = provider_id.to_string();
     let provider_options = normalize_provider_options(&provider_id, map.get(&provider_id));
@@ -180,7 +188,12 @@ fn chat_request_settings_hook(
             let mut out = body.clone();
             if let Some(body_obj) = out.as_object_mut() {
                 merge_provider_options_into_body(&provider_id, &provider_options, body_obj);
-                apply_chat_request_settings(body_obj, &settings, supports_stream_usage_hints);
+                apply_chat_request_settings(
+                    body_obj,
+                    &settings,
+                    supports_stream_usage_hints,
+                    request_uses_structured_outputs,
+                );
             }
 
             if let Some(transformer) = settings.request_body_transformer.as_ref() {
@@ -199,6 +212,10 @@ fn chat_request_settings_hook(
             Ok(out)
         },
     )
+}
+
+fn apply_url_settings(url: String, settings: &OpenAiCompatibleRequestSettings) -> String {
+    crate::utils::url::with_query_params(&url, &settings.query_params)
 }
 
 /// OpenAI-Compatible ProviderSpec implementation with an injected adapter.
@@ -255,7 +272,10 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
-        self.chat_spec().chat_url(stream, req, ctx)
+        apply_url_settings(
+            self.chat_spec().chat_url(stream, req, ctx),
+            &self.request_settings,
+        )
     }
 
     fn choose_chat_transformers(
@@ -276,6 +296,7 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
             &req.provider_options_map,
             &self.request_settings,
             self.adapter.supports_stream_usage_hints(),
+            req.response_format.is_some(),
         ))
     }
 
@@ -297,7 +318,10 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
     }
 
     fn embedding_url(&self, req: &crate::types::EmbeddingRequest, ctx: &ProviderContext) -> String {
-        self.embedding_spec().embedding_url(req, ctx)
+        apply_url_settings(
+            self.embedding_spec().embedding_url(req, ctx),
+            &self.request_settings,
+        )
     }
 
     fn choose_image_transformers(
@@ -313,7 +337,24 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         req: &crate::types::ImageGenerationRequest,
         ctx: &ProviderContext,
     ) -> String {
-        self.image_spec().image_url(req, ctx)
+        apply_url_settings(
+            self.image_spec().image_url(req, ctx),
+            &self.request_settings,
+        )
+    }
+
+    fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
+        apply_url_settings(
+            self.image_spec().image_edit_url(req, ctx),
+            &self.request_settings,
+        )
+    }
+
+    fn image_variation_url(&self, req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
+        apply_url_settings(
+            self.image_spec().image_variation_url(req, ctx),
+            &self.request_settings,
+        )
     }
 
     fn choose_audio_transformer(&self, ctx: &ProviderContext) -> AudioTransformerBundle {
@@ -331,18 +372,38 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         let adapter_base = self.adapter.base_url().trim_end_matches('/');
 
         if ctx_base != adapter_base {
-            return ctx_base.to_string();
+            return apply_url_settings(ctx_base.to_string(), &self.request_settings);
         }
 
-        self.adapter
-            .audio_base_url()
-            .unwrap_or(adapter_base)
-            .trim_end_matches('/')
-            .to_string()
+        apply_url_settings(
+            self.adapter
+                .audio_base_url()
+                .unwrap_or(adapter_base)
+                .trim_end_matches('/')
+                .to_string(),
+            &self.request_settings,
+        )
     }
 
     fn rerank_url(&self, req: &RerankRequest, ctx: &ProviderContext) -> String {
-        self.rerank_spec().rerank_url(req, ctx)
+        apply_url_settings(
+            self.rerank_spec().rerank_url(req, ctx),
+            &self.request_settings,
+        )
+    }
+
+    fn models_url(&self, ctx: &ProviderContext) -> String {
+        apply_url_settings(
+            format!("{}/models", ctx.base_url.trim_end_matches('/')),
+            &self.request_settings,
+        )
+    }
+
+    fn model_url(&self, model_id: &str, ctx: &ProviderContext) -> String {
+        apply_url_settings(
+            format!("{}/models/{}", ctx.base_url.trim_end_matches('/'), model_id),
+            &self.request_settings,
+        )
     }
 
     fn choose_rerank_transformers(
@@ -735,7 +796,9 @@ mod tests {
         let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
             adapter,
             OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
                 include_usage: Some(true),
+                supports_structured_outputs: None,
                 request_body_transformer: None,
             },
         );
@@ -781,10 +844,15 @@ mod tests {
         let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
             adapter,
             OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
                 include_usage: Some(true),
+                supports_structured_outputs: None,
                 request_body_transformer: Some(Arc::new(
                     |body: &mut serde_json::Value, _model: &str, request_type| {
-                        assert!(matches!(request_type, super::types::RequestType::Chat));
+                        assert!(matches!(
+                            request_type,
+                            crate::standards::openai::compat::types::RequestType::Chat
+                        ));
                         body.as_object_mut()
                             .expect("object body")
                             .remove("stream_options");
@@ -814,6 +882,170 @@ mod tests {
 
         assert!(body.get("stream_options").is_none());
         assert_eq!(body.get("custom"), Some(&serde_json::json!(true)));
+    }
+
+    #[test]
+    fn openai_compatible_query_params_apply_to_all_compat_urls() {
+        use crate::core::ProviderSpec;
+
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: Default::default(),
+            capabilities: vec!["chat".into(), "tools".into(), "image_generation".into()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            adapter,
+            OpenAiCompatibleRequestSettings {
+                query_params: std::collections::BTreeMap::from([
+                    ("api-version".to_string(), "2025-04-01".to_string()),
+                    ("tenant".to_string(), "acme".to_string()),
+                ]),
+                include_usage: None,
+                supports_structured_outputs: None,
+                request_body_transformer: None,
+            },
+        );
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let chat_req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build();
+        let embedding_req =
+            crate::types::EmbeddingRequest::single("hi").with_model("text-embedding-3-small");
+        let image_req = crate::types::ImageGenerationRequest {
+            prompt: "draw a cat".to_string(),
+            model: Some("deepseek-image".to_string()),
+            ..Default::default()
+        };
+        let image_edit_req = ImageEditRequest {
+            images: Vec::new(),
+            mask: None,
+            prompt: "edit".to_string(),
+            model: None,
+            count: None,
+            size: None,
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+        let image_variation_req = ImageVariationRequest {
+            image: Vec::new(),
+            model: None,
+            count: None,
+            size: None,
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+        let rerank_req = RerankRequest::new(
+            "rerank-model".to_string(),
+            "query".to_string(),
+            vec!["doc-1".to_string()],
+        );
+
+        assert_eq!(
+            spec.chat_url(false, &chat_req, &ctx),
+            "https://api.deepseek.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.embedding_url(&embedding_req, &ctx),
+            "https://api.deepseek.com/v1/embeddings?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.image_url(&image_req, &ctx),
+            "https://api.deepseek.com/v1/images/generations?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.image_edit_url(&image_edit_req, &ctx),
+            "https://api.deepseek.com/v1/images/edits?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.image_variation_url(&image_variation_req, &ctx),
+            "https://api.deepseek.com/v1/images/variations?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.rerank_url(&rerank_req, &ctx),
+            "https://api.deepseek.com/v1/rerank?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.models_url(&ctx),
+            "https://api.deepseek.com/v1/models?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.model_url("deepseek-chat", &ctx),
+            "https://api.deepseek.com/v1/models/deepseek-chat?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            spec.audio_base_url(&ctx),
+            "https://api.deepseek.com/v1?api-version=2025-04-01&tenant=acme"
+        );
+    }
+
+    #[test]
+    fn openai_compatible_structured_outputs_policy_can_downgrade_json_schema() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: Default::default(),
+            capabilities: vec!["tools".into()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            adapter,
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(false),
+                request_body_transformer: None,
+            },
+        );
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(serde_json::json!({
+                "type": "object",
+                "properties": {}
+            })))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({ "type": "json_object" }))
+        );
     }
 
     #[test]

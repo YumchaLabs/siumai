@@ -5,6 +5,7 @@ use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::providers::openai_compatible::{RequestBodyTransformer, ResponseMetadataExtractor};
 use crate::retry_api::RetryOptions;
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// OpenAI-compatible builder for configuring OpenAI-compatible providers.
@@ -61,8 +62,13 @@ pub struct OpenAiCompatibleBuilder {
     extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Optional public response-metadata extractor, mirroring AI SDK's compat provider hook.
     response_metadata_extractor: Option<Arc<dyn ResponseMetadataExtractor>>,
+    /// Optional provider-level URL query parameters appended to all compat request routes.
+    query_params: BTreeMap<String, String>,
     /// Whether streaming chat requests should include `stream_options.include_usage`.
     include_usage: Option<bool>,
+    /// Whether compat chat should keep JSON Schema structured outputs instead of downgrading to
+    /// `response_format = { "type": "json_object" }`.
+    supports_structured_outputs: Option<bool>,
     /// Optional public request-body transformer, mirroring AI SDK's `transformRequestBody`.
     request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
     /// Enable lightweight HTTP debug logging interceptor
@@ -96,7 +102,9 @@ impl OpenAiCompatibleBuilder {
             http_interceptors: base.http_interceptors.clone(),
             extra_model_middlewares: Vec::new(),
             response_metadata_extractor: None,
+            query_params: BTreeMap::new(),
             include_usage: None,
+            supports_structured_outputs: None,
             request_body_transformer: None,
             http_debug: base.http_debug,
         }
@@ -299,6 +307,57 @@ impl OpenAiCompatibleBuilder {
     /// Alias for `with_include_usage(...)`.
     pub fn include_usage(self, include_usage: bool) -> Self {
         self.with_include_usage(include_usage)
+    }
+
+    /// Replace the provider-level URL query parameter map.
+    ///
+    /// This mirrors AI SDK's `queryParams` provider setting for `openai-compatible`.
+    pub fn with_query_params<K, V, I>(mut self, query_params: I) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        self.query_params = query_params
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
+        self
+    }
+
+    /// Alias for `with_query_params(...)`.
+    pub fn query_params<K, V, I>(self, query_params: I) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        self.with_query_params(query_params)
+    }
+
+    /// Insert or replace a single provider-level URL query parameter.
+    pub fn with_query_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.query_params.insert(key.into(), value.into());
+        self
+    }
+
+    /// Alias for `with_query_param(...)`.
+    pub fn query_param(self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.with_query_param(key, value)
+    }
+
+    /// Control whether compat chat keeps JSON Schema structured outputs.
+    ///
+    /// `false` mirrors AI SDK's `supportsStructuredOutputs = false` policy for providers that only
+    /// accept `response_format = { \"type\": \"json_object\" }`.
+    pub fn with_supports_structured_outputs(mut self, supports: bool) -> Self {
+        self.supports_structured_outputs = Some(supports);
+        self
+    }
+
+    /// Alias for `with_supports_structured_outputs(...)`.
+    pub fn supports_structured_outputs(self, supports: bool) -> Self {
+        self.with_supports_structured_outputs(supports)
     }
 
     /// Install a public request-body transformer for chat requests.
@@ -570,8 +629,14 @@ impl OpenAiCompatibleBuilder {
         if let Some(extractor) = self.response_metadata_extractor.clone() {
             config = config.with_metadata_extractor(extractor);
         }
+        if !self.query_params.is_empty() {
+            config = config.with_query_params(self.query_params);
+        }
         if let Some(include_usage) = self.include_usage {
             config = config.with_include_usage(include_usage);
+        }
+        if let Some(supports) = self.supports_structured_outputs {
+            config = config.with_supports_structured_outputs(supports);
         }
         if let Some(transformer) = self.request_body_transformer.clone() {
             config = config.with_request_body_transformer(transformer);
@@ -768,6 +833,37 @@ mod tests {
             .expect("into_config ok");
 
         assert_eq!(config.include_usage, Some(true));
+    }
+
+    #[test]
+    fn openai_compatible_builder_records_query_params_setting() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .with_query_params([("api-version", "2025-04-01"), ("tenant", "acme")])
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(
+            config.query_params.get("api-version").map(String::as_str),
+            Some("2025-04-01")
+        );
+        assert_eq!(
+            config.query_params.get("tenant").map(String::as_str),
+            Some("acme")
+        );
+    }
+
+    #[test]
+    fn openai_compatible_builder_records_structured_outputs_policy() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .with_supports_structured_outputs(false)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.supports_structured_outputs, Some(false));
     }
 
     #[test]

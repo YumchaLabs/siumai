@@ -262,6 +262,15 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let request_body_transformer: Arc<dyn RequestBodyTransformer> =
         Arc::new(NoopRequestBodyTransformer);
     _accept_request_body_transformer(request_body_transformer);
+    let _request_settings = OpenAiCompatibleRequestSettings {
+        query_params: std::collections::BTreeMap::from([(
+            "api-version".to_string(),
+            "2025-04-01".to_string(),
+        )]),
+        include_usage: Some(true),
+        supports_structured_outputs: Some(false),
+        request_body_transformer: None,
+    };
     let extractor: Arc<dyn ResponseMetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
         raw.get("test").map(|value| {
             std::collections::HashMap::from([(

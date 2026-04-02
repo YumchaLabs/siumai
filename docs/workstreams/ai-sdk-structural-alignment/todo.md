@@ -99,11 +99,16 @@ Status legend:
   - compat runtime request settings apply the hook after built-in/provider normalization on the
     final chat payload
   - public facade imports now expose the hook and request-settings type
-- [ ] Finish the remaining OpenAI-compatible provider-settings audit against
+- [x] Finish the remaining OpenAI-compatible provider-settings audit against
   `repo-ref/ai/packages/openai-compatible/src/openai-compatible-provider.ts`.
-  - `queryParams` is still missing on the public/runtime compat path
-  - provider-level `supportsStructuredOutputs` policy still needs an explicit decision instead of
-    only relying on the current request converter behavior
+  - provider-level `queryParams` now flows through config/builder/runtime/spec URL generation for
+    compat chat / embeddings / image generation-edit-variation / audio / rerank / models
+  - provider-level `supportsStructuredOutputs` now has an explicit public/runtime policy surface:
+    explicit `false` downgrades JSON Schema chat outputs to wire `json_object` and emits a stable
+    `unsupported { feature: "responseFormat" }` warning middleware
+  - current deliberate divergence from AI SDK:
+    the default remains permissive for backward compatibility instead of switching compat chat to
+    AI SDK's conservative `supportsStructuredOutputs = false` default in the same refactor
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.

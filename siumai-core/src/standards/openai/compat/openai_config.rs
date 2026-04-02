@@ -10,6 +10,7 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 /// Configuration for OpenAI-compatible providers
@@ -37,11 +38,18 @@ pub struct OpenAiCompatibleConfig {
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares applied before provider mapping (chat only).
     pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Optional provider-level URL query parameters appended to all compat request routes.
+    pub query_params: BTreeMap<String, String>,
     /// Whether streaming chat requests should ask the provider to include usage chunks.
     ///
     /// AI SDK's OpenAI-compatible provider defaults this to `undefined`, which means the request
     /// body omits `stream_options.include_usage` unless callers opt in explicitly.
     pub include_usage: Option<bool>,
+    /// Whether compat chat should keep JSON Schema structured outputs instead of downgrading to
+    /// `response_format = { "type": "json_object" }`.
+    ///
+    /// When unset, Siumai keeps the existing permissive behavior for backward compatibility.
+    pub supports_structured_outputs: Option<bool>,
     /// Optional public request-body transformer, mirroring AI SDK's `transformRequestBody`.
     pub request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
 }
@@ -54,7 +62,12 @@ impl std::fmt::Debug for OpenAiCompatibleConfig {
             .field("model", &self.model)
             .field("common_params", &self.common_params)
             .field("http_config", &self.http_config)
+            .field("query_params_len", &self.query_params.len())
             .field("include_usage", &self.include_usage);
+        ds.field(
+            "supports_structured_outputs",
+            &self.supports_structured_outputs,
+        );
 
         if !self.api_key.is_empty() {
             ds.field("has_api_key", &true);
@@ -90,7 +103,9 @@ impl OpenAiCompatibleConfig {
             adapter,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
+            query_params: BTreeMap::new(),
             include_usage: None,
+            supports_structured_outputs: None,
             request_body_transformer: None,
         }
     }
@@ -277,6 +292,57 @@ impl OpenAiCompatibleConfig {
     /// Alias for `with_include_usage(...)`.
     pub fn include_usage(self, include_usage: bool) -> Self {
         self.with_include_usage(include_usage)
+    }
+
+    /// Replace the provider-level URL query parameter map.
+    ///
+    /// This mirrors AI SDK's `queryParams` provider setting for `openai-compatible`.
+    pub fn with_query_params<K, V, I>(mut self, query_params: I) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        self.query_params = query_params
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()))
+            .collect();
+        self
+    }
+
+    /// Alias for `with_query_params(...)`.
+    pub fn query_params<K, V, I>(self, query_params: I) -> Self
+    where
+        K: Into<String>,
+        V: Into<String>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        self.with_query_params(query_params)
+    }
+
+    /// Insert or replace a single provider-level URL query parameter.
+    pub fn with_query_param(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.query_params.insert(key.into(), value.into());
+        self
+    }
+
+    /// Alias for `with_query_param(...)`.
+    pub fn query_param(self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.with_query_param(key, value)
+    }
+
+    /// Control whether compat chat keeps JSON Schema structured outputs.
+    ///
+    /// `false` mirrors AI SDK's conservative `supportsStructuredOutputs = false` behavior and
+    /// downgrades schema requests to `json_object` on the wire.
+    pub fn with_supports_structured_outputs(mut self, supports: bool) -> Self {
+        self.supports_structured_outputs = Some(supports);
+        self
+    }
+
+    /// Alias for `with_supports_structured_outputs(...)`.
+    pub fn supports_structured_outputs(self, supports: bool) -> Self {
+        self.with_supports_structured_outputs(supports)
     }
 
     /// Install a public request-body transformer for chat requests.
@@ -1000,6 +1066,101 @@ mod tests {
         .with_include_usage(true);
 
         assert_eq!(config.include_usage, Some(true));
+    }
+
+    #[test]
+    fn test_config_with_query_params_records_explicit_settings() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "test",
+            "test-key",
+            "https://api.test.com/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_query_params([("api-version", "2025-04-01"), ("tenant", "acme")]);
+
+        assert_eq!(
+            config.query_params.get("api-version").map(String::as_str),
+            Some("2025-04-01")
+        );
+        assert_eq!(
+            config.query_params.get("tenant").map(String::as_str),
+            Some("acme")
+        );
+    }
+
+    #[test]
+    fn test_config_with_supports_structured_outputs_records_policy() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "test",
+            "test-key",
+            "https://api.test.com/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_supports_structured_outputs(false);
+
+        assert_eq!(config.supports_structured_outputs, Some(false));
     }
 
     #[test]

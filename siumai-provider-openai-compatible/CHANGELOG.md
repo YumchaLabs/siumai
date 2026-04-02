@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `stream_options.include_usage`, default compat requests now omit that field until explicitly
   enabled, and `RequestBodyTransformer` / `with_request_body_transformer(...)` mirror AI SDK
   `transformRequestBody` on the final normalized chat payload.
+- OpenAI-compatible public config/builder/runtime surfaces now also expose AI SDK-style
+  `queryParams` and provider-level `supportsStructuredOutputs` concepts: compat route generation
+  now appends deterministic provider query params across chat / embeddings / image / audio /
+  rerank / model-listing paths, and explicit `supports_structured_outputs(false)` now downgrades
+  JSON Schema chat outputs to `response_format = { "type": "json_object" }` while emitting a
+  stable `unsupported { feature: "responseFormat" }` warning middleware on the chat response path.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

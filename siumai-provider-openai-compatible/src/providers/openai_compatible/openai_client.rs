@@ -10,6 +10,7 @@ use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder, Ht
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::providers::openai_compatible::middleware::OpenAiCompatibleStructuredOutputsWarningMiddleware;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
@@ -120,6 +121,20 @@ impl std::fmt::Debug for OpenAiCompatibleClient {
             .field("middlewares", &self.model_middlewares.len())
             .finish()
     }
+}
+
+fn compat_model_middlewares(
+    config: &OpenAiCompatibleConfig,
+) -> Vec<Arc<dyn LanguageModelMiddleware>> {
+    let mut middlewares = config.model_middlewares.clone();
+
+    if config.supports_structured_outputs == Some(false) {
+        middlewares.push(Arc::new(
+            OpenAiCompatibleStructuredOutputsWarningMiddleware::new(),
+        ));
+    }
+
+    middlewares
 }
 
 impl OpenAiCompatibleClient {
@@ -306,7 +321,9 @@ impl OpenAiCompatibleClient {
 
     fn request_settings(&self) -> OpenAiCompatibleRequestSettings {
         OpenAiCompatibleRequestSettings {
+            query_params: self.config.query_params.clone(),
             include_usage: self.config.include_usage,
+            supports_structured_outputs: self.config.supports_structured_outputs,
             request_body_transformer: self.config.request_body_transformer.clone(),
         }
     }
@@ -485,7 +502,7 @@ impl OpenAiCompatibleClient {
         config.validate()?;
 
         let http_interceptors = config.http_interceptors.clone();
-        let model_middlewares = config.model_middlewares.clone();
+        let model_middlewares = compat_model_middlewares(&config);
 
         // Validate model with adapter
         if !config.model.is_empty() {
@@ -591,7 +608,7 @@ impl OpenAiCompatibleClient {
         config.validate()?;
 
         let http_interceptors = config.http_interceptors.clone();
-        let model_middlewares = config.model_middlewares.clone();
+        let model_middlewares = compat_model_middlewares(&config);
 
         // Validate model with adapter
         if !config.model.is_empty() {
@@ -3950,6 +3967,142 @@ data: [DONE]
 
         assert!(captured.body.get("stream_options").is_none());
         assert_eq!(captured.body.get("custom"), Some(&serde_json::json!(true)));
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_runtime_appends_query_params_to_transport_url() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_query_params([("api-version", "2025-04-01"), ("tenant", "acme")])
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let _ = crate::traits::ChatCapability::chat_stream_request(&client, request).await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert_eq!(
+            captured.url,
+            "https://api.deepseek.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_runtime_structured_outputs_policy_downgrades_wire_shape() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_supports_structured_outputs(false)
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({ "type": "object", "properties": {} }),
+            ))
+            .build();
+
+        let _ = crate::traits::ChatCapability::chat_stream_request(&client, request).await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert_eq!(
+            captured.body["response_format"],
+            serde_json::json!({ "type": "json_object" })
+        );
+    }
+
+    #[tokio::test]
+    async fn text_to_speech_runtime_appends_query_params_to_transport_url() {
+        let transport = CaptureTransport::default();
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "together".to_string(),
+                name: "Together".to_string(),
+                base_url: "https://api.together.xyz/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec![
+                    "chat".to_string(),
+                    "audio".to_string(),
+                    "speech".to_string(),
+                ],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            })),
+        )
+        .with_model("cartesia/sonic-2")
+        .with_query_param("api-version", "2025-04-01")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = crate::types::TtsRequest::new("hello from together".to_string())
+            .with_model("cartesia/sonic-2".to_string())
+            .with_voice("alloy".to_string())
+            .with_format("mp3".to_string());
+
+        let _ = crate::traits::AudioCapability::text_to_speech(&client, request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.url,
+            "https://api.together.xyz/v1/audio/speech?api-version=2025-04-01"
+        );
     }
 
     #[tokio::test]

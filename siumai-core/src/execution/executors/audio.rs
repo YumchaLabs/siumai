@@ -136,7 +136,7 @@ impl AudioExecutor for HttpAudioExecutor {
         }
 
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
-        let url = format!("{}{}", base_url, self.transformer.tts_endpoint());
+        let url = crate::utils::url::join_url(&base_url, self.transformer.tts_endpoint());
 
         let provider_id = self.provider_id.clone();
         let http_client = self.http_client.clone();
@@ -270,7 +270,7 @@ impl AudioExecutor for HttpAudioExecutor {
         }
 
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
-        let url = format!("{}{}", base_url, self.transformer.stt_endpoint());
+        let url = crate::utils::url::join_url(&base_url, self.transformer.stt_endpoint());
 
         let provider_id = self.provider_id.clone();
         let http_client = self.http_client.clone();

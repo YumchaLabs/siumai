@@ -119,12 +119,17 @@ where
     }
 }
 
-/// Provider-level request settings shared between the public config/builder surface and the
+/// Provider-level transport/chat settings shared between the public config/builder surface and the
 /// OpenAI-compatible ProviderSpec implementation.
 #[derive(Clone, Default)]
 pub struct OpenAiCompatibleRequestSettings {
+    /// Optional provider-level URL query parameters appended to every compat route.
+    pub query_params: std::collections::BTreeMap<String, String>,
     /// Whether chat streaming should request usage chunks with `stream_options.include_usage`.
     pub include_usage: Option<bool>,
+    /// Whether compat chat should keep JSON Schema structured outputs instead of downgrading to
+    /// `response_format = { "type": "json_object" }`.
+    pub supports_structured_outputs: Option<bool>,
     /// Optional request-body transformer applied after built-in/provider normalization.
     pub request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
 }
@@ -132,7 +137,12 @@ pub struct OpenAiCompatibleRequestSettings {
 impl std::fmt::Debug for OpenAiCompatibleRequestSettings {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpenAiCompatibleRequestSettings")
+            .field("query_params_len", &self.query_params.len())
             .field("include_usage", &self.include_usage)
+            .field(
+                "supports_structured_outputs",
+                &self.supports_structured_outputs,
+            )
             .field(
                 "has_request_body_transformer",
                 &self.request_body_transformer.is_some(),

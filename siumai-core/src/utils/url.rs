@@ -2,6 +2,8 @@
 //!
 //! This module provides utility functions for safe URL construction and manipulation.
 
+use std::collections::BTreeMap;
+
 /// Safely join a base URL with a path, handling trailing/leading slashes correctly
 ///
 /// This function ensures that there's exactly one slash between the base URL and path,
@@ -17,14 +19,49 @@
 /// assert_eq!(join_url("https://api.example.com/", "/v1/chat"), "https://api.example.com/v1/chat");
 /// ```
 pub fn join_url(base: &str, path: &str) -> String {
-    let base = base.trim_end_matches('/');
     let path = path.trim_start_matches('/');
 
     if path.is_empty() {
-        base.to_string()
-    } else {
-        format!("{base}/{path}")
+        return base.trim_end_matches('/').to_string();
     }
+
+    if let Ok(mut url) = reqwest::Url::parse(base) {
+        let current_path = url.path().trim_end_matches('/');
+        let joined_path = if current_path.is_empty() || current_path == "/" {
+            format!("/{path}")
+        } else {
+            format!("{current_path}/{path}")
+        };
+        url.set_path(&joined_path);
+        return url.to_string();
+    }
+
+    let base = base.trim_end_matches('/');
+    format!("{base}/{path}")
+}
+
+/// Replace the query string of a URL using a deterministic parameter map.
+///
+/// This mirrors AI SDK's provider-level `queryParams` behavior where the final URL search string
+/// is derived from the configured map rather than merged incrementally.
+pub fn with_query_params(url: &str, query_params: &BTreeMap<String, String>) -> String {
+    if query_params.is_empty() {
+        return url.to_string();
+    }
+
+    let Ok(mut parsed) = reqwest::Url::parse(url) else {
+        return url.to_string();
+    };
+
+    parsed.set_query(None);
+    {
+        let mut pairs = parsed.query_pairs_mut();
+        for (key, value) in query_params {
+            pairs.append_pair(key, value);
+        }
+    }
+
+    parsed.to_string()
 }
 
 /// Join multiple URL segments safely
@@ -117,6 +154,13 @@ mod tests {
         assert_eq!(
             join_url("https://api.example.com/", "/v1/chat"),
             "https://api.example.com/v1/chat"
+        );
+        assert_eq!(
+            join_url(
+                "https://api.example.com/v1?api-version=2025-04-01",
+                "/audio/speech"
+            ),
+            "https://api.example.com/v1/audio/speech?api-version=2025-04-01"
         );
 
         // Empty path
@@ -213,6 +257,26 @@ mod tests {
         assert_eq!(
             join_url("https://api1.oaipro.com/", "v1/messages"),
             "https://api1.oaipro.com/v1/messages"
+        );
+    }
+
+    #[test]
+    fn test_with_query_params_replaces_search_string() {
+        let params = BTreeMap::from([
+            ("api-version".to_string(), "2025-04-01".to_string()),
+            ("tenant".to_string(), "acme".to_string()),
+        ]);
+
+        assert_eq!(
+            with_query_params("https://api.example.com/v1/chat/completions", &params),
+            "https://api.example.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
+        );
+        assert_eq!(
+            with_query_params(
+                "https://api.example.com/v1/chat/completions?legacy=true",
+                &params
+            ),
+            "https://api.example.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
         );
     }
 }
