@@ -229,21 +229,39 @@ fn public_surface_openai_provider_ext_compiles() {
 #[test]
 fn public_surface_openai_compatible_provider_ext_compiles() {
     use siumai::provider_ext::openai_compatible::{
-        ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig, ProviderAdapter,
-        ProviderCompatibility, ProviderConfig, ResponseMetadataExtractor, get_provider_config,
-        list_provider_ids, provider_supports_capability,
+        ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig,
+        OpenAiCompatibleRequestSettings, ProviderAdapter, ProviderCompatibility, ProviderConfig,
+        RequestBodyTransformer, ResponseMetadataExtractor, get_provider_config, list_provider_ids,
+        provider_supports_capability,
     };
     use std::sync::Arc;
 
     let _ = size_of::<OpenAiCompatibleClient>();
     let _ = size_of::<OpenAiCompatibleConfig>();
+    let _ = size_of::<OpenAiCompatibleRequestSettings>();
     let _ = size_of::<ConfigurableAdapter>();
     let _ = size_of::<ProviderCompatibility>();
     let _ = size_of::<ProviderConfig>();
 
+    struct NoopRequestBodyTransformer;
+    impl RequestBodyTransformer for NoopRequestBodyTransformer {
+        fn transform_request_body(
+            &self,
+            _body: &mut serde_json::Value,
+            _model: &str,
+            _request_type: siumai_provider_openai_compatible::providers::openai_compatible::RequestType,
+        ) -> Result<(), siumai::prelude::LlmError> {
+            Ok(())
+        }
+    }
+
     fn _assert_adapter<T: ProviderAdapter>() {}
     _assert_adapter::<ConfigurableAdapter>();
+    fn _accept_request_body_transformer(_transformer: Arc<dyn RequestBodyTransformer>) {}
     fn _accept_metadata_extractor(_extractor: Arc<dyn ResponseMetadataExtractor>) {}
+    let request_body_transformer: Arc<dyn RequestBodyTransformer> =
+        Arc::new(NoopRequestBodyTransformer);
+    _accept_request_body_transformer(request_body_transformer);
     let extractor: Arc<dyn ResponseMetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
         raw.get("test").map(|value| {
             std::collections::HashMap::from([(

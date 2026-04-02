@@ -2,7 +2,9 @@
 //!
 //! This module provides configuration types for OpenAI-compatible providers.
 
-use super::adapter::{MetadataExtractingAdapter, ProviderAdapter, ResponseMetadataExtractor};
+use super::adapter::{
+    MetadataExtractingAdapter, ProviderAdapter, RequestBodyTransformer, ResponseMetadataExtractor,
+};
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
@@ -35,6 +37,13 @@ pub struct OpenAiCompatibleConfig {
     pub http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Optional model-level middlewares applied before provider mapping (chat only).
     pub model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Whether streaming chat requests should ask the provider to include usage chunks.
+    ///
+    /// AI SDK's OpenAI-compatible provider defaults this to `undefined`, which means the request
+    /// body omits `stream_options.include_usage` unless callers opt in explicitly.
+    pub include_usage: Option<bool>,
+    /// Optional public request-body transformer, mirroring AI SDK's `transformRequestBody`.
+    pub request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
 }
 
 impl std::fmt::Debug for OpenAiCompatibleConfig {
@@ -44,13 +53,17 @@ impl std::fmt::Debug for OpenAiCompatibleConfig {
             .field("base_url", &self.base_url)
             .field("model", &self.model)
             .field("common_params", &self.common_params)
-            .field("http_config", &self.http_config);
+            .field("http_config", &self.http_config)
+            .field("include_usage", &self.include_usage);
 
         if !self.api_key.is_empty() {
             ds.field("has_api_key", &true);
         }
         if self.http_transport.is_some() {
             ds.field("has_http_transport", &true);
+        }
+        if self.request_body_transformer.is_some() {
+            ds.field("has_request_body_transformer", &true);
         }
 
         ds.finish()
@@ -77,6 +90,8 @@ impl OpenAiCompatibleConfig {
             adapter,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
+            include_usage: None,
+            request_body_transformer: None,
         }
     }
 
@@ -249,6 +264,36 @@ impl OpenAiCompatibleConfig {
         self.adapter = Arc::from(Box::new(MetadataExtractingAdapter::new(adapter, extractor))
             as Box<dyn ProviderAdapter>);
         self
+    }
+
+    /// Control whether streaming chat requests should include `stream_options.include_usage`.
+    ///
+    /// This mirrors AI SDK's `includeUsage` provider setting for `openai-compatible`.
+    pub fn with_include_usage(mut self, include_usage: bool) -> Self {
+        self.include_usage = Some(include_usage);
+        self
+    }
+
+    /// Alias for `with_include_usage(...)`.
+    pub fn include_usage(self, include_usage: bool) -> Self {
+        self.with_include_usage(include_usage)
+    }
+
+    /// Install a public request-body transformer for chat requests.
+    ///
+    /// This mirrors AI SDK's `transformRequestBody` hook and runs after built-in/provider
+    /// normalization so callers can customize the final request payload.
+    pub fn with_request_body_transformer(
+        mut self,
+        transformer: Arc<dyn RequestBodyTransformer>,
+    ) -> Self {
+        self.request_body_transformer = Some(transformer);
+        self
+    }
+
+    /// Alias for `with_request_body_transformer(...)`.
+    pub fn request_body_transformer(self, transformer: Arc<dyn RequestBodyTransformer>) -> Self {
+        self.with_request_body_transformer(transformer)
     }
 
     /// Enable provider-native thinking mode when supported.
@@ -911,5 +956,114 @@ mod tests {
             provider.get("value"),
             Some(&serde_json::json!("test-value"))
         );
+    }
+
+    #[test]
+    fn test_config_with_include_usage_records_explicit_setting() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let config = OpenAiCompatibleConfig::new(
+            "test",
+            "test-key",
+            "https://api.test.com/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_include_usage(true);
+
+        assert_eq!(config.include_usage, Some(true));
+    }
+
+    #[test]
+    fn test_config_with_request_body_transformer_stores_hook() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let transformer: Arc<dyn RequestBodyTransformer> =
+            Arc::new(|body: &mut serde_json::Value, _model: &str, request_type| {
+                assert!(matches!(
+                    request_type,
+                    super::super::types::RequestType::Chat
+                ));
+                body["custom"] = serde_json::json!(true);
+                Ok(())
+            });
+
+        let config = OpenAiCompatibleConfig::new(
+            "test",
+            "test-key",
+            "https://api.test.com/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_request_body_transformer(transformer);
+
+        let hook = config
+            .request_body_transformer
+            .as_ref()
+            .expect("request body transformer");
+        let mut body = serde_json::json!({});
+        hook.transform_request_body(
+            &mut body,
+            "test-model",
+            super::super::types::RequestType::Chat,
+        )
+        .expect("transform body");
+        assert_eq!(body.get("custom"), Some(&serde_json::json!(true)));
     }
 }

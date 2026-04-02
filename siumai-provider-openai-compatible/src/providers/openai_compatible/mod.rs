@@ -73,7 +73,9 @@ pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
 };
 pub use adapter::{
-    MetadataExtractingAdapter, ProviderAdapter, ProviderCompatibility, ResponseMetadataExtractor,
+    MetadataExtractingAdapter, OpenAiCompatibleRequestSettings, ProviderAdapter,
+    ProviderCompatibility, RequestBodyTransformer, RequestTransformingAdapter,
+    ResponseMetadataExtractor,
 };
 pub use builder::OpenAiCompatibleBuilder;
 pub use config::{

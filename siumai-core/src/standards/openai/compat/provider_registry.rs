@@ -334,6 +334,10 @@ impl ProviderAdapter for ConfigurableAdapter {
         }
     }
 
+    fn supports_stream_usage_hints(&self) -> bool {
+        !matches!(self.config.id.as_str(), "xai" | "groq")
+    }
+
     fn supports_image_generation(&self) -> bool {
         self.config
             .capabilities
@@ -575,5 +579,34 @@ mod tests {
         assert_eq!(params["messages"][0]["role"], "system");
         assert!(params.get("stream_options").is_none());
         assert_eq!(params["max_tokens"], 123);
+    }
+
+    #[test]
+    fn configurable_adapter_reports_stream_usage_hint_support_by_provider() {
+        let deepseek = ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("deepseek-chat".to_string()),
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        });
+        let xai = ConfigurableAdapter::new(ProviderConfig {
+            id: "xai".to_string(),
+            name: "xAI".to_string(),
+            base_url: "https://api.x.ai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("grok-4".to_string()),
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        });
+
+        assert!(deepseek.supports_stream_usage_hints());
+        assert!(!xai.supports_stream_usage_hints());
     }
 }

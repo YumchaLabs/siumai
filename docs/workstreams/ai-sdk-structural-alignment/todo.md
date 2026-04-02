@@ -88,6 +88,22 @@ Status legend:
     forcing users to replace it
   - `OpenAiCompatibleBuilder::with_metadata_extractor(...)` and the public `siumai` facade
     re-export now lock that hook on the user-visible path too
+- [x] Align OpenAI-compatible provider-level `includeUsage` behavior with AI SDK.
+  - compat chat streams now omit `stream_options.include_usage` by default
+  - `OpenAiCompatibleConfig::with_include_usage(...)` and
+    `OpenAiCompatibleBuilder::with_include_usage(...)` now opt the field back in explicitly
+  - xAI/Groq keep their provider-specific stripping behavior because they do not accept
+    `stream_options` on the audited chat-completions path
+- [x] Add a public OpenAI-compatible request-body transformer hook on the config/builder surface.
+  - `RequestBodyTransformer` now mirrors AI SDK `transformRequestBody`
+  - compat runtime request settings apply the hook after built-in/provider normalization on the
+    final chat payload
+  - public facade imports now expose the hook and request-settings type
+- [ ] Finish the remaining OpenAI-compatible provider-settings audit against
+  `repo-ref/ai/packages/openai-compatible/src/openai-compatible-provider.ts`.
+  - `queryParams` is still missing on the public/runtime compat path
+  - provider-level `supportsStructuredOutputs` policy still needs an explicit decision instead of
+    only relying on the current request converter behavior
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.

@@ -3,66 +3,77 @@ use crate::core::{
     ImageTransformers, ProviderContext, ProviderSpec, RerankTransformers,
 };
 use crate::error::LlmError;
+use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::traits::ProviderCapabilities;
 use crate::types::{ChatRequest, RerankRequest};
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
-fn provider_options_map_merge_hook(
-    provider_id: &str,
-    map: &crate::types::ProviderOptionsMap,
-) -> Option<crate::execution::executors::BeforeSendHook> {
-    let provider_id = provider_id.to_string();
-    let value = map.get(&provider_id)?;
-    let mut obj = value.as_object()?.clone();
-
-    fn rename_field(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
-        if let Some(v) = obj.remove(from) {
-            obj.entry(to.to_string()).or_insert(v);
-        }
+fn rename_field(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
+    if let Some(v) = obj.remove(from) {
+        obj.entry(to.to_string()).or_insert(v);
     }
+}
 
-    fn normalize_xai_search_parameters(v: &mut serde_json::Value) {
-        let Some(obj) = v.as_object_mut() else {
-            return;
-        };
+fn normalize_xai_search_parameters(v: &mut serde_json::Value) {
+    let Some(obj) = v.as_object_mut() else {
+        return;
+    };
 
-        rename_field(obj, "returnCitations", "return_citations");
-        rename_field(obj, "maxSearchResults", "max_search_results");
-        rename_field(obj, "fromDate", "from_date");
-        rename_field(obj, "toDate", "to_date");
+    rename_field(obj, "returnCitations", "return_citations");
+    rename_field(obj, "maxSearchResults", "max_search_results");
+    rename_field(obj, "fromDate", "from_date");
+    rename_field(obj, "toDate", "to_date");
 
-        if let Some(arr) = obj.get_mut("sources").and_then(|v| v.as_array_mut()) {
-            for src in arr {
-                let Some(src_obj) = src.as_object_mut() else {
-                    continue;
-                };
+    if let Some(arr) = obj.get_mut("sources").and_then(|v| v.as_array_mut()) {
+        for src in arr {
+            let Some(src_obj) = src.as_object_mut() else {
+                continue;
+            };
 
-                rename_field(src_obj, "allowedWebsites", "allowed_websites");
-                rename_field(src_obj, "excludedWebsites", "excluded_websites");
-                rename_field(src_obj, "safeSearch", "safe_search");
+            rename_field(src_obj, "allowedWebsites", "allowed_websites");
+            rename_field(src_obj, "excludedWebsites", "excluded_websites");
+            rename_field(src_obj, "safeSearch", "safe_search");
 
-                rename_field(src_obj, "excludedXHandles", "excluded_x_handles");
-                rename_field(src_obj, "includedXHandles", "included_x_handles");
-                rename_field(src_obj, "postFavoriteCount", "post_favorite_count");
-                rename_field(src_obj, "postViewCount", "post_view_count");
-                rename_field(src_obj, "xHandles", "x_handles");
+            rename_field(src_obj, "excludedXHandles", "excluded_x_handles");
+            rename_field(src_obj, "includedXHandles", "included_x_handles");
+            rename_field(src_obj, "postFavoriteCount", "post_favorite_count");
+            rename_field(src_obj, "postViewCount", "post_view_count");
+            rename_field(src_obj, "xHandles", "x_handles");
 
-                if src_obj.get("included_x_handles").is_none() {
-                    if let Some(value) = src_obj.remove("x_handles") {
-                        src_obj.insert("included_x_handles".to_string(), value);
-                    }
-                } else {
-                    src_obj.remove("x_handles");
+            if src_obj.get("included_x_handles").is_none() {
+                if let Some(value) = src_obj.remove("x_handles") {
+                    src_obj.insert("included_x_handles".to_string(), value);
                 }
+            } else {
+                src_obj.remove("x_handles");
             }
         }
     }
+}
 
-    fn normalize_deepseek_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
-        rename_field(obj, "enableReasoning", "enable_reasoning");
-        rename_field(obj, "reasoningBudget", "reasoning_budget");
+fn normalize_deepseek_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    rename_field(obj, "enableReasoning", "enable_reasoning");
+    rename_field(obj, "reasoningBudget", "reasoning_budget");
+}
+
+fn normalize_provider_options(
+    provider_id: &str,
+    value: Option<&serde_json::Value>,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    fn take_any(
+        obj: &mut serde_json::Map<String, serde_json::Value>,
+        keys: &[&str],
+    ) -> Option<serde_json::Value> {
+        for key in keys {
+            if let Some(value) = obj.remove(*key) {
+                return Some(value);
+            }
+        }
+        None
     }
+
+    let mut obj = value?.as_object()?.clone();
 
     if provider_id == "xai" {
         rename_field(&mut obj, "reasoningEffort", "reasoning_effort");
@@ -78,31 +89,116 @@ fn provider_options_map_merge_hook(
         }
     } else if provider_id == "deepseek" {
         normalize_deepseek_options(&mut obj);
+    } else if provider_id == "groq" {
+        if let Some(value) = take_any(&mut obj, &["max_completion_tokens", "max_tokens"]) {
+            obj.entry("max_tokens".to_string()).or_insert(value);
+        }
+    }
+
+    Some(obj)
+}
+
+fn merge_provider_options_into_body(
+    provider_id: &str,
+    provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    let Some(obj) = provider_options.as_ref() else {
+        return;
+    };
+
+    for (k, v) in obj {
+        if matches!(k.as_str(), "response_format" | "tool_choice") && body_obj.contains_key(k) {
+            continue;
+        }
+        body_obj.insert(k.clone(), v.clone());
+    }
+
+    if provider_id == "xai" {
+        body_obj.remove("stop");
+        body_obj.remove("stream_options");
+        body_obj.remove("reasoning_summary");
+        body_obj.remove("previous_response_id");
+        body_obj.remove("include");
+        body_obj.remove("store");
+    }
+}
+
+fn apply_chat_request_settings(
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+    settings: &OpenAiCompatibleRequestSettings,
+    supports_stream_usage_hints: bool,
+) {
+    let stream = body_obj
+        .get("stream")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !stream {
+        return;
+    }
+
+    if settings.include_usage == Some(true) && supports_stream_usage_hints {
+        body_obj.insert(
+            "stream_options".to_string(),
+            serde_json::json!({ "include_usage": true }),
+        );
+    } else {
+        body_obj.remove("stream_options");
+    }
+}
+
+fn provider_options_map_merge_hook(
+    provider_id: &str,
+    map: &crate::types::ProviderOptionsMap,
+) -> Option<crate::execution::executors::BeforeSendHook> {
+    let provider_id = provider_id.to_string();
+    let provider_options = normalize_provider_options(&provider_id, map.get(&provider_id));
+    if provider_options.is_none() {
+        return None;
     }
     let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
         let mut out = body.clone();
         if let Some(body_obj) = out.as_object_mut() {
-            for (k, v) in &obj {
-                if matches!(k.as_str(), "response_format" | "tool_choice")
-                    && body_obj.contains_key(k)
-                {
-                    continue;
-                }
-                body_obj.insert(k.clone(), v.clone());
-            }
-
-            if provider_id == "xai" {
-                body_obj.remove("stop");
-                body_obj.remove("stream_options");
-                body_obj.remove("reasoning_summary");
-                body_obj.remove("previous_response_id");
-                body_obj.remove("include");
-                body_obj.remove("store");
-            }
+            merge_provider_options_into_body(&provider_id, &provider_options, body_obj);
         }
         Ok(out)
     };
     Some(Arc::new(hook))
+}
+
+fn chat_request_settings_hook(
+    provider_id: &str,
+    map: &crate::types::ProviderOptionsMap,
+    settings: &OpenAiCompatibleRequestSettings,
+    supports_stream_usage_hints: bool,
+) -> crate::execution::executors::BeforeSendHook {
+    let provider_id = provider_id.to_string();
+    let provider_options = normalize_provider_options(&provider_id, map.get(&provider_id));
+    let settings = settings.clone();
+    Arc::new(
+        move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+            let mut out = body.clone();
+            if let Some(body_obj) = out.as_object_mut() {
+                merge_provider_options_into_body(&provider_id, &provider_options, body_obj);
+                apply_chat_request_settings(body_obj, &settings, supports_stream_usage_hints);
+            }
+
+            if let Some(transformer) = settings.request_body_transformer.as_ref() {
+                let model = out
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string();
+                transformer.transform_request_body(
+                    &mut out,
+                    &model,
+                    super::types::RequestType::Chat,
+                )?;
+            }
+
+            Ok(out)
+        },
+    )
 }
 
 /// OpenAI-Compatible ProviderSpec implementation with an injected adapter.
@@ -111,11 +207,22 @@ fn provider_options_map_merge_hook(
 #[derive(Clone)]
 pub struct OpenAiCompatibleSpecWithAdapter {
     adapter: Arc<dyn super::adapter::ProviderAdapter>,
+    request_settings: OpenAiCompatibleRequestSettings,
 }
 
 impl OpenAiCompatibleSpecWithAdapter {
     pub fn new(adapter: Arc<dyn super::adapter::ProviderAdapter>) -> Self {
-        Self { adapter }
+        Self::with_settings(adapter, OpenAiCompatibleRequestSettings::default())
+    }
+
+    pub fn with_settings(
+        adapter: Arc<dyn super::adapter::ProviderAdapter>,
+        request_settings: OpenAiCompatibleRequestSettings,
+    ) -> Self {
+        Self {
+            adapter,
+            request_settings,
+        }
     }
 }
 
@@ -164,9 +271,12 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         req: &crate::types::ChatRequest,
         ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // For OpenAI-compatible vendors, provider options are keyed by the runtime provider id
-        // (e.g. "deepseek") and are merged directly into the OpenAI-compatible request body.
-        provider_options_map_merge_hook(&ctx.provider_id, &req.provider_options_map)
+        Some(chat_request_settings_hook(
+            &ctx.provider_id,
+            &req.provider_options_map,
+            &self.request_settings,
+            self.adapter.supports_stream_usage_hints(),
+        ))
     }
 
     fn choose_embedding_transformers(
@@ -568,6 +678,142 @@ mod tests {
             out.get("some_vendor_param"),
             Some(&serde_json::Value::Bool(true))
         );
+    }
+
+    #[test]
+    fn openai_compatible_streaming_chat_omits_stream_options_by_default() {
+        use crate::core::ProviderSpec;
+
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: Default::default(),
+            capabilities: vec!["tools".into()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let spec = OpenAiCompatibleSpecWithAdapter::new(adapter);
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .stream(true)
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert!(body.get("stream_options").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_include_usage_setting_restores_stream_options() {
+        use crate::core::ProviderSpec;
+
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: Default::default(),
+            capabilities: vec!["tools".into()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            adapter,
+            OpenAiCompatibleRequestSettings {
+                include_usage: Some(true),
+                request_body_transformer: None,
+            },
+        );
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .stream(true)
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body.get("stream_options"),
+            Some(&serde_json::json!({ "include_usage": true }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_request_body_transformer_runs_after_include_usage_policy() {
+        use crate::core::ProviderSpec;
+
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: Default::default(),
+            capabilities: vec!["tools".into()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            adapter,
+            OpenAiCompatibleRequestSettings {
+                include_usage: Some(true),
+                request_body_transformer: Some(Arc::new(
+                    |body: &mut serde_json::Value, _model: &str, request_type| {
+                        assert!(matches!(request_type, super::types::RequestType::Chat));
+                        body.as_object_mut()
+                            .expect("object body")
+                            .remove("stream_options");
+                        body["custom"] = serde_json::json!(true);
+                        Ok(())
+                    },
+                )),
+            },
+        );
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .stream(true)
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert!(body.get("stream_options").is_none());
+        assert_eq!(body.get("custom"), Some(&serde_json::json!(true)));
     }
 
     #[test]

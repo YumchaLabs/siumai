@@ -10,6 +10,7 @@ use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder, Ht
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
 use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
+use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
@@ -303,6 +304,22 @@ impl OpenAiCompatibleClient {
         self.config.adapter.clone()
     }
 
+    fn request_settings(&self) -> OpenAiCompatibleRequestSettings {
+        OpenAiCompatibleRequestSettings {
+            include_usage: self.config.include_usage,
+            request_body_transformer: self.config.request_body_transformer.clone(),
+        }
+    }
+
+    fn compat_spec(
+        &self,
+    ) -> crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter {
+        crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::with_settings(
+            self.config.adapter.clone(),
+            self.request_settings(),
+        )
+    }
+
     /// Build a chat executor with an explicit provider spec.
     pub fn build_chat_executor_with_spec(
         &self,
@@ -337,11 +354,7 @@ impl OpenAiCompatibleClient {
         &self,
         request: &ChatRequest,
     ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
-        let spec = Arc::new(
-            crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::new(
-                self.config.adapter.clone(),
-            ),
-        );
+        let spec = Arc::new(self.compat_spec());
         self.build_chat_executor_with_spec(request, spec)
     }
     fn prepare_chat_request(
@@ -367,11 +380,7 @@ impl OpenAiCompatibleClient {
         use crate::execution::executors::embedding::EmbeddingExecutorBuilder;
 
         let ctx = self.build_context();
-        let spec = Arc::new(
-            crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::new(
-                self.config.adapter.clone(),
-            ),
-        );
+        let spec = Arc::new(self.compat_spec());
         let mut builder = EmbeddingExecutorBuilder::new(
             self.config.provider_id.clone(),
             self.http_client.clone(),
@@ -395,11 +404,7 @@ impl OpenAiCompatibleClient {
         use crate::execution::executors::image::ImageExecutorBuilder;
 
         let ctx = self.build_context();
-        let spec = Arc::new(
-            crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::new(
-                self.config.adapter.clone(),
-            ),
-        );
+        let spec = Arc::new(self.compat_spec());
         let mut builder =
             ImageExecutorBuilder::new(self.config.provider_id.clone(), self.http_client.clone())
                 .with_spec(spec)
@@ -419,11 +424,7 @@ impl OpenAiCompatibleClient {
 
     fn build_audio_executor(&self) -> Arc<HttpAudioExecutor> {
         let ctx = self.build_context();
-        let spec = Arc::new(
-            crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::new(
-                self.config.adapter.clone(),
-            ),
-        );
+        let spec = Arc::new(self.compat_spec());
 
         let mut builder =
             AudioExecutorBuilder::new(self.config.provider_id.clone(), self.http_client.clone())
@@ -769,11 +770,7 @@ impl RerankCapability for OpenAiCompatibleClient {
         }
 
         let ctx = self.build_context();
-        let spec = std::sync::Arc::new(
-            crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::new(
-                self.config.adapter.clone(),
-            ),
-        );
+        let spec = std::sync::Arc::new(self.compat_spec());
 
         let mut builder =
             RerankExecutorBuilder::new(self.config.provider_id.clone(), self.http_client.clone())
@@ -797,11 +794,7 @@ impl RerankCapability for OpenAiCompatibleClient {
 impl OpenAiCompatibleClient {
     /// List available models from the provider
     async fn list_models_internal(&self) -> Result<Vec<ModelInfo>, LlmError> {
-        let spec = std::sync::Arc::new(
-            crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::new(
-                self.config.adapter.clone(),
-            ),
-        );
+        let spec = std::sync::Arc::new(self.compat_spec());
         let ctx = self.build_context();
         let url = spec.models_url(&ctx);
         let config = self.http_wiring(ctx).config(spec);
@@ -882,11 +875,7 @@ impl OpenAiCompatibleClient {
     async fn get_model_internal(&self, model_id: String) -> Result<ModelInfo, LlmError> {
         // Best-effort: prefer the dedicated retrieve endpoint when the provider supports it,
         // then fallback to the list endpoint, and finally a synthetic ModelInfo.
-        let spec = std::sync::Arc::new(
-            crate::providers::openai_compatible::spec::OpenAiCompatibleSpecWithAdapter::new(
-                self.config.adapter.clone(),
-            ),
-        );
+        let spec = std::sync::Arc::new(self.compat_spec());
         let ctx = self.build_context();
         let url = spec.model_url(&model_id, &ctx);
         let config = self.http_wiring(ctx).config(spec);
@@ -3816,6 +3805,153 @@ data: [DONE]
             })
         );
     }
+
+    #[tokio::test]
+    async fn chat_stream_request_runtime_omits_stream_options_by_default_for_compat_provider() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let _ = crate::traits::ChatCapability::chat_stream_request(&client, request).await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert!(captured.body.get("stream_options").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_runtime_include_usage_restores_stream_options() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_include_usage(true)
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let _ = crate::traits::ChatCapability::chat_stream_request(&client, request).await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert_eq!(
+            captured.body.get("stream_options"),
+            Some(&serde_json::json!({ "include_usage": true }))
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_runtime_applies_request_body_transformer() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+
+        let transformer = Arc::new(
+            |body: &mut serde_json::Value, _model: &str, _request_type| {
+                body["custom"] = serde_json::json!(true);
+                body.as_object_mut()
+                    .expect("object body")
+                    .remove("stream_options");
+                Ok(())
+            },
+        );
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_include_usage(true)
+        .with_request_body_transformer(transformer)
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+
+        let _ = crate::traits::ChatCapability::chat_stream_request(&client, request).await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert!(captured.body.get("stream_options").is_none());
+        assert_eq!(captured.body.get("custom"), Some(&serde_json::json!(true)));
+    }
+
     #[tokio::test]
     async fn build_embedding_executor_wires_before_send_and_interceptors() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {

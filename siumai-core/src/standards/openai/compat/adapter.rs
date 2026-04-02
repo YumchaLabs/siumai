@@ -10,6 +10,7 @@ use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
 use crate::types::HttpConfig;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// Enhanced Provider Compatibility Configuration
 ///
@@ -88,6 +89,55 @@ where
 {
     fn extract_response_metadata(&self, raw: &serde_json::Value) -> Option<NestedProviderMetadata> {
         self(raw)
+    }
+}
+
+/// Public hook for transforming a serialized OpenAI-compatible request body before send.
+///
+/// This mirrors AI SDK's `openai-compatible` `transformRequestBody` provider setting while
+/// fitting Siumai's adapter/spec pipeline.
+pub trait RequestBodyTransformer: Send + Sync {
+    fn transform_request_body(
+        &self,
+        body: &mut serde_json::Value,
+        model: &str,
+        request_type: RequestType,
+    ) -> Result<(), LlmError>;
+}
+
+impl<F> RequestBodyTransformer for F
+where
+    F: Fn(&mut serde_json::Value, &str, RequestType) -> Result<(), LlmError> + Send + Sync,
+{
+    fn transform_request_body(
+        &self,
+        body: &mut serde_json::Value,
+        model: &str,
+        request_type: RequestType,
+    ) -> Result<(), LlmError> {
+        self(body, model, request_type)
+    }
+}
+
+/// Provider-level request settings shared between the public config/builder surface and the
+/// OpenAI-compatible ProviderSpec implementation.
+#[derive(Clone, Default)]
+pub struct OpenAiCompatibleRequestSettings {
+    /// Whether chat streaming should request usage chunks with `stream_options.include_usage`.
+    pub include_usage: Option<bool>,
+    /// Optional request-body transformer applied after built-in/provider normalization.
+    pub request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
+}
+
+impl std::fmt::Debug for OpenAiCompatibleRequestSettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OpenAiCompatibleRequestSettings")
+            .field("include_usage", &self.include_usage)
+            .field(
+                "has_request_body_transformer",
+                &self.request_body_transformer.is_some(),
+            )
+            .finish()
     }
 }
 
@@ -254,6 +304,14 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
         _raw: &serde_json::Value,
     ) -> Option<NestedProviderMetadata> {
         None
+    }
+
+    /// Whether this provider accepts `stream_options.include_usage` on the chat-completions path.
+    ///
+    /// This answers provider capability only. Whether Siumai should actually send the field is
+    /// controlled by `OpenAiCompatibleRequestSettings.include_usage`.
+    fn supports_stream_usage_hints(&self) -> bool {
+        true
     }
 
     /// Check if provider supports image generation
@@ -443,7 +501,14 @@ pub struct ParamMergingAdapter {
 #[derive(Clone)]
 pub struct MetadataExtractingAdapter {
     inner: Box<dyn ProviderAdapter>,
-    extractor: std::sync::Arc<dyn ResponseMetadataExtractor>,
+    extractor: Arc<dyn ResponseMetadataExtractor>,
+}
+
+/// Adapter wrapper that applies a public request-body transformer after provider normalization.
+#[derive(Clone)]
+pub struct RequestTransformingAdapter {
+    inner: Box<dyn ProviderAdapter>,
+    transformer: Arc<dyn RequestBodyTransformer>,
 }
 
 impl std::fmt::Debug for MetadataExtractingAdapter {
@@ -457,9 +522,26 @@ impl std::fmt::Debug for MetadataExtractingAdapter {
 impl MetadataExtractingAdapter {
     pub fn new(
         inner: Box<dyn ProviderAdapter>,
-        extractor: std::sync::Arc<dyn ResponseMetadataExtractor>,
+        extractor: Arc<dyn ResponseMetadataExtractor>,
     ) -> Self {
         Self { inner, extractor }
+    }
+}
+
+impl std::fmt::Debug for RequestTransformingAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RequestTransformingAdapter")
+            .field("inner_provider_id", &self.inner.provider_id())
+            .finish()
+    }
+}
+
+impl RequestTransformingAdapter {
+    pub fn new(
+        inner: Box<dyn ProviderAdapter>,
+        transformer: Arc<dyn RequestBodyTransformer>,
+    ) -> Self {
+        Self { inner, transformer }
     }
 }
 
@@ -538,6 +620,10 @@ impl ProviderAdapter for ParamMergingAdapter {
         self.inner.base_url()
     }
 
+    fn audio_base_url(&self) -> Option<&str> {
+        self.inner.audio_base_url()
+    }
+
     fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
         Box::new(self.clone())
     }
@@ -547,6 +633,10 @@ impl ProviderAdapter for ParamMergingAdapter {
         raw: &serde_json::Value,
     ) -> Option<NestedProviderMetadata> {
         self.inner.extract_response_provider_metadata(raw)
+    }
+
+    fn supports_stream_usage_hints(&self) -> bool {
+        self.inner.supports_stream_usage_hints()
     }
 
     fn supports_image_generation(&self) -> bool {
@@ -653,6 +743,114 @@ impl ProviderAdapter for MetadataExtractingAdapter {
             }
         }
         metadata
+    }
+
+    fn supports_stream_usage_hints(&self) -> bool {
+        self.inner.supports_stream_usage_hints()
+    }
+
+    fn supports_image_generation(&self) -> bool {
+        self.inner.supports_image_generation()
+    }
+
+    fn transform_image_request(
+        &self,
+        request: &mut crate::types::ImageGenerationRequest,
+    ) -> Result<(), LlmError> {
+        self.inner.transform_image_request(request)
+    }
+
+    fn get_supported_image_sizes(&self) -> Vec<String> {
+        self.inner.get_supported_image_sizes()
+    }
+
+    fn get_supported_image_formats(&self) -> Vec<String> {
+        self.inner.get_supported_image_formats()
+    }
+
+    fn supports_image_editing(&self) -> bool {
+        self.inner.supports_image_editing()
+    }
+
+    fn supports_image_variations(&self) -> bool {
+        self.inner.supports_image_variations()
+    }
+
+    fn route_for(&self, req: super::types::RequestType) -> &'static str {
+        self.inner.route_for(req)
+    }
+}
+
+impl ProviderAdapter for RequestTransformingAdapter {
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        self.inner.provider_id()
+    }
+
+    fn transform_request_params(
+        &self,
+        params: &mut serde_json::Value,
+        model: &str,
+        request_type: RequestType,
+    ) -> Result<(), LlmError> {
+        self.inner
+            .transform_request_params(params, model, request_type)?;
+        self.transformer
+            .transform_request_body(params, model, request_type)
+    }
+
+    fn get_field_mappings(&self, model: &str) -> FieldMappings {
+        self.inner.get_field_mappings(model)
+    }
+
+    fn get_field_accessor(&self) -> Box<dyn FieldAccessor> {
+        self.inner.get_field_accessor()
+    }
+
+    fn get_model_config(&self, model: &str) -> ModelConfig {
+        self.inner.get_model_config(model)
+    }
+
+    fn custom_headers(&self) -> reqwest::header::HeaderMap {
+        self.inner.custom_headers()
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.inner.capabilities()
+    }
+
+    fn compatibility(&self) -> ProviderCompatibility {
+        self.inner.compatibility()
+    }
+
+    fn apply_http_config(&self, http_config: HttpConfig) -> HttpConfig {
+        self.inner.apply_http_config(http_config)
+    }
+
+    fn validate_model(&self, model: &str) -> Result<(), LlmError> {
+        self.inner.validate_model(model)
+    }
+
+    fn base_url(&self) -> &str {
+        self.inner.base_url()
+    }
+
+    fn audio_base_url(&self) -> Option<&str> {
+        self.inner.audio_base_url()
+    }
+
+    fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+        Box::new(self.clone())
+    }
+
+    fn extract_response_provider_metadata(
+        &self,
+        raw: &serde_json::Value,
+    ) -> Option<NestedProviderMetadata> {
+        self.inner.extract_response_provider_metadata(raw)
+    }
+
+    fn supports_stream_usage_hints(&self) -> bool {
+        self.inner.supports_stream_usage_hints()
     }
 
     fn supports_image_generation(&self) -> bool {
@@ -833,21 +1031,20 @@ mod tests {
         let inner: Box<dyn ProviderAdapter> = Box::new(OpenAiStandardAdapter {
             base_url: "https://api.openai.com/v1".to_string(),
         });
-        let extractor: std::sync::Arc<dyn ResponseMetadataExtractor> =
-            std::sync::Arc::new(|raw: &serde_json::Value| {
-                raw.get("test_field").map(|value| {
-                    std::collections::HashMap::from([
-                        (
-                            "openai".to_string(),
-                            std::collections::HashMap::from([("extra".to_string(), value.clone())]),
-                        ),
-                        (
-                            "test-provider".to_string(),
-                            std::collections::HashMap::from([("value".to_string(), value.clone())]),
-                        ),
-                    ])
-                })
-            });
+        let extractor: Arc<dyn ResponseMetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
+            raw.get("test_field").map(|value| {
+                std::collections::HashMap::from([
+                    (
+                        "openai".to_string(),
+                        std::collections::HashMap::from([("extra".to_string(), value.clone())]),
+                    ),
+                    (
+                        "test-provider".to_string(),
+                        std::collections::HashMap::from([("value".to_string(), value.clone())]),
+                    ),
+                ])
+            })
+        });
         let adapter = MetadataExtractingAdapter::new(inner, extractor);
         let raw = serde_json::json!({
             "choices": [{
@@ -874,5 +1071,70 @@ mod tests {
             test_provider.get("value"),
             Some(&serde_json::json!("test-value"))
         );
+    }
+
+    #[test]
+    fn request_transforming_adapter_runs_after_inner_adapter() {
+        #[derive(Debug, Clone)]
+        struct StreamingAdapter;
+
+        impl ProviderAdapter for StreamingAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("streaming")
+            }
+
+            fn transform_request_params(
+                &self,
+                params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: RequestType,
+            ) -> Result<(), LlmError> {
+                params["stream_options"] = serde_json::json!({ "include_usage": true });
+                Ok(())
+            }
+
+            fn get_field_mappings(&self, _model: &str) -> FieldMappings {
+                FieldMappings::default()
+            }
+
+            fn get_model_config(&self, _model: &str) -> ModelConfig {
+                ModelConfig::default()
+            }
+
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::default()
+            }
+
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+
+            fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let inner: Box<dyn ProviderAdapter> = Box::new(StreamingAdapter);
+        let transformer: Arc<dyn RequestBodyTransformer> = Arc::new(
+            |body: &mut serde_json::Value, _model: &str, request_type: RequestType| {
+                assert!(matches!(request_type, RequestType::Chat));
+                body.as_object_mut()
+                    .expect("object body")
+                    .remove("stream_options");
+                body["transformed"] = serde_json::json!(true);
+                Ok(())
+            },
+        );
+        let adapter = RequestTransformingAdapter::new(inner, transformer);
+
+        let mut body = serde_json::json!({
+            "stream": true
+        });
+        adapter
+            .transform_request_params(&mut body, "test-model", RequestType::Chat)
+            .expect("transform request params");
+
+        assert!(body.get("stream_options").is_none());
+        assert_eq!(body.get("transformed"), Some(&serde_json::json!(true)));
     }
 }

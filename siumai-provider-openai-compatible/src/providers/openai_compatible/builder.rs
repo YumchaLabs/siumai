@@ -3,7 +3,7 @@ use crate::builder::BuilderBase;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
-use crate::providers::openai_compatible::ResponseMetadataExtractor;
+use crate::providers::openai_compatible::{RequestBodyTransformer, ResponseMetadataExtractor};
 use crate::retry_api::RetryOptions;
 use std::sync::Arc;
 
@@ -61,6 +61,10 @@ pub struct OpenAiCompatibleBuilder {
     extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
     /// Optional public response-metadata extractor, mirroring AI SDK's compat provider hook.
     response_metadata_extractor: Option<Arc<dyn ResponseMetadataExtractor>>,
+    /// Whether streaming chat requests should include `stream_options.include_usage`.
+    include_usage: Option<bool>,
+    /// Optional public request-body transformer, mirroring AI SDK's `transformRequestBody`.
+    request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
     /// Enable lightweight HTTP debug logging interceptor
     http_debug: bool,
 }
@@ -92,6 +96,8 @@ impl OpenAiCompatibleBuilder {
             http_interceptors: base.http_interceptors.clone(),
             extra_model_middlewares: Vec::new(),
             response_metadata_extractor: None,
+            include_usage: None,
+            request_body_transformer: None,
             http_debug: base.http_debug,
         }
     }
@@ -280,6 +286,35 @@ impl OpenAiCompatibleBuilder {
     /// Alias for `with_metadata_extractor(...)`.
     pub fn metadata_extractor(self, extractor: Arc<dyn ResponseMetadataExtractor>) -> Self {
         self.with_metadata_extractor(extractor)
+    }
+
+    /// Control whether streaming chat requests should include `stream_options.include_usage`.
+    ///
+    /// This mirrors AI SDK's `includeUsage` provider setting for `openai-compatible`.
+    pub fn with_include_usage(mut self, include_usage: bool) -> Self {
+        self.include_usage = Some(include_usage);
+        self
+    }
+
+    /// Alias for `with_include_usage(...)`.
+    pub fn include_usage(self, include_usage: bool) -> Self {
+        self.with_include_usage(include_usage)
+    }
+
+    /// Install a public request-body transformer for chat requests.
+    ///
+    /// This mirrors AI SDK's `transformRequestBody` provider setting.
+    pub fn with_request_body_transformer(
+        mut self,
+        transformer: Arc<dyn RequestBodyTransformer>,
+    ) -> Self {
+        self.request_body_transformer = Some(transformer);
+        self
+    }
+
+    /// Alias for `with_request_body_transformer(...)`.
+    pub fn request_body_transformer(self, transformer: Arc<dyn RequestBodyTransformer>) -> Self {
+        self.with_request_body_transformer(transformer)
     }
 
     /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
@@ -535,6 +570,12 @@ impl OpenAiCompatibleBuilder {
         if let Some(extractor) = self.response_metadata_extractor.clone() {
             config = config.with_metadata_extractor(extractor);
         }
+        if let Some(include_usage) = self.include_usage {
+            config = config.with_include_usage(include_usage);
+        }
+        if let Some(transformer) = self.request_body_transformer.clone() {
+            config = config.with_request_body_transformer(transformer);
+        }
 
         let mut final_http_config = self.http_config;
         if let Some(timeout) = self.base.timeout {
@@ -715,6 +756,54 @@ mod tests {
             provider.get("value"),
             Some(&serde_json::json!("test-value"))
         );
+    }
+
+    #[test]
+    fn openai_compatible_builder_records_include_usage_setting() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .with_include_usage(true)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.include_usage, Some(true));
+    }
+
+    #[test]
+    fn openai_compatible_builder_installs_request_body_transformer() {
+        let transformer: Arc<dyn RequestBodyTransformer> = Arc::new(
+            |body: &mut serde_json::Value,
+             _model: &str,
+             request_type: crate::providers::openai_compatible::RequestType| {
+                assert!(matches!(
+                    request_type,
+                    crate::providers::openai_compatible::RequestType::Chat
+                ));
+                body["custom"] = serde_json::json!(true);
+                Ok(())
+            },
+        );
+
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .with_request_body_transformer(transformer)
+            .into_config()
+            .expect("into_config ok");
+
+        let hook = config
+            .request_body_transformer
+            .as_ref()
+            .expect("request body transformer");
+        let mut body = serde_json::json!({});
+        hook.transform_request_body(
+            &mut body,
+            "deepseek-chat",
+            crate::providers::openai_compatible::RequestType::Chat,
+        )
+        .expect("transform body");
+        assert_eq!(body.get("custom"), Some(&serde_json::json!(true)));
     }
 
     #[test]
