@@ -5,7 +5,10 @@ use crate::core::{
 use crate::error::LlmError;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::traits::ProviderCapabilities;
-use crate::types::{ChatRequest, ImageEditRequest, ImageVariationRequest, RerankRequest};
+use crate::types::{
+    ChatRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest, RerankRequest,
+    Warning,
+};
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
 
@@ -135,6 +138,63 @@ fn remove_known_compat_chat_option_keys(obj: &mut serde_json::Map<String, serde_
     ] {
         obj.remove(key);
     }
+}
+
+fn provider_options_key(provider_id: &str) -> String {
+    provider_id
+        .split('.')
+        .next()
+        .unwrap_or(provider_id)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+fn to_camel_case(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut uppercase_next = false;
+
+    for ch in value.chars() {
+        if matches!(ch, '-' | '_') {
+            uppercase_next = true;
+            continue;
+        }
+
+        if uppercase_next {
+            out.extend(ch.to_uppercase());
+            uppercase_next = false;
+        } else {
+            out.push(ch);
+        }
+    }
+
+    out
+}
+
+fn compat_image_provider_options(
+    provider_id: &str,
+    map: &crate::types::ProviderOptionsMap,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let provider_key = provider_options_key(provider_id);
+    let provider_camel = to_camel_case(&provider_key);
+    let mut merged = serde_json::Map::new();
+
+    for options in [
+        map.get_object("openai-compatible"),
+        map.get_object("openaiCompatible"),
+        map.get_object(&provider_key),
+        (provider_camel != provider_key)
+            .then(|| map.get_object(&provider_camel))
+            .flatten(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        for (key, value) in options {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+
+    (!merged.is_empty()).then_some(merged)
 }
 
 fn normalize_provider_options(
@@ -472,6 +532,20 @@ impl ProviderSpec for OpenAiCompatibleSpecWithAdapter {
         )
     }
 
+    fn image_warnings(
+        &self,
+        req: &ImageGenerationRequest,
+        _ctx: &ProviderContext,
+    ) -> Option<Vec<Warning>> {
+        let mut warnings = Vec::new();
+
+        if req.seed.is_some() {
+            warnings.push(Warning::unsupported("seed", Option::<String>::None));
+        }
+
+        (!warnings.is_empty()).then_some(warnings)
+    }
+
     fn image_edit_url(&self, req: &ImageEditRequest, ctx: &ProviderContext) -> String {
         apply_url_settings(
             self.image_spec().image_edit_url(req, ctx),
@@ -671,6 +745,36 @@ impl OpenAiCompatibleSpecWithAdapter {
             fn generation_endpoint(&self) -> &str {
                 &self.generation_endpoint
             }
+
+            fn generation_provider_options(
+                &self,
+                req: &crate::types::ImageGenerationRequest,
+            ) -> Option<serde_json::Map<String, serde_json::Value>> {
+                compat_image_provider_options(
+                    self.adapter.provider_id().as_ref(),
+                    &req.provider_options_map,
+                )
+            }
+
+            fn edit_provider_options(
+                &self,
+                req: &crate::types::ImageEditRequest,
+            ) -> Option<serde_json::Map<String, serde_json::Value>> {
+                compat_image_provider_options(
+                    self.adapter.provider_id().as_ref(),
+                    &req.provider_options_map,
+                )
+            }
+
+            fn variation_provider_options(
+                &self,
+                req: &crate::types::ImageVariationRequest,
+            ) -> Option<serde_json::Map<String, serde_json::Value>> {
+                compat_image_provider_options(
+                    self.adapter.provider_id().as_ref(),
+                    &req.provider_options_map,
+                )
+            }
         }
 
         let endpoint = format!(
@@ -867,6 +971,86 @@ mod tests {
         assert_eq!(
             out.get("some_vendor_param"),
             Some(&serde_json::Value::Bool(true))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_image_provider_options_merge_canonical_and_provider_owned_keys() {
+        use crate::core::ProviderSpec;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["image_generation".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = ImageGenerationRequest::default()
+            .with_provider_option(
+                "openaiCompatible",
+                serde_json::json!({ "user": "compat-user" }),
+            )
+            .with_provider_option(
+                "deepseek",
+                serde_json::json!({ "quality": "hd", "user": "provider-user" }),
+            );
+
+        let bundle = spec.choose_image_transformers(&req, &ctx);
+        let body = bundle
+            .request
+            .transform_image(&req)
+            .expect("transform image");
+
+        assert_eq!(body["user"], serde_json::json!("provider-user"));
+        assert_eq!(body["quality"], serde_json::json!("hd"));
+    }
+
+    #[test]
+    fn openai_compatible_image_warnings_surface_ai_sdk_seed_warning() {
+        use crate::core::ProviderSpec;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["image_generation".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let req = ImageGenerationRequest {
+            seed: Some(7),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            spec.image_warnings(&req, &ctx),
+            Some(vec![Warning::unsupported("seed", Option::<String>::None)])
         );
     }
 

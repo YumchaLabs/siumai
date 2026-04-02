@@ -165,6 +165,39 @@ pub trait OpenAiImageAdapter: Send + Sync {
         Ok(())
     }
 
+    /// Provide provider-owned generation request options.
+    ///
+    /// Returning `Some(map)` overrides the default OpenAI/Azure `providerOptions`
+    /// lookup used by the generic OpenAI image transformer.
+    fn generation_provider_options(
+        &self,
+        _req: &ImageGenerationRequest,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        None
+    }
+
+    /// Provide provider-owned edit request options.
+    ///
+    /// Returning `Some(map)` overrides the default OpenAI/Azure `providerOptions`
+    /// lookup used by the generic OpenAI image transformer.
+    fn edit_provider_options(
+        &self,
+        _req: &ImageEditRequest,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        None
+    }
+
+    /// Provide provider-owned variation request options.
+    ///
+    /// Returning `Some(map)` overrides the default OpenAI/Azure `providerOptions`
+    /// lookup used by the generic OpenAI image transformer.
+    fn variation_provider_options(
+        &self,
+        _req: &ImageVariationRequest,
+    ) -> Option<serde_json::Map<String, serde_json::Value>> {
+        None
+    }
+
     /// Get provider-specific endpoint path for image generation
     ///
     /// Default is "/images/generations" (standard OpenAI)
@@ -333,15 +366,24 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             }
         }
 
-        // Vercel alignment: merge providerOptions.openai (or providerOptions.azure) into the body.
-        if let Some(opts) = request
-            .provider_options_map
-            .get_object("openai")
-            .or_else(|| request.provider_options_map.get_object("azure"))
+        let provider_options = self
+            .adapter
+            .as_ref()
+            .and_then(|adapter| adapter.generation_provider_options(request))
+            .or_else(|| {
+                request
+                    .provider_options_map
+                    .get_object("openai")
+                    .cloned()
+                    .or_else(|| request.provider_options_map.get_object("azure").cloned())
+            });
+
+        // Vercel alignment: merge provider-owned options into the wire body.
+        if let Some(opts) = provider_options
             && let Some(obj) = body.as_object_mut()
         {
             for (k, v) in opts {
-                obj.insert(k.clone(), v.clone());
+                obj.insert(k, v);
             }
         }
 
@@ -416,11 +458,18 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             form = form.text(k.clone(), s);
         }
 
-        if let Some(opts) = req
-            .provider_options_map
-            .get_object("openai")
-            .or_else(|| req.provider_options_map.get_object("azure"))
-        {
+        let provider_options = self
+            .adapter
+            .as_ref()
+            .and_then(|adapter| adapter.edit_provider_options(req))
+            .or_else(|| {
+                req.provider_options_map
+                    .get_object("openai")
+                    .cloned()
+                    .or_else(|| req.provider_options_map.get_object("azure").cloned())
+            });
+
+        if let Some(opts) = provider_options {
             for (k, v) in opts {
                 if v.is_null() {
                     continue;
@@ -428,8 +477,8 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
                 let s = v
                     .as_str()
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()));
-                form = form.text(k.clone(), s);
+                    .unwrap_or_else(|| serde_json::to_string(&v).unwrap_or_else(|_| v.to_string()));
+                form = form.text(k, s);
             }
         }
 
@@ -485,11 +534,18 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
             form = form.text(k.clone(), s);
         }
 
-        if let Some(opts) = req
-            .provider_options_map
-            .get_object("openai")
-            .or_else(|| req.provider_options_map.get_object("azure"))
-        {
+        let provider_options = self
+            .adapter
+            .as_ref()
+            .and_then(|adapter| adapter.variation_provider_options(req))
+            .or_else(|| {
+                req.provider_options_map
+                    .get_object("openai")
+                    .cloned()
+                    .or_else(|| req.provider_options_map.get_object("azure").cloned())
+            });
+
+        if let Some(opts) = provider_options {
             for (k, v) in opts {
                 if v.is_null() {
                     continue;
@@ -497,8 +553,8 @@ impl RequestTransformer for OpenAiImageRequestTransformer {
                 let s = v
                     .as_str()
                     .map(|s| s.to_string())
-                    .unwrap_or_else(|| serde_json::to_string(v).unwrap_or_else(|_| v.to_string()));
-                form = form.text(k.clone(), s);
+                    .unwrap_or_else(|| serde_json::to_string(&v).unwrap_or_else(|_| v.to_string()));
+                form = form.text(k, s);
             }
         }
 
@@ -856,6 +912,36 @@ mod tests {
 
         let body = result.unwrap();
         assert_eq!(body["custom_field"], "custom_value");
+    }
+
+    #[test]
+    fn test_adapter_generation_provider_options_override_default_openai_provider_options() {
+        struct CustomAdapter;
+        impl OpenAiImageAdapter for CustomAdapter {
+            fn generation_provider_options(
+                &self,
+                _req: &ImageGenerationRequest,
+            ) -> Option<serde_json::Map<String, serde_json::Value>> {
+                Some(serde_json::Map::from_iter([
+                    ("user".to_string(), serde_json::json!("compat-user")),
+                    ("quality".to_string(), serde_json::json!("hd")),
+                ]))
+            }
+        }
+
+        let standard = OpenAiImageStandard::with_adapter(Arc::new(CustomAdapter));
+        let transformers = standard.create_transformers("test-provider");
+
+        let request = ImageGenerationRequest::default()
+            .with_provider_option("openai", serde_json::json!({ "user": "openai-user" }));
+
+        let body = transformers
+            .request
+            .transform_image(&request)
+            .expect("transform image");
+
+        assert_eq!(body["user"], serde_json::json!("compat-user"));
+        assert_eq!(body["quality"], serde_json::json!("hd"));
     }
 
     #[test]

@@ -2073,6 +2073,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generate_images_runtime_compat_image_provider_options_map_to_request_body() {
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "data": [{ "b64_json": "image-1" }]
+        }));
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            make_together_image_adapter(),
+        )
+        .with_model("black-forest-labs/FLUX.1-schnell")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ImageGenerationRequest {
+            prompt: "a tiny teal robot".to_string(),
+            model: Some("black-forest-labs/FLUX.1-schnell".to_string()),
+            provider_options_map: {
+                let mut map = ProviderOptionsMap::default();
+                map.insert(
+                    "openaiCompatible",
+                    serde_json::json!({ "user": "compat-user" }),
+                );
+                map.insert(
+                    "together",
+                    serde_json::json!({ "quality": "hd", "user": "provider-user" }),
+                );
+                map
+            },
+            ..Default::default()
+        };
+
+        let response = client
+            .generate_images(request)
+            .await
+            .expect("image response");
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(captured.body["user"], serde_json::json!("provider-user"));
+        assert_eq!(captured.body["quality"], serde_json::json!("hd"));
+    }
+
+    #[tokio::test]
+    async fn generate_images_runtime_seed_emits_ai_sdk_warning() {
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "data": [{ "b64_json": "image-1" }]
+        }));
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            make_together_image_adapter(),
+        )
+        .with_model("black-forest-labs/FLUX.1-schnell")
+        .with_http_transport(Arc::new(transport));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ImageGenerationRequest {
+            prompt: "a tiny green robot".to_string(),
+            model: Some("black-forest-labs/FLUX.1-schnell".to_string()),
+            seed: Some(7),
+            ..Default::default()
+        };
+
+        let response = client
+            .generate_images(request)
+            .await
+            .expect("image response");
+
+        assert_eq!(
+            response.warnings,
+            Some(vec![Warning::unsupported("seed", Option::<String>::None)])
+        );
+    }
+
+    #[tokio::test]
     async fn openai_compatible_client_together_tts_uses_default_audio_base_with_custom_transport() {
         let transport = BytesResponseTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
 

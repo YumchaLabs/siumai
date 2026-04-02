@@ -15,6 +15,10 @@ Status legend:
 - [x] Record the main AI SDK V4 provider reference files.
 - [x] Record the current Siumai anchor files for prompt/content/usage/stream semantics.
 - [x] Write down the current red/amber/green parity table.
+- [x] Re-verify GitHub issue `YumchaLabs/siumai#17` against local main.
+  - `siumai-protocol-anthropic` already preserves Anthropic extended usage roundtrips locally.
+  - `cargo nextest run -p siumai-protocol-anthropic --features anthropic-standard --test anthropic_streaming_feature_surface_test`
+    passes on the current branch, so the remaining active gaps are elsewhere.
 
 ## Track A - Shared semantic fixes
 
@@ -116,6 +120,12 @@ Status legend:
     runtime response path while still being filtered from Chat Completions requests
   - legacy `providerOptions['openai-compatible']` now also emits the AI SDK-style deprecation
     warning while preserving the audited compatibility lane for known compat chat options
+- [x] Align OpenAI-compatible image provider options and warning semantics with AI SDK.
+  - compat image generation/edit/variation now merge provider-owned options from deprecated
+    `openai-compatible`, canonical `openaiCompatible`, and provider-owned keys instead of only
+    `providerOptions.openai|azure`
+  - compat image generation now emits stable `unsupported { feature: "seed" }` warnings instead
+    of silently dropping `seed`
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.
@@ -185,6 +195,10 @@ Status legend:
     - xAI already accepts URL-backed edit inputs directly
     - OpenAI/OpenAI-compatible/Vertex currently reject URL-backed edit inputs until an async
       prefetch/materialization layer exists
+  - [~] Close the remaining shared image call-option structure gaps against AI SDK V4.
+    - shared Rust image requests still do not expose top-level `aspectRatio`
+    - split `ImageEditRequest` / `ImageVariationRequest` still do not expose a shared `seed`
+      knob comparable to `ImageModelV4CallOptions`
   - [x] Stabilize the shared AI SDK-style video knob/input surface instead of leaving it as an
     open design question.
     - `VideoGenerationRequest` now carries canonical `count` (`n`), `fps`, `seed`, and typed
@@ -438,6 +452,10 @@ Status legend:
     `created = 0` now defer `response-metadata` until a real metadata chunk arrives
   - the remaining OpenAI-compatible parity audit is now mostly rarer raw-hint cleanup rather than
     missing core source/metadata/logprobs/prediction-token fixtures
+- [-] Decide whether to add a dedicated Rust text-completion family for AI SDK `completionModel()`.
+  - this is a documented architecture gap rather than a small compat drift item
+  - parity would require a new stable completion request/response family and public trait surface
+    instead of more chat-completions special cases
 
 ## Current branch notes
 

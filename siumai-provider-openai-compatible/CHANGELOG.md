@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reasoningEffort`, `textVerbosity`, and `strictJsonSchema` now map to wire `user`,
   `reasoning_effort`, `verbosity`, and `response_format.json_schema.strict` instead of leaking as
   raw camelCase request fields.
+- OpenAI-compatible image runtime shaping now also follows the AI SDK image provider-options lane:
+  compat image generation/edit/variation merge provider-owned fields from deprecated
+  `openai-compatible`, canonical `openaiCompatible`, and provider-owned keys instead of only
+  `providerOptions.openai|azure`, and image generation now surfaces stable
+  `unsupported { feature: "seed" }` warnings instead of silently dropping `seed`.
 - OpenAI-compatible chat runtime now also installs AI SDK-style provider-defined tool warnings on
   the default response path: provider-defined tools remain filtered out of Chat Completions
   requests, and successful chat responses now emit `unsupported { feature: "provider-defined tool
