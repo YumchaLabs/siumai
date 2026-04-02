@@ -1,0 +1,35 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "Search X briefly." },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "grok-3-latest",
+    "temperature": 0.7,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": 0.9,
+    "top_k": null,
+    "stop_sequences": null,
+    "seed": 42
+  },
+  "providerOptions": {
+    "xai": {
+      "searchParameters": {
+        "mode": "on",
+        "sources": [
+          {
+            "type": "x",
+            "xHandles": ["openai", "deepmind"],
+            "excludedXHandles": ["grok"]
+          }
+        ]
+      }
+    }
+  },
+  "stream": false
+}

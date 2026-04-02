@@ -1,0 +1,31 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": { "Text": "hi" },
+      "metadata": {}
+    }
+  ],
+  "tools": null,
+  "common_params": {
+    "model": "grok-4",
+    "temperature": null,
+    "max_tokens": null,
+    "max_completion_tokens": null,
+    "top_p": null,
+    "top_k": null,
+    "stop_sequences": null,
+    "seed": null
+  },
+  "providerOptions": {
+    "xai": {
+      "reasoningEffort": "high",
+      "reasoningSummary": "detailed",
+      "topLogprobs": 2,
+      "previousResponseId": "resp_prev_123",
+      "include": ["file_search_call.results"],
+      "store": false
+    }
+  },
+  "stream": false
+}

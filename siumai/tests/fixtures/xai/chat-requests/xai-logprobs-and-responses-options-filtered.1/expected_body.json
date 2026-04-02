@@ -1,0 +1,9 @@
+{
+  "model": "grok-4",
+  "messages": [
+    { "role": "user", "content": "hi" }
+  ],
+  "reasoning_effort": "high",
+  "logprobs": true,
+  "top_logprobs": 2
+}

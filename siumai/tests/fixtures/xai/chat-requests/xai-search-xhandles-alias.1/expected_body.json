@@ -1,0 +1,19 @@
+{
+  "model": "grok-3-latest",
+  "messages": [
+    { "role": "user", "content": "Search X briefly." }
+  ],
+  "temperature": 0.7,
+  "top_p": 0.9,
+  "seed": 42,
+  "search_parameters": {
+    "mode": "on",
+    "sources": [
+      {
+        "type": "x",
+        "included_x_handles": ["openai", "deepmind"],
+        "excluded_x_handles": ["grok"]
+      }
+    ]
+  }
+}
