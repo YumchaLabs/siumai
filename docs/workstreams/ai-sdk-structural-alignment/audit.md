@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - Audit
 
-Last updated: 2026-03-30
+Last updated: 2026-04-02
 
 This note records the current structural parity status against the AI SDK provider contracts.
 
@@ -19,8 +19,8 @@ The current branch has now closed four concrete structural gaps:
 - Shared warnings now expose AI SDK-style `unsupported` / `compatibility` categories through a
   compatibility-superset model.
 - Request-side `providerOptions` now exist on messages, request-capable content parts, and
-  tool-result output/content shapes, and the main request converters prefer them over historical
-  metadata shims.
+  tool-result output/content shapes, and the main audited request converters now use them as the
+  canonical request-time lane instead of historical metadata shims.
 - Stable content now includes first-class V4 `custom` and `reasoning-file` parts.
 - Stable `source` now uses a strict URL/document union while keeping compatibility wire
   serialization.
@@ -80,7 +80,7 @@ coverage, stream modeling, usage modeling, and final shape cleanup.
 | Part-level provider options | `language-model-v4-prompt.ts` | `siumai-spec/src/types/chat/content/part.rs` | Green | Request-capable stable parts carry `providerOptions`, with helper accessors/builders. |
 | Tool-result output/content provider options | `language-model-v4-prompt.ts` | `siumai-spec/src/types/chat/content/tool_result.rs` | Green | `ToolResultOutput` and `ToolResultContentPart` now model AI SDK-style `providerOptions`. |
 | Tool-result content granularity | `language-model-v4-prompt.ts` | `siumai-spec/src/types/chat/content/tool_result.rs` | Green | Stable tool-result content now models the explicit V4 file/image/id variants plus `custom`, including `ToolResultFileId` for provider-keyed ids. |
-| Request/response provider boundary | `shared-v4-provider-options.ts` + `shared-v4-provider-metadata.ts` | `siumai-core/src/standards/openai/utils.rs`, `siumai-protocol-anthropic/src/standards/anthropic/utils/content.rs` | Amber | OpenAI-compatible, OpenAI Responses, and Anthropic request paths now prefer `providerOptions`, but bounded compatibility fallbacks still read legacy metadata. |
+| Request/response provider boundary | `shared-v4-provider-options.ts` + `shared-v4-provider-metadata.ts` | `siumai-core/src/standards/openai/utils.rs`, `siumai-protocol-anthropic/src/standards/anthropic/utils/content.rs` | Green | OpenAI-compatible, OpenAI Responses, and Anthropic request paths now use canonical `providerOptions` on the audited request boundary; request-side `providerMetadata` and `message.metadata.custom` no longer participate in those main request-only behaviors. |
 | V4 custom content | `language-model-v4-custom-content.ts` | stable content + protocol converters | Amber | Stable `ContentPart::Custom` exists, but true provider support is intentionally scoped: OpenAI Responses `openai.compaction`, Anthropic tool-result `tool_reference`, Gemini skips unsupported custom parts. |
 | V4 reasoning-file content | `language-model-v4-reasoning-file.ts` | stable content + protocol converters | Amber | Stable `ContentPart::ReasoningFile` exists and Gemini has true wire support, but OpenAI/Anthropic still degrade where no native request equivalent exists. |
 | Stable usage shape | `language-model-v4-usage.ts` | `siumai-spec/src/types/usage.rs` | Green | `Usage` now carries AI SDK-style `inputTokens` / `outputTokens` / `raw` alongside compatibility totals, normalized helpers bridge legacy callers, and the main OpenAI/OpenAI-compatible/Anthropic/Gemini replay paths preserve unknown/null totals instead of forcing zeroes. |
@@ -198,39 +198,39 @@ Still open:
   native payload structs are intentionally protocol-shaped
 - provider-native request handling for `source` is still uneven and often degrades explicitly
 
-## 5. Request-time controls still have bounded legacy fallback paths
+## 5. Request-time controls now have a canonical audited boundary
 
 Current state:
 
 - the stable request surface now exposes the right `providerOptions` slots
-- the main request converters read those slots first
-- compatibility fallbacks still read historical response-style metadata in bounded paths
+- the main audited request converters now read those slots as the only canonical request-time input
 - the unified Rust content surface still carries both `providerOptions` and `providerMetadata`,
   which is wider than the AI SDK prompt contract but currently remains the pragmatic shared stable
   shape
 
 Required direction:
 
-- finish auditing the remaining converter/helper paths
-- keep metadata-as-input only as an explicit migration bridge
-- remove or deprecate those bridges once tests are broad enough
+- keep extending the same audit standard to any remaining unaudited converter/helper paths
+- keep `providerMetadata` response-time only in intent, even though the shared stable superset
+  still carries both lanes
 - keep treating `providerOptions` as the only canonical request-time input channel even while the
   shared content superset remains in place
 
 ## Recommended priority order
 
-### P0 - Finish the remaining boundary cleanup
-
-- audit the last request paths that still read response-style metadata
-- remove bounded metadata-as-input bridges once coverage is sufficient
-
-### P1 - Stable stream parity
+### P0 - Stable stream parity
 
 - keep auditing whether any provider besides OpenAI Responses truly needs the replay-carrier
   pattern; Anthropic reasoning signature/redacted fields now intentionally stay on stable
   `providerMetadata` because AI SDK models them there
 - keep tightening the mapping between runtime events, typed stream parts, and protocol-native
   serializers
+
+### P1 - Provider-boundary coverage expansion
+
+- keep checking the remaining lesser-used provider/protocol helpers for accidental request-side
+  metadata reads
+- preserve `providerOptions` as the only canonical request-time lane on newly aligned paths
 
 ### P1 - Stable usage parity
 

@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - Milestones
 
-Last updated: 2026-04-01
+Last updated: 2026-04-02
 
 This workstream is tracked with explicit acceptance criteria.
 
@@ -38,14 +38,15 @@ Acceptance criteria:
 
 - Message and content-part request controls have first-class `providerOptions`.
 - Request converters no longer need response-style `provider_metadata` for request-only behavior.
-- Temporary metadata-based fallback paths are documented and bounded.
+- Temporary metadata-based fallback paths are removed from the audited request paths or left
+  outside the canonical boundary as explicit compatibility surfaces.
 
 Current state:
 
 - `ChatMessage`, request-capable content parts, and tool-result output/content parts expose
   first-class `providerOptions`.
-- OpenAI-compatible, OpenAI Responses, and Anthropic request conversion prefer `providerOptions`
-  and only fall back to legacy metadata shims for compatibility.
+- OpenAI-compatible, OpenAI Responses, and Anthropic request conversion now use canonical
+  `providerOptions` on the audited request paths instead of response-style metadata shims.
 - OpenAI Chat and OpenAI-compatible request conversion now also agree on the main request-only
   boundary:
   - OpenAI Chat image detail reads only canonical part `providerOptions.openai|azure`
@@ -54,9 +55,9 @@ Current state:
   - the shared `ProviderOptionsMap` serde now normalizes JSON provider ids, so external
     `openaiCompatible` request keys resolve the same way as builder-inserted provider options
 - OpenAI Responses request conversion, warning snapshots, and request normalization now also agree
-  on that split: reasoning/image-detail/approval-id request inputs use canonical
-  `providerOptions`, and the only remaining OpenAI Responses request-side metadata fallback is the
-  upstream-compatible assistant tool-call `itemId` shim.
+  on that split: reasoning/image-detail/approval-id request inputs and assistant tool-call ids all
+  use canonical `providerOptions`, so the main OpenAI Responses request path no longer reads
+  request-side `provider_metadata`.
 - xAI provider-owned non-chat request/response boundaries now also match the audited AI SDK split
   much more closely:
   - typed `XaiImageOptions` / `XaiVideoOptions` now live on the public provider-owned/facade
@@ -117,9 +118,7 @@ Current state:
 - The prompt-boundary review is now documented: the shared stable content surface stays as a
   pragmatic superset for now, but `providerOptions` is the canonical request-time channel and
   `providerMetadata` remains response-time only in intent.
-- A final audit/removal pass is still needed before this can be marked complete.
-
-Status: in progress
+Status: completed
 
 ## ASA-M3 - Stable prompt/content model reaches V4-capable parity
 

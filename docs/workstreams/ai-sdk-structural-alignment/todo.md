@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - TODO
 
-Last updated: 2026-04-01
+Last updated: 2026-04-02
 
 Status legend:
 
@@ -44,8 +44,8 @@ Status legend:
   - request conversion / warnings / normalization now use canonical `providerOptions` for
     reasoning `itemId` / `reasoningEncryptedContent`, image `imageDetail`, compaction metadata,
     and MCP approval ids
-  - only assistant tool-call `itemId` keeps a bounded legacy `provider_metadata` fallback because
-    the current AI SDK converter still accepts it
+  - assistant tool-call `itemId` is now also pinned to canonical `providerOptions`; legacy
+    `provider_metadata` is ignored on the audited request path
 - [x] Remove Anthropic request-side document-setting fallback reads from response-style channels:
   - document citations/title/context no longer read file `provider_metadata` or
     `message.metadata.custom["anthropic_document_*"]`
@@ -78,9 +78,9 @@ Status legend:
     resolve the same way as builder-inserted provider options.
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
-- [~] Preserve temporary fallback behavior only through an explicit compatibility shim.
-  - OpenAI Responses still keeps the upstream-compatible assistant tool-call `itemId` metadata
-    shim.
+- [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.
+  - OpenAI Responses assistant tool-call `itemId` now also ignores legacy metadata input and
+    requires canonical `providerOptions`.
   - OpenAI Chat / OpenAI-compatible main request conversion paths no longer keep metadata-input
     fallbacks.
   - experimental request-bridge reasoning paths no longer keep `providerMetadata` fallbacks.
@@ -185,7 +185,7 @@ Status legend:
   - current recommendation: keep the shared stable content superset, but treat
     `providerOptions` as the canonical request-time channel and `providerMetadata` as
     response-time observation only
-- [~] Audit protocol coverage after the new stable parts exist:
+- [x] Audit protocol coverage after the new stable parts exist:
   - [x] OpenAI Responses request/gateway mapping for explicit tool-result file/image/id content
   - [x] Anthropic request/gateway mapping for explicit tool-result image/PDF/url content plus
     `tool_reference`
@@ -194,8 +194,14 @@ Status legend:
   - [x] OpenAI-compatible chat/tool-result parity review for the explicit variants
     - confirmed string-only tool-message degradation is required by the OpenAI-compatible wire
       contract, and explicit V4 content variants are preserved inside the JSON string payload
-  - [ ] Decide whether any additional providers should get true `reasoning-file` or `custom`
+  - [x] Decide whether any additional providers should get true `reasoning-file` or `custom`
     support rather than explicit degradation
+    - current audit conclusion: no additional audited provider should get native support here yet
+    - Gemini remains the only true `reasoning-file` wire path
+    - OpenAI Responses keeps provider-specific `custom` support for `openai.compaction`
+    - Anthropic keeps `tool_reference`-style custom tool-result mapping
+    - xAI and OpenAI-compatible continue explicit degradation/skip behavior for unsupported
+      assistant-side `reasoning-file` / `custom`
 - [x] Sweep public macros/tests/examples and provider helper matches after the stable
   `providerOptions` rollout so all-features builds keep compiling against the expanded stable
   content model.
@@ -373,7 +379,7 @@ Status legend:
 - [x] Add migration notes if public request/response JSON changes in a user-visible way.
 - [x] Expose stable runtime stream types (`ChatStreamPart`, `ChatStreamToolCall`, etc.) through
   the public streaming/prelude surface so downstream code no longer needs `__private::types`.
-- [ ] Remove or deprecate compatibility fallbacks after the new paths have enough test coverage.
+- [x] Remove or deprecate compatibility fallbacks after the new paths have enough test coverage.
 - [~] Narrow the remaining OpenAI-compatible parity audit to explicit fixture/public-path holes.
   - `message.annotations` / `delta.annotations` URL citation parity is now fixture-backed
   - same-protocol chat-completions roundtrip fixtures now also pin `response-metadata` and
