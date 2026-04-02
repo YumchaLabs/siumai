@@ -5,11 +5,26 @@ use siumai_protocol_anthropic::ChatResponse;
 use siumai_protocol_anthropic::provider_metadata::anthropic::AnthropicChatResponseExt;
 use siumai_protocol_anthropic::standards::anthropic::params::AnthropicParams;
 use siumai_protocol_anthropic::standards::anthropic::streaming::AnthropicEventConverter;
-use siumai_protocol_anthropic::streaming::{ChatStreamEvent, SseEventConverter};
-use siumai_protocol_anthropic::types::{FinishReason, MessageContent, ResponseMetadata};
+use siumai_protocol_anthropic::streaming::{
+    ChatStreamEvent, LanguageModelV3StreamPart, SseEventConverter,
+};
+use siumai_protocol_anthropic::types::{
+    ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult, FinishReason, MessageContent,
+    ResponseMetadata,
+};
 
 fn create_test_config() -> AnthropicParams {
     AnthropicParams::default()
+}
+
+fn stream_part(event: &ChatStreamEvent) -> Option<LanguageModelV3StreamPart> {
+    LanguageModelV3StreamPart::try_from_chat_event(event)
+}
+
+fn anthropic_provider_metadata(
+    value: serde_json::Value,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    std::collections::HashMap::from([("anthropic".to_string(), value)])
 }
 
 fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
@@ -57,36 +72,39 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
     let encoder = AnthropicEventConverter::new(create_test_config());
 
     let tool_call_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "anthropic:tool-call".to_string(),
-            data: serde_json::json!({
-                "type": "tool-call",
-                "toolCallId": "srvtoolu_1",
-                "toolName": "web_search",
-                "providerExecuted": true,
-                "input": {
-                    "query": "rust"
-                }
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "srvtoolu_1".to_string(),
+                tool_name: "web_search".to_string(),
+                input: r#"{"query":"rust"}"#.to_string(),
+                provider_executed: Some(true),
+                dynamic: None,
+                provider_metadata: Some(anthropic_provider_metadata(serde_json::json!({
+                    "contentBlockIndex": 0
+                }))),
             }),
         })
-        .expect("serialize provider tool-call");
+        .expect("serialize provider tool-call part");
     let tool_result_bytes = encoder
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "anthropic:tool-result".to_string(),
-            data: serde_json::json!({
-                "type": "tool-result",
-                "toolCallId": "srvtoolu_1",
-                "toolName": "web_search",
-                "providerExecuted": true,
-                "result": [{
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                tool_call_id: "srvtoolu_1".to_string(),
+                tool_name: "web_search".to_string(),
+                result: serde_json::json!([{
                     "type": "web_search_result",
                     "title": "Rust",
                     "url": "https://www.rust-lang.org",
                     "encryptedContent": "..."
-                }]
+                }]),
+                is_error: Some(false),
+                preliminary: None,
+                dynamic: None,
+                provider_metadata: Some(anthropic_provider_metadata(serde_json::json!({
+                    "contentBlockIndex": 1
+                }))),
             }),
         })
-        .expect("serialize provider tool-result");
+        .expect("serialize provider tool-result part");
 
     let call_frames = parse_sse_json_frames(&tool_call_bytes);
     let result_frames = parse_sse_json_frames(&tool_result_bytes);
@@ -123,12 +141,10 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
         .iter()
         .filter(|event| {
             matches!(
-                event,
-                ChatStreamEvent::Custom { event_type, data }
-                    if event_type == "anthropic:tool-call"
-                        && data.get("type") == Some(&serde_json::json!("tool-call"))
-                        && data.get("toolName") == Some(&serde_json::json!("web_search"))
-                        && data.get("providerExecuted") == Some(&serde_json::json!(true))
+                stream_part(event),
+                Some(LanguageModelV3StreamPart::ToolCall(ref call))
+                    if call.tool_name == "web_search"
+                        && call.provider_executed == Some(true)
             )
         })
         .count();
@@ -136,12 +152,10 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
         .iter()
         .filter(|event| {
             matches!(
-                event,
-                ChatStreamEvent::Custom { event_type, data }
-                    if event_type == "anthropic:tool-result"
-                        && data.get("type") == Some(&serde_json::json!("tool-result"))
-                        && data.get("toolName") == Some(&serde_json::json!("web_search"))
-                        && data.get("providerExecuted") == Some(&serde_json::json!(true))
+                stream_part(event),
+                Some(LanguageModelV3StreamPart::ToolResult(ref result))
+                    if result.tool_name == "web_search"
+                        && result.is_error == Some(false)
             )
         })
         .count();
@@ -149,10 +163,10 @@ async fn anthropic_public_feature_surface_roundtrips_provider_tool_stream_parts(
         .iter()
         .filter(|event| {
             matches!(
-                event,
-                ChatStreamEvent::Custom { event_type, data }
-                    if event_type == "anthropic:source"
-                        && data.get("url") == Some(&serde_json::json!("https://www.rust-lang.org"))
+                stream_part(event),
+                Some(LanguageModelV3StreamPart::Source(
+                    siumai_protocol_anthropic::streaming::LanguageModelV3Source::Url { url, .. }
+                )) if url == "https://www.rust-lang.org"
             )
         })
         .count();
@@ -186,10 +200,17 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
         .await;
 
     assert!(signature_events.iter().any(|event| matches!(
-        event,
-        Ok(ChatStreamEvent::Custom { event_type, data })
-            if event_type == "anthropic:thinking-signature-delta"
-                && data.get("signatureDelta") == Some(&serde_json::json!("sig-1"))
+        stream_part(event.as_ref().expect("decode signature frame")),
+        Some(LanguageModelV3StreamPart::ReasoningDelta {
+            ref id,
+            ref delta,
+            provider_metadata: Some(ref provider_metadata),
+        }) if id == "0"
+            && delta.is_empty()
+            && provider_metadata
+                .get("anthropic")
+                .and_then(|meta| meta.get("signature"))
+                == Some(&serde_json::json!("sig-1"))
     )));
 
     let stop_events = decoder
@@ -239,6 +260,44 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
     }
     bytes.extend_from_slice(
         &encoder
+            .serialize_event(&ChatStreamEvent::Part {
+                part: ChatStreamPart::ReasoningStart {
+                    id: "0".to_string(),
+                    provider_metadata: Some(anthropic_provider_metadata(serde_json::json!({
+                        "contentBlockIndex": 0
+                    }))),
+                },
+            })
+            .expect("serialize reasoning-start"),
+    );
+    bytes.extend_from_slice(
+        &encoder
+            .serialize_event(&ChatStreamEvent::Part {
+                part: ChatStreamPart::ReasoningDelta {
+                    id: "0".to_string(),
+                    delta: String::new(),
+                    provider_metadata: Some(anthropic_provider_metadata(serde_json::json!({
+                        "contentBlockIndex": 0,
+                        "signature": "sig-1"
+                    }))),
+                },
+            })
+            .expect("serialize reasoning signature"),
+    );
+    bytes.extend_from_slice(
+        &encoder
+            .serialize_event(&ChatStreamEvent::Part {
+                part: ChatStreamPart::ReasoningEnd {
+                    id: "0".to_string(),
+                    provider_metadata: Some(anthropic_provider_metadata(serde_json::json!({
+                        "contentBlockIndex": 0
+                    }))),
+                },
+            })
+            .expect("serialize reasoning-end"),
+    );
+    bytes.extend_from_slice(
+        &encoder
             .serialize_event(&ChatStreamEvent::StreamEnd {
                 response: ChatResponse {
                     id: Some("msg_thinking".to_string()),
@@ -275,8 +334,17 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
         .iter()
         .filter(|frame| frame["type"] == serde_json::json!("content_block_stop"))
         .count();
+    let signature_deltas = frames
+        .iter()
+        .filter(|frame| {
+            frame["type"] == serde_json::json!("content_block_delta")
+                && frame["delta"]["type"] == serde_json::json!("signature_delta")
+                && frame["delta"]["signature"] == serde_json::json!("sig-1")
+        })
+        .count();
 
     assert_eq!(thinking_starts, 1);
     assert_eq!(thinking_deltas, 3);
     assert_eq!(thinking_stops, 1);
+    assert_eq!(signature_deltas, 1);
 }

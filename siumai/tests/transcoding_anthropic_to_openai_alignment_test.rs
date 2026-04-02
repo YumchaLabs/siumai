@@ -10,6 +10,7 @@
 use eventsource_stream::Event;
 use siumai::experimental::streaming::OpenAiResponsesStreamPartsBridge;
 use siumai::prelude::unified::*;
+use siumai_core::types::ChatStreamPart;
 use std::path::Path;
 
 fn anthropic_fixtures_dir() -> std::path::PathBuf {
@@ -93,6 +94,17 @@ fn v3_tool_parts(
     events
         .iter()
         .filter_map(|e| match e {
+            _ if matches!(
+                (kind, e.part_ref()),
+                ("tool-call", Some(ChatStreamPart::ToolCall(call))) if call.tool_name == tool_name
+            ) || matches!(
+                (kind, e.part_ref()),
+                ("tool-result", Some(ChatStreamPart::ToolResult(result))) if result.tool_name == tool_name
+            ) =>
+            {
+                e.part_ref()
+                    .and_then(|part| serde_json::to_value(part).ok())
+            }
             ChatStreamEvent::Custom { data, .. }
                 if data.get("type") == Some(&serde_json::Value::String(kind.to_string()))
                     && data.get("toolName")

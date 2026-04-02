@@ -126,7 +126,7 @@ fn infer_code_execution_server_tool_name_from_input(
 
 fn infer_code_execution_server_tool_name_from_output(output: &ToolResultOutput) -> Option<String> {
     let type_name = match output {
-        ToolResultOutput::Json { value } | ToolResultOutput::ErrorJson { value } => {
+        ToolResultOutput::Json { value, .. } | ToolResultOutput::ErrorJson { value, .. } => {
             value.get("type").and_then(|v| v.as_str())?
         }
         _ => return None,

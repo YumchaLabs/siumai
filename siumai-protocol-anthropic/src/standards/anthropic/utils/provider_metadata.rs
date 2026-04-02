@@ -116,3 +116,100 @@ pub fn map_context_management_provider_metadata(
 
     Some(serde_json::json!({ "appliedEdits": out_edits }))
 }
+
+pub fn raw_container_from_provider_metadata(
+    value: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let obj = value.as_object()?;
+    let mut out = serde_json::Map::new();
+
+    if let Some(id) = obj.get("id") {
+        out.insert("id".to_string(), id.clone());
+    }
+    if let Some(expires_at) = obj.get("expiresAt") {
+        out.insert("expires_at".to_string(), expires_at.clone());
+    }
+    if let Some(skills) = obj.get("skills").and_then(|value| value.as_array()) {
+        let mut out_skills = Vec::with_capacity(skills.len());
+        for item in skills {
+            let Some(skill) = item.as_object() else {
+                out_skills.push(item.clone());
+                continue;
+            };
+
+            let mut out_skill = serde_json::Map::new();
+            if let Some(skill_type) = skill.get("type") {
+                out_skill.insert("type".to_string(), skill_type.clone());
+            }
+            if let Some(skill_id) = skill.get("skillId") {
+                out_skill.insert("skill_id".to_string(), skill_id.clone());
+            }
+            if let Some(version) = skill.get("version") {
+                out_skill.insert("version".to_string(), version.clone());
+            }
+            out_skills.push(serde_json::Value::Object(out_skill));
+        }
+        out.insert("skills".to_string(), serde_json::Value::Array(out_skills));
+    }
+
+    Some(serde_json::Value::Object(out))
+}
+
+pub fn raw_context_management_from_provider_metadata(
+    value: &serde_json::Value,
+) -> Option<serde_json::Value> {
+    let obj = value.as_object()?;
+    let edits = obj.get("appliedEdits")?.as_array()?;
+    let mut out_edits = Vec::with_capacity(edits.len());
+
+    for edit in edits {
+        let Some(edit_obj) = edit.as_object() else {
+            continue;
+        };
+        let Some(edit_type) = edit_obj.get("type").and_then(|value| value.as_str()) else {
+            continue;
+        };
+
+        match edit_type {
+            "clear_tool_uses_20250919" => {
+                let mut out = serde_json::Map::new();
+                out.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(edit_type.to_string()),
+                );
+                if let Some(value) = edit_obj.get("clearedToolUses") {
+                    out.insert("cleared_tool_uses".to_string(), value.clone());
+                }
+                if let Some(value) = edit_obj.get("clearedInputTokens") {
+                    out.insert("cleared_input_tokens".to_string(), value.clone());
+                }
+                out_edits.push(serde_json::Value::Object(out));
+            }
+            "clear_thinking_20251015" => {
+                let mut out = serde_json::Map::new();
+                out.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(edit_type.to_string()),
+                );
+                if let Some(value) = edit_obj.get("clearedThinkingTurns") {
+                    out.insert("cleared_thinking_turns".to_string(), value.clone());
+                }
+                if let Some(value) = edit_obj.get("clearedInputTokens") {
+                    out.insert("cleared_input_tokens".to_string(), value.clone());
+                }
+                out_edits.push(serde_json::Value::Object(out));
+            }
+            "compact_20260112" => {
+                let mut out = serde_json::Map::new();
+                out.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(edit_type.to_string()),
+                );
+                out_edits.push(serde_json::Value::Object(out));
+            }
+            _ => {}
+        }
+    }
+
+    Some(serde_json::json!({ "applied_edits": out_edits }))
+}

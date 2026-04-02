@@ -50,7 +50,30 @@
     "completion_tokens": 365,
     "total_tokens": 29003,
     "cached_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "inputTokens": {
+      "total": 28638,
+      "noCache": 28638,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "outputTokens": {
+      "total": 365,
+      "text": 365
+    },
+    "raw": {
+      "input_tokens": 28638,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 365,
+      "service_tier": "standard",
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 1
+      }
+    }
   },
   "finish_reason": "stop",
   "service_tier": "standard",

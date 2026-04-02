@@ -148,40 +148,36 @@ impl ProviderSpec for AnthropicChatSpec {
             adapter: self.adapter.clone(),
         });
 
-        fn citations_enabled_for_part(
-            message_custom: &std::collections::HashMap<String, serde_json::Value>,
-            index: usize,
-        ) -> bool {
-            let Some(map) = message_custom
-                .get("anthropic_document_citations")
-                .and_then(|v| v.as_object())
-            else {
-                return false;
-            };
-
-            let Some(cfg) = map.get(&index.to_string()) else {
-                return false;
-            };
-            if let Some(b) = cfg.as_bool() {
-                return b;
-            }
-            cfg.get("enabled")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
+        fn anthropic_part_options<'a>(
+            provider_options: &'a crate::types::ProviderOptionsMap,
+        ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+            provider_options.get_object("anthropic")
         }
 
-        fn document_title_for_part(
-            message_custom: &std::collections::HashMap<String, serde_json::Value>,
-            index: usize,
+        fn citations_enabled_from_part_options(
+            provider_options: &crate::types::ProviderOptionsMap,
+        ) -> Option<bool> {
+            let citations = anthropic_part_options(provider_options)
+                .and_then(|options| options.get("citations"))?;
+
+            if let Some(enabled) = citations.as_bool() {
+                return Some(enabled);
+            }
+
+            citations
+                .as_object()
+                .and_then(|citations| citations.get("enabled"))
+                .and_then(|value| value.as_bool())
+        }
+
+        fn document_title_from_part_options(
+            provider_options: &crate::types::ProviderOptionsMap,
         ) -> Option<String> {
-            let map = message_custom
-                .get("anthropic_document_metadata")
-                .and_then(|v| v.as_object())?;
-            let meta = map.get(&index.to_string()).and_then(|v| v.as_object())?;
-            meta.get("title")
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
+            anthropic_part_options(provider_options)
+                .and_then(|options| options.get("title"))
+                .and_then(|value| value.as_str())
+                .filter(|title| !title.is_empty())
+                .map(|title| title.to_string())
         }
 
         fn extract_citation_documents(
@@ -197,14 +193,11 @@ impl ProviderSpec for AnthropicChatSpec {
                     continue;
                 };
 
-                for (i, part) in parts.iter().enumerate() {
-                    if !citations_enabled_for_part(&msg.metadata.custom, i) {
-                        continue;
-                    }
-
+                for part in parts {
                     let crate::types::ContentPart::File {
                         media_type,
                         filename,
+                        provider_options,
                         ..
                     } = part
                     else {
@@ -215,7 +208,13 @@ impl ProviderSpec for AnthropicChatSpec {
                         continue;
                     }
 
-                    let title_override = document_title_for_part(&msg.metadata.custom, i);
+                    let citations_enabled =
+                        citations_enabled_from_part_options(provider_options).unwrap_or(false);
+                    if !citations_enabled {
+                        continue;
+                    }
+
+                    let title_override = document_title_from_part_options(provider_options);
                     out.push(
                         crate::standards::anthropic::streaming::AnthropicCitationDocument {
                             title: title_override
@@ -461,12 +460,81 @@ mod tests {
 
         let out = stream_tx.convert_event(ev).await;
         assert_eq!(out.len(), 1);
-        match out.first().unwrap().as_ref().unwrap() {
-            crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-                assert_eq!(event_type, "anthropic:source");
-                assert_eq!(data["title"], serde_json::json!("My PDF"));
+        match crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(
+            out.first().unwrap().as_ref().unwrap(),
+        )
+        .expect("source part")
+        {
+            crate::streaming::LanguageModelV3StreamPart::Source(
+                crate::streaming::LanguageModelV3Source::Document { title, .. },
+            ) => {
+                assert_eq!(title, "My PDF");
             }
-            other => panic!("Expected source Custom event, got {:?}", other),
+            other => panic!("Expected source part, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn legacy_message_custom_document_title_is_ignored_for_stream_citations() {
+        let spec = AnthropicChatStandard::new().create_spec("anthropic");
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com".to_string(),
+            Some("test".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        let mut provider_options = crate::types::ProviderOptionsMap::default();
+        provider_options.insert(
+            "anthropic",
+            serde_json::json!({
+                "citations": { "enabled": true }
+            }),
+        );
+
+        let part = ContentPart::File {
+            source: crate::types::chat::MediaSource::url("https://example.com/a.pdf"),
+            media_type: "application/pdf".to_string(),
+            filename: Some("fallback.pdf".to_string()),
+            provider_options,
+            provider_metadata: None,
+        };
+
+        let mut msg = ChatMessage::user("hi")
+            .with_content_parts(vec![part])
+            .build();
+        msg.metadata.custom.insert(
+            "anthropic_document_metadata".to_string(),
+            serde_json::json!({
+                "1": { "title": "Legacy Title" }
+            }),
+        );
+
+        let req = ChatRequest::builder().message(msg).stream(true).build();
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let stream_tx = bundle.stream.expect("stream transformer");
+
+        let ev = Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_delta","index":0,"delta":{"type":"citations_delta","citation":{"type":"page_location","cited_text":"hello","document_index":0,"document_title":null,"start_page_number":1,"end_page_number":1}}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let out = stream_tx.convert_event(ev).await;
+        assert_eq!(out.len(), 1);
+        match crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(
+            out.first().unwrap().as_ref().unwrap(),
+        )
+        .expect("source part")
+        {
+            crate::streaming::LanguageModelV3StreamPart::Source(
+                crate::streaming::LanguageModelV3Source::Document { title, .. },
+            ) => {
+                assert_eq!(title, "fallback.pdf");
+            }
+            other => panic!("Expected source part, got {:?}", other),
         }
     }
 }

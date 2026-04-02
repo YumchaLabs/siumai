@@ -13,7 +13,8 @@ use crate::streaming::{
     ChatStreamEvent, LanguageModelV3StreamPart, StreamStateTracker, V3UnsupportedPartBehavior,
 };
 use crate::types::{
-    ChatResponse, ContentPart, FinishReason, MessageContent, ResponseMetadata, Usage,
+    ChatResponse, ChatStreamFinishInfo, ChatStreamPart, ChatStreamToolCall, ChatStreamToolResult,
+    ContentPart, FinishReason, MessageContent, ResponseMetadata, SourcePart, Usage,
 };
 use eventsource_stream::Event;
 use serde::Deserialize;
@@ -39,6 +40,9 @@ struct AnthropicSerializeState {
     last_v3_tool_call: Option<AnthropicToolDeltaSignature>,
     seen_tool_call_ids: HashSet<String>,
     provider_executed_tool_input_ids: HashSet<String>,
+    provider_executed_tool_call_ids: HashSet<String>,
+    provider_raw_server_tool_names_by_id: std::collections::HashMap<String, String>,
+    provider_mcp_server_names_by_id: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +55,7 @@ struct AnthropicSerializeBlock {
 enum AnthropicSerializeBlockKind {
     Text,
     Thinking,
+    RedactedThinking,
     Tool { id: String },
 }
 
@@ -194,6 +199,8 @@ pub struct AnthropicEventConverter {
     citation_documents: Vec<AnthropicCitationDocument>,
     sources_by_id: Arc<Mutex<std::collections::HashMap<String, AnthropicSource>>>,
     tool_names_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    tool_input_json_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    server_tool_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     mcp_server_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     json_tool_seen: Arc<AtomicBool>,
     vercel_stream_start_emitted: Arc<AtomicBool>,
@@ -222,6 +229,8 @@ impl AnthropicEventConverter {
             citation_documents: Vec::new(),
             sources_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             tool_names_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            tool_input_json_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            server_tool_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             mcp_server_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             json_tool_seen: Arc::new(AtomicBool::new(false)),
             vercel_stream_start_emitted: Arc::new(AtomicBool::new(false)),
@@ -308,12 +317,98 @@ impl AnthropicEventConverter {
         }
     }
 
+    fn record_tool_name(&self, tool_call_id: &str, tool_name: &str) {
+        if tool_call_id.is_empty() || tool_name.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.tool_names_by_id.lock() {
+            map.insert(tool_call_id.to_string(), tool_name.to_string());
+        }
+    }
+
+    fn tool_name_for_id(&self, tool_call_id: &str) -> Option<String> {
+        self.tool_names_by_id
+            .lock()
+            .ok()
+            .and_then(|map| map.get(tool_call_id).cloned())
+    }
+
+    fn set_tool_input_json(&self, tool_call_id: &str, input: String) {
+        if tool_call_id.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.tool_input_json_by_id.lock() {
+            map.insert(tool_call_id.to_string(), input);
+        }
+    }
+
+    fn record_server_tool_name(&self, tool_call_id: &str, raw_tool_name: &str) {
+        if tool_call_id.is_empty() || raw_tool_name.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.server_tool_name_by_id.lock() {
+            map.insert(tool_call_id.to_string(), raw_tool_name.to_string());
+        }
+    }
+
+    fn server_tool_name_for_id(&self, tool_call_id: &str) -> Option<String> {
+        self.server_tool_name_by_id
+            .lock()
+            .ok()
+            .and_then(|map| map.get(tool_call_id).cloned())
+    }
+
+    fn append_tool_input_json(&self, tool_call_id: &str, delta: &str) {
+        if tool_call_id.is_empty() || delta.is_empty() {
+            return;
+        }
+        if let Ok(mut map) = self.tool_input_json_by_id.lock() {
+            let entry = map.entry(tool_call_id.to_string()).or_default();
+            entry.push_str(delta);
+        }
+    }
+
+    fn take_tool_input_json(&self, tool_call_id: &str) -> Option<String> {
+        self.tool_input_json_by_id
+            .lock()
+            .ok()
+            .and_then(|mut map| map.remove(tool_call_id))
+    }
+
+    fn encode_non_empty_json(value: Option<&serde_json::Value>) -> Option<String> {
+        let value = value?;
+        if value.is_null() {
+            return None;
+        }
+        if value.as_object().is_some_and(|obj| obj.is_empty()) {
+            return None;
+        }
+        serde_json::to_string(value).ok()
+    }
+
     fn build_stream_provider_metadata(
         &self,
     ) -> Option<
         std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
     > {
         let mut anthropic = std::collections::HashMap::new();
+
+        if let Some(usage) = self.current_vercel_usage() {
+            anthropic.insert("usage".to_string(), usage.clone());
+            anthropic.insert(
+                "cacheCreationInputTokens".to_string(),
+                usage
+                    .get("cache_creation_input_tokens")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+
+        if let Ok(v) = self.vercel_stop_sequence.lock()
+            && let Some(stop_sequence) = v.clone()
+        {
+            anthropic.insert("stopSequence".to_string(), serde_json::json!(stop_sequence));
+        }
 
         if let Ok(v) = self.vercel_container.lock()
             && let Some(container) = v.clone()
@@ -419,16 +514,26 @@ impl AnthropicEventConverter {
         }
     }
 
+    fn current_vercel_usage(&self) -> Option<serde_json::Value> {
+        self.vercel_usage.lock().ok().and_then(|v| v.clone())
+    }
+
     fn build_stream_response(&self, finish_reason: FinishReason) -> ChatResponse {
+        let usage_raw = self.current_vercel_usage();
+
         ChatResponse {
             id: self.vercel_response_id.lock().ok().and_then(|v| v.clone()),
             model: self.vercel_model_id.lock().ok().and_then(|v| v.clone()),
             content: self.build_stream_content(),
-            usage: None,
+            usage: super::utils::create_usage_from_json_value(usage_raw.as_ref()),
             finish_reason: Some(finish_reason),
             audio: None,
             system_fingerprint: None,
-            service_tier: None,
+            service_tier: usage_raw
+                .as_ref()
+                .and_then(|usage| usage.get("service_tier"))
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned),
             warnings: None,
             provider_metadata: self.build_stream_provider_metadata(),
         }
@@ -477,17 +582,39 @@ impl AnthropicEventConverter {
         }
     }
 
-    fn finish_reason_unified(reason: &FinishReason) -> String {
-        match reason {
-            FinishReason::Stop => "stop".to_string(),
-            FinishReason::StopSequence => "stop".to_string(),
-            FinishReason::Length => "length".to_string(),
-            FinishReason::ToolCalls => "tool-calls".to_string(),
-            FinishReason::ContentFilter => "content-filter".to_string(),
-            FinishReason::Error => "error".to_string(),
-            FinishReason::Unknown => "unknown".to_string(),
-            FinishReason::Other(s) => s.clone(),
+    fn anthropic_stream_provider_metadata(
+        value: serde_json::Value,
+    ) -> crate::types::StreamProviderMetadata {
+        let mut provider_metadata = crate::types::StreamProviderMetadata::new();
+        provider_metadata.insert("anthropic".to_string(), value);
+        provider_metadata
+    }
+
+    fn anthropic_content_block_provider_metadata(
+        index: usize,
+    ) -> crate::types::StreamProviderMetadata {
+        Self::anthropic_stream_provider_metadata(serde_json::json!({
+            "contentBlockIndex": index as u64,
+        }))
+    }
+
+    fn anthropic_content_block_provider_metadata_with<F>(
+        index: Option<usize>,
+        build_extra: F,
+    ) -> Option<crate::types::StreamProviderMetadata>
+    where
+        F: FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+    {
+        let mut anthropic = serde_json::Map::new();
+        if let Some(index) = index {
+            anthropic.insert(
+                "contentBlockIndex".to_string(),
+                serde_json::json!(index as u64),
+            );
         }
+        build_extra(&mut anthropic);
+        (!anthropic.is_empty())
+            .then(|| Self::anthropic_stream_provider_metadata(serde_json::Value::Object(anthropic)))
     }
 
     fn vercel_stream_start_event(&self) -> Option<ChatStreamEvent> {
@@ -498,12 +625,8 @@ impl AnthropicEventConverter {
             return None;
         }
 
-        Some(ChatStreamEvent::Custom {
-            event_type: "anthropic:stream-start".to_string(),
-            data: serde_json::json!({
-                "type": "stream-start",
-                "warnings": [],
-            }),
+        Some(ChatStreamEvent::Part {
+            part: ChatStreamPart::StreamStart { warnings: vec![] },
         })
     }
 
@@ -515,23 +638,23 @@ impl AnthropicEventConverter {
             .and_then(|v| v.clone())?;
         let model_id = self.vercel_model_id.lock().ok().and_then(|v| v.clone())?;
 
-        Some(ChatStreamEvent::Custom {
-            event_type: "anthropic:response-metadata".to_string(),
-            data: serde_json::json!({
-                "type": "response-metadata",
-                "id": id,
-                "modelId": model_id,
+        Some(ChatStreamEvent::Part {
+            part: ChatStreamPart::ResponseMetadata(ResponseMetadata {
+                id: Some(id),
+                model: Some(model_id),
+                created: None,
+                provider: "anthropic".to_string(),
+                request_id: None,
             }),
         })
     }
 
     fn vercel_text_start_event(id: usize) -> ChatStreamEvent {
-        ChatStreamEvent::Custom {
-            event_type: "anthropic:text-start".to_string(),
-            data: serde_json::json!({
-                "type": "text-start",
-                "id": id.to_string(),
-            }),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextStart {
+                id: id.to_string(),
+                provider_metadata: Some(Self::anthropic_content_block_provider_metadata(id)),
+            },
         }
     }
 
@@ -548,12 +671,11 @@ impl AnthropicEventConverter {
     }
 
     fn vercel_text_end_event(id: usize) -> ChatStreamEvent {
-        ChatStreamEvent::Custom {
-            event_type: "anthropic:text-end".to_string(),
-            data: serde_json::json!({
-                "type": "text-end",
-                "id": id.to_string(),
-            }),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextEnd {
+                id: id.to_string(),
+                provider_metadata: Some(Self::anthropic_content_block_provider_metadata(id)),
+            },
         }
     }
 
@@ -566,8 +688,6 @@ impl AnthropicEventConverter {
         raw_stop_reason: Option<&str>,
         finish_reason: &FinishReason,
     ) -> ChatStreamEvent {
-        let unified = Self::finish_reason_unified(finish_reason);
-
         let usage_raw = self
             .vercel_usage
             .lock()
@@ -618,41 +738,50 @@ impl AnthropicEventConverter {
             .and_then(|v| super::utils::map_context_management_provider_metadata(&v))
             .unwrap_or(serde_json::Value::Null);
 
-        ChatStreamEvent::Custom {
-            event_type: "anthropic:finish".to_string(),
-            data: serde_json::json!({
-                "type": "finish",
-                "finishReason": {
-                    "raw": raw_stop_reason.map(|s| serde_json::json!(s)).unwrap_or(serde_json::Value::Null),
-                    "unified": unified,
+        let usage =
+            super::utils::create_usage_from_json_value(Some(&usage_raw)).unwrap_or_else(|| {
+                let input_total = u32::try_from(input_tokens).unwrap_or(u32::MAX);
+                let output_total = u32::try_from(output_tokens).unwrap_or(u32::MAX);
+                let cache_read = u32::try_from(cache_read_input_tokens).unwrap_or(u32::MAX);
+                let cache_write = u32::try_from(cache_creation_input_tokens).unwrap_or(u32::MAX);
+                let no_cache = u32::try_from(input_no_cache).unwrap_or(u32::MAX);
+
+                Usage::builder()
+                    .prompt_tokens(no_cache)
+                    .completion_tokens(output_total)
+                    .total_tokens(no_cache.saturating_add(output_total))
+                    .with_input_tokens(crate::types::UsageInputTokens {
+                        total: Some(input_total),
+                        no_cache: Some(no_cache),
+                        cache_read: Some(cache_read),
+                        cache_write: Some(cache_write),
+                    })
+                    .with_output_tokens(crate::types::UsageOutputTokens {
+                        total: Some(output_total),
+                        text: Some(output_total),
+                        reasoning: None,
+                    })
+                    .with_raw_usage_value(usage_raw.clone())
+                    .build()
+            });
+
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish {
+                usage,
+                finish_reason: ChatStreamFinishInfo {
+                    unified: finish_reason.clone(),
+                    raw: raw_stop_reason.map(ToOwned::to_owned),
                 },
-                "providerMetadata": {
-                    "anthropic": {
+                provider_metadata: Some(Self::anthropic_stream_provider_metadata(
+                    serde_json::json!({
                         "cacheCreationInputTokens": cache_creation_input_tokens,
                         "container": container,
                         "contextManagement": context_management,
-                        "stopSequence": stop_sequence.map(|s| serde_json::json!(s)).unwrap_or(serde_json::Value::Null),
+                        "stopSequence": stop_sequence,
                         "usage": usage_raw,
-                    }
-                },
-                "usage": {
-                    "inputTokens": {
-                        "total": input_tokens,
-                        "cacheRead": cache_read_input_tokens,
-                        "cacheWrite": cache_creation_input_tokens,
-                        "noCache": input_no_cache,
-                    },
-                    "outputTokens": {
-                        "total": output_tokens,
-                    },
-                    "raw": {
-                        "input_tokens": input_tokens,
-                        "output_tokens": output_tokens,
-                        "cache_creation_input_tokens": cache_creation_input_tokens,
-                        "cache_read_input_tokens": cache_read_input_tokens,
-                    }
-                },
-            }),
+                    }),
+                )),
+            },
         }
     }
 
@@ -754,12 +883,13 @@ impl AnthropicEventConverter {
                     }
                     "thinking" => {
                         if let Some(idx) = event.index {
-                            vec![ChatStreamEvent::Custom {
-                                event_type: "anthropic:reasoning-start".to_string(),
-                                data: serde_json::json!({
-                                    "type": "reasoning-start",
-                                    "contentBlockIndex": idx as u64,
-                                }),
+                            vec![ChatStreamEvent::Part {
+                                part: ChatStreamPart::ReasoningStart {
+                                    id: idx.to_string(),
+                                    provider_metadata: Some(
+                                        Self::anthropic_content_block_provider_metadata(idx),
+                                    ),
+                                },
                             }]
                         } else {
                             vec![]
@@ -776,13 +906,18 @@ impl AnthropicEventConverter {
                                 self.record_redacted_thinking_data(idx, data.clone());
                             }
 
-                            vec![ChatStreamEvent::Custom {
-                                event_type: "anthropic:reasoning-start".to_string(),
-                                data: serde_json::json!({
-                                    "type": "reasoning-start",
-                                    "contentBlockIndex": idx as u64,
-                                    "redactedData": if data.is_empty() { serde_json::Value::Null } else { serde_json::json!(data) },
-                                }),
+                            vec![ChatStreamEvent::Part {
+                                part: ChatStreamPart::ReasoningStart {
+                                    id: idx.to_string(),
+                                    provider_metadata: Some(
+                                        Self::anthropic_stream_provider_metadata(
+                                            serde_json::json!({
+                                                "contentBlockIndex": idx as u64,
+                                                "redactedData": if data.is_empty() { serde_json::Value::Null } else { serde_json::json!(data) },
+                                            }),
+                                        ),
+                                    ),
+                                },
                             }]
                         } else {
                             vec![]
@@ -809,13 +944,39 @@ impl AnthropicEventConverter {
                         {
                             map.insert(idx, tool_call_id.clone());
                         }
+                        self.record_tool_name(&tool_call_id, &tool_name);
 
-                        vec![ChatStreamEvent::ToolCallDelta {
-                            id: tool_call_id,
-                            function_name: Some(tool_name),
-                            arguments_delta: None,
-                            index: event.index,
-                        }]
+                        let initial_input = Self::encode_non_empty_json(content_block.get("input"));
+                        self.set_tool_input_json(
+                            &tool_call_id,
+                            initial_input.clone().unwrap_or_default(),
+                        );
+
+                        let provider_metadata = event
+                            .index
+                            .map(Self::anthropic_content_block_provider_metadata);
+                        let mut events = vec![ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputStart {
+                                id: tool_call_id.clone(),
+                                tool_name,
+                                provider_metadata: provider_metadata.clone(),
+                                provider_executed: None,
+                                dynamic: None,
+                                title: None,
+                            },
+                        }];
+
+                        if let Some(initial_input) = initial_input {
+                            events.push(ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolInputDelta {
+                                    id: tool_call_id,
+                                    delta: initial_input,
+                                    provider_metadata,
+                                },
+                            });
+                        }
+
+                        events
                     }
                     "json_tool_use" => {
                         let tool_call_id = content_block
@@ -864,24 +1025,59 @@ impl AnthropicEventConverter {
                             return vec![];
                         }
 
-                        // Vercel-aligned: map provider tool names back to stable custom names.
                         let tool_name =
                             server_tools::normalize_server_tool_name(&tool_name_raw).to_string();
                         let input =
                             server_tools::normalize_server_tool_input(&tool_name_raw, input);
 
-                        vec![ChatStreamEvent::Custom {
-                            event_type: "anthropic:tool-call".to_string(),
-                            data: serde_json::json!({
-                                "type": "tool-call",
-                                "toolCallId": tool_call_id,
-                                "toolName": tool_name,
-                                "input": input,
-                                "providerExecuted": true,
-                                "contentBlockIndex": event.index.map(|i| i as u64),
-                                "rawContentBlock": content_block,
-                            }),
-                        }]
+                        if let Some(idx) = event.index
+                            && let Ok(mut map) = self.tool_use_ids_by_index.lock()
+                        {
+                            map.insert(idx, tool_call_id.clone());
+                        }
+                        self.record_tool_name(&tool_call_id, &tool_name);
+                        self.record_server_tool_name(&tool_call_id, &tool_name_raw);
+
+                        let initial_input = Self::encode_non_empty_json(Some(&input));
+                        self.set_tool_input_json(
+                            &tool_call_id,
+                            initial_input.clone().unwrap_or_default(),
+                        );
+
+                        let provider_metadata =
+                            Self::anthropic_content_block_provider_metadata_with(
+                                event.index,
+                                |anthropic| {
+                                    if tool_name_raw != tool_name {
+                                        anthropic.insert(
+                                            "serverToolName".to_string(),
+                                            serde_json::json!(tool_name_raw),
+                                        );
+                                    }
+                                },
+                            );
+                        let mut events = vec![ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputStart {
+                                id: tool_call_id.clone(),
+                                tool_name,
+                                provider_metadata: provider_metadata.clone(),
+                                provider_executed: Some(true),
+                                dynamic: None,
+                                title: None,
+                            },
+                        }];
+
+                        if let Some(initial_input) = initial_input {
+                            events.push(ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolInputDelta {
+                                    id: tool_call_id,
+                                    delta: initial_input,
+                                    provider_metadata,
+                                },
+                            });
+                        }
+
+                        events
                     }
                     "mcp_tool_use" => {
                         let tool_call_id = content_block
@@ -918,38 +1114,39 @@ impl AnthropicEventConverter {
                             map.insert(tool_call_id.clone(), tool_name.clone());
                         }
 
+                        let input_json = Self::encode_non_empty_json(Some(&input))
+                            .unwrap_or_else(|| "{}".to_string());
                         if !server_name.is_empty()
                             && let Ok(mut map) = self.mcp_server_name_by_id.lock()
                         {
                             map.insert(tool_call_id.clone(), server_name.clone());
                         }
 
-                        let server_name_json = if server_name.is_empty() {
-                            serde_json::Value::Null
-                        } else {
-                            serde_json::json!(server_name)
-                        };
-
-                        vec![ChatStreamEvent::Custom {
-                            event_type: "anthropic:tool-call".to_string(),
-                            data: serde_json::json!({
-                                "type": "tool-call",
-                                "toolCallId": tool_call_id,
-                                "toolName": tool_name,
-                                "input": input,
-                                "providerExecuted": true,
-                                // Vercel-aligned: MCP tool parts are emitted as dynamic.
-                                "dynamic": true,
-                                "providerMetadata": {
-                                    "anthropic": {
-                                        "type": "mcp-tool-use",
-                                        "serverName": server_name_json,
+                        let provider_metadata =
+                            Self::anthropic_content_block_provider_metadata_with(
+                                event.index,
+                                |anthropic| {
+                                    anthropic.insert(
+                                        "type".to_string(),
+                                        serde_json::json!("mcp-tool-use"),
+                                    );
+                                    if !server_name.is_empty() {
+                                        anthropic.insert(
+                                            "serverName".to_string(),
+                                            serde_json::json!(server_name),
+                                        );
                                     }
                                 },
-                                "contentBlockIndex": event.index.map(|i| i as u64),
-                                "rawContentBlock": content_block,
-                                // Back-compat shim (preferred shape is providerMetadata.anthropic.serverName).
-                                "serverName": server_name_json,
+                            );
+
+                        vec![ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                                tool_call_id,
+                                tool_name,
+                                input: input_json,
+                                provider_executed: Some(true),
+                                dynamic: Some(true),
+                                provider_metadata,
                             }),
                         }]
                     }
@@ -978,9 +1175,7 @@ impl AnthropicEventConverter {
                             .cloned()
                             .unwrap_or(serde_json::Value::Null);
 
-                        // Vercel-aligned: normalize provider-hosted tool results when possible
-                        // (keep `rawContentBlock` for lossless access).
-                        let (result, is_error) =
+                        let (result, mut is_error) =
                             server_tools::normalize_server_tool_result(t, &raw_result)
                                 .unwrap_or_else(|| (raw_result.clone(), false));
 
@@ -993,43 +1188,50 @@ impl AnthropicEventConverter {
                             None
                         };
 
-                        let server_name_json = if t == "mcp_tool_result" {
-                            serde_json::json!(server_name.clone())
-                        } else {
-                            serde_json::Value::Null
-                        };
-
-                        let mut data = serde_json::Map::new();
-                        data.insert("type".to_string(), serde_json::json!("tool-result"));
-                        data.insert("toolCallId".to_string(), serde_json::json!(tool_call_id));
-                        data.insert("toolName".to_string(), serde_json::json!(tool_name));
-                        data.insert("result".to_string(), result);
-                        data.insert("providerExecuted".to_string(), serde_json::json!(true));
-                        data.insert("isError".to_string(), serde_json::json!(is_error));
-                        data.insert(
-                            "contentBlockIndex".to_string(),
-                            serde_json::json!(event.index.map(|i| i as u64)),
-                        );
-                        data.insert("rawContentBlock".to_string(), content_block.clone());
-                        // Back-compat shim (preferred shape is providerMetadata.anthropic.serverName).
-                        data.insert("serverName".to_string(), server_name_json.clone());
-
-                        if t == "mcp_tool_result" {
-                            data.insert("dynamic".to_string(), serde_json::json!(true));
-                            data.insert(
-                                "providerMetadata".to_string(),
-                                serde_json::json!({
-                                    "anthropic": {
-                                        "type": "mcp-tool-use",
-                                        "serverName": server_name_json,
-                                    }
-                                }),
-                            );
+                        if !is_error {
+                            is_error = content_block
+                                .get("is_error")
+                                .and_then(|value| value.as_bool())
+                                .unwrap_or(false);
                         }
 
-                        let mut events = vec![ChatStreamEvent::Custom {
-                            event_type: "anthropic:tool-result".to_string(),
-                            data: serde_json::Value::Object(data),
+                        let provider_metadata =
+                            Self::anthropic_content_block_provider_metadata_with(
+                                event.index,
+                                |anthropic| {
+                                    if t == "mcp_tool_result" {
+                                        anthropic.insert(
+                                            "type".to_string(),
+                                            serde_json::json!("mcp-tool-use"),
+                                        );
+                                        if let Some(server_name) = server_name.as_ref() {
+                                            anthropic.insert(
+                                                "serverName".to_string(),
+                                                serde_json::json!(server_name),
+                                            );
+                                        }
+                                    } else if let Some(raw_server_tool_name) =
+                                        self.server_tool_name_for_id(&tool_call_id)
+                                        && raw_server_tool_name != tool_name
+                                    {
+                                        anthropic.insert(
+                                            "serverToolName".to_string(),
+                                            serde_json::json!(raw_server_tool_name),
+                                        );
+                                    }
+                                },
+                            );
+
+                        let mut events = vec![ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                                tool_call_id: tool_call_id.clone(),
+                                tool_name,
+                                result,
+                                is_error: Some(is_error),
+                                preliminary: None,
+                                dynamic: (t == "mcp_tool_result").then_some(true),
+                                provider_metadata,
+                            }),
                         }];
 
                         // Vercel-aligned: emit sources for web search results
@@ -1062,22 +1264,23 @@ impl AnthropicEventConverter {
                                     provider_metadata: None,
                                 });
 
-                                events.push(ChatStreamEvent::Custom {
-                                    event_type: "anthropic:source".to_string(),
-                                    data: serde_json::json!({
-                                        "type": "source",
-                                        "sourceType": "url",
-                                        "id": format!("{tool_call_id}:{i}"),
-                                        "url": url,
-                                        "title": title,
-                                        "toolCallId": tool_call_id,
-                                        "providerMetadata": {
-                                            "anthropic": {
-                                                "pageAge": page_age,
-                                                "encryptedContent": encrypted_content,
-                                            }
-                                        }
-                                    }),
+                                events.push(ChatStreamEvent::Part {
+                                    part: ChatStreamPart::Source {
+                                        id: format!("{tool_call_id}:{i}"),
+                                        source: SourcePart::Url {
+                                            url: url.to_string(),
+                                            title: title.map(ToOwned::to_owned),
+                                        },
+                                        provider_metadata: Some(
+                                            Self::anthropic_stream_provider_metadata(
+                                                serde_json::json!({
+                                                    "pageAge": page_age,
+                                                    "encryptedContent": encrypted_content,
+                                                    "toolCallId": tool_call_id,
+                                                }),
+                                            ),
+                                        ),
+                                    },
                                 });
                             }
                         }
@@ -1098,18 +1301,18 @@ impl AnthropicEventConverter {
                                 if let Some(idx) = event.index {
                                     self.append_text_content(idx, &text);
                                 }
-                                builder = builder.add_content_delta(text.clone(), None);
                                 if let Some(idx) = event.index
                                     && self.get_content_block_type(idx).as_deref() == Some("text")
                                 {
-                                    builder = builder.add_custom_event(
-                                        "anthropic:text-delta".to_string(),
-                                        serde_json::json!({
-                                            "type": "text-delta",
-                                            "id": idx.to_string(),
-                                            "delta": text,
-                                        }),
-                                    );
+                                    builder = builder.add_part(ChatStreamPart::TextDelta {
+                                        id: idx.to_string(),
+                                        delta: text,
+                                        provider_metadata: Some(
+                                            Self::anthropic_content_block_provider_metadata(idx),
+                                        ),
+                                    });
+                                } else {
+                                    builder = builder.add_content_delta(text, None);
                                 }
                             }
                         }
@@ -1117,8 +1320,16 @@ impl AnthropicEventConverter {
                             if let Some(thinking) = delta.thinking {
                                 if let Some(idx) = event.index {
                                     self.append_thinking_content(idx, &thinking);
+                                    builder = builder.add_part(ChatStreamPart::ReasoningDelta {
+                                        id: idx.to_string(),
+                                        delta: thinking,
+                                        provider_metadata: Some(
+                                            Self::anthropic_content_block_provider_metadata(idx),
+                                        ),
+                                    });
+                                } else {
+                                    builder = builder.add_thinking_delta(thinking);
                                 }
-                                builder = builder.add_thinking_delta(thinking);
                             }
                         }
                         Some("signature_delta") => {
@@ -1128,14 +1339,20 @@ impl AnthropicEventConverter {
                                     .is_some_and(|t| t == "thinking")
                             {
                                 self.append_thinking_signature(idx, sig_delta.clone());
-                                builder = builder.add_custom_event(
-                                    "anthropic:thinking-signature-delta".to_string(),
-                                    serde_json::json!({
-                                        "type": "thinking-signature-delta",
-                                        "contentBlockIndex": idx as u64,
-                                        "signatureDelta": sig_delta,
-                                    }),
-                                );
+                                builder = builder.add_part(ChatStreamPart::ReasoningDelta {
+                                    id: idx.to_string(),
+                                    delta: String::new(),
+                                    provider_metadata:
+                                        Self::anthropic_content_block_provider_metadata_with(
+                                            Some(idx),
+                                            |anthropic| {
+                                                anthropic.insert(
+                                                    "signature".to_string(),
+                                                    serde_json::json!(sig_delta),
+                                                );
+                                            },
+                                        ),
+                                });
                             }
                         }
                         Some("citations_delta") => {
@@ -1181,24 +1398,23 @@ impl AnthropicEventConverter {
                                             end_page.unwrap_or(0)
                                         );
 
-                                        builder = builder.add_custom_event(
-                                            "anthropic:source".to_string(),
-                                            serde_json::json!({
-                                                "type": "source",
-                                                "sourceType": "document",
-                                                "id": id,
-                                                "mediaType": doc.media_type,
-                                                "title": title,
-                                                "filename": doc.filename,
-                                                "providerMetadata": {
-                                                    "anthropic": {
+                                        builder = builder.add_part(ChatStreamPart::Source {
+                                            id: id.clone(),
+                                            source: SourcePart::Document {
+                                                media_type: doc.media_type.clone(),
+                                                title: title.clone(),
+                                                filename: doc.filename.clone(),
+                                            },
+                                            provider_metadata: Some(
+                                                Self::anthropic_stream_provider_metadata(
+                                                    serde_json::json!({
                                                         "citedText": cited_text,
                                                         "startPageNumber": start_page,
                                                         "endPageNumber": end_page,
-                                                    }
-                                                }
-                                            }),
-                                        );
+                                                    }),
+                                                ),
+                                            ),
+                                        });
 
                                         self.record_source(AnthropicSource {
                                             id,
@@ -1249,24 +1465,23 @@ impl AnthropicEventConverter {
                                             end_char.unwrap_or(0)
                                         );
 
-                                        builder = builder.add_custom_event(
-                                            "anthropic:source".to_string(),
-                                            serde_json::json!({
-                                                "type": "source",
-                                                "sourceType": "document",
-                                                "id": id,
-                                                "mediaType": doc.media_type,
-                                                "title": title,
-                                                "filename": doc.filename,
-                                                "providerMetadata": {
-                                                    "anthropic": {
+                                        builder = builder.add_part(ChatStreamPart::Source {
+                                            id: id.clone(),
+                                            source: SourcePart::Document {
+                                                media_type: doc.media_type.clone(),
+                                                title: title.clone(),
+                                                filename: doc.filename.clone(),
+                                            },
+                                            provider_metadata: Some(
+                                                Self::anthropic_stream_provider_metadata(
+                                                    serde_json::json!({
                                                         "citedText": cited_text,
                                                         "startCharIndex": start_char,
                                                         "endCharIndex": end_char,
-                                                    }
-                                                }
-                                            }),
-                                        );
+                                                    }),
+                                                ),
+                                            ),
+                                        });
 
                                         self.record_source(AnthropicSource {
                                             id,
@@ -1300,26 +1515,32 @@ impl AnthropicEventConverter {
                                 if self.get_content_block_type(idx).as_deref()
                                     == Some("json_tool_use")
                                 {
-                                    builder = builder.add_content_delta(partial_json.clone(), None);
                                     if self.should_stream_json_tool_as_text() {
-                                        builder = builder.add_custom_event(
-                                            "anthropic:text-delta".to_string(),
-                                            serde_json::json!({
-                                                "type": "text-delta",
-                                                "id": idx.to_string(),
-                                                "delta": partial_json,
-                                            }),
-                                        );
+                                        self.append_text_content(idx, &partial_json);
+                                        builder = builder.add_part(ChatStreamPart::TextDelta {
+                                            id: idx.to_string(),
+                                            delta: partial_json,
+                                            provider_metadata: Some(
+                                                Self::anthropic_content_block_provider_metadata(
+                                                    idx,
+                                                ),
+                                            ),
+                                        });
+                                    } else {
+                                        builder =
+                                            builder.add_content_delta(partial_json.clone(), None);
                                     }
                                 } else if let Ok(map) = self.tool_use_ids_by_index.lock()
                                     && let Some(tool_call_id) = map.get(&idx)
                                 {
-                                    builder = builder.add_tool_call_delta(
-                                        tool_call_id.clone(),
-                                        None,
-                                        Some(partial_json),
-                                        Some(idx),
-                                    );
+                                    self.append_tool_input_json(tool_call_id, &partial_json);
+                                    builder = builder.add_part(ChatStreamPart::ToolInputDelta {
+                                        id: tool_call_id.clone(),
+                                        delta: partial_json,
+                                        provider_metadata: Some(
+                                            Self::anthropic_content_block_provider_metadata(idx),
+                                        ),
+                                    });
                                 }
                             }
                         }
@@ -1330,7 +1551,19 @@ impl AnthropicEventConverter {
                                 {
                                     self.append_text_content(idx, &text);
                                 }
-                                builder = builder.add_content_delta(text, None);
+                                if let Some(idx) = event.index
+                                    && self.get_content_block_type(idx).as_deref() == Some("text")
+                                {
+                                    builder = builder.add_part(ChatStreamPart::TextDelta {
+                                        id: idx.to_string(),
+                                        delta: text,
+                                        provider_metadata: Some(
+                                            Self::anthropic_content_block_provider_metadata(idx),
+                                        ),
+                                    });
+                                } else {
+                                    builder = builder.add_content_delta(text, None);
+                                }
                             }
                             if let Some(thinking) = delta.thinking {
                                 if let Some(idx) = event.index
@@ -1349,26 +1582,31 @@ impl AnthropicEventConverter {
                                     == Some("json_tool_use")
                                 {
                                     self.append_text_content(idx, &partial_json);
-                                    builder = builder.add_content_delta(partial_json.clone(), None);
                                     if self.should_stream_json_tool_as_text() {
-                                        builder = builder.add_custom_event(
-                                            "anthropic:text-delta".to_string(),
-                                            serde_json::json!({
-                                                "type": "text-delta",
-                                                "id": idx.to_string(),
-                                                "delta": partial_json,
-                                            }),
-                                        );
+                                        builder = builder.add_part(ChatStreamPart::TextDelta {
+                                            id: idx.to_string(),
+                                            delta: partial_json,
+                                            provider_metadata: Some(
+                                                Self::anthropic_content_block_provider_metadata(
+                                                    idx,
+                                                ),
+                                            ),
+                                        });
+                                    } else {
+                                        builder =
+                                            builder.add_content_delta(partial_json.clone(), None);
                                     }
                                 } else if let Ok(map) = self.tool_use_ids_by_index.lock()
                                     && let Some(tool_call_id) = map.get(&idx)
                                 {
-                                    builder = builder.add_tool_call_delta(
-                                        tool_call_id.clone(),
-                                        None,
-                                        Some(partial_json),
-                                        Some(idx),
-                                    );
+                                    self.append_tool_input_json(tool_call_id, &partial_json);
+                                    builder = builder.add_part(ChatStreamPart::ToolInputDelta {
+                                        id: tool_call_id.clone(),
+                                        delta: partial_json,
+                                        provider_metadata: Some(
+                                            Self::anthropic_content_block_provider_metadata(idx),
+                                        ),
+                                    });
                                 }
                             }
                         }
@@ -1389,6 +1627,98 @@ impl AnthropicEventConverter {
                             vec![Self::vercel_text_end_event(idx)]
                         }
                     }
+                    Some("tool_use") => {
+                        let Some(tool_call_id) = self
+                            .tool_use_ids_by_index
+                            .lock()
+                            .ok()
+                            .and_then(|map| map.get(&idx).cloned())
+                        else {
+                            return vec![];
+                        };
+
+                        let tool_name = self
+                            .tool_name_for_id(&tool_call_id)
+                            .unwrap_or_else(|| "tool".to_string());
+                        let input = self
+                            .take_tool_input_json(&tool_call_id)
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or_else(|| "{}".to_string());
+                        let provider_metadata =
+                            Some(Self::anthropic_content_block_provider_metadata(idx));
+
+                        vec![
+                            ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolInputEnd {
+                                    id: tool_call_id.clone(),
+                                    provider_metadata: provider_metadata.clone(),
+                                },
+                            },
+                            ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                                    tool_call_id,
+                                    tool_name,
+                                    input,
+                                    provider_executed: None,
+                                    dynamic: None,
+                                    provider_metadata,
+                                }),
+                            },
+                        ]
+                    }
+                    Some("server_tool_use") => {
+                        let Some(tool_call_id) = self
+                            .tool_use_ids_by_index
+                            .lock()
+                            .ok()
+                            .and_then(|map| map.get(&idx).cloned())
+                        else {
+                            return vec![];
+                        };
+
+                        let tool_name = self
+                            .tool_name_for_id(&tool_call_id)
+                            .unwrap_or_else(|| "tool".to_string());
+                        let input = self
+                            .take_tool_input_json(&tool_call_id)
+                            .filter(|value| !value.is_empty())
+                            .unwrap_or_else(|| "{}".to_string());
+                        let raw_server_tool_name = self.server_tool_name_for_id(&tool_call_id);
+                        let provider_metadata =
+                            Self::anthropic_content_block_provider_metadata_with(
+                                Some(idx),
+                                |anthropic| {
+                                    if let Some(raw_server_tool_name) =
+                                        raw_server_tool_name.as_ref()
+                                        && raw_server_tool_name != &tool_name
+                                    {
+                                        anthropic.insert(
+                                            "serverToolName".to_string(),
+                                            serde_json::json!(raw_server_tool_name),
+                                        );
+                                    }
+                                },
+                            );
+
+                        vec![
+                            ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolInputEnd {
+                                    id: tool_call_id.clone(),
+                                    provider_metadata: provider_metadata.clone(),
+                                },
+                            },
+                            ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                                    tool_call_id,
+                                    tool_name,
+                                    input,
+                                    provider_executed: Some(true),
+                                    dynamic: None,
+                                    provider_metadata,
+                                }),
+                            },
+                        ]
+                    }
                     Some("json_tool_use") => {
                         if self.should_stream_json_tool_as_text() {
                             vec![Self::vercel_text_end_event(idx)]
@@ -1396,12 +1726,13 @@ impl AnthropicEventConverter {
                             vec![]
                         }
                     }
-                    Some("thinking") | Some("redacted_thinking") => vec![ChatStreamEvent::Custom {
-                        event_type: "anthropic:reasoning-end".to_string(),
-                        data: serde_json::json!({
-                            "type": "reasoning-end",
-                            "contentBlockIndex": idx as u64,
-                        }),
+                    Some("thinking") | Some("redacted_thinking") => vec![ChatStreamEvent::Part {
+                        part: ChatStreamPart::ReasoningEnd {
+                            id: idx.to_string(),
+                            provider_metadata: Some(
+                                Self::anthropic_content_block_provider_metadata(idx),
+                            ),
+                        },
                     }],
                     _ => vec![],
                 }
@@ -1421,16 +1752,26 @@ impl AnthropicEventConverter {
                 if let Some(usage) = &event.usage {
                     self.merge_vercel_usage(usage);
 
-                    let prompt_tokens = usage
-                        .get("input_tokens")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32;
-                    let completion_tokens = usage
-                        .get("output_tokens")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0) as u32;
-                    builder =
-                        builder.add_usage_update(Usage::new(prompt_tokens, completion_tokens));
+                    let usage_update = self
+                        .current_vercel_usage()
+                        .as_ref()
+                        .and_then(|raw| super::utils::create_usage_from_json_value(Some(raw)))
+                        .or_else(|| {
+                            let prompt_tokens = usage
+                                .get("input_tokens")
+                                .and_then(|v| v.as_u64())
+                                .and_then(|v| u32::try_from(v).ok())
+                                .unwrap_or(0);
+                            let completion_tokens = usage
+                                .get("output_tokens")
+                                .and_then(|v| v.as_u64())
+                                .and_then(|v| u32::try_from(v).ok())
+                                .unwrap_or(0);
+                            Some(Usage::new(prompt_tokens, completion_tokens))
+                        });
+                    if let Some(usage_update) = usage_update {
+                        builder = builder.add_usage_update(usage_update);
+                    }
                 }
 
                 if let Some(cm) = event
@@ -1476,10 +1817,10 @@ impl AnthropicEventConverter {
                     }
 
                     if self.state_tracker.needs_stream_end() {
-                        if let ChatStreamEvent::Custom { event_type, data } =
+                        if let ChatStreamEvent::Part { part } =
                             self.vercel_finish_event(Some(stop_reason.as_str()), &reason)
                         {
-                            builder = builder.add_custom_event(event_type, data);
+                            builder = builder.add_part(part);
                         }
 
                         let response = self.build_stream_response(reason);
@@ -1496,10 +1837,10 @@ impl AnthropicEventConverter {
                 }
 
                 let mut out = Vec::new();
-                if let ChatStreamEvent::Custom { event_type, data } =
+                if let ChatStreamEvent::Part { part } =
                     self.vercel_finish_event(None, &FinishReason::Stop)
                 {
-                    out.push(ChatStreamEvent::Custom { event_type, data });
+                    out.push(ChatStreamEvent::Part { part });
                 }
                 out.push(ChatStreamEvent::StreamEnd { response });
                 out

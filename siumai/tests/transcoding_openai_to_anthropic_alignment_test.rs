@@ -143,20 +143,20 @@ fn openai_responses_web_search_transcodes_to_anthropic_messages_sse() {
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "server_tool_use"
+                && v["content_block"]["type"] == "mcp_tool_use"
                 && v["content_block"]["name"] == "webSearch"
                 && v["content_block"]["id"].as_str().is_some()
         }),
-        "expected server_tool_use content_block_start for webSearch: {frames:?}"
+        "expected mcp_tool_use content_block_start for webSearch: {frames:?}"
     );
 
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "webSearch_tool_result"
+                && v["content_block"]["type"] == "mcp_tool_result"
                 && v["content_block"]["tool_use_id"].as_str().is_some()
         }),
-        "expected webSearch_tool_result content_block_start: {frames:?}"
+        "expected mcp_tool_result content_block_start: {frames:?}"
     );
 
     assert!(
@@ -226,20 +226,20 @@ fn openai_responses_mcp_transcodes_to_anthropic_messages_sse() {
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "server_tool_use"
+                && v["content_block"]["type"] == "mcp_tool_use"
                 && v["content_block"]["name"] == "mcp.web_search_exa"
                 && v["content_block"]["id"].as_str().is_some()
         }),
-        "expected server_tool_use content_block_start for mcp.web_search_exa: {frames:?}"
+        "expected mcp_tool_use content_block_start for mcp.web_search_exa: {frames:?}"
     );
 
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "mcp.web_search_exa_tool_result"
+                && v["content_block"]["type"] == "mcp_tool_result"
                 && v["content_block"]["tool_use_id"].as_str().is_some()
         }),
-        "expected mcp.web_search_exa_tool_result content_block_start: {frames:?}"
+        "expected mcp_tool_result content_block_start: {frames:?}"
     );
 
     assert!(
@@ -309,11 +309,11 @@ fn openai_responses_mcp_tool_approval_request_is_dropped_in_strict_anthropic_tra
     assert!(
         frames.iter().any(|v| {
             v["type"] == "content_block_start"
-                && v["content_block"]["type"] == "server_tool_use"
+                && v["content_block"]["type"] == "mcp_tool_use"
                 && v["content_block"]["name"].as_str().is_some()
                 && v["content_block"]["id"].as_str().is_some()
         }),
-        "expected server_tool_use content_block_start: {frames:?}"
+        "expected mcp_tool_use content_block_start: {frames:?}"
     );
 
     assert!(
@@ -372,6 +372,15 @@ fn openai_responses_mcp_tool_approval_request_is_downgraded_in_lossy_anthropic_t
         siumai::experimental::streaming::V3UnsupportedPartBehavior::AsText,
     );
     let frames = parse_sse_json_frames(&bytes);
+
+    assert!(
+        frames.iter().any(|v| {
+            v["type"] == "content_block_start"
+                && v["content_block"]["type"] == "mcp_tool_use"
+                && v["content_block"]["id"].as_str().is_some()
+        }),
+        "expected mcp_tool_use content_block_start: {frames:?}"
+    );
 
     assert!(
         frames.iter().any(|v| {

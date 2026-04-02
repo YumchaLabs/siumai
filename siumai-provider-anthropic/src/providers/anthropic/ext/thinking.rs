@@ -1,7 +1,7 @@
 //! Anthropic extended thinking helpers (extension API).
 
 use crate::error::LlmError;
-use crate::provider_metadata::anthropic::AnthropicChatResponseExt;
+use crate::provider_metadata::anthropic::{AnthropicChatResponseExt, AnthropicContentPartExt};
 use crate::provider_options::anthropic::{AnthropicOptions, ThinkingModeConfig};
 use crate::providers::anthropic::ext::AnthropicChatRequestExt;
 use crate::traits::ChatCapability;
@@ -20,11 +20,34 @@ where
     client.chat_request(request).await
 }
 
+fn merge_anthropic_reasoning_options(
+    part: &mut ContentPart,
+    key: &str,
+    value: serde_json::Value,
+) -> bool {
+    let Some(provider_options) = part.provider_options_mut() else {
+        return false;
+    };
+
+    match provider_options.0.get_mut("anthropic") {
+        Some(existing) if existing.is_object() => {
+            if let Some(obj) = existing.as_object_mut() {
+                obj.insert(key.to_string(), value);
+            }
+        }
+        _ => {
+            provider_options.insert("anthropic", serde_json::json!({ key: value }));
+        }
+    }
+
+    true
+}
+
 /// Convert an Anthropic response into a replayable assistant message with thinking metadata.
 ///
 /// Vercel AI SDK can replay Anthropic thinking blocks by attaching `signature` or `redactedData`
-/// to reasoning parts. In Siumai we store these fields in `response.provider_metadata["anthropic"]`
-/// and provide this helper to carry them into `ChatMessage.metadata.custom` for the next turn.
+/// to reasoning parts. This helper carries response-side Anthropic reasoning metadata into
+/// request-side `provider_options["anthropic"]` on the corresponding reasoning parts.
 ///
 /// Notes:
 /// - This is an Anthropic-specific escape hatch (not part of the unified surface).
@@ -37,32 +60,77 @@ pub fn assistant_message_with_thinking_metadata(response: &ChatResponse) -> Chat
         return msg;
     };
 
-    if let Some(sig) = anthropic.thinking_signature.as_deref() {
-        msg.metadata.custom.insert(
-            "anthropic_thinking_signature".to_string(),
-            serde_json::json!(sig),
-        );
+    let mut assigned_signature = false;
+    let mut assigned_redacted = false;
+
+    if let MessageContent::MultiModal(parts) = &mut msg.content {
+        for part in parts.iter_mut() {
+            let Some(reasoning_meta) = part.anthropic_reasoning_metadata() else {
+                continue;
+            };
+
+            if let Some(signature) = reasoning_meta.signature {
+                assigned_signature = merge_anthropic_reasoning_options(
+                    part,
+                    "signature",
+                    serde_json::json!(signature),
+                ) || assigned_signature;
+            }
+            if let Some(redacted_data) = reasoning_meta.redacted_data {
+                assigned_redacted = merge_anthropic_reasoning_options(
+                    part,
+                    "redactedData",
+                    serde_json::json!(redacted_data),
+                ) || assigned_redacted;
+            }
+        }
     }
 
-    if let Some(data) = anthropic.redacted_thinking_data.as_deref() {
-        msg.metadata.custom.insert(
-            "anthropic_redacted_thinking_data".to_string(),
-            serde_json::json!(data),
-        );
+    if !assigned_signature
+        && let Some(signature) = anthropic.thinking_signature.as_deref()
+        && let MessageContent::MultiModal(parts) = &mut msg.content
+    {
+        for part in parts.iter_mut() {
+            if !matches!(part, ContentPart::Reasoning { .. }) {
+                continue;
+            }
+            assigned_signature =
+                merge_anthropic_reasoning_options(part, "signature", serde_json::json!(signature));
+            if assigned_signature {
+                break;
+            }
+        }
+    }
 
-        // Ensure the message contains a reasoning part so the converter can emit redacted_thinking.
+    if !assigned_redacted && let Some(redacted_data) = anthropic.redacted_thinking_data.as_deref() {
         if !msg.has_reasoning() {
             msg.content = match msg.content {
                 MessageContent::Text(t) if !t.is_empty() => MessageContent::MultiModal(vec![
                     ContentPart::text(t),
-                    ContentPart::reasoning("redacted"),
+                    ContentPart::reasoning(""),
                 ]),
                 MessageContent::MultiModal(mut parts) => {
-                    parts.push(ContentPart::reasoning("redacted"));
+                    parts.push(ContentPart::reasoning(""));
                     MessageContent::MultiModal(parts)
                 }
-                _ => MessageContent::MultiModal(vec![ContentPart::reasoning("redacted")]),
+                _ => MessageContent::MultiModal(vec![ContentPart::reasoning("")]),
             };
+        }
+
+        if let MessageContent::MultiModal(parts) = &mut msg.content {
+            for part in parts.iter_mut() {
+                if !matches!(part, ContentPart::Reasoning { .. }) {
+                    continue;
+                }
+                assigned_redacted = merge_anthropic_reasoning_options(
+                    part,
+                    "redactedData",
+                    serde_json::json!(redacted_data),
+                );
+                if assigned_redacted {
+                    break;
+                }
+            }
         }
     }
 
@@ -75,33 +143,77 @@ mod tests {
 
     #[test]
     fn assistant_message_with_thinking_metadata_uses_typed_metadata_fields() {
-        let mut response = ChatResponse::new(MessageContent::Text("visible".to_string()));
+        let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::text("visible"),
+            ContentPart::Reasoning {
+                text: "internal".to_string(),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(std::collections::HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "signature": "sig-1"
+                    }),
+                )])),
+            },
+        ]));
         response.provider_metadata = Some(std::collections::HashMap::from([(
             "anthropic".to_string(),
-            std::collections::HashMap::from([
-                ("thinking_signature".to_string(), serde_json::json!("sig-1")),
-                (
-                    "redacted_thinking_data".to_string(),
-                    serde_json::json!("redacted-blob"),
-                ),
-            ]),
+            std::collections::HashMap::from([(
+                "redacted_thinking_data".to_string(),
+                serde_json::json!("redacted-blob"),
+            )]),
         )]));
 
         let msg = assistant_message_with_thinking_metadata(&response);
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+        let reasoning = parts
+            .iter()
+            .find(|part| matches!(part, ContentPart::Reasoning { .. }))
+            .expect("reasoning part");
+        let anthropic_options = reasoning
+            .provider_options()
+            .and_then(|provider_options| provider_options.get_object("anthropic"))
+            .expect("anthropic provider options");
+
         assert_eq!(
-            msg.metadata
-                .custom
-                .get("anthropic_thinking_signature")
-                .and_then(|v| v.as_str()),
-            Some("sig-1")
+            anthropic_options.get("signature"),
+            Some(&serde_json::json!("sig-1"))
         );
         assert_eq!(
-            msg.metadata
-                .custom
-                .get("anthropic_redacted_thinking_data")
-                .and_then(|v| v.as_str()),
-            Some("redacted-blob")
+            anthropic_options.get("redactedData"),
+            Some(&serde_json::json!("redacted-blob"))
         );
-        assert!(msg.has_reasoning());
+    }
+
+    #[test]
+    fn assistant_message_with_thinking_metadata_adds_placeholder_reasoning_for_redacted_data() {
+        let mut response = ChatResponse::new(MessageContent::Text("visible".to_string()));
+        response.provider_metadata = Some(std::collections::HashMap::from([(
+            "anthropic".to_string(),
+            std::collections::HashMap::from([(
+                "redacted_thinking_data".to_string(),
+                serde_json::json!("redacted-blob"),
+            )]),
+        )]));
+
+        let msg = assistant_message_with_thinking_metadata(&response);
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+        let reasoning = parts
+            .iter()
+            .find(|part| matches!(part, ContentPart::Reasoning { .. }))
+            .expect("reasoning part");
+        let anthropic_options = reasoning
+            .provider_options()
+            .and_then(|provider_options| provider_options.get_object("anthropic"))
+            .expect("anthropic provider options");
+
+        assert_eq!(
+            anthropic_options.get("redactedData"),
+            Some(&serde_json::json!("redacted-blob"))
+        );
     }
 }

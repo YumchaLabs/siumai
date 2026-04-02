@@ -11,11 +11,12 @@ mod image_block_tests {
         let tool_result = ContentPart::ToolResult {
             tool_call_id: "call_1".to_string(),
             tool_name: "generate_image".to_string(),
-            output: ToolResultOutput::content(vec![ToolResultContentPart::Image {
-                source: MediaSource::Binary { data: png_bytes },
-                detail: None,
-            }]),
+            output: ToolResultOutput::content(vec![ToolResultContentPart::image_binary(
+                png_bytes,
+                "image/png",
+            )]),
             provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: None,
         };
 
@@ -51,8 +52,10 @@ mod image_block_tests {
             tool_name: "test".to_string(),
             output: ToolResultOutput::Json {
                 value: serde_json::json!({ "ok": true }),
+                provider_options: crate::types::ProviderOptionsMap::default(),
             },
             provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: None,
         };
 
@@ -70,14 +73,14 @@ mod image_block_tests {
 }
 
 #[cfg(test)]
-mod document_provider_metadata_tests {
+mod document_provider_options_tests {
     use super::*;
 
     #[test]
-    fn file_part_provider_metadata_controls_document_citations_and_title() {
-        let mut provider_metadata = std::collections::HashMap::new();
-        provider_metadata.insert(
-            "anthropic".to_string(),
+    fn file_part_provider_options_control_document_citations_and_title() {
+        let mut provider_options = crate::types::ProviderOptionsMap::default();
+        provider_options.insert(
+            "anthropic",
             serde_json::json!({
                 "citations": { "enabled": true },
                 "title": "My Doc",
@@ -91,7 +94,8 @@ mod document_provider_metadata_tests {
             },
             media_type: "application/pdf".to_string(),
             filename: Some("fallback.pdf".to_string()),
-            provider_metadata: Some(provider_metadata),
+            provider_options,
+            provider_metadata: None,
         };
 
         let content = MessageContent::MultiModal(vec![part]);
@@ -102,6 +106,65 @@ mod document_provider_metadata_tests {
         assert_eq!(arr[0]["title"], "My Doc");
         assert_eq!(arr[0]["context"], "background");
         assert_eq!(arr[0]["citations"]["enabled"], true);
+    }
+
+    #[test]
+    fn file_part_provider_metadata_is_ignored_for_request_document_settings() {
+        let mut provider_metadata = std::collections::HashMap::new();
+        provider_metadata.insert(
+            "anthropic".to_string(),
+            serde_json::json!({
+                "citations": { "enabled": true },
+                "title": "Legacy Doc",
+                "context": "legacy background",
+            }),
+        );
+
+        let part = ContentPart::File {
+            source: MediaSource::Binary {
+                data: b"%PDF-1.7".to_vec(),
+            },
+            media_type: "application/pdf".to_string(),
+            filename: Some("fallback.pdf".to_string()),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(provider_metadata),
+        };
+
+        let content = MessageContent::MultiModal(vec![part]);
+        let mapped = convert_message_content(&content).expect("convert ok");
+        let arr = mapped.as_array().expect("array");
+
+        assert_eq!(arr[0]["type"], "document");
+        assert_eq!(arr[0]["title"], "fallback.pdf");
+        assert!(arr[0].get("context").is_none());
+        assert!(arr[0].get("citations").is_none());
+    }
+
+    #[test]
+    fn tool_result_custom_content_maps_to_tool_reference() {
+        let tool_result = ContentPart::ToolResult {
+            tool_call_id: "search-1".to_string(),
+            tool_name: "search_tools".to_string(),
+            output: ToolResultOutput::content(vec![
+                ToolResultContentPart::custom().with_provider_option(
+                    "anthropic",
+                    serde_json::json!({
+                        "type": "tool-reference",
+                        "toolName": "get_weather",
+                    }),
+                ),
+            ]),
+            provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: None,
+        };
+
+        let content = MessageContent::MultiModal(vec![tool_result]);
+        let mapped = convert_message_content(&content).expect("convert ok");
+        let arr = mapped.as_array().expect("array");
+        assert_eq!(arr[0]["type"], "tool_result");
+        assert_eq!(arr[0]["content"][0]["type"], "tool_reference");
+        assert_eq!(arr[0]["content"][0]["tool_name"], "get_weather");
     }
 }
 
@@ -175,18 +238,39 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             "text": placeholder
                         }));
                     }
-                    ContentPart::Source {
-                        source_type: _,
-                        url,
-                        title,
-                        ..
-                    } => {
+                    ContentPart::Source { source, .. } => {
                         // Anthropic does not support `source` parts in request input.
                         // Convert them into a best-effort text placeholder to preserve context.
-                        let text = if !title.is_empty() && title != url {
-                            format!("[Source: {title} ({url})]")
-                        } else {
-                            format!("[Source: {url}]")
+                        let text = match source {
+                            crate::types::SourcePart::Url { url, title } => {
+                                let title = title.as_deref().filter(|s| !s.is_empty());
+                                if let Some(title) = title
+                                    && title != url
+                                {
+                                    format!("[Source: {title} ({url})]")
+                                } else {
+                                    format!("[Source: {url}]")
+                                }
+                            }
+                            crate::types::SourcePart::Document {
+                                media_type,
+                                title,
+                                filename,
+                            } => {
+                                let title = title.as_str();
+                                let filename = filename.as_deref().filter(|s| !s.is_empty());
+                                let media_type =
+                                    Some(media_type.as_str()).filter(|s| !s.is_empty());
+                                match (filename, media_type) {
+                                    (Some(filename), _) => {
+                                        format!("[Source document: {title} ({filename})]")
+                                    }
+                                    (None, Some(media_type)) => {
+                                        format!("[Source document: {title} [{media_type}]]")
+                                    }
+                                    _ => format!("[Source document: {title}]"),
+                                }
+                            }
                         };
                         content_parts.push(serde_json::json!({
                             "type": "text",
@@ -197,31 +281,17 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                         source,
                         media_type,
                         filename,
-                        provider_metadata,
+                        provider_options,
                         ..
                     } => {
                         fn apply_anthropic_document_options(
                             doc: &mut serde_json::Value,
                             filename: &Option<String>,
-                            provider_metadata: &Option<
-                                std::collections::HashMap<String, serde_json::Value>,
-                            >,
+                            provider_options: &crate::types::ProviderOptionsMap,
                         ) {
-                            let Some(provider_metadata) = provider_metadata else {
-                                if let Some(name) = filename.as_ref() {
-                                    doc["title"] = serde_json::json!(name);
-                                }
-                                return;
-                            };
+                            let anthropic_options = provider_options.get_object("anthropic");
 
-                            let Some(anthropic) = provider_metadata.get("anthropic") else {
-                                if let Some(name) = filename.as_ref() {
-                                    doc["title"] = serde_json::json!(name);
-                                }
-                                return;
-                            };
-
-                            let Some(obj) = anthropic.as_object() else {
+                            let Some(obj) = anthropic_options else {
                                 if let Some(name) = filename.as_ref() {
                                     doc["title"] = serde_json::json!(name);
                                 }
@@ -286,7 +356,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                 "type": "document",
                                 "source": source_json,
                             });
-                            apply_anthropic_document_options(&mut doc, filename, provider_metadata);
+                            apply_anthropic_document_options(&mut doc, filename, provider_options);
                             content_parts.push(doc);
                         } else if media_type == "text/plain" {
                             let source_json = match source {
@@ -327,7 +397,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                 "type": "document",
                                 "source": source_json,
                             });
-                            apply_anthropic_document_options(&mut doc, filename, provider_metadata);
+                            apply_anthropic_document_options(&mut doc, filename, provider_options);
                             content_parts.push(doc);
                         } else {
                             content_parts.push(serde_json::json!({
@@ -335,6 +405,22 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                 "text": format!("[Unsupported file type: {}]", media_type)
                             }));
                         }
+                    }
+                    ContentPart::ReasoningFile { media_type, .. } => {
+                        // Anthropic does not have a stable request-side equivalent for
+                        // reasoning files in assistant prompts. Preserve a textual hint.
+                        content_parts.push(serde_json::json!({
+                            "type": "text",
+                            "text": format!("[Reasoning file: {}]", media_type)
+                        }));
+                    }
+                    ContentPart::Custom { kind, .. } => {
+                        // Anthropic request conversion does not support arbitrary custom parts.
+                        // Preserve a textual hint instead of dropping content silently.
+                        content_parts.push(serde_json::json!({
+                            "type": "text",
+                            "text": format!("[Custom content: {}]", kind)
+                        }));
                     }
                     ContentPart::ToolCall {
                         tool_call_id,
@@ -359,77 +445,123 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                         use crate::types::ToolResultOutput;
 
                         let (content_value, is_error) = match output {
-                            ToolResultOutput::Text { value } => (serde_json::json!(value), false),
+                            ToolResultOutput::Text { value, .. } => {
+                                (serde_json::json!(value), false)
+                            }
                             // Anthropic Messages API requires tool_result `content` to be a string
                             // or an array of content blocks; JSON objects must be stringified.
-                            ToolResultOutput::Json { value } => (
+                            ToolResultOutput::Json { value, .. } => (
                                 serde_json::json!(serde_json::to_string(value).unwrap_or_default()),
                                 false,
                             ),
-                            ToolResultOutput::ErrorText { value } => {
+                            ToolResultOutput::ErrorText { value, .. } => {
                                 (serde_json::json!(value), true)
                             }
-                            ToolResultOutput::ErrorJson { value } => (
+                            ToolResultOutput::ErrorJson { value, .. } => (
                                 serde_json::json!(serde_json::to_string(value).unwrap_or_default()),
                                 true,
                             ),
-                            ToolResultOutput::ExecutionDenied { reason } => {
+                            ToolResultOutput::ExecutionDenied { reason, .. } => {
                                 let msg = reason
                                     .as_ref()
                                     .map(|r| format!("Execution denied: {}", r))
                                     .unwrap_or_else(|| "Execution denied".to_string());
                                 (serde_json::json!(msg), true)
                             }
-                            ToolResultOutput::Content { value } => {
+                            ToolResultOutput::Content { value, .. } => {
                                 // Convert multimodal content to Anthropic format
                                 let content_array: Vec<serde_json::Value> = value.iter().map(|part| {
                                     use crate::types::ToolResultContentPart;
                                     match part {
-                                        ToolResultContentPart::Text { text } => {
+                                        ToolResultContentPart::Text { text, .. } => {
                                             serde_json::json!({"type": "text", "text": text})
                                         }
-                                        ToolResultContentPart::Image { source, .. } => {
-                                            use crate::types::MediaSource;
-                                            match source {
-                                                MediaSource::Url { url } => {
-                                                    serde_json::json!({
-                                                        "type": "text",
-                                                        "text": format!("[Image: {}]", url)
-                                                    })
+                                        ToolResultContentPart::ImageData {
+                                            data,
+                                            media_type,
+                                            ..
+                                        } => {
+                                            serde_json::json!({
+                                                "type": "image",
+                                                "source": {
+                                                    "type": "base64",
+                                                    "media_type": media_type,
+                                                    "data": data
                                                 }
-                                                MediaSource::Base64 { data } => {
-                                                    let bytes = base64::engine::general_purpose::STANDARD
-                                                        .decode(data.as_bytes())
-                                                        .ok();
-                                                    let media_type = bytes
-                                                        .as_deref()
-                                                        .map(super::headers::guess_image_media_type_from_bytes)
-                                                        .unwrap_or_else(|| "image/jpeg".to_string());
-                                                    serde_json::json!({
-                                                        "type": "image",
-                                                        "source": {
-                                                            "type": "base64",
-                                                            "media_type": media_type,
-                                                            "data": data
-                                                        }
-                                                    })
-                                                }
-                                                MediaSource::Binary { data } => {
-                                                    let encoded = base64::engine::general_purpose::STANDARD.encode(data);
-                                                    let media_type = super::headers::guess_image_media_type_from_bytes(data);
-                                                    serde_json::json!({
-                                                        "type": "image",
-                                                        "source": {
-                                                            "type": "base64",
-                                                            "media_type": media_type,
-                                                            "data": encoded
-                                                        }
-                                                    })
-                                                }
-                                            }
+                                            })
                                         }
-                                        ToolResultContentPart::File { .. } => {
-                                            serde_json::json!({"type": "text", "text": "[File attachment]"})
+                                        ToolResultContentPart::ImageUrl { url, .. } => {
+                                            serde_json::json!({
+                                                "type": "text",
+                                                "text": format!("[Image: {}]", url)
+                                            })
+                                        }
+                                        ToolResultContentPart::ImageFileId { .. } => {
+                                            serde_json::json!({
+                                                "type": "text",
+                                                "text": "[Image file id attachment]"
+                                            })
+                                        }
+                                        ToolResultContentPart::FileData {
+                                            data,
+                                            media_type,
+                                            ..
+                                        } if media_type == "application/pdf" => {
+                                            serde_json::json!({
+                                                "type": "document",
+                                                "source": {
+                                                    "type": "base64",
+                                                    "media_type": media_type,
+                                                    "data": data
+                                                }
+                                            })
+                                        }
+                                        ToolResultContentPart::FileData { media_type, .. } => {
+                                            serde_json::json!({
+                                                "type": "text",
+                                                "text": format!("[Unsupported file attachment: {}]", media_type)
+                                            })
+                                        }
+                                        ToolResultContentPart::FileUrl { url, .. } => {
+                                            serde_json::json!({
+                                                "type": "document",
+                                                "source": {
+                                                    "type": "url",
+                                                    "url": url
+                                                }
+                                            })
+                                        }
+                                        ToolResultContentPart::FileId { .. } => {
+                                            serde_json::json!({
+                                                "type": "text",
+                                                "text": "[File id attachment]"
+                                            })
+                                        }
+                                        ToolResultContentPart::Custom { provider_options } => {
+                                            let anthropic_options = provider_options
+                                                .get_object("anthropic")
+                                                .or_else(|| provider_options.get_object("claude"));
+
+                                            if let Some(anthropic_options) = anthropic_options
+                                                && anthropic_options
+                                                    .get("type")
+                                                    .and_then(|v| v.as_str())
+                                                    == Some("tool-reference")
+                                                && let Some(tool_name) = anthropic_options
+                                                    .get("toolName")
+                                                    .or_else(|| anthropic_options.get("tool_name"))
+                                                    .and_then(|v| v.as_str())
+                                            {
+                                                serde_json::json!({
+                                                    "type": "tool_reference",
+                                                    "tool_name": tool_name,
+                                                })
+                                            } else {
+                                                serde_json::json!({
+                                                    "type": "text",
+                                                    "text": "[Custom tool content]"
+                                                })
+                                            }
                                         }
                                     }
                                 }).collect();
@@ -447,10 +579,9 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                     ContentPart::ToolApprovalResponse { .. } => {}
                     ContentPart::ToolApprovalRequest { .. } => {}
                     ContentPart::Reasoning { text, .. } => {
-                        // Emit as a thinking block (Anthropic format). If the caller does not provide
-                        // a valid signature (required for replaying thinking blocks), we will
-                        // degrade it to a plain text `<thinking>...</thinking>` wrapper later in
-                        // `convert_messages`.
+                        // Emit as a thinking block (Anthropic format). `convert_messages` will
+                        // keep it only when Anthropic replay metadata is present on the reasoning
+                        // part; otherwise the block is omitted from assistant replay.
                         content_parts.push(serde_json::json!({
                             "type": "thinking",
                             "thinking": text

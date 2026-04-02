@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Anthropic thinking replay helper now maps response-side reasoning metadata onto next-turn `providerOptions.anthropic.signature` / `redactedData` on reasoning parts instead of writing legacy message-level `metadata.custom["anthropic_*"]` shims.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

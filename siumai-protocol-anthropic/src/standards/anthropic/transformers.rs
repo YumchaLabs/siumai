@@ -15,7 +15,6 @@ use eventsource_stream::Event;
 use super::request_options::{
     anthropic_request_body_overlays_needed, apply_anthropic_request_body_overlays,
 };
-use super::thinking::ThinkingResponseParser;
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
 use super::utils::{
     convert_messages as convert_messages_to_anthropic, convert_tools_to_anthropic_format,
@@ -333,7 +332,6 @@ impl ResponseTransformer for AnthropicResponseTransformer {
         use super::provider_metadata::{
             AnthropicCitation, AnthropicCitationsBlock, AnthropicSource,
         };
-        use crate::types::ContentPart;
 
         let response: AnthropicChatResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Anthropic response: {e}")))?;
@@ -382,7 +380,7 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             v
         }
 
-        let mut content = if let Some(input) = json_tool_input {
+        let content = if let Some(input) = json_tool_input {
             // Vercel-aligned: stable JSON stringification for reserved `json` tool outputs.
             let canonical = canonicalize_json(input);
             let text = serde_json::to_string(&canonical).unwrap_or_else(|_| "{}".to_string());
@@ -390,22 +388,6 @@ impl ResponseTransformer for AnthropicResponseTransformer {
         } else {
             parse_response_content_and_tools(&response.content)
         };
-
-        // Add thinking/reasoning if present (preserve signature/redacted data via provider_metadata).
-        let thinking_block = ThinkingResponseParser::extract_thinking(raw);
-        let redacted_block = ThinkingResponseParser::extract_redacted_thinking(raw);
-
-        if let Some(tb) = &thinking_block
-            && !tb.thinking.is_empty()
-        {
-            let mut parts = match content {
-                MessageContent::Text(ref text) if !text.is_empty() => vec![ContentPart::text(text)],
-                MessageContent::MultiModal(ref parts) => parts.clone(),
-                _ => Vec::new(),
-            };
-            parts.push(ContentPart::reasoning(&tb.thinking));
-            content = MessageContent::MultiModal(parts);
-        }
 
         let usage: Option<Usage> = create_usage_from_response(response.usage.clone());
         let finish_reason: Option<FinishReason> = if is_json_tool_response {
@@ -537,19 +519,6 @@ impl ResponseTransformer for AnthropicResponseTransformer {
                 anthropic_meta.insert("sources".to_string(), v);
             }
 
-            // Thinking metadata needed to replay assistant reasoning blocks (Vercel-aligned).
-            if let Some(tb) = thinking_block
-                && let Some(sig) = tb.signature
-            {
-                anthropic_meta.insert("thinking_signature".to_string(), serde_json::json!(sig));
-            }
-            if let Some(rb) = redacted_block {
-                anthropic_meta.insert(
-                    "redacted_thinking_data".to_string(),
-                    serde_json::json!(rb.data),
-                );
-            }
-
             if anthropic_meta.is_empty() {
                 None
             } else {
@@ -599,6 +568,27 @@ mod tests {
 
         let resp = tx.transform_chat_response(&raw).unwrap();
         assert!(matches!(resp.content, MessageContent::MultiModal(_)));
+        let MessageContent::MultiModal(parts) = &resp.content else {
+            panic!("expected multimodal content");
+        };
+        let reasoning = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::Reasoning { .. }))
+            .expect("reasoning part");
+        let crate::types::ContentPart::Reasoning {
+            provider_metadata: Some(provider_metadata),
+            ..
+        } = reasoning
+        else {
+            panic!("expected reasoning provider metadata");
+        };
+        let anthropic_meta = provider_metadata
+            .get("anthropic")
+            .expect("anthropic reasoning metadata");
+        assert_eq!(
+            anthropic_meta.get("signature"),
+            Some(&serde_json::json!("sig"))
+        );
         let meta = resp.anthropic_metadata().expect("anthropic metadata");
         assert_eq!(meta.thinking_signature.as_deref(), Some("sig"));
     }
@@ -621,6 +611,27 @@ mod tests {
         });
 
         let resp = tx.transform_chat_response(&raw).unwrap();
+        let MessageContent::MultiModal(parts) = &resp.content else {
+            panic!("expected multimodal content");
+        };
+        let reasoning = parts
+            .iter()
+            .find(|part| matches!(part, crate::types::ContentPart::Reasoning { .. }))
+            .expect("reasoning part");
+        let crate::types::ContentPart::Reasoning {
+            provider_metadata: Some(provider_metadata),
+            ..
+        } = reasoning
+        else {
+            panic!("expected reasoning provider metadata");
+        };
+        let anthropic_meta = provider_metadata
+            .get("anthropic")
+            .expect("anthropic reasoning metadata");
+        assert_eq!(
+            anthropic_meta.get("redactedData"),
+            Some(&serde_json::json!("abc123"))
+        );
         let meta = resp.anthropic_metadata().expect("anthropic metadata");
         assert_eq!(meta.redacted_thinking_data.as_deref(), Some("abc123"));
     }

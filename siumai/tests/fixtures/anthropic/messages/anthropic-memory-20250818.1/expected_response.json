@@ -6,7 +6,10 @@
         "type": "tool-call",
         "toolCallId": "toolu_01TvNvpwszD4hKeudmbfyWiV",
         "toolName": "memory",
-        "input": { "command": "view", "path": "/memories" },
+        "input": {
+          "command": "view",
+          "path": "/memories"
+        },
         "providerExecuted": null,
         "providerMetadata": null
       }
@@ -18,14 +21,35 @@
     "completion_tokens": 69,
     "total_tokens": 1683,
     "cached_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "inputTokens": {
+      "total": 1614,
+      "noCache": 1614,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "outputTokens": {
+      "total": 69,
+      "text": 69
+    },
+    "raw": {
+      "input_tokens": 1614,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 69,
+      "service_tier": "standard"
+    }
   },
   "finish_reason": "tool_calls",
   "service_tier": "standard",
   "provider_metadata": {
     "anthropic": {
       "cacheCreationInputTokens": 0,
-      "contextManagement": { "appliedEdits": [] },
+      "contextManagement": {
+        "appliedEdits": []
+      },
       "usage": {
         "input_tokens": 1614,
         "cache_creation_input_tokens": 0,

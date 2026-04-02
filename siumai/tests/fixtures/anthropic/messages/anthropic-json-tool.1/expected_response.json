@@ -11,6 +11,23 @@
     "total_tokens": 1238,
     "prompt_tokens_details": {
       "cached_tokens": 0
+    },
+    "inputTokens": {
+      "total": 1151,
+      "noCache": 1151,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "outputTokens": {
+      "total": 87,
+      "text": 87
+    },
+    "raw": {
+      "input_tokens": 1151,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 87,
+      "service_tier": "standard"
     }
   },
   "finish_reason": "stop",

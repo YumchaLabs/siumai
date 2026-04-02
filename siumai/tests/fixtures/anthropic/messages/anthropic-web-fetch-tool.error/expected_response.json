@@ -21,7 +21,10 @@
         "toolName": "web_fetch",
         "output": {
           "type": "error-json",
-          "value": { "type": "web_fetch_tool_result_error", "errorCode": "unavailable" }
+          "value": {
+            "type": "web_fetch_tool_result_error",
+            "errorCode": "unavailable"
+          }
         },
         "providerExecuted": true
       },
@@ -37,7 +40,30 @@
     "completion_tokens": 214,
     "total_tokens": 2116,
     "cached_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "inputTokens": {
+      "total": 1902,
+      "noCache": 1902,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "outputTokens": {
+      "total": 214,
+      "text": 214
+    },
+    "raw": {
+      "input_tokens": 1902,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 214,
+      "service_tier": "standard",
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 1
+      }
+    }
   },
   "finish_reason": "stop",
   "service_tier": "standard",

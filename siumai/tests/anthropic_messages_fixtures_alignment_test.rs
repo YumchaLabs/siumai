@@ -550,7 +550,7 @@ fn anthropic_code_execution_response_maps_to_stable_tool_name_and_container_meta
             }
             ContentPart::ToolResult {
                 tool_name,
-                output: ToolResultOutput::Json { value },
+                output: ToolResultOutput::Json { value, .. },
                 provider_executed: Some(true),
                 ..
             } if tool_name == "code_execution" => {
@@ -663,7 +663,7 @@ fn anthropic_code_execution_result_preserves_file_id_list() {
     let has_file_id = parts.iter().any(|part| {
         let ContentPart::ToolResult {
             tool_name,
-            output: ToolResultOutput::Json { value },
+            output: ToolResultOutput::Json { value, .. },
             provider_executed: Some(true),
             ..
         } = part
@@ -855,7 +855,7 @@ fn anthropic_web_fetch_fixture_normalizes_result_shape() {
     let web_fetch_result = parts.iter().find_map(|part| {
         let ContentPart::ToolResult {
             tool_name,
-            output: siumai_core::types::ToolResultOutput::Json { value },
+            output: siumai_core::types::ToolResultOutput::Json { value, .. },
             provider_executed: Some(true),
             ..
         } = part
@@ -913,7 +913,7 @@ fn anthropic_web_search_fixture_normalizes_result_shape() {
     let web_search_result = parts.iter().find_map(|part| {
         let ContentPart::ToolResult {
             tool_name,
-            output: siumai_core::types::ToolResultOutput::Json { value },
+            output: siumai_core::types::ToolResultOutput::Json { value, .. },
             provider_executed: Some(true),
             ..
         } = part

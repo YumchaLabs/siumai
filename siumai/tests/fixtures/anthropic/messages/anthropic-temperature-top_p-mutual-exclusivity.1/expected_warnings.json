@@ -1,7 +1,7 @@
 [
   {
-    "type": "unsupported-setting",
-    "setting": "topP",
-    "details": "topP is not supported when temperature is set. topP is ignored."
+    "type": "unsupported",
+    "details": "topP is not supported when temperature is set. topP is ignored.",
+    "feature": "topP"
   }
 ]

@@ -7,7 +7,9 @@ use serde_json::Value;
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_anthropic_messages_sse,
 };
-use siumai::prelude::unified::{ChatByteStream, ChatStreamEvent, SseEventConverter};
+use siumai::prelude::unified::{
+    ChatByteStream, ChatStreamEvent, ChatStreamPart, SseEventConverter,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -148,10 +150,17 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
             ChatStreamEvent::ContentDelta { delta, .. } => {
                 push_adjacent_unique(&mut text_deltas, delta.clone());
             }
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                if let ChatStreamPart::TextDelta { delta, .. } = part {
+                    push_adjacent_unique(&mut text_deltas, delta.clone());
+                }
+            }
             ChatStreamEvent::UsageUpdate { usage } => {
-                if usage.prompt_tokens > 0 || usage.completion_tokens > 0 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
+                if usage.prompt_tokens().unwrap_or(0) > 0
+                    || usage.completion_tokens().unwrap_or(0) > 0
+                {
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
                 }
             }
             ChatStreamEvent::StreamEnd { response } => {
@@ -164,8 +173,13 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                 if summary.prompt_tokens.is_none()
                     && let Some(usage) = response.usage.as_ref()
                 {
-                    summary.prompt_tokens = Some(usage.prompt_tokens);
-                    summary.completion_tokens = Some(usage.completion_tokens);
+                    summary.prompt_tokens = usage.prompt_tokens();
+                    summary.completion_tokens = usage.completion_tokens();
+                }
+                if text_deltas.is_empty()
+                    && let Some(text) = response.content_text()
+                {
+                    push_adjacent_unique(&mut text_deltas, text.to_string());
                 }
             }
             ChatStreamEvent::Custom { data, .. } => {

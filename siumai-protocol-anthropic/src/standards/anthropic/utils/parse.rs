@@ -32,8 +32,54 @@ pub fn parse_response_content_and_tools(
         )]))
     }
 
+    fn reasoning_part_provider_metadata(
+        signature: Option<&str>,
+        redacted_data: Option<&str>,
+    ) -> Option<HashMap<String, serde_json::Value>> {
+        let mut anthropic = serde_json::Map::new();
+
+        if let Some(signature) = signature {
+            anthropic.insert("signature".to_string(), serde_json::json!(signature));
+        }
+        if let Some(redacted_data) = redacted_data {
+            anthropic.insert("redactedData".to_string(), serde_json::json!(redacted_data));
+        }
+
+        (!anthropic.is_empty()).then(|| {
+            HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::Value::Object(anthropic),
+            )])
+        })
+    }
+
     for content_block in content_blocks {
         match content_block.r#type.as_str() {
+            "thinking" => {
+                let text = content_block.thinking.clone().unwrap_or_default();
+                let provider_metadata =
+                    reasoning_part_provider_metadata(content_block.signature.as_deref(), None);
+
+                if !text.is_empty() || provider_metadata.is_some() {
+                    parts.push(ContentPart::Reasoning {
+                        text,
+                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        provider_metadata,
+                    });
+                }
+            }
+            "redacted_thinking" => {
+                let provider_metadata =
+                    reasoning_part_provider_metadata(None, content_block.data.as_deref());
+
+                if provider_metadata.is_some() {
+                    parts.push(ContentPart::Reasoning {
+                        text: String::new(),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
+                        provider_metadata,
+                    });
+                }
+            }
             "text" => {
                 let text = content_block.text.clone().unwrap_or_default();
                 let provider_metadata =
@@ -42,6 +88,7 @@ pub fn parse_response_content_and_tools(
                 if !text.is_empty() || provider_metadata.is_some() {
                     parts.push(ContentPart::Text {
                         text,
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
                 }
@@ -69,6 +116,7 @@ pub fn parse_response_content_and_tools(
                         tool_name: name.clone(),
                         arguments: input.clone(),
                         provider_executed: None,
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
                 }
@@ -110,6 +158,7 @@ pub fn parse_response_content_and_tools(
                         tool_name,
                         arguments: input,
                         provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
                 }
@@ -133,6 +182,7 @@ pub fn parse_response_content_and_tools(
                         tool_name: name.clone(),
                         arguments: input.clone(),
                         provider_executed: Some(true),
+                        provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
                 }
@@ -168,6 +218,7 @@ pub fn parse_response_content_and_tools(
                             {
                                 out_parts.push(crate::types::ToolResultContentPart::Text {
                                     text: text.to_string(),
+                                    provider_options: crate::types::ProviderOptionsMap::default(),
                                 });
                             }
                         }
@@ -205,6 +256,7 @@ pub fn parse_response_content_and_tools(
                     tool_name,
                     output,
                     provider_executed: Some(true),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,
                 });
             }
@@ -219,6 +271,7 @@ pub fn parse_response_content_and_tools(
         ContentPart::Text {
             text,
             provider_metadata: None,
+            ..
         },
     ] = parts.as_slice()
     {
@@ -238,22 +291,86 @@ pub fn extract_thinking_content(content_blocks: &[AnthropicContentBlock]) -> Opt
 }
 
 pub fn create_usage_from_response(usage: Option<AnthropicUsage>) -> Option<Usage> {
-    usage.map(|u| Usage {
-        prompt_tokens: u.input_tokens,
-        completion_tokens: u.output_tokens,
-        total_tokens: u.input_tokens + u.output_tokens,
-        #[allow(deprecated)]
-        reasoning_tokens: None,
-        #[allow(deprecated)]
-        cached_tokens: u.cache_read_input_tokens,
-        prompt_tokens_details: u.cache_read_input_tokens.map(|cached| {
-            crate::types::PromptTokensDetails {
-                audio_tokens: None,
-                cached_tokens: Some(cached),
+    usage.map(|u| {
+        let mut raw_usage = serde_json::Map::new();
+        raw_usage.insert(
+            "input_tokens".to_string(),
+            serde_json::json!(u.input_tokens),
+        );
+        raw_usage.insert(
+            "output_tokens".to_string(),
+            serde_json::json!(u.output_tokens),
+        );
+        if let Some(cache_creation_input_tokens) = u.cache_creation_input_tokens {
+            raw_usage.insert(
+                "cache_creation_input_tokens".to_string(),
+                serde_json::json!(cache_creation_input_tokens),
+            );
+        }
+        if let Some(cache_read_input_tokens) = u.cache_read_input_tokens {
+            raw_usage.insert(
+                "cache_read_input_tokens".to_string(),
+                serde_json::json!(cache_read_input_tokens),
+            );
+        }
+        if let Some(service_tier) = u.service_tier.clone() {
+            raw_usage.insert("service_tier".to_string(), serde_json::json!(service_tier));
+        }
+        if let Some(server_tool_use) = u.server_tool_use.as_ref() {
+            let mut server_tool_use_value = serde_json::Map::new();
+            if let Some(web_search_requests) = server_tool_use.web_search_requests {
+                server_tool_use_value.insert(
+                    "web_search_requests".to_string(),
+                    serde_json::json!(web_search_requests),
+                );
             }
-        }),
-        completion_tokens_details: None,
+            if let Some(web_fetch_requests) = server_tool_use.web_fetch_requests {
+                server_tool_use_value.insert(
+                    "web_fetch_requests".to_string(),
+                    serde_json::json!(web_fetch_requests),
+                );
+            }
+            if !server_tool_use_value.is_empty() {
+                raw_usage.insert(
+                    "server_tool_use".to_string(),
+                    serde_json::Value::Object(server_tool_use_value),
+                );
+            }
+        }
+
+        let mut builder = Usage::builder()
+            .prompt_tokens(u.input_tokens)
+            .completion_tokens(u.output_tokens)
+            .total_tokens(u.input_tokens.saturating_add(u.output_tokens))
+            .with_input_tokens(crate::types::UsageInputTokens {
+                total: Some(
+                    u.input_tokens
+                        .saturating_add(u.cache_read_input_tokens.unwrap_or(0))
+                        .saturating_add(u.cache_creation_input_tokens.unwrap_or(0)),
+                ),
+                no_cache: Some(u.input_tokens),
+                cache_read: u.cache_read_input_tokens,
+                cache_write: u.cache_creation_input_tokens,
+            })
+            .with_output_tokens(crate::types::UsageOutputTokens {
+                total: Some(u.output_tokens),
+                text: Some(u.output_tokens),
+                reasoning: None,
+            })
+            .with_raw_usage_value(serde_json::Value::Object(raw_usage));
+
+        if let Some(cached) = u.cache_read_input_tokens {
+            builder = builder.with_cached_tokens(cached);
+        }
+
+        builder.build()
     })
+}
+
+pub fn create_usage_from_json_value(usage: Option<&serde_json::Value>) -> Option<Usage> {
+    let usage = usage?;
+    let parsed = serde_json::from_value::<AnthropicUsage>(usage.clone()).ok()?;
+    create_usage_from_response(Some(parsed))
 }
 
 #[cfg(test)]
@@ -409,6 +526,7 @@ mod tests {
                 if let ContentPart::Text {
                     text,
                     provider_metadata,
+                    ..
                 } = &parts[0]
                 {
                     assert_eq!(text, "Overview");
@@ -420,6 +538,7 @@ mod tests {
                 if let ContentPart::Text {
                     text,
                     provider_metadata,
+                    ..
                 } = &parts[1]
                 {
                     assert_eq!(text, "Grounded fact");
@@ -539,7 +658,7 @@ mod tests {
                     assert_eq!(*provider_executed, Some(true));
 
                     match output {
-                        crate::types::ToolResultOutput::Json { value } => {
+                        crate::types::ToolResultOutput::Json { value, .. } => {
                             assert!(value.is_array());
                             assert_eq!(value[0]["pageAge"], serde_json::Value::Null,);
                             assert_eq!(value[0]["encryptedContent"], serde_json::json!("..."),);
@@ -637,7 +756,7 @@ mod tests {
                 {
                     assert_eq!(tool_name, "tool_search");
                     match output {
-                        crate::types::ToolResultOutput::Json { value } => {
+                        crate::types::ToolResultOutput::Json { value, .. } => {
                             assert!(value.is_array());
                             assert_eq!(value[0]["toolName"], serde_json::json!("get_weather"));
                         }
@@ -712,7 +831,7 @@ mod tests {
                 {
                     assert_eq!(tool_name, "web_fetch");
                     match output {
-                        crate::types::ToolResultOutput::Json { value } => {
+                        crate::types::ToolResultOutput::Json { value, .. } => {
                             assert_eq!(value["type"], serde_json::json!("web_fetch_result"));
                             assert_eq!(
                                 value["retrievedAt"],
@@ -792,7 +911,7 @@ mod tests {
                 {
                     assert_eq!(tool_name, "code_execution");
                     match output {
-                        crate::types::ToolResultOutput::Json { value } => {
+                        crate::types::ToolResultOutput::Json { value, .. } => {
                             assert_eq!(value["type"], serde_json::json!("code_execution_result"));
                             assert_eq!(value["return_code"], serde_json::json!(0));
                         }
@@ -850,5 +969,36 @@ mod tests {
             }
             _ => panic!("Expected multimodal content"),
         }
+    }
+
+    #[test]
+    fn test_create_usage_from_json_value_keeps_stable_raw_subset() {
+        let raw_usage = serde_json::json!({
+            "input_tokens": 843,
+            "output_tokens": 28,
+            "cache_creation_input_tokens": 0,
+            "cache_read_input_tokens": 0,
+            "cache_creation": {
+                "ephemeral_5m_input_tokens": 0,
+                "ephemeral_1h_input_tokens": 0
+            },
+            "service_tier": "standard"
+        });
+
+        let usage = create_usage_from_json_value(Some(&raw_usage)).expect("usage");
+
+        assert_eq!(
+            usage.raw_usage_value(),
+            Some(serde_json::json!({
+                "input_tokens": 843,
+                "output_tokens": 28,
+                "cache_creation_input_tokens": 0,
+                "cache_read_input_tokens": 0,
+                "service_tier": "standard"
+            }))
+        );
+        assert_eq!(usage.normalized_input_tokens().total, Some(843));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(0));
+        assert_eq!(usage.normalized_output_tokens().total, Some(28));
     }
 }

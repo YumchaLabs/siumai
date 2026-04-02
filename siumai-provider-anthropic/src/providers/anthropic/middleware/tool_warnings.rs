@@ -319,11 +319,11 @@ mod tests {
 
         assert!(warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, .. } if tool_name == "unsupported.tool"
+            Warning::Unsupported { feature, .. } if feature == "unsupported.tool"
         )));
         assert!(warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, .. } if tool_name == "anthropic.unknown_tool"
+            Warning::Unsupported { feature, .. } if feature == "anthropic.unknown_tool"
         )));
     }
 
@@ -353,8 +353,8 @@ mod tests {
 
         assert!(warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedSetting { setting, details: Some(d) }
-                if setting == "cacheControl breakpoint limit"
+            Warning::Unsupported { feature, details: Some(d) }
+                if feature == "cacheControl breakpoint limit"
                     && d == "Maximum 4 cache breakpoints exceeded (found 5). This breakpoint will be ignored."
         )));
     }

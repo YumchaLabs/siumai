@@ -9,8 +9,27 @@ pub fn convert_messages(
     let mut cache_breakpoints: usize = 0;
     const MAX_CACHE_BREAKPOINTS: usize = 4;
 
-    // Helper: map generic message metadata cache control to Anthropic JSON
-    fn map_cache_control(meta: &MessageMetadata) -> Option<serde_json::Value> {
+    fn cache_control_from_provider_options(
+        provider_options: &crate::types::ProviderOptionsMap,
+    ) -> Option<serde_json::Value> {
+        provider_options
+            .get_object("anthropic")
+            .and_then(|anthropic| {
+                anthropic
+                    .get("cacheControl")
+                    .or_else(|| anthropic.get("cache_control"))
+            })
+            .cloned()
+    }
+
+    // Helper: map message-level cache control to Anthropic JSON.
+    fn map_cache_control(message: &ChatMessage) -> Option<serde_json::Value> {
+        if let Some(cache_control) = cache_control_from_provider_options(&message.provider_options)
+        {
+            return Some(cache_control);
+        }
+
+        let meta = &message.metadata;
         if let Some(ref cc) = meta.cache_control {
             match cc {
                 CacheControl::Ephemeral => Some(serde_json::json!({
@@ -29,6 +48,28 @@ pub fn convert_messages(
         } else {
             None
         }
+    }
+
+    fn collect_part_cache_controls(
+        message: &ChatMessage,
+    ) -> std::collections::HashMap<usize, serde_json::Value> {
+        let mut part_cache_controls: std::collections::HashMap<usize, serde_json::Value> =
+            std::collections::HashMap::new();
+
+        if let MessageContent::MultiModal(parts) = &message.content {
+            for (idx, part) in parts.iter().enumerate() {
+                let Some(provider_options) = part.provider_options() else {
+                    continue;
+                };
+                let Some(cache_control) = cache_control_from_provider_options(provider_options)
+                else {
+                    continue;
+                };
+                part_cache_controls.insert(idx, cache_control);
+            }
+        }
+
+        part_cache_controls
     }
 
     fn maybe_attach_cache_control(
@@ -60,26 +101,156 @@ pub fn convert_messages(
         *cache_breakpoints += 1;
     }
 
-    fn normalize_reasoning_blocks(
-        role: &MessageRole,
-        message_custom: &std::collections::HashMap<String, serde_json::Value>,
+    fn apply_message_cache_controls(
+        message: &ChatMessage,
         content_json: &mut serde_json::Value,
+        cache_breakpoints: &mut usize,
     ) {
+        let part_cache_controls = collect_part_cache_controls(message);
+
+        if !part_cache_controls.is_empty()
+            && let Some(parts) = content_json.as_array_mut()
+        {
+            let mut idxs: Vec<usize> = part_cache_controls.keys().copied().collect();
+            idxs.sort_unstable();
+            for i in idxs {
+                let Some(part) = parts.get_mut(i) else {
+                    continue;
+                };
+                let Some(cc) = part_cache_controls.get(&i) else {
+                    continue;
+                };
+                maybe_attach_cache_control(part, cc, cache_breakpoints);
+            }
+        }
+
+        // Message-level cache control applies to the last content part (if any), unless already set.
+        if let Some(cc) = map_cache_control(message)
+            && let Some(parts) = content_json.as_array_mut()
+            && let Some(last) = parts.last_mut()
+        {
+            maybe_attach_cache_control(last, &cc, cache_breakpoints);
+        }
+    }
+
+    #[derive(Default)]
+    struct AnthropicReasoningReplayMetadata {
+        signature: Option<String>,
+        redacted_data: Option<String>,
+    }
+
+    fn anthropic_reasoning_replay_value(
+        map: &serde_json::Map<String, serde_json::Value>,
+        keys: &[&str],
+    ) -> Option<String> {
+        keys.iter().find_map(|key| {
+            map.get(*key)
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned)
+        })
+    }
+
+    fn anthropic_reasoning_replay_metadata_from_map(
+        map: &serde_json::Map<String, serde_json::Value>,
+    ) -> AnthropicReasoningReplayMetadata {
+        AnthropicReasoningReplayMetadata {
+            signature: anthropic_reasoning_replay_value(map, &["signature"]),
+            redacted_data: anthropic_reasoning_replay_value(
+                map,
+                &["redactedData", "redacted_data", "redacted_thinking_data"],
+            ),
+        }
+    }
+
+    fn anthropic_part_metadata<'a>(
+        message: &'a ChatMessage,
+        index: usize,
+    ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+        let MessageContent::MultiModal(parts) = &message.content else {
+            return None;
+        };
+
+        match parts.get(index)? {
+            ContentPart::Text {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::Image {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::Audio {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::File {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::ReasoningFile {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::Custom {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::ToolCall {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::ToolApprovalRequest {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::ToolResult {
+                provider_metadata: Some(provider_metadata),
+                ..
+            }
+            | ContentPart::Reasoning {
+                provider_metadata: Some(provider_metadata),
+                ..
+            } => provider_metadata.get("anthropic")?.as_object(),
+            ContentPart::ToolApprovalResponse { .. } | ContentPart::Source { .. } => None,
+            _ => None,
+        }
+    }
+
+    fn anthropic_part_options<'a>(
+        message: &'a ChatMessage,
+        index: usize,
+    ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+        let MessageContent::MultiModal(parts) = &message.content else {
+            return None;
+        };
+
+        parts
+            .get(index)?
+            .provider_options()?
+            .get_object("anthropic")
+    }
+
+    fn anthropic_reasoning_replay_metadata(
+        message: &ChatMessage,
+        index: usize,
+    ) -> AnthropicReasoningReplayMetadata {
+        let options = anthropic_part_options(message, index)
+            .map(anthropic_reasoning_replay_metadata_from_map)
+            .unwrap_or_default();
+        let metadata = anthropic_part_metadata(message, index)
+            .map(anthropic_reasoning_replay_metadata_from_map)
+            .unwrap_or_default();
+
+        AnthropicReasoningReplayMetadata {
+            signature: options.signature.or(metadata.signature),
+            redacted_data: options.redacted_data.or(metadata.redacted_data),
+        }
+    }
+
+    fn normalize_reasoning_blocks(message: &ChatMessage, content_json: &mut serde_json::Value) {
         let Some(parts) = content_json.as_array_mut() else {
             return;
         };
-
-        let signature_global = message_custom
-            .get("anthropic_thinking_signature")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
-        let signatures_by_index = message_custom
-            .get("anthropic_thinking_signatures")
-            .and_then(|v| v.as_object());
-        let redacted_data = message_custom
-            .get("anthropic_redacted_thinking_data")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
 
         for (idx, part) in parts.iter_mut().enumerate() {
             let Some(kind) = part.get("type").and_then(|v| v.as_str()) else {
@@ -93,8 +264,8 @@ pub fn convert_messages(
                         obj.remove("cache_control");
                     }
 
-                    // Only assistant messages can safely replay thinking blocks, and they require a signature.
-                    if !matches!(role, MessageRole::Assistant) {
+                    // Only assistant messages can safely replay Anthropic reasoning blocks.
+                    if !matches!(message.role, MessageRole::Assistant) {
                         let thinking = part
                             .get("thinking")
                             .and_then(|v| v.as_str())
@@ -106,11 +277,9 @@ pub fn convert_messages(
                         continue;
                     }
 
-                    // If caller explicitly requested redacted thinking, convert the block.
-                    if signature_global.is_none()
-                        && signatures_by_index.is_none()
-                        && let Some(data) = &redacted_data
-                    {
+                    let replay = anthropic_reasoning_replay_metadata(message, idx);
+
+                    if let Some(data) = replay.redacted_data {
                         *part = serde_json::json!({
                             "type": "redacted_thinking",
                             "data": data
@@ -118,24 +287,10 @@ pub fn convert_messages(
                         continue;
                     }
 
-                    // Attach signature if available; otherwise degrade to text wrapper.
-                    let sig = signatures_by_index
-                        .and_then(|m| m.get(&idx.to_string()))
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                        .or_else(|| signature_global.clone());
-
-                    if let Some(sig) = sig {
+                    if let Some(sig) = replay.signature {
                         part["signature"] = serde_json::json!(sig);
                     } else {
-                        let thinking = part
-                            .get("thinking")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default();
-                        *part = serde_json::json!({
-                            "type": "text",
-                            "text": format!("<thinking>{thinking}</thinking>")
-                        });
+                        *part = serde_json::Value::Null;
                     }
                 }
                 "redacted_thinking" => {
@@ -144,7 +299,7 @@ pub fn convert_messages(
                         obj.remove("cache_control");
                     }
 
-                    if !matches!(role, MessageRole::Assistant) {
+                    if !matches!(message.role, MessageRole::Assistant) {
                         *part = serde_json::json!({
                             "type": "text",
                             "text": "<thinking>[REDACTED]</thinking>"
@@ -154,100 +309,8 @@ pub fn convert_messages(
                 _ => {}
             }
         }
-    }
 
-    fn apply_document_citations(
-        message_custom: &std::collections::HashMap<String, serde_json::Value>,
-        content_json: &mut serde_json::Value,
-    ) {
-        let Some(parts) = content_json.as_array_mut() else {
-            return;
-        };
-
-        let Some(map) = message_custom
-            .get("anthropic_document_citations")
-            .and_then(|v| v.as_object())
-        else {
-            return;
-        };
-
-        for (idx_str, cfg) in map {
-            let Ok(idx) = idx_str.parse::<usize>() else {
-                continue;
-            };
-            let Some(part) = parts.get_mut(idx) else {
-                continue;
-            };
-            let Some(obj) = part.as_object_mut() else {
-                continue;
-            };
-
-            let enabled = if let Some(b) = cfg.as_bool() {
-                b
-            } else {
-                cfg.get("enabled")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-            };
-            if !enabled {
-                continue;
-            }
-
-            if obj
-                .get("type")
-                .and_then(|v| v.as_str())
-                .is_some_and(|t| t == "document")
-            {
-                obj.entry("citations".to_string())
-                    .or_insert_with(|| serde_json::json!({ "enabled": true }));
-            }
-        }
-    }
-
-    fn apply_document_metadata(
-        message_custom: &std::collections::HashMap<String, serde_json::Value>,
-        content_json: &mut serde_json::Value,
-    ) {
-        let Some(parts) = content_json.as_array_mut() else {
-            return;
-        };
-
-        let Some(map) = message_custom
-            .get("anthropic_document_metadata")
-            .and_then(|v| v.as_object())
-        else {
-            return;
-        };
-
-        for (idx_str, meta) in map {
-            let Ok(idx) = idx_str.parse::<usize>() else {
-                continue;
-            };
-            let Some(part) = parts.get_mut(idx) else {
-                continue;
-            };
-            let Some(obj) = part.as_object_mut() else {
-                continue;
-            };
-            if obj.get("type").and_then(|v| v.as_str()) != Some("document") {
-                continue;
-            }
-
-            let Some(meta_obj) = meta.as_object() else {
-                continue;
-            };
-
-            if let Some(title) = meta_obj.get("title").and_then(|v| v.as_str())
-                && !title.is_empty()
-            {
-                obj.insert("title".to_string(), serde_json::json!(title));
-            }
-            if let Some(context) = meta_obj.get("context").and_then(|v| v.as_str())
-                && !context.is_empty()
-            {
-                obj.insert("context".to_string(), serde_json::json!(context));
-            }
-        }
+        parts.retain(|part| !part.is_null());
     }
 
     fn flatten_system_text(content: &MessageContent) -> String {
@@ -271,7 +334,7 @@ pub fn convert_messages(
                         "type": "text",
                         "text": text,
                     });
-                    if let Some(cc) = map_cache_control(&message.metadata) {
+                    if let Some(cc) = map_cache_control(message) {
                         maybe_attach_cache_control(&mut block, &cc, &mut cache_breakpoints);
                     }
                     system_blocks.push(block);
@@ -289,74 +352,8 @@ pub fn convert_messages(
                     })]);
                 }
 
-                normalize_reasoning_blocks(
-                    &message.role,
-                    &message.metadata.custom,
-                    &mut content_json,
-                );
-                apply_document_citations(&message.metadata.custom, &mut content_json);
-                apply_document_metadata(&message.metadata.custom, &mut content_json);
-
-                // Part-level cache control map (preferred).
-                let mut part_cache_controls: std::collections::HashMap<usize, serde_json::Value> =
-                    std::collections::HashMap::new();
-                if let Some(obj) = message
-                    .metadata
-                    .custom
-                    .get("anthropic_content_cache_controls")
-                    .and_then(|v| v.as_object())
-                {
-                    for (k, v) in obj {
-                        if let Ok(idx) = k.parse::<usize>() {
-                            part_cache_controls.insert(idx, v.clone());
-                        }
-                    }
-                }
-
-                // Content-level cache control indices from metadata.custom
-                if let Some(indices) = message
-                    .metadata
-                    .custom
-                    .get("anthropic_content_cache_indices")
-                    .and_then(|v| v.as_array())
-                    && let Some(parts) = content_json.as_array_mut()
-                {
-                    for idx_val in indices {
-                        if let Some(i) = idx_val.as_u64().map(|u| u as usize)
-                            && let Some(part) = parts.get_mut(i)
-                            && part.is_object()
-                        {
-                            part_cache_controls
-                                .entry(i)
-                                .or_insert_with(|| serde_json::json!({"type":"ephemeral"}));
-                        }
-                    }
-                }
-
-                // Apply per-part cache controls in index order (Vercel-aligned behavior).
-                if !part_cache_controls.is_empty()
-                    && let Some(parts) = content_json.as_array_mut()
-                {
-                    let mut idxs: Vec<usize> = part_cache_controls.keys().copied().collect();
-                    idxs.sort_unstable();
-                    for i in idxs {
-                        let Some(part) = parts.get_mut(i) else {
-                            continue;
-                        };
-                        let Some(cc) = part_cache_controls.get(&i) else {
-                            continue;
-                        };
-                        maybe_attach_cache_control(part, cc, &mut cache_breakpoints);
-                    }
-                }
-
-                // Message-level cache control applies to the last content part (if any), unless already set.
-                if let Some(cc) = map_cache_control(&message.metadata)
-                    && let Some(parts) = content_json.as_array_mut()
-                    && let Some(last) = parts.last_mut()
-                {
-                    maybe_attach_cache_control(last, &cc, &mut cache_breakpoints);
-                }
+                normalize_reasoning_blocks(message, &mut content_json);
+                apply_message_cache_controls(message, &mut content_json, &mut cache_breakpoints);
 
                 anthropic_messages.push(AnthropicMessage {
                     role: "user".to_string(),
@@ -376,67 +373,8 @@ pub fn convert_messages(
                     })]);
                 }
 
-                normalize_reasoning_blocks(
-                    &message.role,
-                    &message.metadata.custom,
-                    &mut content_json,
-                );
-                apply_document_citations(&message.metadata.custom, &mut content_json);
-                apply_document_metadata(&message.metadata.custom, &mut content_json);
-
-                // Part-level cache control map (preferred).
-                let mut part_cache_controls: std::collections::HashMap<usize, serde_json::Value> =
-                    std::collections::HashMap::new();
-                if let Some(obj) = message
-                    .metadata
-                    .custom
-                    .get("anthropic_content_cache_controls")
-                    .and_then(|v| v.as_object())
-                {
-                    for (k, v) in obj {
-                        if let Ok(idx) = k.parse::<usize>() {
-                            part_cache_controls.insert(idx, v.clone());
-                        }
-                    }
-                }
-                if let Some(indices) = message
-                    .metadata
-                    .custom
-                    .get("anthropic_content_cache_indices")
-                    .and_then(|v| v.as_array())
-                {
-                    for idx_val in indices {
-                        if let Some(i) = idx_val.as_u64().map(|u| u as usize) {
-                            part_cache_controls
-                                .entry(i)
-                                .or_insert_with(|| serde_json::json!({"type":"ephemeral"}));
-                        }
-                    }
-                }
-
-                if !part_cache_controls.is_empty()
-                    && let Some(parts) = content_json.as_array_mut()
-                {
-                    let mut idxs: Vec<usize> = part_cache_controls.keys().copied().collect();
-                    idxs.sort_unstable();
-                    for i in idxs {
-                        let Some(part) = parts.get_mut(i) else {
-                            continue;
-                        };
-                        let Some(cc) = part_cache_controls.get(&i) else {
-                            continue;
-                        };
-                        maybe_attach_cache_control(part, cc, &mut cache_breakpoints);
-                    }
-                }
-
-                // Message-level cache control applies to the last content part (if any), unless already set.
-                if let Some(cc) = map_cache_control(&message.metadata)
-                    && let Some(parts) = content_json.as_array_mut()
-                    && let Some(last) = parts.last_mut()
-                {
-                    maybe_attach_cache_control(last, &cc, &mut cache_breakpoints);
-                }
+                normalize_reasoning_blocks(message, &mut content_json);
+                apply_message_cache_controls(message, &mut content_json, &mut cache_breakpoints);
 
                 anthropic_messages.push(AnthropicMessage {
                     role: "assistant".to_string(),
@@ -460,7 +398,7 @@ pub fn convert_messages(
                         "type": "text",
                         "text": format!("Developer instructions: {text}"),
                     });
-                    if let Some(cc) = map_cache_control(&message.metadata) {
+                    if let Some(cc) = map_cache_control(message) {
                         maybe_attach_cache_control(&mut block, &cc, &mut cache_breakpoints);
                     }
                     system_blocks.push(block);
@@ -479,64 +417,8 @@ pub fn convert_messages(
                     })]);
                 }
 
-                normalize_reasoning_blocks(
-                    &message.role,
-                    &message.metadata.custom,
-                    &mut content_json,
-                );
-
-                // Apply per-part cache controls (same escape hatch as user/assistant).
-                let mut part_cache_controls: std::collections::HashMap<usize, serde_json::Value> =
-                    std::collections::HashMap::new();
-                if let Some(obj) = message
-                    .metadata
-                    .custom
-                    .get("anthropic_content_cache_controls")
-                    .and_then(|v| v.as_object())
-                {
-                    for (k, v) in obj {
-                        if let Ok(idx) = k.parse::<usize>() {
-                            part_cache_controls.insert(idx, v.clone());
-                        }
-                    }
-                }
-                if let Some(indices) = message
-                    .metadata
-                    .custom
-                    .get("anthropic_content_cache_indices")
-                    .and_then(|v| v.as_array())
-                {
-                    for idx_val in indices {
-                        if let Some(i) = idx_val.as_u64().map(|u| u as usize) {
-                            part_cache_controls
-                                .entry(i)
-                                .or_insert_with(|| serde_json::json!({"type":"ephemeral"}));
-                        }
-                    }
-                }
-                if !part_cache_controls.is_empty()
-                    && let Some(parts) = content_json.as_array_mut()
-                {
-                    let mut idxs: Vec<usize> = part_cache_controls.keys().copied().collect();
-                    idxs.sort_unstable();
-                    for i in idxs {
-                        let Some(part) = parts.get_mut(i) else {
-                            continue;
-                        };
-                        let Some(cc) = part_cache_controls.get(&i) else {
-                            continue;
-                        };
-                        maybe_attach_cache_control(part, cc, &mut cache_breakpoints);
-                    }
-                }
-
-                // Message-level cache control applies to the last content part (if any), unless already set.
-                if let Some(cc) = map_cache_control(&message.metadata)
-                    && let Some(parts) = content_json.as_array_mut()
-                    && let Some(last) = parts.last_mut()
-                {
-                    maybe_attach_cache_control(last, &cc, &mut cache_breakpoints);
-                }
+                normalize_reasoning_blocks(message, &mut content_json);
+                apply_message_cache_controls(message, &mut content_json, &mut cache_breakpoints);
 
                 anthropic_messages.push(AnthropicMessage {
                     role: "user".to_string(),
@@ -626,6 +508,29 @@ mod system_message_tests {
     }
 
     #[test]
+    fn message_provider_options_cache_control_overrides_legacy_metadata_cache_control() {
+        let mut msg = ChatMessage::user("part1")
+            .with_content_parts(vec![crate::types::ContentPart::text("part2")])
+            .build();
+        msg.metadata.cache_control = Some(crate::types::CacheControl::Persistent {
+            ttl: Some(std::time::Duration::from_secs(60)),
+        });
+        msg.provider_options.insert(
+            "anthropic",
+            serde_json::json!({
+                "cacheControl": {
+                    "type": "ephemeral",
+                    "ttl": 1
+                }
+            }),
+        );
+
+        let (msgs, _system) = convert_messages(&[msg]).unwrap();
+        let content = msgs[0].content.as_array().expect("content array");
+        assert_eq!(content[1]["cache_control"]["ttl"], serde_json::json!(1));
+    }
+
+    #[test]
     fn part_cache_control_map_applies_to_selected_part() {
         let msg = ChatMessage::user("part1")
             .with_content_parts(vec![crate::types::ContentPart::text("part2")])
@@ -635,6 +540,28 @@ mod system_message_tests {
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
         let content = msgs[0].content.as_array().expect("content array");
         assert_eq!(content[0]["cache_control"]["type"], "ephemeral");
+        assert!(content[1].get("cache_control").is_none());
+    }
+
+    #[test]
+    fn legacy_message_custom_part_cache_controls_are_ignored() {
+        let mut msg = ChatMessage::user("part1")
+            .with_content_parts(vec![crate::types::ContentPart::text("part2")])
+            .build();
+
+        msg.metadata.custom.insert(
+            "anthropic_content_cache_controls".to_string(),
+            serde_json::json!({
+                "0": {
+                    "type": "ephemeral",
+                    "ttl": 60
+                }
+            }),
+        );
+
+        let (msgs, _system) = convert_messages(&[msg]).unwrap();
+        let content = msgs[0].content.as_array().expect("content array");
+        assert!(content[0].get("cache_control").is_none());
         assert!(content[1].get("cache_control").is_none());
     }
 
@@ -671,23 +598,21 @@ mod system_message_tests {
     }
 
     #[test]
-    fn assistant_reasoning_without_signature_degrades_to_text_wrapper() {
+    fn assistant_reasoning_without_replay_metadata_is_omitted() {
         let msg = ChatMessage::assistant_with_content(vec![ContentPart::reasoning("hi")]).build();
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
         let parts = msgs[0].content.as_array().expect("content array");
 
-        assert_eq!(parts[0]["type"], "text");
-        assert_eq!(parts[0]["text"], "<thinking>hi</thinking>");
+        assert!(parts.is_empty());
     }
 
     #[test]
     fn assistant_reasoning_with_signature_emits_thinking_block() {
-        let mut msg =
-            ChatMessage::assistant_with_content(vec![ContentPart::reasoning("hi")]).build();
-        msg.metadata.custom.insert(
-            "anthropic_thinking_signature".to_string(),
-            serde_json::json!("sig"),
-        );
+        let msg = ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("hi")
+                .with_provider_option("anthropic", serde_json::json!({ "signature": "sig" })),
+        ])
+        .build();
 
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
         let parts = msgs[0].content.as_array().expect("content array");
@@ -699,18 +624,31 @@ mod system_message_tests {
     }
 
     #[test]
+    fn assistant_reasoning_with_redacted_data_emits_redacted_thinking_block() {
+        let msg = ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("")
+                .with_provider_option("anthropic", serde_json::json!({ "redactedData": "abc123" })),
+        ])
+        .build();
+
+        let (msgs, _system) = convert_messages(&[msg]).unwrap();
+        let parts = msgs[0].content.as_array().expect("content array");
+
+        assert_eq!(parts[0]["type"], "redacted_thinking");
+        assert_eq!(parts[0]["data"], "abc123");
+        assert!(parts[0].get("cache_control").is_none());
+    }
+
+    #[test]
     fn cache_control_is_not_attached_to_thinking_blocks() {
-        let mut msg = ChatMessage::assistant_with_content(vec![
-            ContentPart::reasoning("hi"),
+        let msg = ChatMessage::assistant_with_content(vec![
+            ContentPart::reasoning("hi")
+                .with_provider_option("anthropic", serde_json::json!({ "signature": "sig" })),
             ContentPart::text("ok"),
         ])
         .cache_control(crate::types::CacheControl::Ephemeral)
         .cache_control_for_part(0, crate::types::CacheControl::Ephemeral)
         .build();
-        msg.metadata.custom.insert(
-            "anthropic_thinking_signature".to_string(),
-            serde_json::json!("sig"),
-        );
 
         let (msgs, _system) = convert_messages(&[msg]).unwrap();
         let parts = msgs[0].content.as_array().expect("content array");
@@ -764,5 +702,49 @@ mod document_citations_tests {
             doc.get("context").and_then(|v| v.as_str()),
             Some("This is background context.")
         );
+    }
+
+    #[test]
+    fn legacy_message_custom_document_settings_are_ignored() {
+        let part = ContentPart::File {
+            source: crate::types::chat::MediaSource::url("https://example.com/a.txt"),
+            media_type: "text/plain".to_string(),
+            filename: Some("fallback.txt".to_string()),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: None,
+        };
+
+        let mut msg = ChatMessage::user("hi")
+            .with_content_parts(vec![part])
+            .build();
+        msg.metadata.custom.insert(
+            "anthropic_document_citations".to_string(),
+            serde_json::json!({
+                "1": { "enabled": true }
+            }),
+        );
+        msg.metadata.custom.insert(
+            "anthropic_document_metadata".to_string(),
+            serde_json::json!({
+                "1": {
+                    "title": "Legacy Title",
+                    "context": "Legacy Context"
+                }
+            }),
+        );
+
+        let (msgs, sys) = convert_messages(&[msg]).expect("convert messages");
+        assert!(sys.is_none());
+        assert_eq!(msgs.len(), 1);
+
+        let arr = msgs[0].content.as_array().expect("content array");
+        let doc = arr.get(1).and_then(|v| v.as_object()).expect("document");
+        assert_eq!(doc.get("type").and_then(|v| v.as_str()), Some("document"));
+        assert!(doc.get("citations").is_none());
+        assert_eq!(
+            doc.get("title").and_then(|v| v.as_str()),
+            Some("fallback.txt")
+        );
+        assert!(doc.get("context").is_none());
     }
 }

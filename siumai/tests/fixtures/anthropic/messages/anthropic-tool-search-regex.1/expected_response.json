@@ -13,7 +13,9 @@
         "providerExecuted": true,
         "providerMetadata": {
           "anthropic": {
-            "caller": { "type": "direct" },
+            "caller": {
+              "type": "direct"
+            },
             "serverToolName": "tool_search_tool_regex"
           }
         }
@@ -24,7 +26,12 @@
         "toolName": "tool_search",
         "output": {
           "type": "json",
-          "value": [{ "type": "tool_reference", "toolName": "get_temp_data" }]
+          "value": [
+            {
+              "type": "tool_reference",
+              "toolName": "get_temp_data"
+            }
+          ]
         },
         "providerExecuted": true
       },
@@ -36,8 +43,17 @@
         "type": "tool-call",
         "toolCallId": "toolu_01X4r989CAhzqnFqDJn1gVvp",
         "toolName": "get_temp_data",
-        "input": { "location": "San Francisco, CA", "unit": "fahrenheit" },
-        "providerMetadata": { "anthropic": { "caller": { "type": "direct" } } }
+        "input": {
+          "location": "San Francisco, CA",
+          "unit": "fahrenheit"
+        },
+        "providerMetadata": {
+          "anthropic": {
+            "caller": {
+              "type": "direct"
+            }
+          }
+        }
       }
     ]
   },
@@ -47,7 +63,29 @@
     "completion_tokens": 184,
     "total_tokens": 1860,
     "cached_tokens": 0,
-    "prompt_tokens_details": { "cached_tokens": 0 }
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "inputTokens": {
+      "total": 1676,
+      "noCache": 1676,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "outputTokens": {
+      "total": 184,
+      "text": 184
+    },
+    "raw": {
+      "input_tokens": 1676,
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "output_tokens": 184,
+      "service_tier": "standard",
+      "server_tool_use": {
+        "web_search_requests": 0
+      }
+    }
   },
   "finish_reason": "tool_calls",
   "service_tier": "standard",

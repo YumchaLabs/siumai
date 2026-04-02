@@ -205,7 +205,7 @@ From the official streaming doc (`/en/api/messages-streaming`):
     - `text_delta` -> `content_delta` (and an `anthropic:text-delta` custom event when the block is a text block)
     - `input_json_delta` -> `tool_call_delta` (streaming tool input JSON)
     - `thinking_delta` -> `thinking_delta`
-    - `signature_delta` -> captured and emitted as `anthropic:thinking-signature-delta` (also surfaced in stream-end metadata)
+    - `signature_delta` -> captured as a stable `reasoning-delta` part with `providerMetadata.anthropic.signature` (also surfaced in stream-end metadata)
 - Fixtures/tests:
   - `siumai/tests/fixtures/anthropic/messages-stream/*`
   - `siumai/tests/anthropic_messages_stream_fixtures_alignment_test.rs`

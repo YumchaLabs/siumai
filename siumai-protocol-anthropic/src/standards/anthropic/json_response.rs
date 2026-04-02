@@ -6,9 +6,11 @@ use crate::encoding::{JsonEncodeOptions, JsonResponseConverter};
 use crate::error::LlmError;
 use crate::provider_metadata::anthropic::AnthropicContentPartExt;
 use crate::standards::anthropic::server_tools;
+use crate::standards::anthropic::utils::{
+    raw_container_from_provider_metadata, raw_context_management_from_provider_metadata,
+};
 use crate::types::{
-    ChatResponse, ContentPart, FinishReason, MediaSource, ToolResultContentPart, ToolResultOutput,
-    Usage,
+    ChatResponse, ContentPart, FinishReason, ToolResultContentPart, ToolResultOutput, Usage,
 };
 use serde::Serialize;
 use std::collections::HashMap;
@@ -39,20 +41,18 @@ fn usage_json(
     service_tier: Option<&str>,
     raw_usage: Option<&serde_json::Value>,
 ) -> serde_json::Value {
-    let fallback = match u {
-        Some(u) => AnthropicUsage {
-            input_tokens: u.prompt_tokens,
-            output_tokens: u.completion_tokens,
-            service_tier: service_tier.map(ToOwned::to_owned),
-        },
-        None => AnthropicUsage {
-            input_tokens: 0,
-            output_tokens: 0,
-            service_tier: service_tier.map(ToOwned::to_owned),
-        },
+    let normalized_input = u.map(Usage::normalized_input_tokens).unwrap_or_default();
+    let normalized_output = u.map(Usage::normalized_output_tokens).unwrap_or_default();
+    let fallback = AnthropicUsage {
+        input_tokens: normalized_input.no_cache.unwrap_or(0),
+        output_tokens: normalized_output.total.unwrap_or(0),
+        service_tier: service_tier.map(ToOwned::to_owned),
     };
 
-    let mut usage = raw_usage
+    let raw_usage_value = raw_usage
+        .cloned()
+        .or_else(|| u.and_then(Usage::raw_usage_value));
+    let mut usage = raw_usage_value
         .and_then(|value| value.as_object().cloned())
         .unwrap_or_default();
     usage.insert(
@@ -63,6 +63,18 @@ fn usage_json(
         "output_tokens".to_string(),
         serde_json::json!(fallback.output_tokens),
     );
+    if let Some(cache_read_input_tokens) = normalized_input.cache_read {
+        usage.insert(
+            "cache_read_input_tokens".to_string(),
+            serde_json::json!(cache_read_input_tokens),
+        );
+    }
+    if let Some(cache_creation_input_tokens) = normalized_input.cache_write {
+        usage.insert(
+            "cache_creation_input_tokens".to_string(),
+            serde_json::json!(cache_creation_input_tokens),
+        );
+    }
 
     match fallback.service_tier {
         Some(service_tier) => {
@@ -154,7 +166,7 @@ fn tool_use_block(
     block
 }
 
-fn provider_tool_use_block(
+pub(crate) fn provider_tool_use_block(
     tool_call_id: &str,
     tool_name: &str,
     input: &serde_json::Value,
@@ -194,51 +206,69 @@ fn provider_tool_use_block(
 
 fn tool_result_content_value(output: &ToolResultOutput) -> (serde_json::Value, bool) {
     match output {
-        ToolResultOutput::Text { value } => (serde_json::json!(value), false),
-        ToolResultOutput::Json { value } => (value.clone(), false),
-        ToolResultOutput::ErrorText { value } => (serde_json::json!(value), true),
-        ToolResultOutput::ErrorJson { value } => (value.clone(), true),
-        ToolResultOutput::ExecutionDenied { reason } => {
+        ToolResultOutput::Text { value, .. } => (serde_json::json!(value), false),
+        ToolResultOutput::Json { value, .. } => (value.clone(), false),
+        ToolResultOutput::ErrorText { value, .. } => (serde_json::json!(value), true),
+        ToolResultOutput::ErrorJson { value, .. } => (value.clone(), true),
+        ToolResultOutput::ExecutionDenied { reason, .. } => {
             let msg = reason
                 .as_ref()
                 .map(|r| format!("Execution denied: {r}"))
                 .unwrap_or_else(|| "Execution denied".to_string());
             (serde_json::json!(msg), true)
         }
-        ToolResultOutput::Content { value } => {
+        ToolResultOutput::Content { value, .. } => {
             let content = value
                 .iter()
                 .map(|part| match part {
-                    ToolResultContentPart::Text { text } => {
+                    ToolResultContentPart::Text { text, .. } => {
                         serde_json::json!({"type": "text", "text": text})
                     }
-                    ToolResultContentPart::Image { source, .. } => match source {
-                        MediaSource::Url { url } => serde_json::json!({
+                    ToolResultContentPart::ImageData {
+                        data, media_type, ..
+                    } => serde_json::json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        }
+                    }),
+                    ToolResultContentPart::ImageUrl { url, .. } => serde_json::json!({
+                        "type": "text",
+                        "text": format!("[Image: {url}]"),
+                    }),
+                    ToolResultContentPart::ImageFileId { .. } => {
+                        serde_json::json!({"type": "text", "text": "[Image file id attachment]"})
+                    }
+                    ToolResultContentPart::FileData {
+                        data, media_type, ..
+                    } if media_type == "application/pdf" => serde_json::json!({
+                        "type": "document",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        }
+                    }),
+                    ToolResultContentPart::FileData { media_type, .. } => {
+                        serde_json::json!({
                             "type": "text",
-                            "text": format!("[Image: {url}]"),
-                        }),
-                        MediaSource::Base64 { data } => serde_json::json!({
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": data,
-                            }
-                        }),
-                        MediaSource::Binary { data } => serde_json::json!({
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "image/jpeg",
-                                "data": base64::Engine::encode(
-                                    &base64::engine::general_purpose::STANDARD,
-                                    data
-                                ),
-                            }
-                        }),
-                    },
-                    ToolResultContentPart::File { .. } => {
-                        serde_json::json!({"type": "text", "text": "[File attachment]"})
+                            "text": format!("[Unsupported file attachment: {media_type}]")
+                        })
+                    }
+                    ToolResultContentPart::FileUrl { url, .. } => serde_json::json!({
+                        "type": "document",
+                        "source": {
+                            "type": "url",
+                            "url": url,
+                        }
+                    }),
+                    ToolResultContentPart::FileId { .. } => {
+                        serde_json::json!({"type": "text", "text": "[File id attachment]"})
+                    }
+                    ToolResultContentPart::Custom { .. } => {
+                        serde_json::json!({"type": "text", "text": "[Custom tool content]"})
                     }
                 })
                 .collect::<Vec<_>>();
@@ -249,7 +279,7 @@ fn tool_result_content_value(output: &ToolResultOutput) -> (serde_json::Value, b
 
 fn anthropic_web_search_result_content(output: &ToolResultOutput) -> serde_json::Value {
     match output {
-        ToolResultOutput::Json { value } => {
+        ToolResultOutput::Json { value, .. } => {
             if let Some(arr) = value.as_array() {
                 let results = arr
                     .iter()
@@ -318,7 +348,7 @@ fn anthropic_web_search_result_content(output: &ToolResultOutput) -> serde_json:
                 value.clone()
             }
         }
-        ToolResultOutput::ErrorJson { value } => serde_json::json!({
+        ToolResultOutput::ErrorJson { value, .. } => serde_json::json!({
             "type": "web_search_tool_result_error",
             "error_code": value
                 .get("errorCode")
@@ -326,11 +356,11 @@ fn anthropic_web_search_result_content(output: &ToolResultOutput) -> serde_json:
                 .cloned()
                 .unwrap_or_else(|| value.clone()),
         }),
-        ToolResultOutput::ErrorText { value } => serde_json::json!({
+        ToolResultOutput::ErrorText { value, .. } => serde_json::json!({
             "type": "web_search_tool_result_error",
             "error_code": value,
         }),
-        ToolResultOutput::ExecutionDenied { reason } => serde_json::json!({
+        ToolResultOutput::ExecutionDenied { reason, .. } => serde_json::json!({
             "type": "web_search_tool_result_error",
             "error_code": reason.clone().unwrap_or_else(|| "execution_denied".to_string()),
         }),
@@ -343,7 +373,7 @@ fn anthropic_web_search_result_content(output: &ToolResultOutput) -> serde_json:
 
 fn anthropic_tool_search_result_content(output: &ToolResultOutput) -> serde_json::Value {
     match output {
-        ToolResultOutput::Json { value } => {
+        ToolResultOutput::Json { value, .. } => {
             if let Some(arr) = value.as_array() {
                 let tool_references = arr
                     .iter()
@@ -382,7 +412,7 @@ fn anthropic_tool_search_result_content(output: &ToolResultOutput) -> serde_json
                 value.clone()
             }
         }
-        ToolResultOutput::ErrorJson { value } => serde_json::json!({
+        ToolResultOutput::ErrorJson { value, .. } => serde_json::json!({
             "type": "tool_search_tool_result_error",
             "error_code": value
                 .get("errorCode")
@@ -390,11 +420,11 @@ fn anthropic_tool_search_result_content(output: &ToolResultOutput) -> serde_json
                 .cloned()
                 .unwrap_or_else(|| value.clone()),
         }),
-        ToolResultOutput::ErrorText { value } => serde_json::json!({
+        ToolResultOutput::ErrorText { value, .. } => serde_json::json!({
             "type": "tool_search_tool_result_error",
             "error_code": value,
         }),
-        ToolResultOutput::ExecutionDenied { reason } => serde_json::json!({
+        ToolResultOutput::ExecutionDenied { reason, .. } => serde_json::json!({
             "type": "tool_search_tool_result_error",
             "error_code": reason.clone().unwrap_or_else(|| "execution_denied".to_string()),
         }),
@@ -407,7 +437,7 @@ fn anthropic_tool_search_result_content(output: &ToolResultOutput) -> serde_json
 
 fn anthropic_web_fetch_result_content(output: &ToolResultOutput) -> serde_json::Value {
     match output {
-        ToolResultOutput::Json { value } => {
+        ToolResultOutput::Json { value, .. } => {
             if let Some(obj) = value.as_object() {
                 let tpe = obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 if tpe == "web_fetch_result" {
@@ -493,7 +523,7 @@ fn anthropic_web_fetch_result_content(output: &ToolResultOutput) -> serde_json::
                 value.clone()
             }
         }
-        ToolResultOutput::ErrorJson { value } => serde_json::json!({
+        ToolResultOutput::ErrorJson { value, .. } => serde_json::json!({
             "type": "web_fetch_tool_result_error",
             "error_code": value
                 .get("errorCode")
@@ -501,11 +531,11 @@ fn anthropic_web_fetch_result_content(output: &ToolResultOutput) -> serde_json::
                 .cloned()
                 .unwrap_or_else(|| value.clone()),
         }),
-        ToolResultOutput::ErrorText { value } => serde_json::json!({
+        ToolResultOutput::ErrorText { value, .. } => serde_json::json!({
             "type": "web_fetch_tool_result_error",
             "error_code": value,
         }),
-        ToolResultOutput::ExecutionDenied { reason } => serde_json::json!({
+        ToolResultOutput::ExecutionDenied { reason, .. } => serde_json::json!({
             "type": "web_fetch_tool_result_error",
             "error_code": reason.clone().unwrap_or_else(|| "execution_denied".to_string()),
         }),
@@ -516,7 +546,7 @@ fn anthropic_web_fetch_result_content(output: &ToolResultOutput) -> serde_json::
     }
 }
 
-fn provider_tool_result_block(
+pub(crate) fn provider_tool_result_block(
     tool_call_id: &str,
     tool_name: &str,
     output: &ToolResultOutput,
@@ -556,95 +586,6 @@ fn provider_tool_result_block(
     }
 }
 
-fn raw_container_from_provider_metadata(value: &serde_json::Value) -> Option<serde_json::Value> {
-    let obj = value.as_object()?;
-    let mut out = serde_json::Map::new();
-
-    if let Some(id) = obj.get("id") {
-        out.insert("id".to_string(), id.clone());
-    }
-    if let Some(expires_at) = obj.get("expiresAt") {
-        out.insert("expires_at".to_string(), expires_at.clone());
-    }
-    if let Some(skills) = obj.get("skills").and_then(|value| value.as_array()) {
-        let mut out_skills = Vec::with_capacity(skills.len());
-        for item in skills {
-            let Some(skill) = item.as_object() else {
-                out_skills.push(item.clone());
-                continue;
-            };
-
-            let mut out_skill = serde_json::Map::new();
-            if let Some(skill_type) = skill.get("type") {
-                out_skill.insert("type".to_string(), skill_type.clone());
-            }
-            if let Some(skill_id) = skill.get("skillId") {
-                out_skill.insert("skill_id".to_string(), skill_id.clone());
-            }
-            if let Some(version) = skill.get("version") {
-                out_skill.insert("version".to_string(), version.clone());
-            }
-            out_skills.push(serde_json::Value::Object(out_skill));
-        }
-        out.insert("skills".to_string(), serde_json::Value::Array(out_skills));
-    }
-
-    Some(serde_json::Value::Object(out))
-}
-
-fn raw_context_management_from_provider_metadata(
-    value: &serde_json::Value,
-) -> Option<serde_json::Value> {
-    let obj = value.as_object()?;
-    let edits = obj.get("appliedEdits")?.as_array()?;
-    let mut out_edits = Vec::with_capacity(edits.len());
-
-    for edit in edits {
-        let Some(edit_obj) = edit.as_object() else {
-            continue;
-        };
-        let Some(edit_type) = edit_obj.get("type").and_then(|value| value.as_str()) else {
-            continue;
-        };
-
-        match edit_type {
-            "clear_tool_uses_20250919" => {
-                let mut out = serde_json::Map::new();
-                out.insert(
-                    "type".to_string(),
-                    serde_json::Value::String(edit_type.to_string()),
-                );
-                if let Some(value) = edit_obj.get("clearedToolUses") {
-                    out.insert("cleared_tool_uses".to_string(), value.clone());
-                }
-                if let Some(value) = edit_obj.get("clearedInputTokens") {
-                    out.insert("cleared_input_tokens".to_string(), value.clone());
-                }
-                out_edits.push(serde_json::Value::Object(out));
-            }
-            "clear_thinking_20251015" => {
-                let mut out = serde_json::Map::new();
-                out.insert(
-                    "type".to_string(),
-                    serde_json::Value::String(edit_type.to_string()),
-                );
-                if let Some(value) = edit_obj.get("clearedThinkingTurns") {
-                    out.insert("cleared_thinking_turns".to_string(), value.clone());
-                }
-                if let Some(value) = edit_obj.get("clearedInputTokens") {
-                    out.insert("cleared_input_tokens".to_string(), value.clone());
-                }
-                out_edits.push(serde_json::Value::Object(out));
-            }
-            _ => {}
-        }
-    }
-
-    Some(serde_json::json!({
-        "applied_edits": out_edits
-    }))
-}
-
 #[derive(Debug, Clone)]
 pub struct AnthropicMessagesJsonResponseConverter;
 
@@ -675,14 +616,6 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
             .provider_metadata
             .as_ref()
             .and_then(|metadata| metadata.get("anthropic"));
-        let thinking_signature = raw_anthropic_meta
-            .and_then(|meta| meta.get("thinking_signature"))
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned);
-        let redacted_thinking_data = raw_anthropic_meta
-            .and_then(|meta| meta.get("redacted_thinking_data"))
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned);
         let stop_sequence = raw_anthropic_meta
             .and_then(|meta| meta.get("stopSequence"))
             .and_then(|value| value.as_str())
@@ -731,7 +664,6 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                 }
             }
             crate::types::MessageContent::MultiModal(parts) => {
-                let mut signature = thinking_signature.clone();
                 let mut raw_server_tool_names_by_id: HashMap<String, String> = HashMap::new();
 
                 for part in parts {
@@ -744,7 +676,17 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                             ));
                         }
                         ContentPart::Reasoning { text, .. } => {
-                            content.push(thinking_block(text.clone(), signature.take()));
+                            let reasoning_meta = part.anthropic_reasoning_metadata();
+                            let redacted_data = reasoning_meta
+                                .as_ref()
+                                .and_then(|metadata| metadata.redacted_data.clone());
+                            let signature = reasoning_meta.and_then(|metadata| metadata.signature);
+
+                            if let Some(redacted_data) = redacted_data {
+                                content.push(redacted_thinking_block(redacted_data));
+                            } else if !text.is_empty() || signature.is_some() {
+                                content.push(thinking_block(text.clone(), signature));
+                            }
                         }
                         ContentPart::ToolCall {
                             tool_call_id,
@@ -814,17 +756,6 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                     }
                 }
             }
-            #[cfg(feature = "structured-messages")]
-            crate::types::MessageContent::Json(value) => {
-                content.push(text_block(
-                    serde_json::to_string(value).unwrap_or_default(),
-                    projected_citations_fallback.take(),
-                ));
-            }
-        }
-
-        if let Some(data) = redacted_thinking_data {
-            content.push(redacted_thinking_block(data));
         }
 
         let body = AnthropicMessageResponse {
@@ -873,6 +804,7 @@ mod tests {
             tool_name: "weather".to_string(),
             arguments: serde_json::json!({ "city": "Tokyo" }),
             provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({
@@ -886,8 +818,27 @@ mod tests {
 
         let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
             ContentPart::text("Visible answer"),
-            ContentPart::reasoning("Need to verify assumptions."),
+            ContentPart::Reasoning {
+                text: "Need to verify assumptions.".to_string(),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "signature": "sig_1"
+                    }),
+                )])),
+            },
             tool_call,
+            ContentPart::Reasoning {
+                text: String::new(),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "redactedData": "redacted_123"
+                    }),
+                )])),
+            },
         ]));
         response.id = Some("msg_1".to_string());
         response.model = Some("claude-sonnet-4-5".to_string());
@@ -895,14 +846,7 @@ mod tests {
         response.service_tier = Some("priority".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "anthropic".to_string(),
-            HashMap::from([
-                ("thinking_signature".to_string(), serde_json::json!("sig_1")),
-                (
-                    "redacted_thinking_data".to_string(),
-                    serde_json::json!("redacted_123"),
-                ),
-                ("stopSequence".to_string(), serde_json::json!("</tool>")),
-            ]),
+            HashMap::from([("stopSequence".to_string(), serde_json::json!("</tool>"))]),
         )]));
 
         let mut out = Vec::new();
@@ -942,6 +886,7 @@ mod tests {
                 tool_name: "web_search".to_string(),
                 arguments: serde_json::json!({ "query": "rust bridge" }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
             ContentPart::ToolResult {
@@ -951,6 +896,7 @@ mod tests {
                     { "type": "web_search_result", "url": "https://www.rust-lang.org" }
                 ])),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
             ContentPart::ToolCall {
@@ -958,6 +904,7 @@ mod tests {
                 tool_name: "echo".to_string(),
                 arguments: serde_json::json!({ "message": "hello" }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
                     serde_json::json!({
@@ -970,8 +917,10 @@ mod tests {
                 tool_name: "echo".to_string(),
                 output: ToolResultOutput::content(vec![ToolResultContentPart::Text {
                     text: "Tool echo: hello".to_string(),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
                 }]),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1014,6 +963,7 @@ mod tests {
                 tool_name: "tool_search".to_string(),
                 arguments: serde_json::json!({ "pattern": "weather", "limit": 2 }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
                     serde_json::json!({
@@ -1029,6 +979,7 @@ mod tests {
                     { "type": "tool_reference", "toolName": "get_weather" }
                 ])),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1065,6 +1016,7 @@ mod tests {
                 tool_name: "web_search".to_string(),
                 arguments: serde_json::json!({ "query": "latest tech news" }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
             ContentPart::ToolResult {
@@ -1080,6 +1032,7 @@ mod tests {
                     }
                 ])),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1116,6 +1069,7 @@ mod tests {
                     "type": "text_editor_code_execution"
                 }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
                     serde_json::json!({
@@ -1131,6 +1085,7 @@ mod tests {
                     "is_file_update": false
                 })),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
             ContentPart::ToolCall {
@@ -1140,6 +1095,7 @@ mod tests {
                     "type": "bash_code_execution"
                 }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
                     serde_json::json!({
@@ -1157,6 +1113,7 @@ mod tests {
                     "return_code": 0
                 })),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1193,6 +1150,7 @@ mod tests {
                 tool_name: "web_fetch".to_string(),
                 arguments: serde_json::json!({ "url": "https://example.com" }),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
             ContentPart::ToolResult {
@@ -1213,6 +1171,7 @@ mod tests {
                     }
                 })),
                 provider_executed: Some(true),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
         ]));
@@ -1242,17 +1201,13 @@ mod tests {
         let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
             ContentPart::text("grounded answer"),
         ]));
-        response.usage = Some(Usage {
-            prompt_tokens: 7,
-            completion_tokens: 3,
-            total_tokens: 10,
-            #[allow(deprecated)]
-            reasoning_tokens: None,
-            #[allow(deprecated)]
-            cached_tokens: None,
-            prompt_tokens_details: None,
-            completion_tokens_details: None,
-        });
+        response.usage = Some(
+            Usage::builder()
+                .prompt_tokens(7)
+                .completion_tokens(3)
+                .total_tokens(10)
+                .build(),
+        );
         response.service_tier = Some("standard".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "anthropic".to_string(),
@@ -1319,6 +1274,7 @@ mod tests {
             ContentPart::text("Intro"),
             ContentPart::Text {
                 text: "Grounded fact".to_string(),
+                provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
                     serde_json::json!({
@@ -1433,5 +1389,41 @@ mod tests {
             value["context_management"]["applied_edits"][0]["cleared_input_tokens"],
             serde_json::json!(1000)
         );
+    }
+
+    #[test]
+    fn anthropic_encoder_serializes_normalized_usage_breakdown_without_raw_usage() {
+        let mut response =
+            ChatResponse::new(crate::types::MessageContent::Text("hello".to_string()));
+        response.usage = Some(
+            Usage::builder()
+                .prompt_tokens(12)
+                .completion_tokens(7)
+                .total_tokens(19)
+                .with_input_total_tokens(12)
+                .with_input_no_cache_tokens(5)
+                .with_input_cache_read_tokens(4)
+                .with_input_cache_write_tokens(3)
+                .with_output_total_tokens(7)
+                .with_output_text_tokens(7)
+                .build(),
+        );
+
+        let mut out = Vec::new();
+        AnthropicMessagesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(value["usage"]["input_tokens"], serde_json::json!(5));
+        assert_eq!(
+            value["usage"]["cache_read_input_tokens"],
+            serde_json::json!(4)
+        );
+        assert_eq!(
+            value["usage"]["cache_creation_input_tokens"],
+            serde_json::json!(3)
+        );
+        assert_eq!(value["usage"]["output_tokens"], serde_json::json!(7));
     }
 }

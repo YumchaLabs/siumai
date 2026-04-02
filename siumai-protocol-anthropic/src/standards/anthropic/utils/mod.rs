@@ -28,11 +28,12 @@ pub use headers::build_headers;
 pub use messages::convert_messages;
 pub use models::get_default_models;
 pub use parse::{
-    create_usage_from_response, extract_thinking_content, parse_response_content,
-    parse_response_content_and_tools,
+    create_usage_from_json_value, create_usage_from_response, extract_thinking_content,
+    parse_response_content, parse_response_content_and_tools,
 };
 pub use provider_metadata::{
     map_container_provider_metadata, map_context_management_provider_metadata,
+    raw_container_from_provider_metadata, raw_context_management_from_provider_metadata,
 };
 pub use tool_choice::convert_tool_choice;
 pub use tools::convert_tools_to_anthropic_format;

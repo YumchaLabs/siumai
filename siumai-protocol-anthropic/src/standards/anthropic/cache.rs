@@ -244,18 +244,39 @@ impl CacheAwareMessageBuilder {
                                 "text": placeholder
                             }));
                         }
-                        ContentPart::Source {
-                            source_type: _,
-                            url,
-                            title,
-                            ..
-                        } => {
+                        ContentPart::Source { source, .. } => {
                             // Anthropic does not support `source` parts in request input.
                             // Convert them into a best-effort text placeholder to preserve context.
-                            let text = if !title.is_empty() && title != url {
-                                format!("[Source: {title} ({url})]")
-                            } else {
-                                format!("[Source: {url}]")
+                            let text = match source {
+                                crate::types::SourcePart::Url { url, title } => {
+                                    let title = title.as_deref().filter(|s| !s.is_empty());
+                                    if let Some(title) = title
+                                        && title != url
+                                    {
+                                        format!("[Source: {title} ({url})]")
+                                    } else {
+                                        format!("[Source: {url}]")
+                                    }
+                                }
+                                crate::types::SourcePart::Document {
+                                    media_type,
+                                    title,
+                                    filename,
+                                } => {
+                                    let title = title.as_str();
+                                    let filename = filename.as_deref().filter(|s| !s.is_empty());
+                                    let media_type =
+                                        Some(media_type.as_str()).filter(|s| !s.is_empty());
+                                    match (filename, media_type) {
+                                        (Some(filename), _) => {
+                                            format!("[Source document: {title} ({filename})]")
+                                        }
+                                        (None, Some(media_type)) => {
+                                            format!("[Source document: {title} [{media_type}]]")
+                                        }
+                                        _ => format!("[Source document: {title}]"),
+                                    }
+                                }
                             };
                             content_parts.push(serde_json::json!({
                                 "type": "text",
@@ -304,6 +325,18 @@ impl CacheAwareMessageBuilder {
                             content_parts.push(serde_json::json!({
                                 "type": "text",
                                 "text": format!("<thinking>{}</thinking>", text)
+                            }));
+                        }
+                        ContentPart::ReasoningFile { media_type, .. } => {
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": format!("[Reasoning file: {}]", media_type)
+                            }));
+                        }
+                        ContentPart::Custom { kind, .. } => {
+                            content_parts.push(serde_json::json!({
+                                "type": "text",
+                                "text": format!("[Custom content: {}]", kind)
                             }));
                         }
                     }

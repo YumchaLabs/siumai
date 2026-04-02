@@ -78,8 +78,15 @@ pub struct AnthropicSource {
 /// Anthropic-specific metadata from chat responses.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AnthropicMetadata {
-    /// Number of input tokens used to create the cache entry
+    /// Raw Anthropic usage object.
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<serde_json::Value>,
+
+    /// Number of input tokens used to create the cache entry
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        alias = "cacheCreationInputTokens"
+    )]
     pub cache_creation_input_tokens: Option<u32>,
 
     /// Number of input tokens read from the cache
@@ -200,11 +207,80 @@ pub struct AnthropicTextContentPartMetadata {
     pub citations: Option<Vec<AnthropicCitation>>,
 }
 
+/// Anthropic-specific metadata attached to `ContentPart::Reasoning`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnthropicReasoningContentPartMetadata {
+    /// Thinking signature required to replay Anthropic `thinking` blocks.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+
+    /// Redacted thinking payload required to replay Anthropic `redacted_thinking` blocks.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "redactedData",
+        alias = "redacted_data"
+    )]
+    pub redacted_data: Option<String>,
+}
+
+fn anthropic_reasoning_content_part_metadata(
+    part: &crate::types::ContentPart,
+) -> Option<AnthropicReasoningContentPartMetadata> {
+    use crate::types::ContentPart;
+
+    let ContentPart::Reasoning {
+        provider_metadata: Some(metadata),
+        ..
+    } = part
+    else {
+        return None;
+    };
+
+    let meta = metadata.get("anthropic")?;
+    serde_json::from_value(meta.clone()).ok()
+}
+
 impl crate::types::provider_metadata::FromMetadata for AnthropicMetadata {
     fn from_metadata(
         metadata: &std::collections::HashMap<String, serde_json::Value>,
     ) -> Option<Self> {
-        serde_json::from_value(serde_json::to_value(metadata).ok()?).ok()
+        let mut parsed: AnthropicMetadata =
+            serde_json::from_value(serde_json::to_value(metadata).ok()?).ok()?;
+
+        if parsed.usage.is_none() {
+            parsed.usage = metadata.get("usage").cloned();
+        }
+
+        let usage_obj = parsed.usage.as_ref().and_then(|usage| usage.as_object());
+
+        if parsed.cache_creation_input_tokens.is_none() {
+            parsed.cache_creation_input_tokens = usage_obj
+                .and_then(|usage| usage.get("cache_creation_input_tokens"))
+                .and_then(|value| value.as_u64())
+                .and_then(|value| u32::try_from(value).ok());
+        }
+
+        if parsed.cache_read_input_tokens.is_none() {
+            parsed.cache_read_input_tokens = usage_obj
+                .and_then(|usage| usage.get("cache_read_input_tokens"))
+                .and_then(|value| value.as_u64())
+                .and_then(|value| u32::try_from(value).ok());
+        }
+
+        if parsed.service_tier.is_none() {
+            parsed.service_tier = usage_obj
+                .and_then(|usage| usage.get("service_tier"))
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned);
+        }
+
+        if parsed.server_tool_use.is_none() {
+            parsed.server_tool_use = usage_obj
+                .and_then(|usage| usage.get("server_tool_use"))
+                .and_then(|value| serde_json::from_value(value.clone()).ok());
+        }
+
+        Some(parsed)
     }
 }
 
@@ -224,8 +300,50 @@ pub trait AnthropicChatResponseExt {
 impl AnthropicChatResponseExt for crate::types::ChatResponse {
     fn anthropic_metadata(&self) -> Option<AnthropicMetadata> {
         use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("anthropic")?;
-        AnthropicMetadata::from_metadata(meta)
+
+        let has_top_level = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("anthropic"))
+            .is_some();
+        let mut parsed = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("anthropic"))
+            .and_then(AnthropicMetadata::from_metadata)
+            .unwrap_or_default();
+
+        if let crate::types::MessageContent::MultiModal(parts) = &self.content {
+            for part in parts {
+                if parsed.thinking.is_none()
+                    && let crate::types::ContentPart::Reasoning { text, .. } = part
+                    && !text.is_empty()
+                {
+                    parsed.thinking = Some(text.clone());
+                }
+
+                let Some(reasoning) = anthropic_reasoning_content_part_metadata(part) else {
+                    continue;
+                };
+
+                if parsed.thinking_signature.is_none() {
+                    parsed.thinking_signature = reasoning.signature;
+                }
+                if parsed.redacted_thinking_data.is_none() {
+                    parsed.redacted_thinking_data = reasoning.redacted_data;
+                }
+            }
+        }
+
+        if has_top_level
+            || parsed.thinking.is_some()
+            || parsed.thinking_signature.is_some()
+            || parsed.redacted_thinking_data.is_some()
+        {
+            Some(parsed)
+        } else {
+            None
+        }
     }
 }
 
@@ -233,6 +351,7 @@ impl AnthropicChatResponseExt for crate::types::ChatResponse {
 pub trait AnthropicContentPartExt {
     fn anthropic_tool_call_metadata(&self) -> Option<AnthropicToolCallMetadata>;
     fn anthropic_text_metadata(&self) -> Option<AnthropicTextContentPartMetadata>;
+    fn anthropic_reasoning_metadata(&self) -> Option<AnthropicReasoningContentPartMetadata>;
 }
 
 impl AnthropicContentPartExt for crate::types::ContentPart {
@@ -265,6 +384,10 @@ impl AnthropicContentPartExt for crate::types::ContentPart {
         let meta = metadata.get("anthropic")?;
         serde_json::from_value(meta.clone()).ok()
     }
+
+    fn anthropic_reasoning_metadata(&self) -> Option<AnthropicReasoningContentPartMetadata> {
+        anthropic_reasoning_content_part_metadata(self)
+    }
 }
 
 #[cfg(test)]
@@ -294,12 +417,60 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_metadata_derives_extended_usage_from_nested_usage_object() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut inner = HashMap::new();
+        inner.insert(
+            "usage".to_string(),
+            serde_json::json!({
+                "input_tokens": 17,
+                "output_tokens": 1,
+                "cache_creation_input_tokens": 10,
+                "cache_read_input_tokens": 5,
+                "service_tier": "standard",
+                "server_tool_use": {
+                    "web_search_requests": 2
+                }
+            }),
+        );
+        inner.insert(
+            "cacheCreationInputTokens".to_string(),
+            serde_json::json!(10),
+        );
+
+        let mut outer = HashMap::new();
+        outer.insert("anthropic".to_string(), inner);
+        resp.provider_metadata = Some(outer);
+
+        let meta = resp.anthropic_metadata().expect("anthropic metadata");
+        assert_eq!(meta.cache_creation_input_tokens, Some(10));
+        assert_eq!(meta.cache_read_input_tokens, Some(5));
+        assert_eq!(meta.service_tier.as_deref(), Some("standard"));
+        assert_eq!(
+            meta.server_tool_use
+                .and_then(|usage| usage.web_search_requests),
+            Some(2)
+        );
+        assert_eq!(
+            meta.usage
+                .as_ref()
+                .and_then(|usage| usage.get("cache_read_input_tokens"))
+                .and_then(|value| value.as_u64()),
+            Some(5)
+        );
+    }
+
+    #[test]
     fn anthropic_tool_call_metadata_parses_caller_fields() {
         let part = crate::types::ContentPart::ToolCall {
             tool_call_id: "call_1".to_string(),
             tool_name: "rollDie".to_string(),
             arguments: serde_json::json!({"player":"player1"}),
             provider_executed: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({
@@ -326,6 +497,7 @@ mod tests {
             tool_name: "tool_search".to_string(),
             arguments: serde_json::json!({"pattern":"weather"}),
             provider_executed: Some(true),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({
@@ -350,6 +522,7 @@ mod tests {
             tool_name: "echo".to_string(),
             arguments: serde_json::json!({"message":"hello"}),
             provider_executed: Some(true),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({
@@ -368,6 +541,7 @@ mod tests {
     fn anthropic_text_metadata_parses_citations() {
         let part = crate::types::ContentPart::Text {
             text: "grounded answer".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({
@@ -392,5 +566,50 @@ mod tests {
             citations[0].data.get("url"),
             Some(&serde_json::json!("https://example.com"))
         );
+    }
+
+    #[test]
+    fn anthropic_reasoning_metadata_parses_part_level_fields() {
+        let part = crate::types::ContentPart::Reasoning {
+            text: "internal".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({
+                    "signature": "sig-1",
+                    "redactedData": "abc123"
+                }),
+            )])),
+        };
+
+        let meta = part
+            .anthropic_reasoning_metadata()
+            .expect("anthropic reasoning metadata");
+        assert_eq!(meta.signature.as_deref(), Some("sig-1"));
+        assert_eq!(meta.redacted_data.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn anthropic_metadata_backfills_reasoning_fields_from_content_parts() {
+        let mut resp =
+            crate::types::ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+                crate::types::ContentPart::Reasoning {
+                    text: "internal".to_string(),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
+                    provider_metadata: Some(HashMap::from([(
+                        "anthropic".to_string(),
+                        serde_json::json!({
+                            "signature": "sig-1",
+                            "redactedData": "abc123"
+                        }),
+                    )])),
+                },
+            ]));
+        resp.provider_metadata = None;
+
+        let meta = resp.anthropic_metadata().expect("anthropic metadata");
+        assert_eq!(meta.thinking.as_deref(), Some("internal"));
+        assert_eq!(meta.thinking_signature.as_deref(), Some("sig-1"));
+        assert_eq!(meta.redacted_thinking_data.as_deref(), Some("abc123"));
     }
 }
