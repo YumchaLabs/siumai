@@ -1,0 +1,84 @@
+{
+  "id": "resp_file_search_123",
+  "content": {
+    "MultiModal": [
+      {
+        "type": "tool-call",
+        "toolCallId": "fs_123",
+        "toolName": "file_search",
+        "input": "",
+        "providerExecuted": true
+      },
+      {
+        "type": "tool-result",
+        "toolCallId": "fs_123",
+        "toolName": "file_search",
+        "output": {
+          "type": "json",
+          "value": {
+            "queries": [
+              "AI safety research"
+            ],
+            "results": [
+              {
+                "fileId": "file_abc123",
+                "filename": "ai-safety-paper.pdf",
+                "score": 0.95,
+                "text": "Recent advances in AI safety research have focused on alignment techniques..."
+              },
+              {
+                "fileId": "file_def456",
+                "filename": "research-notes.md",
+                "score": 0.82,
+                "text": "Key findings from the AI safety workshop include recommendations for..."
+              }
+            ]
+          }
+        },
+        "providerExecuted": true
+      },
+      {
+        "type": "text",
+        "text": "Based on the documents in your collection, I found relevant information about AI safety research. The main findings indicate that recent advances have focused on alignment techniques and the workshop recommendations emphasize the importance of interpretability."
+      }
+    ]
+  },
+  "model": "grok-4-fast-non-reasoning",
+  "usage": {
+    "prompt_tokens": 500,
+    "completion_tokens": 150,
+    "total_tokens": 650,
+    "cached_tokens": 0,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "reasoning_tokens": 0,
+    "completion_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "inputTokens": {
+      "total": 500,
+      "noCache": 500,
+      "cacheRead": 0
+    },
+    "outputTokens": {
+      "total": 150,
+      "text": 150,
+      "reasoning": 0
+    },
+    "raw": {
+      "input_tokens": 500,
+      "input_tokens_details": {
+        "cached_tokens": 0
+      },
+      "output_tokens": 150,
+      "output_tokens_details": {
+        "reasoning_tokens": 0
+      },
+      "total_tokens": 650,
+      "num_sources_used": 0,
+      "num_server_side_tools_used": 1
+    }
+  },
+  "finish_reason": "stop"
+}

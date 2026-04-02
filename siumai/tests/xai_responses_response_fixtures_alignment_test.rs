@@ -42,6 +42,12 @@ fn read_json<T: DeserializeOwned>(path: impl AsRef<Path>) -> T {
     serde_json::from_str(&text).expect("parse fixture json")
 }
 
+fn provider_metadata<'a>(value: &'a Value) -> Option<&'a Value> {
+    value
+        .get("provider_metadata")
+        .or_else(|| value.get("providerMetadata"))
+}
+
 fn normalize_json(value: &mut Value) {
     match value {
         Value::Object(map) => {
@@ -140,6 +146,38 @@ fn xai_web_search_response_uses_generic_tool_call_and_typed_metadata_boundary() 
 }
 
 #[test]
+fn xai_file_search_response_uses_snake_case_tool_name_and_normalizes_results() {
+    let resp = run_case_response("file-search-tool.1");
+    let value = serde_json::to_value(resp).expect("serialize response");
+    let parts = value["content"]["MultiModal"]
+        .as_array()
+        .expect("expected multimodal content");
+
+    let tool_call = parts
+        .iter()
+        .find(|part| part.get("type").and_then(|value| value.as_str()) == Some("tool-call"))
+        .expect("expected tool call");
+    assert_eq!(tool_call["toolName"], serde_json::json!("file_search"));
+    assert_eq!(tool_call["providerExecuted"], serde_json::json!(true));
+    assert_eq!(tool_call["input"], serde_json::json!(""));
+
+    let tool_result = parts
+        .iter()
+        .find(|part| part.get("type").and_then(|value| value.as_str()) == Some("tool-result"))
+        .expect("expected tool result");
+    let results = tool_result["output"]["value"]["results"]
+        .as_array()
+        .expect("expected normalized file search results");
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0]["fileId"], serde_json::json!("file_abc123"));
+    assert!(results[0].get("file_id").is_none());
+    assert_eq!(
+        tool_result["output"]["value"]["queries"],
+        serde_json::json!(["AI safety research"])
+    );
+}
+
+#[test]
 fn xai_x_search_response_keeps_provider_specific_tool_name_on_generic_tool_call() {
     let resp = run_case_response("x-search-tool.1");
     let value = serde_json::to_value(resp).expect("serialize response");
@@ -159,5 +197,87 @@ fn xai_x_search_response_keeps_provider_specific_tool_name_on_generic_tool_call(
             .as_str()
             .is_some_and(|value| value.contains("\"query\":\"AI artificial intelligence\"")),
         "expected x_search input payload"
+    );
+}
+
+#[test]
+fn xai_reasoning_response_keeps_part_metadata_and_omits_top_level_provider_metadata() {
+    let raw = serde_json::json!({
+        "response": {
+            "id": "resp_reasoning_xai_1",
+            "model": "grok-4-fast-reasoning",
+            "output": [
+                {
+                    "type": "reasoning",
+                    "id": "rs_resp_reasoning_xai_1",
+                    "encrypted_content": "enc_payload_xai_123",
+                    "summary": [
+                        {
+                            "type": "summary_text",
+                            "text": "Let me think."
+                        }
+                    ]
+                },
+                {
+                    "type": "message",
+                    "role": "assistant",
+                    "id": "msg_resp_reasoning_xai_1",
+                    "content": [
+                        {
+                            "type": "output_text",
+                            "text": "Plain answer."
+                        }
+                    ]
+                }
+            ],
+            "usage": {
+                "input_tokens": 1,
+                "output_tokens": 2,
+                "output_tokens_details": {
+                    "reasoning_tokens": 1
+                },
+                "total_tokens": 3
+            },
+            "finish_reason": "stop"
+        }
+    });
+
+    let tx =
+        siumai_provider_xai::standards::xai::responses_response::XaiResponsesResponseTransformer::new();
+    let resp = tx.transform_chat_response(&raw).expect("transform");
+    let value = serde_json::to_value(resp).expect("serialize response");
+    let parts = value["content"]["MultiModal"]
+        .as_array()
+        .expect("expected multimodal content");
+
+    let reasoning = parts
+        .iter()
+        .find(|part| part.get("type").and_then(|value| value.as_str()) == Some("reasoning"))
+        .expect("expected reasoning part");
+    let reasoning_meta = provider_metadata(reasoning).expect("reasoning provider metadata");
+    assert_eq!(
+        reasoning_meta["xai"]["itemId"],
+        serde_json::json!("rs_resp_reasoning_xai_1")
+    );
+    assert_eq!(
+        reasoning_meta["xai"]["reasoningEncryptedContent"],
+        serde_json::json!("enc_payload_xai_123")
+    );
+    assert!(
+        reasoning_meta.get("openai").is_none(),
+        "xAI reasoning metadata should not use openai namespace"
+    );
+
+    let text = parts
+        .iter()
+        .find(|part| part.get("type").and_then(|value| value.as_str()) == Some("text"))
+        .expect("expected text part");
+    assert!(
+        text.get("provider_metadata").is_none(),
+        "xAI text part should not carry provider metadata"
+    );
+    assert!(
+        provider_metadata(&value).is_none(),
+        "xAI response should omit top-level provider_metadata"
     );
 }

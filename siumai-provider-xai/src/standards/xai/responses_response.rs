@@ -16,7 +16,8 @@ impl XaiResponsesResponseTransformer {
         Self {
             inner: crate::standards::openai::transformers::OpenAiResponsesResponseTransformer::new(
             )
-            .with_style(crate::standards::openai::transformers::ResponsesTransformStyle::Xai),
+            .with_style(crate::standards::openai::transformers::ResponsesTransformStyle::Xai)
+            .with_provider_metadata_key("xai"),
         }
     }
 }

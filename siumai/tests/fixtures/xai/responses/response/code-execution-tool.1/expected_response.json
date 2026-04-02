@@ -27,13 +27,31 @@
     "reasoning_tokens": 190,
     "completion_tokens_details": {
       "reasoning_tokens": 190
+    },
+    "inputTokens": {
+      "total": 1606,
+      "noCache": 371,
+      "cacheRead": 1235
+    },
+    "outputTokens": {
+      "total": 292,
+      "text": 102,
+      "reasoning": 190
+    },
+    "raw": {
+      "input_tokens": 1606,
+      "input_tokens_details": {
+        "cached_tokens": 1235
+      },
+      "output_tokens": 292,
+      "output_tokens_details": {
+        "reasoning_tokens": 190
+      },
+      "total_tokens": 1898,
+      "num_sources_used": 0,
+      "num_server_side_tools_used": 1
     }
   },
-  "finish_reason": "stop",
-  "provider_metadata": {
-    "openai": {
-      "itemId": "msg_5138abcf-4c4e-b0ab-7e0b-f4c81b98f455_us-east-1"
-    }
-  }
+  "finish_reason": "stop"
 }
 

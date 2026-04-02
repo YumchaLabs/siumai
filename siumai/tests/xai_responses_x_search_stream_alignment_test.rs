@@ -22,17 +22,17 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
         .collect()
 }
 
-fn custom_events_by_type(events: &[ChatStreamEvent], kind: &str) -> Vec<serde_json::Value> {
+fn stream_events_by_type(events: &[ChatStreamEvent], kind: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type").and_then(|v| v.as_str()) == Some(kind) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(kind))
         .collect()
 }
 
@@ -71,11 +71,11 @@ fn xai_responses_x_search_stream_emits_vercel_aligned_custom_tool_calls() {
         }
     }
 
-    let tool_inputs_start = custom_events_by_type(&events, "tool-input-start");
-    let tool_inputs_delta = custom_events_by_type(&events, "tool-input-delta");
-    let tool_inputs_end = custom_events_by_type(&events, "tool-input-end");
-    let tool_calls = custom_events_by_type(&events, "tool-call");
-    let tool_results = custom_events_by_type(&events, "tool-result");
+    let tool_inputs_start = stream_events_by_type(&events, "tool-input-start");
+    let tool_inputs_delta = stream_events_by_type(&events, "tool-input-delta");
+    let tool_inputs_end = stream_events_by_type(&events, "tool-input-end");
+    let tool_calls = stream_events_by_type(&events, "tool-call");
+    let tool_results = stream_events_by_type(&events, "tool-result");
 
     assert!(
         tool_results.is_empty(),

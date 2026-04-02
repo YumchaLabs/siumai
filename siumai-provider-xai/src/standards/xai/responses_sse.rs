@@ -27,7 +27,8 @@ impl XaiResponsesEventConverter {
                 )
                 .with_responses_transform_style(
                     crate::standards::openai::transformers::ResponsesTransformStyle::Xai,
-                ),
+                )
+                .with_provider_metadata_key("xai"),
         }
     }
 

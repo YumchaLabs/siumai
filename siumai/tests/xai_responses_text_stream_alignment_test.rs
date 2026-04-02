@@ -53,18 +53,27 @@ fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
     events
 }
 
-fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+fn events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type").and_then(|v| v.as_str()) == Some(ty) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
         .collect()
+}
+
+fn provider_namespace<'a>(
+    value: &'a serde_json::Value,
+    provider: &str,
+) -> Option<&'a serde_json::Value> {
+    value
+        .get("providerMetadata")
+        .and_then(|meta| meta.get(provider))
 }
 
 fn assert_xai_text_stream_fixture(fixture_file: &str) {
@@ -76,18 +85,35 @@ fn assert_xai_text_stream_fixture(fixture_file: &str) {
 
     let events = run_converter(lines);
 
-    let stream_starts = custom_events_by_type(&events, "stream-start");
-    let metadata = custom_events_by_type(&events, "response-metadata");
-    let reasoning_starts = custom_events_by_type(&events, "reasoning-start");
-    let reasoning_deltas = custom_events_by_type(&events, "reasoning-delta");
-    let reasoning_ends = custom_events_by_type(&events, "reasoning-end");
-    let text_starts = custom_events_by_type(&events, "text-start");
-    let text_deltas = custom_events_by_type(&events, "text-delta");
-    let text_ends = custom_events_by_type(&events, "text-end");
-    let finishes = custom_events_by_type(&events, "finish");
+    let stream_starts = events_by_type(&events, "stream-start");
+    let metadata = events_by_type(&events, "response-metadata");
+    let reasoning_starts = events_by_type(&events, "reasoning-start");
+    let reasoning_deltas = events_by_type(&events, "reasoning-delta");
+    let reasoning_ends = events_by_type(&events, "reasoning-end");
+    let text_starts = events_by_type(&events, "text-start");
+    let text_deltas = events_by_type(&events, "text-delta");
+    let text_ends = events_by_type(&events, "text-end");
+    let finishes = events_by_type(&events, "finish");
 
     assert_eq!(stream_starts.len(), 1, "expected exactly one stream-start");
     assert_eq!(metadata.len(), 1, "expected exactly one response-metadata");
+    assert_eq!(
+        reasoning_starts.len(),
+        1,
+        "expected exactly one reasoning-start"
+    );
+    assert_eq!(
+        reasoning_ends.len(),
+        1,
+        "expected exactly one reasoning-end"
+    );
+    assert!(
+        !reasoning_deltas.is_empty(),
+        "expected at least one reasoning-delta"
+    );
+    assert_eq!(text_starts.len(), 1, "expected exactly one text-start");
+    assert_eq!(text_ends.len(), 1, "expected exactly one text-end");
+    assert!(!text_deltas.is_empty(), "expected at least one text-delta");
 
     let resp_id = metadata[0]
         .get("id")
@@ -95,6 +121,9 @@ fn assert_xai_text_stream_fixture(fixture_file: &str) {
         .expect("response-metadata.id");
     let expected_reasoning_id = format!("reasoning-rs_{resp_id}");
     let expected_text_id = format!("text-msg_{resp_id}");
+    let expected_reasoning_item_id = expected_reasoning_id
+        .strip_prefix("reasoning-")
+        .expect("reasoning prefix");
 
     assert_eq!(
         reasoning_starts[0].get("id").and_then(|v| v.as_str()),
@@ -113,11 +142,24 @@ fn assert_xai_text_stream_fixture(fixture_file: &str) {
             evt.get("id").and_then(|v| v.as_str()),
             Some(expected_reasoning_id.as_str())
         );
+        let xai_meta = provider_namespace(evt, "xai").expect("xai reasoning metadata");
         assert!(
-            evt.get("providerMetadata").is_none(),
-            "xAI reasoning stream parts should omit providerMetadata"
+            evt.get("providerMetadata")
+                .and_then(|meta| meta.get("openai"))
+                .is_none(),
+            "xAI reasoning stream parts should not use openai namespace"
+        );
+        assert_eq!(
+            xai_meta.get("itemId").and_then(|v| v.as_str()),
+            Some(expected_reasoning_item_id)
         );
     }
+    assert!(
+        provider_namespace(&reasoning_starts[0], "xai")
+            .and_then(|meta| meta.get("reasoningEncryptedContent"))
+            .is_none(),
+        "xAI reasoning-start should omit reasoningEncryptedContent"
+    );
 
     assert_eq!(
         text_starts[0].get("id").and_then(|v| v.as_str()),

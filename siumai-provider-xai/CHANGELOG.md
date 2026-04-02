@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Aligned xAI Responses response and SSE semantics with the audited AI SDK boundary:
+  reasoning metadata now stays under `providerMetadata.xai`, parsed responses no longer emit
+  top-level provider metadata for plain text paths, and `file_search` tool response/stream outputs
+  now normalize to the stable snake_case tool name plus camelCase result fields.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added
