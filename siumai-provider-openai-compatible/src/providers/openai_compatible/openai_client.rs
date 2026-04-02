@@ -3035,6 +3035,84 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_request_runtime_provider_specific_known_compat_options_map_to_ai_sdk_fields() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_supports_structured_outputs(true)
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                schema.clone(),
+            ))
+            .build()
+            .with_provider_option(
+                "deepseek",
+                serde_json::json!({
+                    "user": "compat-user-9",
+                    "reasoningEffort": "high",
+                    "textVerbosity": "medium",
+                    "strictJsonSchema": false
+                }),
+            );
+
+        let _ = client.chat_request(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(captured.body["user"], serde_json::json!("compat-user-9"));
+        assert_eq!(captured.body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(captured.body["verbosity"], serde_json::json!("medium"));
+        assert_eq!(
+            captured.body["response_format"],
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": false
+                }
+            })
+        );
+        assert!(captured.body.get("strictJsonSchema").is_none());
+        assert!(captured.body.get("textVerbosity").is_none());
+    }
+
+    #[tokio::test]
     async fn chat_request_runtime_openrouter_preserves_stable_fields_and_vendor_params_at_transport_boundary()
      {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {

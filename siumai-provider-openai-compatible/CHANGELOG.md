@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `unsupported { feature: "responseFormat" }` warning middleware on the chat response path, and
   callers can opt back into wire-level `json_schema` by setting
   `supports_structured_outputs(true)`.
+- OpenAI-compatible chat runtime shaping now also honors AI SDK-style known compat request options
+  from canonical `providerOptions.openaiCompatible` and provider-owned keys: `user`,
+  `reasoningEffort`, `textVerbosity`, and `strictJsonSchema` now map to wire `user`,
+  `reasoning_effort`, `verbosity`, and `response_format.json_schema.strict` instead of leaking as
+  raw camelCase request fields.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

@@ -57,6 +57,86 @@ fn normalize_deepseek_options(obj: &mut serde_json::Map<String, serde_json::Valu
     rename_field(obj, "reasoningBudget", "reasoning_budget");
 }
 
+fn string_option_by_aliases(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    aliases: &[&str],
+) -> Option<String> {
+    aliases
+        .iter()
+        .find_map(|alias| obj.get(*alias))
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string)
+}
+
+fn bool_option_by_aliases(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    aliases: &[&str],
+) -> Option<bool> {
+    aliases
+        .iter()
+        .find_map(|alias| obj.get(*alias))
+        .and_then(|value| value.as_bool())
+}
+
+#[derive(Debug, Clone, Default)]
+struct CompatChatOptions {
+    user: Option<String>,
+    reasoning_effort: Option<String>,
+    verbosity: Option<String>,
+    strict_json_schema: Option<bool>,
+}
+
+fn compat_chat_options(
+    provider_id: &str,
+    map: &crate::types::ProviderOptionsMap,
+) -> CompatChatOptions {
+    let mut out = CompatChatOptions::default();
+
+    for options in [
+        map.get_object("openai-compatible"),
+        map.get_object("openaiCompatible"),
+        map.get_object(provider_id),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        if let Some(user) = string_option_by_aliases(options, &["user"]) {
+            out.user = Some(user);
+        }
+        if let Some(reasoning_effort) =
+            string_option_by_aliases(options, &["reasoningEffort", "reasoning_effort"])
+        {
+            out.reasoning_effort = Some(reasoning_effort);
+        }
+        if let Some(verbosity) =
+            string_option_by_aliases(options, &["textVerbosity", "text_verbosity"])
+        {
+            out.verbosity = Some(verbosity);
+        }
+        if let Some(strict_json_schema) =
+            bool_option_by_aliases(options, &["strictJsonSchema", "strict_json_schema"])
+        {
+            out.strict_json_schema = Some(strict_json_schema);
+        }
+    }
+
+    out
+}
+
+fn remove_known_compat_chat_option_keys(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    for key in [
+        "user",
+        "reasoningEffort",
+        "reasoning_effort",
+        "textVerbosity",
+        "text_verbosity",
+        "strictJsonSchema",
+        "strict_json_schema",
+    ] {
+        obj.remove(key);
+    }
+}
+
 fn normalize_provider_options(
     provider_id: &str,
     value: Option<&serde_json::Value>,
@@ -98,6 +178,15 @@ fn normalize_provider_options(
     Some(obj)
 }
 
+fn normalize_chat_passthrough_provider_options(
+    provider_id: &str,
+    value: Option<&serde_json::Value>,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut obj = normalize_provider_options(provider_id, value)?;
+    remove_known_compat_chat_option_keys(&mut obj);
+    Some(obj)
+}
+
 fn merge_provider_options_into_body(
     provider_id: &str,
     provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
@@ -121,6 +210,43 @@ fn merge_provider_options_into_body(
         body_obj.remove("previous_response_id");
         body_obj.remove("include");
         body_obj.remove("store");
+    }
+}
+
+fn apply_compat_chat_options(
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+    compat_options: &CompatChatOptions,
+) {
+    if let Some(user) = compat_options.user.as_ref() {
+        body_obj.insert("user".to_string(), serde_json::json!(user));
+    }
+
+    if let Some(reasoning_effort) = compat_options.reasoning_effort.as_ref() {
+        body_obj.insert(
+            "reasoning_effort".to_string(),
+            serde_json::json!(reasoning_effort),
+        );
+    }
+
+    if let Some(verbosity) = compat_options.verbosity.as_ref() {
+        body_obj.insert("verbosity".to_string(), serde_json::json!(verbosity));
+    }
+
+    if let Some(strict_json_schema) = compat_options.strict_json_schema
+        && let Some(response_format) = body_obj.get_mut("response_format")
+        && let Some(response_format_obj) = response_format.as_object_mut()
+        && response_format_obj
+            .get("type")
+            .and_then(|value| value.as_str())
+            == Some("json_schema")
+        && let Some(json_schema_obj) = response_format_obj
+            .get_mut("json_schema")
+            .and_then(|value| value.as_object_mut())
+    {
+        json_schema_obj.insert(
+            "strict".to_string(),
+            serde_json::Value::Bool(strict_json_schema),
+        );
     }
 }
 
@@ -181,12 +307,15 @@ fn chat_request_settings_hook(
     request_uses_structured_outputs: bool,
 ) -> crate::execution::executors::BeforeSendHook {
     let provider_id = provider_id.to_string();
-    let provider_options = normalize_provider_options(&provider_id, map.get(&provider_id));
+    let compat_options = compat_chat_options(&provider_id, map);
+    let provider_options =
+        normalize_chat_passthrough_provider_options(&provider_id, map.get(&provider_id));
     let settings = settings.clone();
     Arc::new(
         move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
             let mut out = body.clone();
             if let Some(body_obj) = out.as_object_mut() {
+                apply_compat_chat_options(body_obj, &compat_options);
                 merge_provider_options_into_body(&provider_id, &provider_options, body_obj);
                 apply_chat_request_settings(
                     body_obj,
@@ -1347,6 +1476,83 @@ mod tests {
                 }
             }))
         );
+    }
+
+    #[test]
+    fn openai_compatible_openai_compatible_provider_options_apply_known_chat_fields() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "deepseek".to_string(),
+                name: "DeepSeek".to_string(),
+                base_url: "https://api.deepseek.com/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            })),
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(true),
+                request_body_transformer: None,
+            },
+        );
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build()
+            .with_provider_option(
+                "openaiCompatible",
+                serde_json::json!({
+                    "user": "compat-user",
+                    "reasoningEffort": "high",
+                    "textVerbosity": "medium",
+                    "strictJsonSchema": false
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["user"], serde_json::json!("compat-user"));
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(body["verbosity"], serde_json::json!("medium"));
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": false
+                }
+            }))
+        );
+        assert!(body.get("strictJsonSchema").is_none());
+        assert!(body.get("textVerbosity").is_none());
     }
 
     #[test]

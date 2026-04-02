@@ -107,6 +107,10 @@ Status legend:
     compat chat now defaults to downgrading JSON Schema chat outputs to wire `json_object`,
     emits a stable `unsupported { feature: "responseFormat" }` warning middleware, and preserves
     wire `json_schema` only when callers explicitly set `supportsStructuredOutputs = true`
+  - audited known compat chat options now also follow AI SDK mapping semantics from deprecated
+    `openai-compatible`, canonical `openaiCompatible`, and provider-owned keys:
+    `user`, `reasoningEffort`, `textVerbosity`, and `strictJsonSchema` now map to wire
+    `user`, `reasoning_effort`, `verbosity`, and `response_format.json_schema.strict`
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.
