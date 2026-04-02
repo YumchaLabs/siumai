@@ -23,9 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI-compatible public config/builder/runtime surfaces now also expose AI SDK-style
   `queryParams` and provider-level `supportsStructuredOutputs` concepts: compat route generation
   now appends deterministic provider query params across chat / embeddings / image / audio /
-  rerank / model-listing paths, and explicit `supports_structured_outputs(false)` now downgrades
-  JSON Schema chat outputs to `response_format = { "type": "json_object" }` while emitting a
-  stable `unsupported { feature: "responseFormat" }` warning middleware on the chat response path.
+  rerank / model-listing paths, compat chat now defaults to downgrading JSON Schema outputs to
+  `response_format = { "type": "json_object" }` while emitting a stable
+  `unsupported { feature: "responseFormat" }` warning middleware on the chat response path, and
+  callers can opt back into wire-level `json_schema` by setting
+  `supports_structured_outputs(true)`.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

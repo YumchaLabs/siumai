@@ -128,7 +128,7 @@ fn compat_model_middlewares(
 ) -> Vec<Arc<dyn LanguageModelMiddleware>> {
     let mut middlewares = config.model_middlewares.clone();
 
-    if config.supports_structured_outputs == Some(false) {
+    if config.supports_structured_outputs != Some(true) {
         middlewares.push(Arc::new(
             OpenAiCompatibleStructuredOutputsWarningMiddleware::new(),
         ));
@@ -2893,6 +2893,7 @@ mod tests {
 
         let cfg = OpenAiCompatibleConfig::new("xai", "test-key", "https://api.x.ai/v1", adapter)
             .with_model("grok-4")
+            .with_supports_structured_outputs(true)
             .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -2975,6 +2976,7 @@ mod tests {
             adapter,
         )
         .with_model("deepseek-chat")
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -3060,6 +3062,7 @@ mod tests {
             adapter,
         )
         .with_model("openai/gpt-4o")
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -3145,6 +3148,7 @@ mod tests {
             adapter,
         )
         .with_model("openai/gpt-4o")
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -3211,6 +3215,7 @@ mod tests {
         .model("openai/gpt-4o")
         .reasoning(true)
         .reasoning_budget(2048)
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()))
         .build()
         .await
@@ -3301,6 +3306,7 @@ mod tests {
             adapter,
         )
         .with_model("sonar")
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -3383,6 +3389,7 @@ mod tests {
             adapter,
         )
         .with_model("sonar")
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -3480,6 +3487,7 @@ mod tests {
             adapter,
         )
         .with_model("sonar")
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -3767,6 +3775,7 @@ data: [DONE]
 
         let cfg = OpenAiCompatibleConfig::new("xai", "test-key", "https://api.x.ai/v1", adapter)
             .with_model("grok-4")
+            .with_supports_structured_outputs(true)
             .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -4012,7 +4021,7 @@ data: [DONE]
     }
 
     #[tokio::test]
-    async fn chat_stream_request_runtime_structured_outputs_policy_downgrades_wire_shape() {
+    async fn chat_stream_request_runtime_structured_outputs_policy_defaults_to_json_object() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "deepseek".to_string(),
             name: "DeepSeek".to_string(),
@@ -4036,7 +4045,6 @@ data: [DONE]
             adapter,
         )
         .with_model("deepseek-chat")
-        .with_supports_structured_outputs(false)
         .with_http_transport(Arc::new(transport.clone()));
 
         let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
@@ -4057,6 +4065,237 @@ data: [DONE]
         assert_eq!(
             captured.body["response_format"],
             serde_json::json!({ "type": "json_object" })
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_structured_outputs_default_emits_warning_and_json_object() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl_1",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"answer\":\"ok\"}"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "answer": { "type": "string" } }
+                }),
+            ))
+            .build();
+
+        let response = client.chat_request(request).await.expect("response ok");
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["response_format"],
+            serde_json::json!({ "type": "json_object" })
+        );
+        assert_eq!(
+            response.warnings,
+            Some(vec![crate::types::Warning::unsupported(
+                "responseFormat",
+                Some("JSON response format schema is only supported with structuredOutputs"),
+            )])
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_structured_outputs_enabled_preserves_schema_without_warning() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl_2",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "deepseek-chat",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "{\"answer\":\"ok\"}"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_supports_structured_outputs(true)
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                schema.clone(),
+            ))
+            .build();
+
+        let response = client.chat_request(request).await.expect("response ok");
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(
+            captured.body["response_format"],
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            })
+        );
+        assert!(response.warnings.as_ref().map_or(true, Vec::is_empty));
+    }
+
+    #[tokio::test]
+    async fn chat_stream_request_runtime_structured_outputs_default_emits_warning_and_json_object()
+    {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = SseResponseTransport::new(
+            br#"data: {"id":"1","model":"deepseek-chat","created":1,"choices":[{"index":0,"delta":{"role":"assistant","content":"{\"answer\":\"ok\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+
+data: [DONE]
+
+"#
+            .to_vec(),
+        );
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "deepseek",
+            "test-key",
+            "https://api.deepseek.com/v1",
+            adapter,
+        )
+        .with_model("deepseek-chat")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "answer": { "type": "string" } }
+                }),
+            ))
+            .build();
+
+        let stream = crate::traits::ChatCapability::chat_stream_request(&client, request)
+            .await
+            .expect("stream ok");
+        let events = stream.collect::<Vec<_>>().await;
+        let captured = transport.take_stream().expect("captured stream request");
+
+        assert_eq!(
+            captured.body["response_format"],
+            serde_json::json!({ "type": "json_object" })
+        );
+
+        let end = events
+            .iter()
+            .find_map(|event| match event {
+                Ok(crate::types::ChatStreamEvent::StreamEnd { response }) => Some(response),
+                _ => None,
+            })
+            .expect("stream end event");
+
+        assert_eq!(
+            end.warnings,
+            Some(vec![crate::types::Warning::unsupported(
+                "responseFormat",
+                Some("JSON response format schema is only supported with structuredOutputs"),
+            )])
         );
     }
 
@@ -4230,6 +4469,7 @@ data: [DONE]
         .model("openai/gpt-4o")
         .reasoning(true)
         .reasoning_budget(2048)
+        .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()))
         .build()
         .await

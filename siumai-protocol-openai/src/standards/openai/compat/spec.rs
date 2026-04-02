@@ -146,7 +146,7 @@ fn apply_chat_request_settings(
         }
     }
 
-    if settings.supports_structured_outputs == Some(false) && request_uses_structured_outputs {
+    if settings.supports_structured_outputs != Some(true) && request_uses_structured_outputs {
         body_obj.insert(
             "response_format".to_string(),
             serde_json::json!({ "type": "json_object" }),
@@ -997,7 +997,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_structured_outputs_policy_can_downgrade_json_schema() {
+    fn openai_compatible_structured_outputs_policy_defaults_to_json_object() {
         use crate::core::ProviderSpec;
         use crate::types::chat::ResponseFormat;
 
@@ -1017,7 +1017,7 @@ mod tests {
             OpenAiCompatibleRequestSettings {
                 query_params: Default::default(),
                 include_usage: None,
-                supports_structured_outputs: Some(false),
+                supports_structured_outputs: None,
                 request_body_transformer: None,
             },
         );
@@ -1049,12 +1049,77 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_deepseek_runtime_provider_preserves_response_format_json_schema() {
+    fn openai_compatible_structured_outputs_policy_preserves_json_schema_when_enabled() {
         use crate::core::ProviderSpec;
         use crate::types::chat::ResponseFormat;
 
-        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
-            ProviderConfig {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "deepseek".to_string(),
+            name: "DeepSeek".to_string(),
+            base_url: "https://api.deepseek.com/v1".to_string(),
+            field_mappings: Default::default(),
+            capabilities: vec!["tools".into()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            adapter,
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(true),
+                request_body_transformer: None,
+            },
+        );
+
+        let ctx = ProviderContext::new(
+            "deepseek".to_string(),
+            "https://api.deepseek.com/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "value": { "type": "string" } },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let req = crate::types::ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_deepseek_runtime_provider_preserves_response_format_json_schema_when_enabled()
+     {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
                 id: "deepseek".to_string(),
                 name: "DeepSeek".to_string(),
                 base_url: "https://api.deepseek.com/v1".to_string(),
@@ -1064,8 +1129,14 @@ mod tests {
                 supports_reasoning: true,
                 api_key_env: None,
                 api_key_env_aliases: vec![],
+            })),
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(true),
+                request_body_transformer: None,
             },
-        )));
+        );
 
         let ctx = ProviderContext::new(
             "deepseek".to_string(),
@@ -1108,8 +1179,8 @@ mod tests {
         use crate::core::ProviderSpec;
         use crate::types::{FinishReason, Tool, ToolChoice};
 
-        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
-            ProviderConfig {
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
                 id: "deepseek".to_string(),
                 name: "DeepSeek".to_string(),
                 base_url: "https://api.deepseek.com/v1".to_string(),
@@ -1119,8 +1190,14 @@ mod tests {
                 supports_reasoning: true,
                 api_key_env: None,
                 api_key_env_aliases: vec![],
+            })),
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(true),
+                request_body_transformer: None,
             },
-        )));
+        );
 
         let ctx = ProviderContext::new(
             "deepseek".to_string(),
@@ -1194,8 +1271,8 @@ mod tests {
         use crate::core::ProviderSpec;
         use crate::types::{Tool, ToolChoice, chat::ResponseFormat};
 
-        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
-            ProviderConfig {
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
                 id: "deepseek".to_string(),
                 name: "DeepSeek".to_string(),
                 base_url: "https://api.deepseek.com/v1".to_string(),
@@ -1205,8 +1282,14 @@ mod tests {
                 supports_reasoning: true,
                 api_key_env: None,
                 api_key_env_aliases: vec![],
+            })),
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(true),
+                request_body_transformer: None,
             },
-        )));
+        );
 
         let ctx = ProviderContext::new(
             "deepseek".to_string(),
@@ -1267,12 +1350,12 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_xai_runtime_provider_preserves_response_format_json_schema() {
+    fn openai_compatible_xai_runtime_provider_preserves_response_format_json_schema_when_enabled() {
         use crate::core::ProviderSpec;
         use crate::types::chat::ResponseFormat;
 
-        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
-            ProviderConfig {
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
                 id: "xai".to_string(),
                 name: "xAI".to_string(),
                 base_url: "https://api.x.ai/v1".to_string(),
@@ -1282,8 +1365,14 @@ mod tests {
                 supports_reasoning: true,
                 api_key_env: None,
                 api_key_env_aliases: vec![],
+            })),
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(true),
+                request_body_transformer: None,
             },
-        )));
+        );
 
         let ctx = ProviderContext::new(
             "xai".to_string(),
@@ -1326,8 +1415,8 @@ mod tests {
         use crate::core::ProviderSpec;
         use crate::types::chat::ResponseFormat;
 
-        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
-            ProviderConfig {
+        let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
                 id: "xai".to_string(),
                 name: "xAI".to_string(),
                 base_url: "https://api.x.ai/v1".to_string(),
@@ -1337,8 +1426,14 @@ mod tests {
                 supports_reasoning: true,
                 api_key_env: None,
                 api_key_env_aliases: vec![],
+            })),
+            OpenAiCompatibleRequestSettings {
+                query_params: Default::default(),
+                include_usage: None,
+                supports_structured_outputs: Some(true),
+                request_body_transformer: None,
             },
-        )));
+        );
 
         let ctx = ProviderContext::new(
             "xai".to_string(),

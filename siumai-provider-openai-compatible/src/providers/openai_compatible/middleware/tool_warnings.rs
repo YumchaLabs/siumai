@@ -94,11 +94,11 @@ mod tests {
 
         assert!(warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, .. } if tool_name == "openai.web_search"
+            Warning::Unsupported { feature, .. } if feature == "openai.web_search"
         )));
         assert!(warnings.iter().any(|w| matches!(
             w,
-            Warning::UnsupportedTool { tool_name, .. } if tool_name == "google.google_search"
+            Warning::Unsupported { feature, .. } if feature == "google.google_search"
         )));
     }
 }

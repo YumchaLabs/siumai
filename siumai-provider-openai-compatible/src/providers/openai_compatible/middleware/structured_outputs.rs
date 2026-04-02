@@ -24,9 +24,7 @@ impl OpenAiCompatibleStructuredOutputsWarningMiddleware {
         if Self::should_warn(req) {
             vec![Warning::unsupported(
                 "responseFormat",
-                Some(
-                    "JSON Schema structured outputs are disabled for this OpenAI-compatible provider; sending response_format=json_object instead.",
-                ),
+                Some("JSON response format schema is only supported with structuredOutputs"),
             )]
         } else {
             Vec::new()
@@ -93,7 +91,8 @@ mod tests {
             Some(vec![Warning::Unsupported {
                 feature: "responseFormat".to_string(),
                 details: Some(
-                    "JSON Schema structured outputs are disabled for this OpenAI-compatible provider; sending response_format=json_object instead.".to_string(),
+                    "JSON response format schema is only supported with structuredOutputs"
+                        .to_string(),
                 ),
             }])
         );

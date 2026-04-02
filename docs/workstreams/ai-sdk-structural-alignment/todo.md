@@ -104,11 +104,9 @@ Status legend:
   - provider-level `queryParams` now flows through config/builder/runtime/spec URL generation for
     compat chat / embeddings / image generation-edit-variation / audio / rerank / models
   - provider-level `supportsStructuredOutputs` now has an explicit public/runtime policy surface:
-    explicit `false` downgrades JSON Schema chat outputs to wire `json_object` and emits a stable
-    `unsupported { feature: "responseFormat" }` warning middleware
-  - current deliberate divergence from AI SDK:
-    the default remains permissive for backward compatibility instead of switching compat chat to
-    AI SDK's conservative `supportsStructuredOutputs = false` default in the same refactor
+    compat chat now defaults to downgrading JSON Schema chat outputs to wire `json_object`,
+    emits a stable `unsupported { feature: "responseFormat" }` warning middleware, and preserves
+    wire `json_schema` only when callers explicitly set `supportsStructuredOutputs = true`
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.
