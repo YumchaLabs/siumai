@@ -82,6 +82,12 @@ Status legend:
     `logprobs`, and prediction-token metadata explicitly
   - generic OpenAI-compatible providers now match AI SDK `openai-compatible` defaults more closely
     by not inferring those metadata fields unless the provider adapter opts in
+- [x] Add a public OpenAI-compatible response metadata extractor hook on the config/builder surface.
+  - `ResponseMetadataExtractor` now models the AI SDK-style extension point directly
+  - `OpenAiCompatibleConfig::with_metadata_extractor(...)` wraps the current adapter instead of
+    forcing users to replace it
+  - `OpenAiCompatibleBuilder::with_metadata_extractor(...)` and the public `siumai` facade
+    re-export now lock that hook on the user-visible path too
 - [x] Migrate Anthropic request conversion away from metadata-as-input for the main user-visible
   request paths.
 - [x] Remove the remaining temporary request-side metadata fallbacks on the audited paths.

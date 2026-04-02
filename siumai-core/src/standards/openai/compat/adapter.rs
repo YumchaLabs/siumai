@@ -4,7 +4,7 @@
 //! It's inspired by Cherry Studio's RequestTransformer and ResponseChunkTransformer patterns
 //! and fully integrates with our existing traits and HTTP configuration system.
 
-use super::metadata::NestedProviderMetadata;
+use super::metadata::{NestedProviderMetadata, merge_nested_provider_metadata};
 use super::types::{FieldAccessor, FieldMappings, JsonFieldAccessor, ModelConfig, RequestType};
 use crate::error::LlmError;
 use crate::traits::ProviderCapabilities;
@@ -71,6 +71,23 @@ impl ProviderCompatibility {
             force_streaming_models: vec![],
             custom_flags: HashMap::new(),
         }
+    }
+}
+
+/// Public hook for extracting provider-specific response metadata from OpenAI-compatible payloads.
+///
+/// This mirrors AI SDK's `openai-compatible` `metadataExtractor` concept while fitting the Rust
+/// adapter model used by Siumai's OpenAI-compatible family.
+pub trait ResponseMetadataExtractor: Send + Sync {
+    fn extract_response_metadata(&self, raw: &serde_json::Value) -> Option<NestedProviderMetadata>;
+}
+
+impl<F> ResponseMetadataExtractor for F
+where
+    F: Fn(&serde_json::Value) -> Option<NestedProviderMetadata> + Send + Sync,
+{
+    fn extract_response_metadata(&self, raw: &serde_json::Value) -> Option<NestedProviderMetadata> {
+        self(raw)
     }
 }
 
@@ -419,6 +436,33 @@ pub struct ParamMergingAdapter {
     extra_params: std::collections::HashMap<String, serde_json::Value>,
 }
 
+/// Adapter wrapper that merges a public response-metadata extractor onto an existing provider.
+///
+/// Built-in provider adapters keep their default metadata policy, and the injected extractor can
+/// extend or override fields without requiring users to reimplement the whole adapter.
+#[derive(Clone)]
+pub struct MetadataExtractingAdapter {
+    inner: Box<dyn ProviderAdapter>,
+    extractor: std::sync::Arc<dyn ResponseMetadataExtractor>,
+}
+
+impl std::fmt::Debug for MetadataExtractingAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MetadataExtractingAdapter")
+            .field("inner_provider_id", &self.inner.provider_id())
+            .finish()
+    }
+}
+
+impl MetadataExtractingAdapter {
+    pub fn new(
+        inner: Box<dyn ProviderAdapter>,
+        extractor: std::sync::Arc<dyn ResponseMetadataExtractor>,
+    ) -> Self {
+        Self { inner, extractor }
+    }
+}
+
 impl ParamMergingAdapter {
     pub fn new(
         inner: Box<dyn ProviderAdapter>,
@@ -503,6 +547,112 @@ impl ProviderAdapter for ParamMergingAdapter {
         raw: &serde_json::Value,
     ) -> Option<NestedProviderMetadata> {
         self.inner.extract_response_provider_metadata(raw)
+    }
+
+    fn supports_image_generation(&self) -> bool {
+        self.inner.supports_image_generation()
+    }
+
+    fn transform_image_request(
+        &self,
+        request: &mut crate::types::ImageGenerationRequest,
+    ) -> Result<(), LlmError> {
+        self.inner.transform_image_request(request)
+    }
+
+    fn get_supported_image_sizes(&self) -> Vec<String> {
+        self.inner.get_supported_image_sizes()
+    }
+
+    fn get_supported_image_formats(&self) -> Vec<String> {
+        self.inner.get_supported_image_formats()
+    }
+
+    fn supports_image_editing(&self) -> bool {
+        self.inner.supports_image_editing()
+    }
+
+    fn supports_image_variations(&self) -> bool {
+        self.inner.supports_image_variations()
+    }
+
+    fn route_for(&self, req: super::types::RequestType) -> &'static str {
+        self.inner.route_for(req)
+    }
+}
+
+impl ProviderAdapter for MetadataExtractingAdapter {
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        self.inner.provider_id()
+    }
+
+    fn transform_request_params(
+        &self,
+        params: &mut serde_json::Value,
+        model: &str,
+        request_type: RequestType,
+    ) -> Result<(), LlmError> {
+        self.inner
+            .transform_request_params(params, model, request_type)
+    }
+
+    fn get_field_mappings(&self, model: &str) -> FieldMappings {
+        self.inner.get_field_mappings(model)
+    }
+
+    fn get_field_accessor(&self) -> Box<dyn FieldAccessor> {
+        self.inner.get_field_accessor()
+    }
+
+    fn get_model_config(&self, model: &str) -> ModelConfig {
+        self.inner.get_model_config(model)
+    }
+
+    fn custom_headers(&self) -> reqwest::header::HeaderMap {
+        self.inner.custom_headers()
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.inner.capabilities()
+    }
+
+    fn compatibility(&self) -> ProviderCompatibility {
+        self.inner.compatibility()
+    }
+
+    fn apply_http_config(&self, http_config: HttpConfig) -> HttpConfig {
+        self.inner.apply_http_config(http_config)
+    }
+
+    fn validate_model(&self, model: &str) -> Result<(), LlmError> {
+        self.inner.validate_model(model)
+    }
+
+    fn base_url(&self) -> &str {
+        self.inner.base_url()
+    }
+
+    fn audio_base_url(&self) -> Option<&str> {
+        self.inner.audio_base_url()
+    }
+
+    fn clone_adapter(&self) -> Box<dyn ProviderAdapter> {
+        Box::new(self.clone())
+    }
+
+    fn extract_response_provider_metadata(
+        &self,
+        raw: &serde_json::Value,
+    ) -> Option<NestedProviderMetadata> {
+        let mut metadata = self.inner.extract_response_provider_metadata(raw);
+        if let Some(extracted) = self.extractor.extract_response_metadata(raw) {
+            if let Some(current) = metadata.as_mut() {
+                merge_nested_provider_metadata(current, extracted);
+            } else {
+                metadata = Some(extracted);
+            }
+        }
+        metadata
     }
 
     fn supports_image_generation(&self) -> bool {
@@ -675,6 +825,54 @@ mod tests {
         assert_eq!(
             openai.get("rejectedPredictionTokens"),
             Some(&serde_json::json!(2))
+        );
+    }
+
+    #[test]
+    fn metadata_extracting_adapter_merges_custom_metadata_with_inner_adapter() {
+        let inner: Box<dyn ProviderAdapter> = Box::new(OpenAiStandardAdapter {
+            base_url: "https://api.openai.com/v1".to_string(),
+        });
+        let extractor: std::sync::Arc<dyn ResponseMetadataExtractor> =
+            std::sync::Arc::new(|raw: &serde_json::Value| {
+                raw.get("test_field").map(|value| {
+                    std::collections::HashMap::from([
+                        (
+                            "openai".to_string(),
+                            std::collections::HashMap::from([("extra".to_string(), value.clone())]),
+                        ),
+                        (
+                            "test-provider".to_string(),
+                            std::collections::HashMap::from([("value".to_string(), value.clone())]),
+                        ),
+                    ])
+                })
+            });
+        let adapter = MetadataExtractingAdapter::new(inner, extractor);
+        let raw = serde_json::json!({
+            "choices": [{
+                "logprobs": {
+                    "content": [{
+                        "token": "hello",
+                        "logprob": -0.1,
+                        "bytes": [104, 101, 108, 108, 111],
+                        "top_logprobs": []
+                    }]
+                }
+            }],
+            "test_field": "test-value"
+        });
+
+        let metadata = adapter
+            .extract_response_provider_metadata(&raw)
+            .expect("metadata");
+        let openai = metadata.get("openai").expect("openai");
+        let test_provider = metadata.get("test-provider").expect("test-provider");
+        assert_eq!(openai["logprobs"][0]["token"], serde_json::json!("hello"));
+        assert_eq!(openai.get("extra"), Some(&serde_json::json!("test-value")));
+        assert_eq!(
+            test_provider.get("value"),
+            Some(&serde_json::json!("test-value"))
         );
     }
 }

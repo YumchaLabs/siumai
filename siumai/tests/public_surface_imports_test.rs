@@ -230,9 +230,10 @@ fn public_surface_openai_provider_ext_compiles() {
 fn public_surface_openai_compatible_provider_ext_compiles() {
     use siumai::provider_ext::openai_compatible::{
         ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig, ProviderAdapter,
-        ProviderCompatibility, ProviderConfig, get_provider_config, list_provider_ids,
-        provider_supports_capability,
+        ProviderCompatibility, ProviderConfig, ResponseMetadataExtractor, get_provider_config,
+        list_provider_ids, provider_supports_capability,
     };
+    use std::sync::Arc;
 
     let _ = size_of::<OpenAiCompatibleClient>();
     let _ = size_of::<OpenAiCompatibleConfig>();
@@ -242,6 +243,16 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
 
     fn _assert_adapter<T: ProviderAdapter>() {}
     _assert_adapter::<ConfigurableAdapter>();
+    fn _accept_metadata_extractor(_extractor: Arc<dyn ResponseMetadataExtractor>) {}
+    let extractor: Arc<dyn ResponseMetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
+        raw.get("test").map(|value| {
+            std::collections::HashMap::from([(
+                "test-provider".to_string(),
+                std::collections::HashMap::from([("value".to_string(), value.clone())]),
+            )])
+        })
+    });
+    _accept_metadata_extractor(extractor);
 
     let _ = get_provider_config("openrouter");
     let _ = list_provider_ids();

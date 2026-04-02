@@ -384,8 +384,8 @@ pub mod provider_ext {
     pub mod openai_compatible {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
             ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig, ProviderAdapter,
-            ProviderCompatibility, ProviderConfig, get_provider_config, list_provider_ids,
-            provider_supports_capability,
+            ProviderCompatibility, ProviderConfig, ResponseMetadataExtractor, get_provider_config,
+            list_provider_ids, provider_supports_capability,
         };
     }
 

@@ -3,6 +3,7 @@ use crate::builder::BuilderBase;
 use crate::execution::http::interceptor::{HttpInterceptor, LoggingInterceptor};
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
+use crate::providers::openai_compatible::ResponseMetadataExtractor;
 use crate::retry_api::RetryOptions;
 use std::sync::Arc;
 
@@ -58,6 +59,8 @@ pub struct OpenAiCompatibleBuilder {
     http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
     /// Additional model middlewares appended after provider auto-middlewares.
     extra_model_middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Optional public response-metadata extractor, mirroring AI SDK's compat provider hook.
+    response_metadata_extractor: Option<Arc<dyn ResponseMetadataExtractor>>,
     /// Enable lightweight HTTP debug logging interceptor
     http_debug: bool,
 }
@@ -88,6 +91,7 @@ impl OpenAiCompatibleBuilder {
             // Inherit interceptors/debug from unified builder
             http_interceptors: base.http_interceptors.clone(),
             extra_model_middlewares: Vec::new(),
+            response_metadata_extractor: None,
             http_debug: base.http_debug,
         }
     }
@@ -259,6 +263,23 @@ impl OpenAiCompatibleBuilder {
     ) -> Self {
         self.extra_model_middlewares = middlewares;
         self
+    }
+
+    /// Install a public response-metadata extractor for this OpenAI-compatible provider.
+    ///
+    /// This mirrors AI SDK's `metadataExtractor` setting and is merged on top of the built-in
+    /// provider adapter metadata policy.
+    pub fn with_metadata_extractor(
+        mut self,
+        extractor: Arc<dyn ResponseMetadataExtractor>,
+    ) -> Self {
+        self.response_metadata_extractor = Some(extractor);
+        self
+    }
+
+    /// Alias for `with_metadata_extractor(...)`.
+    pub fn metadata_extractor(self, extractor: Arc<dyn ResponseMetadataExtractor>) -> Self {
+        self.with_metadata_extractor(extractor)
     }
 
     /// Alias for `with_http_transport(...)` (Vercel-aligned: `fetch`).
@@ -511,6 +532,9 @@ impl OpenAiCompatibleBuilder {
         }
 
         config = config.with_common_params(self.common_params);
+        if let Some(extractor) = self.response_metadata_extractor.clone() {
+            config = config.with_metadata_extractor(extractor);
+        }
 
         let mut final_http_config = self.http_config;
         if let Some(timeout) = self.base.timeout {
@@ -660,6 +684,37 @@ mod tests {
             Some(&"2".to_string())
         );
         assert_eq!(config.http_interceptors.len(), 2);
+    }
+
+    #[test]
+    fn openai_compatible_builder_installs_metadata_extractor() {
+        let extractor: Arc<dyn ResponseMetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
+            raw.get("test_field").map(|value| {
+                std::collections::HashMap::from([(
+                    "test-provider".to_string(),
+                    std::collections::HashMap::from([("value".to_string(), value.clone())]),
+                )])
+            })
+        });
+
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .api_key("test-key")
+            .model("deepseek-chat")
+            .with_metadata_extractor(extractor)
+            .into_config()
+            .expect("into_config ok");
+
+        let metadata = config
+            .adapter
+            .extract_response_provider_metadata(&serde_json::json!({
+                "test_field": "test-value"
+            }))
+            .expect("metadata");
+        let provider = metadata.get("test-provider").expect("provider metadata");
+        assert_eq!(
+            provider.get("value"),
+            Some(&serde_json::json!("test-value"))
+        );
     }
 
     #[test]

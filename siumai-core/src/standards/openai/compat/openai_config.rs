@@ -2,7 +2,7 @@
 //!
 //! This module provides configuration types for OpenAI-compatible providers.
 
-use super::adapter::ProviderAdapter;
+use super::adapter::{MetadataExtractingAdapter, ProviderAdapter, ResponseMetadataExtractor};
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
@@ -237,6 +237,20 @@ impl OpenAiCompatibleConfig {
         self
     }
 
+    /// Install a public response-metadata extractor on top of the current provider adapter.
+    ///
+    /// This mirrors AI SDK's OpenAI-compatible `metadataExtractor` hook without requiring callers
+    /// to reimplement the full provider adapter.
+    pub fn with_metadata_extractor(
+        mut self,
+        extractor: Arc<dyn ResponseMetadataExtractor>,
+    ) -> Self {
+        let adapter = self.adapter.clone_adapter();
+        self.adapter = Arc::from(Box::new(MetadataExtractingAdapter::new(adapter, extractor))
+            as Box<dyn ProviderAdapter>);
+        self
+    }
+
     /// Enable provider-native thinking mode when supported.
     pub fn with_thinking(mut self, enable: bool) -> Self {
         match self.provider_id.as_str() {
@@ -364,6 +378,7 @@ impl OpenAiCompatibleConfig {
 mod tests {
     use super::*;
     use crate::traits::ProviderCapabilities;
+    use std::collections::HashMap;
 
     #[test]
     fn test_config_creation() {
@@ -833,5 +848,68 @@ mod tests {
             .expect("transform request params");
         assert_eq!(params["enable_reasoning"], serde_json::json!(true));
         assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
+    }
+
+    #[test]
+    fn test_config_with_metadata_extractor_wraps_adapter() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter;
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed("test")
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let extractor: Arc<dyn ResponseMetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
+            raw.get("test_field").map(|value| {
+                HashMap::from([(
+                    "test-provider".to_string(),
+                    HashMap::from([("value".to_string(), value.clone())]),
+                )])
+            })
+        });
+
+        let config = OpenAiCompatibleConfig::new(
+            "test",
+            "test-key",
+            "https://api.test.com/v1",
+            Arc::new(DummyAdapter),
+        )
+        .with_metadata_extractor(extractor);
+
+        let metadata = config
+            .adapter
+            .extract_response_provider_metadata(&serde_json::json!({
+                "test_field": "test-value"
+            }))
+            .expect("metadata");
+        let provider = metadata.get("test-provider").expect("provider metadata");
+        assert_eq!(
+            provider.get("value"),
+            Some(&serde_json::json!("test-value"))
+        );
     }
 }
