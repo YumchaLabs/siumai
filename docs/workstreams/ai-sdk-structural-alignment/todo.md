@@ -394,6 +394,8 @@ Status legend:
     `usage.completion_tokens_details`
   - the same public-path fixture now also pins terminal response-envelope fields such as
     `system_fingerprint` / `service_tier`
+  - Azure model-router `prompt_filter_results` preludes with empty `id` / `model` and
+    `created = 0` now defer `response-metadata` until a real metadata chunk arrives
   - the remaining OpenAI-compatible parity audit is now mostly rarer raw-hint cleanup rather than
     missing core source/metadata/logprobs/prediction-token fixtures
 

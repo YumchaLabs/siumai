@@ -208,6 +208,16 @@ pub struct OpenAiCompatibleEventConverter {
 }
 
 impl OpenAiCompatibleEventConverter {
+    fn created_datetime_from_unix_seconds(
+        ts: Option<u64>,
+    ) -> Option<chrono::DateTime<chrono::Utc>> {
+        let ts = ts?;
+        if ts == 0 {
+            return None;
+        }
+        chrono::DateTime::from_timestamp(ts as i64, 0)
+    }
+
     /// Create a new event converter
     pub fn new(config: OpenAiCompatibleConfig, adapter: Arc<dyn ProviderAdapter>) -> Self {
         Self {
@@ -480,9 +490,7 @@ impl OpenAiCompatibleEventConverter {
         ResponseMetadata {
             id: event.id.clone(),
             model: event.model.clone(),
-            created: event.created.map(|ts| {
-                chrono::DateTime::from_timestamp(ts as i64, 0).unwrap_or_else(chrono::Utc::now)
-            }),
+            created: Self::created_datetime_from_unix_seconds(event.created),
             provider: self.config.provider_id.clone(),
             request_id: None,
         }
@@ -492,9 +500,8 @@ impl OpenAiCompatibleEventConverter {
     fn create_stream_start_metadata_from_json(&self, json: &serde_json::Value) -> ResponseMetadata {
         let id = self.extract_non_empty_string(json, "id");
         let model = self.extract_model_from_json(json);
-        let created = json.get("created").and_then(|v| v.as_u64()).map(|ts| {
-            chrono::DateTime::from_timestamp(ts as i64, 0).unwrap_or_else(chrono::Utc::now)
-        });
+        let created =
+            Self::created_datetime_from_unix_seconds(json.get("created").and_then(|v| v.as_u64()));
         ResponseMetadata {
             id,
             model,
@@ -515,9 +522,9 @@ impl OpenAiCompatibleEventConverter {
             state.model = Some(model);
         }
 
-        if let Some(created) = json.get("created").and_then(|v| v.as_u64()).map(|ts| {
-            chrono::DateTime::from_timestamp(ts as i64, 0).unwrap_or_else(chrono::Utc::now)
-        }) {
+        if let Some(created) =
+            Self::created_datetime_from_unix_seconds(json.get("created").and_then(|v| v.as_u64()))
+        {
             state.created = Some(created);
         }
 
@@ -711,13 +718,11 @@ impl OpenAiCompatibleEventConverter {
     }
 
     fn extract_model_from_json(&self, json: &serde_json::Value) -> Option<String> {
-        match json.get("model") {
-            Some(v) => match v.as_str().map(str::trim) {
-                Some(s) if !s.is_empty() => Some(s.to_string()),
-                _ => (!self.config.model.trim().is_empty()).then(|| self.config.model.clone()),
-            },
-            None => None,
-        }
+        json.get("model")
+            .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
     }
 
     /// Extract content from stream event using dynamic field accessor

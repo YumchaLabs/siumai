@@ -455,7 +455,7 @@ Provider id: `openai` (Chat Completions API)
 
 ### Done
 
-- [x] Azure model router: initial chunk can emit empty `id`/`model` (fall back to request model); aligned via `azure-model-router.1`
+- [x] Azure model router: initial `prompt_filter_results` prelude can emit empty `id` / `model` plus `created = 0`; streaming now defers `response-metadata` until the first real metadata chunk instead of synthesizing placeholder response metadata, aligned via `azure-model-router.1`
 
 ## OpenAI Chat Messages (Files)
 

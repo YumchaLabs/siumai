@@ -832,6 +832,103 @@ async fn parser_emits_stream_start_and_response_metadata_parts_on_first_chunk() 
 }
 
 #[tokio::test]
+async fn parser_defers_response_metadata_until_model_router_chunk_has_real_metadata() {
+    let converter = make_converter();
+
+    let prompt_filter_chunk = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[],"created":0,"id":"","model":"","object":"","prompt_filter_results":[{"prompt_index":0,"content_filter_results":{"hate":{"filtered":false,"severity":"safe"}}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let first_events: Vec<ChatStreamEvent> = converter
+        .convert_event(prompt_filter_chunk)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+
+    assert!(matches!(
+        first_events.first(),
+        Some(ChatStreamEvent::StreamStart { metadata })
+            if metadata.id.is_none()
+                && metadata.model.is_none()
+                && metadata.created.is_none()
+    ));
+    assert!(
+        !first_events.iter().any(|event| matches!(
+            event,
+            ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ResponseMetadata(_)
+            }
+        )),
+        "prompt-filter prelude must not emit response metadata"
+    );
+
+    let actual_chunk = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"content_filter_results":{},"delta":{"content":"","refusal":null,"role":"assistant"},"finish_reason":null,"index":0,"logprobs":null}],"created":1762317021,"id":"chatcmpl-CYPS1lijGoK8gd9lYzY3r9Sx50nbt","model":"gpt-5-nano-2025-08-07","object":"chat.completion.chunk","system_fingerprint":null,"usage":null}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let second_events: Vec<ChatStreamEvent> = converter
+        .convert_event(actual_chunk)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+
+    assert!(matches!(
+        second_events
+            .iter()
+            .find(|event| matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ResponseMetadata(_)
+                }
+            )),
+        Some(ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ResponseMetadata(metadata)
+        }) if metadata.id.as_deref() == Some("chatcmpl-CYPS1lijGoK8gd9lYzY3r9Sx50nbt")
+            && metadata.model.as_deref() == Some("gpt-5-nano-2025-08-07")
+            && metadata
+                .created
+                .as_ref()
+                .map(|created| created.timestamp())
+                == Some(1_762_317_021)
+    ));
+
+    let later_chunk = Event {
+        event: "".to_string(),
+        data: r#"{"choices":[{"content_filter_results":{"hate":{"filtered":false,"severity":"safe"}},"delta":{"content":"Capital"},"finish_reason":null,"index":0,"logprobs":null}],"created":1762317021,"id":"chatcmpl-CYPS1lijGoK8gd9lYzY3r9Sx50nbt","model":"gpt-5-nano-2025-08-07","object":"chat.completion.chunk","system_fingerprint":null,"usage":null}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let third_events: Vec<ChatStreamEvent> = converter
+        .convert_event(later_chunk)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+
+    assert!(
+        !third_events.iter().any(|event| matches!(
+            event,
+            ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::ResponseMetadata(_)
+            }
+        )),
+        "response metadata should only be emitted once after real metadata appears"
+    );
+}
+
+#[tokio::test]
 async fn parser_emits_text_reasoning_lifecycle_parts_without_duplicate_deltas() {
     let converter = make_converter();
 
