@@ -10,7 +10,7 @@ use siumai_core::bridge::{
     BridgeWarningKind, RequestBridgeContext, RequestBridgeHook, RequestBridgePhase,
     ResponseBridgeContext, StreamBridgeContext,
 };
-use siumai_core::types::{ChatMessage, ChatRequest, ContentPart};
+use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, ProviderOptionsMap};
 
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 use siumai_core::types::{ProviderDefinedTool, Tool};
@@ -307,10 +307,11 @@ fn best_effort_openai_responses_bridge_returns_json_and_report() {
         ChatMessage::assistant_with_content(vec![
             ContentPart::Reasoning {
                 text: "hidden chain of thought".to_string(),
-                provider_metadata: Some(HashMap::from([(
+                provider_options: ProviderOptionsMap(std::collections::BTreeMap::from([(
                     "openai".to_string(),
                     json!({ "itemId": "rs_1" }),
                 )])),
+                provider_metadata: None,
             },
             ContentPart::text("visible answer"),
         ])
@@ -493,15 +494,18 @@ fn anthropic_direct_pair_customization_can_rewrite_provider_tool_before_openai_t
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 #[test]
 fn anthropic_direct_pair_bridge_replays_assistant_reasoning_without_openai_item_id() {
-    let mut assistant = ChatMessage::assistant_with_content(vec![
-        ContentPart::reasoning("hidden chain of thought"),
+    let assistant = ChatMessage::assistant_with_content(vec![
+        ContentPart::Reasoning {
+            text: "hidden chain of thought".to_string(),
+            provider_options: ProviderOptionsMap(std::collections::BTreeMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({ "redactedData": "enc_payload" }),
+            )])),
+            provider_metadata: None,
+        },
         ContentPart::text("final answer"),
     ])
     .build();
-    assistant.metadata.custom.insert(
-        "anthropic_redacted_thinking_data".to_string(),
-        serde_json::json!("enc_payload"),
-    );
 
     let request = ChatRequest::builder()
         .message(assistant)
@@ -537,6 +541,60 @@ fn anthropic_direct_pair_bridge_replays_assistant_reasoning_without_openai_item_
     assert_eq!(
         reasoning_item["summary"][0]["text"],
         serde_json::json!("hidden chain of thought")
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn anthropic_direct_pair_bridge_ignores_reasoning_provider_metadata_fallback() {
+    let assistant = ChatMessage::assistant_with_content(vec![
+        ContentPart::Reasoning {
+            text: "hidden chain of thought".to_string(),
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "anthropic".to_string(),
+                serde_json::json!({ "redactedData": "enc_payload" }),
+            )])),
+        },
+        ContentPart::text("final answer"),
+    ])
+    .build();
+
+    let request = ChatRequest::builder()
+        .message(assistant)
+        .model("gpt-4.1-mini")
+        .build();
+
+    let bridged = bridge_chat_request_to_openai_responses_json(
+        &request,
+        Some(BridgeTarget::AnthropicMessages),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    let value = bridged.value.expect("json body");
+    let input = value
+        .get("input")
+        .and_then(|value| value.as_array())
+        .expect("responses input array");
+
+    let reasoning_item = input
+        .iter()
+        .find(|item| item.get("type").and_then(|value| value.as_str()) == Some("reasoning"))
+        .expect("expected reasoning item");
+
+    assert!(
+        reasoning_item.get("encrypted_content").is_none(),
+        "legacy providerMetadata.anthropic should not populate encrypted_content: {reasoning_item:?}"
+    );
+    assert!(
+        !bridged
+            .report
+            .carried_provider_metadata
+            .iter()
+            .any(|entry| entry == "anthropic.redactedData"),
+        "legacy providerMetadata.anthropic should not be carried into request replay: {:?}",
+        bridged.report.carried_provider_metadata
     );
 }
 
@@ -811,13 +869,14 @@ fn openai_direct_pair_bridge_maps_reasoning_encrypted_content_to_redacted_thinki
             ChatMessage::assistant_with_content(vec![
                 ContentPart::Reasoning {
                     text: "hidden chain of thought".to_string(),
-                    provider_metadata: Some(HashMap::from([(
+                    provider_options: ProviderOptionsMap(std::collections::BTreeMap::from([(
                         "openai".to_string(),
                         json!({
                             "itemId": "rs_1",
                             "reasoningEncryptedContent": "enc_payload"
                         }),
                     )])),
+                    provider_metadata: None,
                 },
                 ContentPart::text("final answer"),
             ])
@@ -854,6 +913,77 @@ fn openai_direct_pair_bridge_maps_reasoning_encrypted_content_to_redacted_thinki
                     .is_some_and(|value| value == "enc_payload")
         }),
         "expected redacted thinking block"
+    );
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn openai_direct_pair_bridge_ignores_reasoning_provider_metadata_fallback() {
+    let request = ChatRequest::builder()
+        .message(
+            ChatMessage::assistant_with_content(vec![
+                ContentPart::Reasoning {
+                    text: "hidden chain of thought".to_string(),
+                    provider_options: ProviderOptionsMap::default(),
+                    provider_metadata: Some(std::collections::HashMap::from([(
+                        "openai".to_string(),
+                        json!({
+                            "itemId": "rs_1",
+                            "reasoningEncryptedContent": "enc_payload"
+                        }),
+                    )])),
+                },
+                ContentPart::text("final answer"),
+            ])
+            .build(),
+        )
+        .model("claude-3-5-sonnet-latest")
+        .build();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(bridged.report.is_lossy());
+    assert!(
+        bridged
+            .report
+            .lossy_fields
+            .iter()
+            .any(|field| field == "messages[0].content[0].reasoning"),
+        "expected loss warning for missing canonical Anthropic replay metadata: {:?}",
+        bridged.report.lossy_fields
+    );
+    assert!(
+        !bridged
+            .report
+            .carried_provider_metadata
+            .iter()
+            .any(|entry| entry == "openai.reasoning_encrypted_content"),
+        "legacy providerMetadata.openai should not be carried into Anthropic replay: {:?}",
+        bridged.report.carried_provider_metadata
+    );
+
+    let value = bridged.value.expect("json body");
+    let messages = value
+        .get("messages")
+        .and_then(|value| value.as_array())
+        .expect("anthropic messages array");
+    let content = messages[0]
+        .get("content")
+        .and_then(|value| value.as_array())
+        .expect("assistant content");
+
+    assert!(
+        !content.iter().any(|part| {
+            part.get("type")
+                .and_then(|value| value.as_str())
+                .is_some_and(|kind| kind == "redacted_thinking")
+        }),
+        "legacy providerMetadata.openai should not synthesize redacted_thinking: {content:?}"
     );
 }
 
@@ -909,7 +1039,7 @@ fn openai_direct_pair_bridge_lifts_response_format_and_reasoning_effort() {
     );
 }
 
-#[cfg(feature = "anthropic")]
+#[cfg(all(feature = "anthropic", feature = "openai"))]
 #[test]
 fn anthropic_bridge_reports_cache_breakpoints_beyond_limit() {
     let mut request = ChatRequest::new(vec![
@@ -945,6 +1075,48 @@ fn anthropic_bridge_reports_cache_breakpoints_beyond_limit() {
         "messages[4].metadata.cache_control"
     );
     assert!(bridged.value.is_some());
+}
+
+#[cfg(all(feature = "anthropic", feature = "openai"))]
+#[test]
+fn anthropic_bridge_reports_part_cache_breakpoints_from_canonical_provider_options() {
+    let mut request = ChatRequest::new(vec![
+        ChatMessage::user("u1")
+            .with_content_parts(vec![ContentPart::text("cached")])
+            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .build(),
+        ChatMessage::user("u2")
+            .with_content_parts(vec![ContentPart::text("cached")])
+            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .build(),
+        ChatMessage::user("u3")
+            .with_content_parts(vec![ContentPart::text("cached")])
+            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .build(),
+        ChatMessage::user("u4")
+            .with_content_parts(vec![ContentPart::text("cached")])
+            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .build(),
+        ChatMessage::user("u5")
+            .with_content_parts(vec![ContentPart::text("cached")])
+            .cache_control_for_part(1, siumai_core::types::CacheControl::Ephemeral)
+            .build(),
+    ]);
+    request.common_params.model = "claude-3-5-sonnet-latest".to_string();
+
+    let bridged = bridge_chat_request_to_anthropic_messages_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::BestEffort,
+    )
+    .expect("bridge");
+
+    assert!(bridged.report.is_lossy());
+    assert_eq!(bridged.report.dropped_fields.len(), 1);
+    assert_eq!(
+        bridged.report.dropped_fields[0],
+        "messages[4].content[1].cache_control"
+    );
 }
 
 #[cfg(feature = "openai")]
@@ -1279,16 +1451,16 @@ fn openai_responses_request_normalization_restores_instructions_and_options() {
         .expect("reasoning multimodal");
     let ContentPart::Reasoning {
         text,
-        provider_metadata,
+        provider_options,
+        ..
     } = &reasoning_parts[0]
     else {
         panic!("expected reasoning part");
     };
     assert_eq!(text, "step 1");
     assert_eq!(
-        provider_metadata
-            .as_ref()
-            .and_then(|meta| meta.get("openai"))
+        provider_options
+            .get_object("openai")
             .and_then(|meta| meta.get("itemId"))
             .and_then(|value| value.as_str()),
         Some("rs_1")
@@ -1465,7 +1637,7 @@ fn openai_responses_request_normalization_restores_provider_tool_calls_and_outpu
         tool_call_id,
         tool_name,
         arguments,
-        provider_metadata,
+        provider_options,
         ..
     } = &shell_call_parts[0]
     else {
@@ -1483,9 +1655,8 @@ fn openai_responses_request_normalization_restores_provider_tool_calls_and_outpu
         })
     );
     assert_eq!(
-        provider_metadata
-            .as_ref()
-            .and_then(|meta| meta.get("openai"))
+        provider_options
+            .get_object("openai")
             .and_then(|meta| meta.get("itemId"))
             .and_then(|value| value.as_str()),
         Some("lsh_1")
@@ -1527,7 +1698,7 @@ fn openai_responses_request_normalization_restores_provider_tool_calls_and_outpu
         tool_call_id,
         tool_name,
         arguments,
-        provider_metadata,
+        provider_options,
         ..
     } = &apply_patch_call_parts[0]
     else {
@@ -1546,9 +1717,8 @@ fn openai_responses_request_normalization_restores_provider_tool_calls_and_outpu
         })
     );
     assert_eq!(
-        provider_metadata
-            .as_ref()
-            .and_then(|meta| meta.get("openai"))
+        provider_options
+            .get_object("openai")
             .and_then(|meta| meta.get("itemId"))
             .and_then(|value| value.as_str()),
         Some("apc_1")
@@ -1601,7 +1771,11 @@ fn anthropic_messages_request_normalization_restores_system_thinking_and_provide
             {
                 "role": "user",
                 "content": [
-                    { "type": "text", "text": "hi" },
+                    {
+                        "type": "text",
+                        "text": "hi",
+                        "cache_control": { "type": "ephemeral" }
+                    },
                     {
                         "type": "document",
                         "source": {
@@ -1696,6 +1870,43 @@ fn anthropic_messages_request_normalization_restores_system_thinking_and_provide
     assert_eq!(normalized.messages[3].role, MessageRole::Tool);
     assert_eq!(normalized.messages[4].role, MessageRole::Assistant);
     assert_eq!(normalized.messages[4].tool_calls().len(), 1);
+    let user_parts = normalized.messages[2]
+        .content
+        .as_multimodal()
+        .expect("user parts");
+    let user_text_anthropic = user_parts[0]
+        .provider_options()
+        .and_then(|provider_options| provider_options.get_object("anthropic"))
+        .expect("text anthropic provider options");
+    assert_eq!(
+        user_text_anthropic["cacheControl"],
+        json!({ "type": "ephemeral" })
+    );
+    let user_doc_anthropic = user_parts[1]
+        .provider_options()
+        .and_then(|provider_options| provider_options.get_object("anthropic"))
+        .expect("document anthropic provider options");
+    assert_eq!(user_doc_anthropic["citations"], json!({ "enabled": true }));
+    assert_eq!(user_doc_anthropic["title"], json!("doc.pdf"));
+    assert_eq!(user_doc_anthropic["context"], json!("ctx"));
+    assert!(
+        !normalized.messages[2]
+            .metadata
+            .custom
+            .contains_key("anthropic_content_cache_controls")
+    );
+    assert!(
+        !normalized.messages[2]
+            .metadata
+            .custom
+            .contains_key("anthropic_document_citations")
+    );
+    assert!(
+        !normalized.messages[2]
+            .metadata
+            .custom
+            .contains_key("anthropic_document_metadata")
+    );
 
     let anthropic_options = normalized
         .provider_option("anthropic")

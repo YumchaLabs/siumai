@@ -7,7 +7,7 @@ use crate::experimental_bridge::lifecycle::{
     new_bridge_report, new_request_normalize_context, reject_if_needed,
 };
 #[cfg(feature = "anthropic")]
-use std::collections::BTreeMap;
+use base64::Engine;
 #[cfg(any(feature = "google", feature = "google-vertex"))]
 use std::collections::VecDeque;
 use std::collections::{BTreeSet, HashMap};
@@ -21,8 +21,8 @@ use siumai_core::bridge::{BridgeOptions, BridgeResult, BridgeTarget};
 use siumai_core::types::CacheControl;
 use siumai_core::types::chat::{ImageDetail, MediaSource, ResponseFormat};
 use siumai_core::types::{
-    ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole, Tool,
-    ToolChoice, ToolResultContentPart, ToolResultOutput,
+    ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
+    ProviderOptionsMap, Tool, ToolChoice, ToolResultContentPart, ToolResultOutput,
 };
 #[cfg(any(feature = "google", feature = "google-vertex"))]
 use siumai_protocol_gemini::standards::gemini::types::{
@@ -33,16 +33,6 @@ use siumai_protocol_gemini::standards::gemini::types::{
 };
 #[cfg(any(feature = "google", feature = "google-vertex"))]
 use uuid::Uuid;
-
-#[cfg(feature = "anthropic")]
-#[derive(Debug, Default)]
-struct AnthropicMessageParseState {
-    part_cache_controls: Map<String, Value>,
-    document_citations: Map<String, Value>,
-    document_metadata: Map<String, Value>,
-    thinking_signatures: BTreeMap<usize, String>,
-    redacted_thinking_data: Option<String>,
-}
 
 #[derive(Debug, Default)]
 struct ResponsesToolRegistry {
@@ -611,11 +601,13 @@ fn parse_gemini_part(
             if thought.unwrap_or(false) {
                 Some(ContentPart::Reasoning {
                     text: text.clone(),
+                    provider_options: ProviderOptionsMap::default(),
                     provider_metadata,
                 })
             } else {
                 Some(ContentPart::Text {
                     text: text.clone(),
+                    provider_options: ProviderOptionsMap::default(),
                     provider_metadata,
                 })
             }
@@ -623,6 +615,7 @@ fn parse_gemini_part(
         GeminiPart::InlineData {
             inline_data,
             thought_signature,
+            ..
         } => Some(parse_gemini_inline_data_part(
             &inline_data.mime_type,
             &inline_data.data,
@@ -631,6 +624,7 @@ fn parse_gemini_part(
         GeminiPart::FileData {
             file_data,
             thought_signature,
+            ..
         } => Some(parse_gemini_file_data_part(
             &file_data.file_uri,
             file_data.mime_type.as_deref(),
@@ -650,6 +644,7 @@ fn parse_gemini_part(
                     .clone()
                     .unwrap_or_else(|| Value::Object(Map::new())),
                 provider_executed: None,
+                provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
                 ),
@@ -666,6 +661,7 @@ fn parse_gemini_part(
                 tool_name: function_response.name.clone(),
                 output: parse_gemini_function_response_output(&function_response.response),
                 provider_executed: None,
+                provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
                 ),
@@ -691,6 +687,7 @@ fn parse_gemini_part(
                     "code": executable_code.code.clone(),
                 }),
                 provider_executed: Some(true),
+                provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
                 ),
@@ -716,6 +713,7 @@ fn parse_gemini_part(
                     "output": code_execution_result.output.clone(),
                 })),
                 provider_executed: Some(true),
+                provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
                 ),
@@ -737,6 +735,7 @@ fn parse_gemini_inline_data_part(
                 data: data.to_string(),
             },
             detail: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         }
     } else if mime_type.starts_with("audio/") {
@@ -745,6 +744,7 @@ fn parse_gemini_inline_data_part(
                 data: data.to_string(),
             },
             media_type: Some(mime_type.to_string()),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         }
     } else {
@@ -754,6 +754,7 @@ fn parse_gemini_inline_data_part(
             },
             media_type: mime_type.to_string(),
             filename: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         }
     }
@@ -772,6 +773,7 @@ fn parse_gemini_file_data_part(
                 url: file_uri.to_string(),
             },
             detail: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         },
         Some(mime) if mime.starts_with("audio/") => ContentPart::Audio {
@@ -779,6 +781,7 @@ fn parse_gemini_file_data_part(
                 url: file_uri.to_string(),
             },
             media_type: Some(mime.to_string()),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         },
         Some(mime) => ContentPart::File {
@@ -787,6 +790,7 @@ fn parse_gemini_file_data_part(
             },
             media_type: mime.to_string(),
             filename: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         },
         None => ContentPart::File {
@@ -795,6 +799,7 @@ fn parse_gemini_file_data_part(
             },
             media_type: "application/octet-stream".to_string(),
             filename: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         },
     }
@@ -1243,6 +1248,7 @@ fn parse_openai_chat_tool_message(
             tool_name,
             output: parse_tool_result_output_from_string(&content, false),
             provider_executed: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }],
     ))
@@ -1318,6 +1324,7 @@ fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, 
         Some(Value::String(url)) => Ok(ContentPart::Image {
             source: MediaSource::Url { url: url.clone() },
             detail: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }),
         Some(Value::Object(image)) => {
@@ -1329,6 +1336,7 @@ fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, 
             Ok(ContentPart::Image {
                 source: MediaSource::Url { url },
                 detail,
+                provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,
             })
         }
@@ -1355,6 +1363,7 @@ fn parse_openai_input_audio_part(obj: &Map<String, Value>) -> Result<ContentPart
     Ok(ContentPart::Audio {
         source: MediaSource::Base64 { data },
         media_type: Some(media_type),
+        provider_options: ProviderOptionsMap::default(),
         provider_metadata: None,
     })
 }
@@ -1370,6 +1379,7 @@ fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmEr
             source: MediaSource::Base64 { data: file_id },
             media_type: "application/pdf".to_string(),
             filename: optional_string(file, "filename"),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -1380,6 +1390,7 @@ fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmEr
             },
             media_type: "application/pdf".to_string(),
             filename: optional_string(file, "filename"),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -1742,24 +1753,33 @@ fn parse_openai_responses_image_part(
     obj: &Map<String, Value>,
     file_id_prefixes: &mut BTreeSet<String>,
 ) -> ContentPart {
+    let provider_options = openai_image_detail_provider_options(obj);
+
     if let Some(file_id) = optional_string(obj, "file_id") {
         record_openai_file_id_prefix(file_id_prefixes, &file_id);
         return ContentPart::File {
             source: MediaSource::Base64 { data: file_id },
             media_type: "image/*".to_string(),
             filename: None,
+            provider_options,
             provider_metadata: None,
         };
     }
 
-    ContentPart::Image {
-        source: MediaSource::Url {
-            url: optional_string(obj, "image_url").unwrap_or_default(),
-        },
-        detail: obj
-            .get("detail")
-            .and_then(Value::as_str)
-            .map(ImageDetail::from),
+    let image_url = optional_string(obj, "image_url").unwrap_or_default();
+    let source = if image_url.starts_with("data:") {
+        MediaSource::Base64 {
+            data: strip_data_url_prefix(&image_url),
+        }
+    } else {
+        MediaSource::Url { url: image_url }
+    };
+
+    ContentPart::File {
+        source,
+        media_type: infer_image_media_type(obj),
+        filename: None,
+        provider_options,
         provider_metadata: None,
     }
 }
@@ -1774,6 +1794,7 @@ fn parse_openai_responses_file_part(
             source: MediaSource::Base64 { data: file_id },
             media_type: "application/pdf".to_string(),
             filename: optional_string(obj, "filename"),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -1782,6 +1803,7 @@ fn parse_openai_responses_file_part(
             source: MediaSource::Url { url: file_url },
             media_type: infer_document_media_type(None, None),
             filename: optional_string(obj, "filename"),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -1792,6 +1814,7 @@ fn parse_openai_responses_file_part(
             },
             media_type: "application/pdf".to_string(),
             filename: optional_string(obj, "filename"),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
     }
@@ -1804,23 +1827,30 @@ fn parse_openai_responses_file_part(
 fn parse_openai_responses_reasoning_item(
     obj: &Map<String, Value>,
 ) -> Result<ChatMessage, LlmError> {
-    let item_id = required_string(obj, "id", "OpenAI Responses reasoning item")?;
     let text = collect_reasoning_summary(obj.get("summary")).unwrap_or_default();
-    let mut provider_metadata = HashMap::new();
-    let mut openai_meta = Map::new();
-    openai_meta.insert("itemId".to_string(), Value::String(item_id));
+    let mut openai_options = Map::new();
+    if let Some(item_id) = optional_string(obj, "id")
+        && !item_id.is_empty()
+    {
+        openai_options.insert("itemId".to_string(), Value::String(item_id));
+    }
     if let Some(encrypted) = obj.get("encrypted_content")
         && !encrypted.is_null()
     {
-        openai_meta.insert("reasoningEncryptedContent".to_string(), encrypted.clone());
+        openai_options.insert("reasoningEncryptedContent".to_string(), encrypted.clone());
     }
-    provider_metadata.insert("openai".to_string(), Value::Object(openai_meta));
+
+    let mut provider_options = ProviderOptionsMap::default();
+    if !openai_options.is_empty() {
+        provider_options.insert("openai", Value::Object(openai_options));
+    }
 
     Ok(message_from_parts(
         MessageRole::Assistant,
         vec![ContentPart::Reasoning {
             text,
-            provider_metadata: Some(provider_metadata),
+            provider_options,
+            provider_metadata: None,
         }],
     ))
 }
@@ -1837,7 +1867,7 @@ fn parse_openai_responses_function_call_item(
         .map(parse_embedded_json)
         .transpose()?
         .unwrap_or_else(|| Value::Object(Map::new()));
-    let provider_metadata = openai_item_id_metadata(obj);
+    let provider_options = openai_item_id_provider_options(obj);
 
     Ok(message_from_parts(
         MessageRole::Assistant,
@@ -1846,7 +1876,8 @@ fn parse_openai_responses_function_call_item(
             tool_name,
             arguments,
             provider_executed: None,
-            provider_metadata,
+            provider_options,
+            provider_metadata: None,
         }],
     ))
 }
@@ -1867,7 +1898,7 @@ fn parse_openai_responses_provider_call_item(
             obj.get(payload_key).unwrap_or(&Value::Object(Map::new())),
         ),
     );
-    let provider_metadata = openai_item_id_metadata(obj);
+    let provider_options = openai_item_id_provider_options(obj);
 
     Ok(message_from_parts(
         MessageRole::Assistant,
@@ -1876,7 +1907,8 @@ fn parse_openai_responses_provider_call_item(
             tool_name,
             arguments: Value::Object(arguments),
             provider_executed: None,
-            provider_metadata,
+            provider_options,
+            provider_metadata: None,
         }],
     ))
 }
@@ -1900,6 +1932,7 @@ fn parse_openai_responses_function_call_output_item(
             tool_name,
             output,
             provider_executed: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }],
     ))
@@ -1944,6 +1977,7 @@ fn parse_openai_responses_provider_call_output_item(
             tool_name,
             output,
             provider_executed: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }],
     ))
@@ -1995,42 +2029,26 @@ fn parse_openai_responses_tool_output_parts(
             }
             "input_image" | "output_image" => {
                 if let Some(file_id) = optional_string(obj, "file_id") {
-                    parts.push(ToolResultContentPart::File {
-                        source: MediaSource::Base64 { data: file_id },
-                        media_type: "image/*".to_string(),
-                        filename: None,
-                    });
+                    parts.push(ToolResultContentPart::image_file_id(file_id));
                 } else {
-                    parts.push(ToolResultContentPart::Image {
-                        source: MediaSource::Url {
-                            url: optional_string(obj, "image_url").unwrap_or_default(),
-                        },
-                        detail: obj
-                            .get("detail")
-                            .and_then(Value::as_str)
-                            .map(ImageDetail::from),
-                    });
+                    parts.push(ToolResultContentPart::image_url(
+                        optional_string(obj, "image_url").unwrap_or_default(),
+                    ));
                 }
             }
             "input_file" => {
-                parts.push(match optional_string(obj, "file_url") {
-                    Some(url) => ToolResultContentPart::File {
-                        source: MediaSource::Url { url },
-                        media_type: infer_document_media_type(None, None),
-                        filename: optional_string(obj, "filename"),
-                    },
-                    None => ToolResultContentPart::File {
-                        source: MediaSource::Base64 {
-                            data: optional_string(obj, "file_id")
-                                .or_else(|| {
-                                    optional_string(obj, "file_data")
-                                        .map(|value| strip_data_url_prefix(&value))
-                                })
-                                .unwrap_or_default(),
-                        },
-                        media_type: "application/pdf".to_string(),
-                        filename: optional_string(obj, "filename"),
-                    },
+                parts.push(if let Some(url) = optional_string(obj, "file_url") {
+                    ToolResultContentPart::file_url(url)
+                } else if let Some(file_id) = optional_string(obj, "file_id") {
+                    ToolResultContentPart::file_id(file_id)
+                } else {
+                    ToolResultContentPart::file_data(
+                        optional_string(obj, "file_data")
+                            .map(|value| strip_data_url_prefix(&value))
+                            .unwrap_or_default(),
+                        "application/pdf",
+                        optional_string(obj, "filename"),
+                    )
                 });
             }
             other => {
@@ -2079,7 +2097,7 @@ fn parse_anthropic_message(value: &Value) -> Result<ChatMessage, LlmError> {
     let default_content = Value::String(String::new());
     let content = obj.get("content").unwrap_or(&default_content);
 
-    let (parts, parse_state) = parse_anthropic_message_parts(content)?;
+    let parts = parse_anthropic_message_parts(content)?;
     let all_tool_results = !parts.is_empty()
         && parts
             .iter()
@@ -2096,88 +2114,46 @@ fn parse_anthropic_message(value: &Value) -> Result<ChatMessage, LlmError> {
         }
     };
 
-    let mut message = message_from_parts(normalized_role, parts);
-    if !parse_state.part_cache_controls.is_empty() {
-        message.metadata.custom.insert(
-            "anthropic_content_cache_controls".to_string(),
-            Value::Object(parse_state.part_cache_controls),
-        );
-    }
-    if !parse_state.document_citations.is_empty() {
-        message.metadata.custom.insert(
-            "anthropic_document_citations".to_string(),
-            Value::Object(parse_state.document_citations),
-        );
-    }
-    if !parse_state.document_metadata.is_empty() {
-        message.metadata.custom.insert(
-            "anthropic_document_metadata".to_string(),
-            Value::Object(parse_state.document_metadata),
-        );
-    }
-    if parse_state.thinking_signatures.len() == 1 {
-        if let Some(value) = parse_state.thinking_signatures.values().next() {
-            message.metadata.custom.insert(
-                "anthropic_thinking_signature".to_string(),
-                Value::String(value.clone()),
-            );
-        }
-    } else if !parse_state.thinking_signatures.is_empty() {
-        message.metadata.custom.insert(
-            "anthropic_thinking_signatures".to_string(),
-            Value::Object(
-                parse_state
-                    .thinking_signatures
-                    .into_iter()
-                    .map(|(index, signature)| (index.to_string(), Value::String(signature)))
-                    .collect(),
-            ),
-        );
-    }
-    if let Some(redacted) = parse_state.redacted_thinking_data {
-        message.metadata.custom.insert(
-            "anthropic_redacted_thinking_data".to_string(),
-            Value::String(redacted),
-        );
-    }
-
-    Ok(message)
+    Ok(message_from_parts(normalized_role, parts))
 }
 
 #[cfg(feature = "anthropic")]
-fn parse_anthropic_message_parts(
-    value: &Value,
-) -> Result<(Vec<ContentPart>, AnthropicMessageParseState), LlmError> {
+fn parse_anthropic_message_parts(value: &Value) -> Result<Vec<ContentPart>, LlmError> {
     if let Some(text) = value.as_str() {
-        return Ok((
-            parse_text_like_content_parts(text),
-            AnthropicMessageParseState::default(),
-        ));
+        return Ok(parse_text_like_content_parts(text));
     }
 
     let mut parts = Vec::new();
-    let mut state = AnthropicMessageParseState::default();
 
     for value in expect_array(value, "Anthropic message.content")? {
         let obj = expect_object(value, "Anthropic message content block")?;
         let kind = required_string(obj, "type", "Anthropic message content block")?;
-        let index = parts.len();
-
-        if let Some(cache_control) = obj.get("cache_control").and_then(Value::as_object) {
-            state
-                .part_cache_controls
-                .insert(index.to_string(), Value::Object(cache_control.clone()));
-        }
+        let cache_control = obj.get("cache_control").and_then(parse_cache_control);
 
         match kind.as_str() {
             "text" => {
-                parts.extend(parse_text_like_content_parts(
+                let mut block_parts = parse_text_like_content_parts(
                     &optional_string(obj, "text").unwrap_or_default(),
-                ));
+                );
+                if let Some(cache_control) = cache_control.as_ref() {
+                    for part in &mut block_parts {
+                        apply_anthropic_part_cache_control(part, cache_control);
+                    }
+                }
+                parts.extend(block_parts);
             }
-            "image" => parts.push(parse_anthropic_image_part(obj)?),
+            "image" => {
+                let mut part = parse_anthropic_image_part(obj)?;
+                if let Some(cache_control) = cache_control.as_ref() {
+                    apply_anthropic_part_cache_control(&mut part, cache_control);
+                }
+                parts.push(part);
+            }
             "document" => {
-                let part = parse_anthropic_document_part(obj, index, &mut state)?;
+                let mut part = parse_anthropic_document_part(obj)?;
+                if let Some(cache_control) = cache_control.as_ref() {
+                    apply_anthropic_part_cache_control(&mut part, cache_control);
+                }
                 parts.push(part);
             }
             "tool_use" => {
@@ -2187,30 +2163,50 @@ fn parse_anthropic_message_parts(
                     .get("input")
                     .cloned()
                     .unwrap_or_else(|| Value::Object(Map::new()));
-                parts.push(ContentPart::tool_call(
-                    tool_call_id,
-                    tool_name,
-                    arguments,
-                    None,
-                ));
+                let mut part = ContentPart::tool_call(tool_call_id, tool_name, arguments, None);
+                if let Some(cache_control) = cache_control.as_ref() {
+                    apply_anthropic_part_cache_control(&mut part, cache_control);
+                }
+                parts.push(part);
             }
             "tool_result" => {
-                parts.push(parse_anthropic_tool_result_part(obj)?);
+                let mut part = parse_anthropic_tool_result_part(obj)?;
+                if let Some(cache_control) = cache_control.as_ref() {
+                    apply_anthropic_part_cache_control(&mut part, cache_control);
+                }
+                parts.push(part);
             }
             "thinking" => {
                 let text = optional_string(obj, "thinking").unwrap_or_default();
-                parts.push(ContentPart::reasoning(text));
+                let mut part = ContentPart::reasoning(text);
                 if let Some(signature) = optional_string(obj, "signature")
                     && !signature.is_empty()
                 {
-                    state.thinking_signatures.insert(index, signature);
+                    merge_anthropic_part_provider_options(
+                        &mut part,
+                        Map::from_iter([("signature".to_string(), Value::String(signature))]),
+                    );
                 }
+                if let Some(cache_control) = cache_control.as_ref() {
+                    apply_anthropic_part_cache_control(&mut part, cache_control);
+                }
+                parts.push(part);
             }
             "redacted_thinking" => {
-                parts.push(ContentPart::reasoning(String::new()));
-                if state.redacted_thinking_data.is_none() {
-                    state.redacted_thinking_data = optional_string(obj, "data");
+                let data = optional_string(obj, "data");
+                let mut part = ContentPart::reasoning(String::new());
+                if let Some(data) = data
+                    && !data.is_empty()
+                {
+                    merge_anthropic_part_provider_options(
+                        &mut part,
+                        Map::from_iter([("redactedData".to_string(), Value::String(data))]),
+                    );
                 }
+                if let Some(cache_control) = cache_control.as_ref() {
+                    apply_anthropic_part_cache_control(&mut part, cache_control);
+                }
+                parts.push(part);
             }
             other => {
                 return Err(LlmError::ParseError(format!(
@@ -2220,7 +2216,7 @@ fn parse_anthropic_message_parts(
         }
     }
 
-    Ok((parts, state))
+    Ok(parts)
 }
 
 #[cfg(feature = "anthropic")]
@@ -2248,47 +2244,13 @@ fn parse_anthropic_image_part(obj: &Map<String, Value>) -> Result<ContentPart, L
     Ok(ContentPart::Image {
         source: media_source,
         detail: None,
+        provider_options: ProviderOptionsMap::default(),
         provider_metadata: None,
     })
 }
 
 #[cfg(feature = "anthropic")]
-fn parse_anthropic_document_part(
-    obj: &Map<String, Value>,
-    index: usize,
-    state: &mut AnthropicMessageParseState,
-) -> Result<ContentPart, LlmError> {
-    if obj
-        .get("citations")
-        .and_then(Value::as_object)
-        .and_then(|citations| citations.get("enabled"))
-        .and_then(Value::as_bool)
-        == Some(true)
-    {
-        state
-            .document_citations
-            .insert(index.to_string(), json!({ "enabled": true }));
-    }
-
-    if obj.get("title").is_some() || obj.get("context").is_some() {
-        let mut meta = Map::new();
-        if let Some(title) = optional_string(obj, "title")
-            && !title.is_empty()
-        {
-            meta.insert("title".to_string(), Value::String(title));
-        }
-        if let Some(context) = optional_string(obj, "context")
-            && !context.is_empty()
-        {
-            meta.insert("context".to_string(), Value::String(context));
-        }
-        if !meta.is_empty() {
-            state
-                .document_metadata
-                .insert(index.to_string(), Value::Object(meta));
-        }
-    }
-
+fn parse_anthropic_document_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     let source = obj
         .get("source")
         .ok_or_else(|| {
@@ -2297,6 +2259,7 @@ fn parse_anthropic_document_part(
         .and_then(|value| expect_object(value, "Anthropic document block.source"))?;
     let source_type = required_string(source, "type", "Anthropic document block.source")?;
     let title = optional_string(obj, "title");
+    let context = optional_string(obj, "context");
 
     let (media_source, media_type) = match source_type.as_str() {
         "url" => {
@@ -2325,10 +2288,36 @@ fn parse_anthropic_document_part(
         }
     };
 
+    let mut provider_options = ProviderOptionsMap::default();
+    let mut anthropic = Map::new();
+    if obj
+        .get("citations")
+        .and_then(Value::as_object)
+        .and_then(|citations| citations.get("enabled"))
+        .and_then(Value::as_bool)
+        == Some(true)
+    {
+        anthropic.insert("citations".to_string(), json!({ "enabled": true }));
+    }
+    if let Some(title) = title.as_ref()
+        && !title.is_empty()
+    {
+        anthropic.insert("title".to_string(), Value::String(title.clone()));
+    }
+    if let Some(context) = context.as_ref()
+        && !context.is_empty()
+    {
+        anthropic.insert("context".to_string(), Value::String(context.clone()));
+    }
+    if !anthropic.is_empty() {
+        provider_options.insert("anthropic", Value::Object(anthropic));
+    }
+
     Ok(ContentPart::File {
         source: media_source,
         media_type,
         filename: title,
+        provider_options,
         provider_metadata: None,
     })
 }
@@ -2349,6 +2338,7 @@ fn parse_anthropic_tool_result_part(obj: &Map<String, Value>) -> Result<ContentP
         tool_name: String::new(),
         output,
         provider_executed: None,
+        provider_options: ProviderOptionsMap::default(),
         provider_metadata: None,
     })
 }
@@ -2413,10 +2403,16 @@ fn parse_anthropic_tool_result_content(
                         )));
                     }
                 };
-                out.push(ToolResultContentPart::Image {
-                    source: media_source,
-                    detail: None,
-                });
+                match media_source {
+                    MediaSource::Url { url } => out.push(ToolResultContentPart::image_url(url)),
+                    MediaSource::Base64 { data } => {
+                        out.push(ToolResultContentPart::image_data(data, "image/*"))
+                    }
+                    MediaSource::Binary { data } => out.push(ToolResultContentPart::image_data(
+                        base64::engine::general_purpose::STANDARD.encode(data),
+                        "image/*",
+                    )),
+                }
             }
             other => {
                 return Err(LlmError::ParseError(format!(
@@ -2707,8 +2703,11 @@ fn message_from_parts(role: MessageRole, parts: Vec<ContentPart>) -> ChatMessage
         match parts.into_iter().next().expect("checked len") {
             ContentPart::Text {
                 text,
+                provider_options,
                 provider_metadata: None,
-            } if !matches!(role, MessageRole::Tool) => MessageContent::Text(text),
+            } if provider_options.is_empty() && !matches!(role, MessageRole::Tool) => {
+                MessageContent::Text(text)
+            }
             part => MessageContent::MultiModal(vec![part]),
         }
     } else {
@@ -2718,6 +2717,7 @@ fn message_from_parts(role: MessageRole, parts: Vec<ContentPart>) -> ChatMessage
     ChatMessage {
         role,
         content,
+        provider_options: ProviderOptionsMap::default(),
         metadata: Default::default(),
     }
 }
@@ -2726,6 +2726,7 @@ fn text_message(role: MessageRole, text: impl Into<String>) -> ChatMessage {
     ChatMessage {
         role,
         content: MessageContent::Text(text.into()),
+        provider_options: ProviderOptionsMap::default(),
         metadata: Default::default(),
     }
 }
@@ -2830,6 +2831,51 @@ fn parse_cache_control(value: &Value) -> Option<CacheControl> {
         Some("persistent") => Some(CacheControl::Persistent { ttl }),
         _ => None,
     }
+}
+
+#[cfg(feature = "anthropic")]
+fn cache_control_to_json(cache: &CacheControl) -> Value {
+    match cache {
+        CacheControl::Ephemeral => json!({ "type": "ephemeral" }),
+        CacheControl::Persistent { ttl } => {
+            let mut obj = json!({ "type": "ephemeral" });
+            if let Some(ttl) = ttl {
+                obj["ttl"] = json!(ttl.as_secs());
+            }
+            obj
+        }
+    }
+}
+
+#[cfg(feature = "anthropic")]
+fn merge_anthropic_part_provider_options(part: &mut ContentPart, extra: Map<String, Value>) {
+    if extra.is_empty() {
+        return;
+    }
+
+    let Some(provider_options) = part.provider_options_mut() else {
+        return;
+    };
+
+    let mut anthropic = provider_options
+        .get("anthropic")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_default();
+
+    anthropic.extend(extra);
+    provider_options.insert("anthropic", Value::Object(anthropic));
+}
+
+#[cfg(feature = "anthropic")]
+fn apply_anthropic_part_cache_control(part: &mut ContentPart, cache_control: &CacheControl) {
+    merge_anthropic_part_provider_options(
+        part,
+        Map::from_iter([(
+            "cacheControl".to_string(),
+            cache_control_to_json(cache_control),
+        )]),
+    );
 }
 
 fn openai_provider_tool_id_from_wire_type(wire_type: &str) -> String {
@@ -2985,14 +3031,48 @@ fn normalize_openai_shell_output_item(value: &Value) -> Value {
     Value::Object(out)
 }
 
-fn openai_item_id_metadata(obj: &Map<String, Value>) -> Option<HashMap<String, Value>> {
-    let item_id = obj.get("id")?.as_str()?.to_string();
-    let mut provider_metadata = HashMap::new();
-    provider_metadata.insert(
-        "openai".to_string(),
+fn openai_item_id_provider_options(obj: &Map<String, Value>) -> ProviderOptionsMap {
+    let mut provider_options = ProviderOptionsMap::default();
+    let Some(item_id) = obj.get("id").and_then(Value::as_str) else {
+        return provider_options;
+    };
+
+    provider_options.insert(
+        "openai",
         json!({
             "itemId": item_id,
         }),
     );
-    Some(provider_metadata)
+    provider_options
+}
+
+fn openai_image_detail_provider_options(obj: &Map<String, Value>) -> ProviderOptionsMap {
+    let mut provider_options = ProviderOptionsMap::default();
+    let Some(detail) = obj.get("detail").and_then(Value::as_str) else {
+        return provider_options;
+    };
+
+    provider_options.insert(
+        "openai",
+        json!({
+            "imageDetail": detail,
+        }),
+    );
+    provider_options
+}
+
+fn infer_image_media_type(obj: &Map<String, Value>) -> String {
+    let Some(image_url) = obj.get("image_url").and_then(Value::as_str) else {
+        return "image/*".to_string();
+    };
+
+    if image_url.starts_with("data:")
+        && let Some(without_prefix) = image_url.strip_prefix("data:")
+        && let Some((media_type, _)) = without_prefix.split_once(';')
+        && !media_type.is_empty()
+    {
+        return media_type.to_string();
+    }
+
+    "image/*".to_string()
 }

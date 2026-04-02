@@ -87,11 +87,13 @@ fn openai_responses_request_normalization_fixture_exact_cases_match() {
         "assistant-tool-call",
         "assistant-tool-call-multiple",
         "local-shell-store-false",
+        "reasoning-store-false-encrypted",
         "structured-output-json-schema",
         "tool-output-local-shell",
         "tool-output-shell",
         "tool-output-apply-patch",
         "tool-output-shell-and-apply-patch",
+        "user-image-detail-openai-low",
     ];
 
     for case in exact_cases {
@@ -199,6 +201,75 @@ fn openai_responses_request_normalization_function_output_only_fixtures_drop_unk
                             "output": {
                                 "type": "text",
                                 "value": "The weather in San Francisco is 72°F"
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "common_params": { "model": "gpt-5-nano" },
+        "stream": false
+    });
+    normalize_json(&mut expected);
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn openai_responses_request_normalization_provider_file_id_cases_collapse_to_selected_provider_ids()
+{
+    let got =
+        request_json_from_expected_body("tool-message-content-provider-file-id-preferred-openai");
+    let mut expected = json!({
+        "messages": [
+            {
+                "role": "tool",
+                "content": {
+                    "MultiModal": [
+                        {
+                            "type": "tool-result",
+                            "toolCallId": "call_456",
+                            "toolName": "",
+                            "output": {
+                                "type": "content",
+                                "value": [
+                                    { "type": "text", "text": "Provider keyed attachments" },
+                                    { "type": "image-file-id", "fileId": "assistant-img-openai" },
+                                    { "type": "file-id", "fileId": "file-pdf-openai" }
+                                ]
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "common_params": { "model": "gpt-5-nano" },
+        "stream": false
+    });
+    normalize_json(&mut expected);
+    assert_eq!(got, expected);
+}
+
+#[test]
+fn openai_responses_request_normalization_tool_result_file_id_parts_are_best_effort_when_tool_name_is_not_recoverable()
+ {
+    let got = request_json_from_expected_body("tool-message-content-file-id-mixed");
+    let mut expected = json!({
+        "messages": [
+            {
+                "role": "tool",
+                "content": {
+                    "MultiModal": [
+                        {
+                            "type": "tool-result",
+                            "toolCallId": "call_123",
+                            "toolName": "",
+                            "output": {
+                                "type": "content",
+                                "value": [
+                                    { "type": "text", "text": "Tool generated attachments" },
+                                    { "type": "image-file-id", "fileId": "assistant-img-abc123" },
+                                    { "type": "file-id", "fileId": "file-pdf-xyz789" }
+                                ]
                             }
                         }
                     ]

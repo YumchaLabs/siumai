@@ -438,23 +438,21 @@ fn annotate_openai_reasoning_for_anthropic(request: &mut ChatRequest, report: &m
             continue;
         }
 
-        let MessageContent::MultiModal(parts) = &message.content else {
+        let MessageContent::MultiModal(parts) = &mut message.content else {
             continue;
         };
 
         let mut encrypted_values = BTreeSet::new();
-        for part in parts {
+        for part in parts.iter() {
             let ContentPart::Reasoning {
-                provider_metadata, ..
+                provider_options, ..
             } = part
             else {
                 continue;
             };
 
-            let encrypted = provider_metadata
-                .as_ref()
-                .and_then(|meta| meta.get("openai"))
-                .and_then(|value| value.as_object())
+            let encrypted = provider_options
+                .get_object("openai")
                 .and_then(|meta| {
                     meta.get("reasoningEncryptedContent")
                         .or_else(|| meta.get("reasoning_encrypted_content"))
@@ -477,10 +475,32 @@ fn annotate_openai_reasoning_for_anthropic(request: &mut ChatRequest, report: &m
             );
         }
 
-        message.metadata.custom.insert(
-            "anthropic_redacted_thinking_data".to_string(),
-            Value::String(first),
-        );
+        for part in parts.iter_mut() {
+            let ContentPart::Reasoning {
+                provider_options, ..
+            } = part
+            else {
+                continue;
+            };
+
+            match provider_options.0.get_mut("anthropic") {
+                Some(existing) if existing.is_object() => {
+                    if let Some(obj) = existing.as_object_mut() {
+                        obj.entry("redactedData".to_string())
+                            .or_insert_with(|| Value::String(first.clone()));
+                    }
+                }
+                _ => {
+                    provider_options.insert(
+                        "anthropic",
+                        json!({
+                            "redactedData": first
+                        }),
+                    );
+                }
+            }
+            break;
+        }
         report.record_carried_provider_metadata(
             "openai.reasoning_encrypted_content",
             "OpenAI encrypted reasoning payload was carried into Anthropic redacted thinking metadata",

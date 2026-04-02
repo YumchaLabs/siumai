@@ -12,7 +12,8 @@ use siumai_core::bridge::{
 };
 use siumai_core::streaming::ChatByteStream;
 use siumai_core::types::{
-    ChatResponse, ChatStreamEvent, ContentPart, FinishReason, MessageContent, ResponseMetadata,
+    ChatResponse, ChatStreamEvent, ChatStreamFinishInfo, ChatStreamPart, ContentPart, FinishReason,
+    MessageContent, ResponseMetadata, Usage,
 };
 
 #[cfg(feature = "anthropic")]
@@ -22,7 +23,8 @@ use super::{
 };
 #[cfg(feature = "openai")]
 use super::{
-    bridge_chat_stream_to_openai_responses_sse, transform_chat_stream_with_bridge_options,
+    bridge_chat_stream_to_openai_chat_completions_sse, bridge_chat_stream_to_openai_responses_sse,
+    transform_chat_stream_with_bridge_options,
 };
 
 #[cfg(feature = "anthropic")]
@@ -451,6 +453,55 @@ async fn openai_responses_stream_bridge_finalizes_clean_eof_without_stream_end()
 
     assert!(body.contains("event: response.completed"));
     assert!(body.contains("data: [DONE]"));
+}
+
+#[cfg(feature = "openai")]
+#[tokio::test]
+async fn openai_chat_completions_stream_bridge_prefers_stream_end_terminal_envelope() {
+    let response = ChatResponse {
+        id: Some("chatcmpl_1".to_string()),
+        model: Some("gpt-4o-mini".to_string()),
+        content: MessageContent::Text("Hello".to_string()),
+        usage: Some(Usage::new(4, 2)),
+        finish_reason: Some(FinishReason::Stop),
+        audio: None,
+        system_fingerprint: Some("fp_terminal_1".to_string()),
+        service_tier: Some("priority".to_string()),
+        warnings: None,
+        provider_metadata: None,
+    };
+
+    let stream = stream::iter(vec![
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish {
+                usage: Usage::new(4, 2),
+                finish_reason: ChatStreamFinishInfo {
+                    unified: FinishReason::Stop,
+                    raw: Some("stop".to_string()),
+                },
+                provider_metadata: None,
+            },
+        }),
+        Ok(ChatStreamEvent::StreamEnd { response }),
+    ]);
+
+    let bridged = bridge_chat_stream_to_openai_chat_completions_sse(
+        stream,
+        Some(BridgeTarget::OpenAiChatCompletions),
+        BridgeMode::Strict,
+    )
+    .expect("bridge");
+
+    assert!(!bridged.is_rejected());
+    let body = collect_bytes(bridged.value.expect("byte stream")).await;
+
+    assert_eq!(
+        body.matches("\"finish_reason\":\"stop\"").count(),
+        1,
+        "expected a single terminal chunk"
+    );
+    assert!(body.contains("\"system_fingerprint\":\"fp_terminal_1\""));
+    assert!(body.contains("\"service_tier\":\"priority\""));
 }
 
 #[cfg(feature = "anthropic")]

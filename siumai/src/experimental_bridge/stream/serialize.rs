@@ -7,6 +7,7 @@ use siumai_core::streaming::{
     ChatByteStream, ChatStreamEvent, OpenAiResponsesStreamPartsBridge, ensure_stream_end,
     transform_chat_event_stream,
 };
+use siumai_core::types::ChatStreamPart;
 
 use crate::experimental_bridge::customize::remap_stream_event;
 use crate::experimental_bridge::lifecycle::{
@@ -85,9 +86,12 @@ where
         return Ok(BridgeResult::rejected(report));
     }
 
-    let stream = ensure_stream_end(transform_stream_for_target(
-        stream, source, target, &ctx, &options,
-    ));
+    let stream = normalize_terminal_events_for_target(
+        ensure_stream_end(transform_stream_for_target(
+            stream, source, target, &ctx, &options,
+        )),
+        target,
+    );
     let bytes = encode_chat_stream_for_target(stream, target)?;
 
     Ok(BridgeResult::new(bytes, report))
@@ -159,6 +163,36 @@ where
         options,
         ctx.path_label.clone(),
     )
+}
+
+fn normalize_terminal_events_for_target<S>(
+    stream: S,
+    target: BridgeTarget,
+) -> std::pin::Pin<Box<dyn Stream<Item = Result<ChatStreamEvent, LlmError>> + Send>>
+where
+    S: Stream<Item = Result<ChatStreamEvent, LlmError>> + Send + 'static,
+{
+    match target {
+        BridgeTarget::OpenAiChatCompletions => transform_chat_event_stream(stream, |event| {
+            if matches!(event.part_ref(), Some(ChatStreamPart::Finish { .. })) {
+                return Vec::new();
+            }
+
+            if matches!(
+                &event,
+                ChatStreamEvent::Custom { data, .. }
+                    if data
+                        .get("type")
+                        .and_then(|value| value.as_str())
+                        == Some("finish")
+            ) {
+                return Vec::new();
+            }
+
+            vec![event]
+        }),
+        _ => Box::pin(stream),
+    }
 }
 
 fn should_reject_stream(

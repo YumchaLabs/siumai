@@ -1,7 +1,5 @@
 //! Reusable request bridge primitives.
 
-use std::collections::BTreeSet;
-
 use siumai_core::bridge::{BridgeReport, BridgeWarning, BridgeWarningKind};
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, MessageContent, MessageRole};
 
@@ -34,8 +32,15 @@ pub(crate) fn inspect_reasoning_semantics(
                             && assistant_reasoning_has_openai_item_id(message, part_index)
                         {
                             "OpenAI Responses normalizes assistant reasoning into reasoning summary items"
+                        } else if matches!(message.role, MessageRole::Assistant)
+                            && assistant_reasoning_has_openai_encrypted_content(
+                                message,
+                                part_index,
+                            )
+                        {
+                            "OpenAI Responses preserves assistant reasoning when providerOptions.openai.reasoningEncryptedContent is present"
                         } else if matches!(message.role, MessageRole::Assistant) {
-                            "OpenAI Responses drops assistant reasoning unless providerMetadata.openai.itemId is present"
+                            "OpenAI Responses drops assistant reasoning unless providerOptions.openai.itemId is present"
                         } else {
                             "OpenAI Responses serializes non-assistant reasoning as tagged text input"
                         },
@@ -128,27 +133,8 @@ fn inspect_anthropic_reasoning_semantics(
         return;
     }
 
-    let custom = &message.metadata.custom;
-    let signature_global = custom
-        .get("anthropic_thinking_signature")
-        .and_then(|value| value.as_str());
-    let signatures_by_index = custom
-        .get("anthropic_thinking_signatures")
-        .and_then(|value| value.as_object());
-    let redacted_data = custom
-        .get("anthropic_redacted_thinking_data")
-        .and_then(|value| value.as_str());
-
-    if signature_global.is_some() || redacted_data.is_some() {
-        return;
-    }
-
     for part_index in reasoning_indices {
-        let has_part_signature = signatures_by_index
-            .and_then(|map| map.get(&part_index.to_string()))
-            .and_then(|value| value.as_str())
-            .is_some();
-        if !has_part_signature {
+        if !assistant_reasoning_has_anthropic_replay_metadata(message, *part_index) {
             report.record_lossy_field(
                 format!("messages[{message_index}].content[{part_index}].reasoning"),
                 "Anthropic assistant thinking blocks require a signature or redacted payload",
@@ -207,45 +193,25 @@ fn anthropic_cache_paths(message: &ChatMessage, message_index: usize) -> Vec<Str
 }
 
 fn anthropic_part_cache_paths(message: &ChatMessage, message_index: usize) -> Vec<String> {
-    let mut indices = BTreeSet::new();
-    let part_count = message_part_count(message);
-
-    if let Some(obj) = message
-        .metadata
-        .custom
-        .get("anthropic_content_cache_controls")
-        .and_then(|value| value.as_object())
-    {
-        for key in obj.keys() {
-            let Ok(index) = key.parse::<usize>() else {
-                continue;
-            };
-            if index < part_count {
-                indices.insert(index);
-            }
-        }
+    match &message.content {
+        MessageContent::MultiModal(parts) => parts
+            .iter()
+            .enumerate()
+            .filter_map(|(part_index, part)| {
+                part.provider_options()
+                    .and_then(|provider_options| provider_options.get_object("anthropic"))
+                    .and_then(|anthropic| {
+                        anthropic
+                            .get("cacheControl")
+                            .or_else(|| anthropic.get("cache_control"))
+                    })
+                    .map(|_| {
+                        format!("messages[{message_index}].content[{part_index}].cache_control")
+                    })
+            })
+            .collect(),
+        _ => Vec::new(),
     }
-
-    if let Some(values) = message
-        .metadata
-        .custom
-        .get("anthropic_content_cache_indices")
-        .and_then(|value| value.as_array())
-    {
-        for value in values {
-            let Some(index) = value.as_u64().and_then(|raw| usize::try_from(raw).ok()) else {
-                continue;
-            };
-            if index < part_count {
-                indices.insert(index);
-            }
-        }
-    }
-
-    indices
-        .into_iter()
-        .map(|part_index| format!("messages[{message_index}].content[{part_index}].cache_control"))
-        .collect()
 }
 
 fn record_unsupported_path(
@@ -275,32 +241,82 @@ fn reasoning_part_indices(message: &ChatMessage) -> Vec<usize> {
     }
 }
 
-fn message_part_count(message: &ChatMessage) -> usize {
-    match &message.content {
-        MessageContent::Text(_) => 1,
-        MessageContent::MultiModal(parts) => parts.len(),
-        #[cfg(feature = "structured-messages")]
-        MessageContent::Json(_) => 1,
-    }
-}
-
 fn assistant_reasoning_has_openai_item_id(message: &ChatMessage, part_index: usize) -> bool {
     let MessageContent::MultiModal(parts) = &message.content else {
         return false;
     };
     let Some(ContentPart::Reasoning {
-        provider_metadata, ..
+        provider_options, ..
     }) = parts.get(part_index)
     else {
         return false;
     };
 
-    provider_metadata
-        .as_ref()
-        .and_then(|map| map.get("openai"))
+    provider_options
+        .get_object("openai")
         .and_then(|value| value.get("itemId").or_else(|| value.get("item_id")))
         .and_then(|value| value.as_str())
         .is_some()
+}
+
+fn assistant_reasoning_has_openai_encrypted_content(
+    message: &ChatMessage,
+    part_index: usize,
+) -> bool {
+    let MessageContent::MultiModal(parts) = &message.content else {
+        return false;
+    };
+    let Some(ContentPart::Reasoning {
+        provider_options, ..
+    }) = parts.get(part_index)
+    else {
+        return false;
+    };
+
+    provider_options
+        .get_object("openai")
+        .and_then(|value| {
+            value
+                .get("reasoningEncryptedContent")
+                .or_else(|| value.get("reasoning_encrypted_content"))
+        })
+        .and_then(|value| value.as_str())
+        .is_some()
+}
+
+fn assistant_reasoning_has_anthropic_replay_metadata(
+    message: &ChatMessage,
+    part_index: usize,
+) -> bool {
+    let MessageContent::MultiModal(parts) = &message.content else {
+        return false;
+    };
+    let Some(part) = parts.get(part_index) else {
+        return false;
+    };
+    let ContentPart::Reasoning { .. } = part else {
+        return false;
+    };
+
+    let provider_options = part
+        .provider_options()
+        .and_then(|options| options.get_object("anthropic"));
+
+    let has_signature = provider_options
+        .and_then(|map| map.get("signature"))
+        .and_then(|value| value.as_str())
+        .is_some();
+
+    let has_redacted = provider_options
+        .and_then(|map| {
+            map.get("redactedData")
+                .or_else(|| map.get("redacted_data"))
+                .or_else(|| map.get("redacted_thinking_data"))
+        })
+        .and_then(|value| value.as_str())
+        .is_some();
+
+    has_signature || has_redacted
 }
 
 fn openai_responses_store_enabled(request: &ChatRequest) -> bool {
@@ -317,4 +333,39 @@ fn openai_responses_store_enabled(request: &ChatRequest) -> bool {
         });
 
     store != Some(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use siumai_core::bridge::{BridgeMode, BridgeTarget};
+    use siumai_core::types::CacheControl;
+
+    #[test]
+    fn anthropic_part_cache_paths_follow_canonical_part_provider_options() {
+        let request = ChatRequest::new(vec![
+            ChatMessage::user("hi")
+                .with_content_parts(vec![ContentPart::text("cached")])
+                .cache_control_for_part(1, CacheControl::Ephemeral)
+                .build(),
+        ]);
+        let mut report =
+            BridgeReport::new(BridgeTarget::OpenAiChatCompletions, BridgeMode::BestEffort);
+
+        inspect_cache_control_semantics(
+            &request,
+            RequestTargetCapabilities {
+                reasoning_mode: RequestReasoningMode::OpenAiChatCompletions,
+                cache_control_mode: RequestCacheControlMode::DropAnthropicControls,
+                preserves_tool_approval_responses: false,
+            },
+            &mut report,
+        );
+
+        assert!(report.is_lossy());
+        assert_eq!(
+            report.dropped_fields,
+            vec!["messages[0].content[1].cache_control".to_string()]
+        );
+    }
 }

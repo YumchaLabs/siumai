@@ -13,7 +13,9 @@ use siumai_core::bridge::{
     BridgeLossAction, BridgeLossPolicy, RequestBridgeContext, StreamBridgeContext,
 };
 use siumai_core::encoding::JsonEncodeOptions;
-use siumai_core::types::{ChatResponse, ContentPart, FinishReason, MessageContent};
+use siumai_core::types::{
+    ChatResponse, ContentPart, FinishReason, MessageContent, ProviderOptionsMap,
+};
 
 #[cfg(any(feature = "anthropic", feature = "google"))]
 use siumai_core::types::Usage;
@@ -145,6 +147,7 @@ fn strict_openai_responses_bridge_preserves_reasoning_blocks() {
     let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
         ContentPart::Reasoning {
             text: "hidden chain of thought".to_string(),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
                 json!({
@@ -153,14 +156,19 @@ fn strict_openai_responses_bridge_preserves_reasoning_blocks() {
                 }),
             )])),
         },
-        ContentPart::text("final answer"),
+        ContentPart::Text {
+            text: "final answer".to_string(),
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                json!({
+                    "itemId": "msg_1"
+                }),
+            )])),
+        },
     ]));
     response.id = Some("resp_1".to_string());
     response.model = Some("gpt-4.1-mini".to_string());
-    response.provider_metadata = Some(HashMap::from([(
-        "openai".to_string(),
-        HashMap::from([("itemId".to_string(), json!("msg_1"))]),
-    )]));
 
     let bridged = bridge_chat_response_to_openai_responses_json_value(
         &response,
@@ -271,6 +279,7 @@ fn strict_openai_chat_completions_bridge_rejects_reasoning_tool_result_and_metad
                 "temperature": 72
             })),
             provider_executed: Some(true),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
                 json!({
@@ -392,7 +401,8 @@ fn anthropic_response_bridge_reports_usage_and_metadata_loss() {
     let value = bridged.value.expect("json body");
     assert_eq!(value["type"], json!("message"));
     assert_eq!(value["stop_reason"], json!("tool_use"));
-    assert_eq!(value["usage"]["input_tokens"], json!(10));
+    assert_eq!(value["usage"]["input_tokens"], json!(7));
+    assert_eq!(value["usage"]["cache_read_input_tokens"], json!(3));
     assert_eq!(value["content"][1]["type"], json!("server_tool_use"));
     assert_eq!(value["content"][1]["id"], json!("call_1"));
     assert_eq!(value["content"][1]["name"], json!("web_search"));
@@ -484,12 +494,22 @@ fn custom_response_loss_policy_can_allow_lossy_bridge_in_strict_mode() {
 fn strict_anthropic_response_bridge_preserves_thinking_replay_fields() {
     let mut response = ChatResponse::new(MessageContent::MultiModal(vec![
         ContentPart::text("visible answer"),
-        ContentPart::reasoning("internal thinking"),
+        ContentPart::Reasoning {
+            text: "internal thinking".to_string(),
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                json!({
+                    "signature": "sig_1"
+                }),
+            )])),
+        },
         ContentPart::ToolCall {
             tool_call_id: "toolu_1".to_string(),
             tool_name: "weather".to_string(),
             arguments: json!({ "city": "Tokyo" }),
             provider_executed: None,
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 json!({
@@ -500,6 +520,16 @@ fn strict_anthropic_response_bridge_preserves_thinking_replay_fields() {
                 }),
             )])),
         },
+        ContentPart::Reasoning {
+            text: String::new(),
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "anthropic".to_string(),
+                json!({
+                    "redactedData": "redacted_123"
+                }),
+            )])),
+        },
     ]));
     response.id = Some("msg_1".to_string());
     response.model = Some("claude-sonnet-4-5".to_string());
@@ -507,11 +537,7 @@ fn strict_anthropic_response_bridge_preserves_thinking_replay_fields() {
     response.service_tier = Some("priority".to_string());
     response.provider_metadata = Some(HashMap::from([(
         "anthropic".to_string(),
-        HashMap::from([
-            ("thinking_signature".to_string(), json!("sig_1")),
-            ("redacted_thinking_data".to_string(), json!("redacted_123")),
-            ("stopSequence".to_string(), json!("</tool>")),
-        ]),
+        HashMap::from([("stopSequence".to_string(), json!("</tool>"))]),
     )]));
 
     let bridged = bridge_chat_response_to_anthropic_messages_json_value(
@@ -545,6 +571,7 @@ fn strict_anthropic_response_bridge_preserves_text_part_citations_exactly() {
         ContentPart::text("Intro"),
         ContentPart::Text {
             text: "Grounded fact".to_string(),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
                 json!({
@@ -609,6 +636,7 @@ fn strict_anthropic_response_bridge_preserves_mcp_server_name_metadata() {
         tool_name: "echo".to_string(),
         arguments: json!({ "message": "hello" }),
         provider_executed: Some(true),
+        provider_options: ProviderOptionsMap::default(),
         provider_metadata: Some(HashMap::from([(
             "anthropic".to_string(),
             json!({
@@ -645,6 +673,7 @@ fn strict_openai_responses_bridge_preserves_provider_executed_custom_tool_items(
                 "url": "https://example.com"
             }),
             provider_executed: Some(true),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
                 json!({
@@ -660,6 +689,7 @@ fn strict_openai_responses_bridge_preserves_provider_executed_custom_tool_items(
                 "message": "ok"
             })),
             provider_executed: Some(true),
+            provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
                 json!({
@@ -886,7 +916,7 @@ fn gemini_response_bridge_reports_reasoning_finish_reason_and_usage_breakdown_lo
     assert_eq!(value["responseId"], json!("resp_1"));
     assert_eq!(value["modelVersion"], json!("gemini-2.5-pro"));
     assert_eq!(value["usageMetadata"]["promptTokenCount"], json!(11));
-    assert_eq!(value["usageMetadata"]["candidatesTokenCount"], json!(7));
+    assert_eq!(value["usageMetadata"]["candidatesTokenCount"], json!(3));
     assert_eq!(value["usageMetadata"]["totalTokenCount"], json!(18));
     assert_eq!(value["usageMetadata"]["cachedContentTokenCount"], json!(3));
     assert_eq!(value["usageMetadata"]["thoughtsTokenCount"], json!(4));

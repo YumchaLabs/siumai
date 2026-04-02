@@ -10,7 +10,7 @@
 //! - synthesize replayable reasoning item ids for Anthropic assistant thinking
 //! - translate the highest-value Anthropic server tools into Responses tools
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 
 use serde_json::{Map, Value, json};
 use siumai_core::LlmError;
@@ -282,26 +282,38 @@ fn annotate_anthropic_reasoning_for_openai(request: &mut ChatRequest, report: &m
             continue;
         }
 
-        let redacted_payload = message
-            .metadata
-            .custom
-            .get("anthropic_redacted_thinking_data")
-            .cloned();
-
         let MessageContent::MultiModal(parts) = &mut message.content else {
             continue;
         };
 
+        let redacted_payload = parts.iter().find_map(|part| {
+            let ContentPart::Reasoning {
+                provider_options, ..
+            } = part
+            else {
+                return None;
+            };
+
+            provider_options
+                .get_object("anthropic")
+                .and_then(|anthropic| {
+                    anthropic
+                        .get("redactedData")
+                        .or_else(|| anthropic.get("redacted_data"))
+                })
+                .cloned()
+        });
+
         for (part_index, part) in parts.iter_mut().enumerate() {
             let ContentPart::Reasoning {
-                provider_metadata, ..
+                provider_options, ..
             } = part
             else {
                 continue;
             };
 
-            let provider_metadata = provider_metadata.get_or_insert_with(HashMap::new);
-            let openai_entry = provider_metadata
+            let openai_entry = provider_options
+                .0
                 .entry("openai".to_string())
                 .or_insert_with(|| Value::Object(Map::new()));
 
@@ -332,8 +344,8 @@ fn annotate_anthropic_reasoning_for_openai(request: &mut ChatRequest, report: &m
 
     if carried_redacted_payload {
         report.record_carried_provider_metadata(
-            "anthropic.redacted_thinking_data",
-            "anthropic redacted thinking payload was carried into OpenAI reasoning encrypted content",
+            "anthropic.redactedData",
+            "anthropic redacted thinking payload was carried into OpenAI reasoning providerOptions.encrypted content",
         );
     }
 }

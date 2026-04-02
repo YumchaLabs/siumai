@@ -96,6 +96,24 @@ fn inspect_response_content(
                     );
                 }
             }
+            ContentPart::ReasoningFile { .. } => {
+                report.record_dropped_field(
+                    path,
+                    format!(
+                        "{} response bridge does not serialize reasoning file output parts",
+                        caps.target.as_str()
+                    ),
+                );
+            }
+            ContentPart::Custom { .. } => {
+                report.record_dropped_field(
+                    path,
+                    format!(
+                        "{} response bridge does not serialize custom provider output parts",
+                        caps.target.as_str()
+                    ),
+                );
+            }
             ContentPart::Image { .. } => {
                 report.record_dropped_field(
                     path,
@@ -204,6 +222,13 @@ fn inspect_response_content_part_provider_metadata(
             (
                 ResponseContentPartProviderMetadataMode::OpenAiResponses,
                 "openai",
+                ContentPart::Text { .. },
+            ) => {
+                inspect_openai_text_part_provider_metadata(path, value, report);
+            }
+            (
+                ResponseContentPartProviderMetadataMode::OpenAiResponses,
+                "openai",
                 ContentPart::Reasoning { .. },
             ) => {
                 inspect_openai_reasoning_part_provider_metadata(path, value, report);
@@ -228,6 +253,13 @@ fn inspect_response_content_part_provider_metadata(
                 ContentPart::Text { .. },
             ) => {
                 inspect_anthropic_text_part_provider_metadata(path, value, report);
+            }
+            (
+                ResponseContentPartProviderMetadataMode::AnthropicMessages,
+                "anthropic",
+                ContentPart::Reasoning { .. },
+            ) => {
+                inspect_anthropic_reasoning_part_provider_metadata(path, value, report);
             }
             (
                 ResponseContentPartProviderMetadataMode::AnthropicMessages,
@@ -430,9 +462,9 @@ fn inspect_openai_response_provider_metadata(
 ) {
     for key in metadata.keys() {
         match key.as_str() {
-            "itemId" => report.record_carried_provider_metadata(
+            "itemId" => report.record_dropped_field(
                 "provider_metadata.openai.itemId",
-                "OpenAI Responses response encoding preserves the assistant message item id",
+                "OpenAI Responses response encoding does not preserve top-level assistant message item ids; the canonical path keeps them on text-part provider metadata instead",
             ),
             "sources" => report.record_lossy_field(
                 "provider_metadata.openai.sources",
@@ -441,6 +473,41 @@ fn inspect_openai_response_provider_metadata(
             _ => report.record_dropped_field(
                 format!("provider_metadata.openai.{key}"),
                 "OpenAI Responses response encoding does not preserve this OpenAI provider metadata field",
+            ),
+        }
+    }
+}
+
+fn inspect_openai_text_part_provider_metadata(
+    path: &str,
+    value: &serde_json::Value,
+    report: &mut BridgeReport,
+) {
+    let Some(metadata) = value.as_object() else {
+        report.record_dropped_field(
+            format!("{path}.provider_metadata.openai"),
+            "OpenAI Responses response encoding requires object-shaped text provider metadata",
+        );
+        return;
+    };
+
+    for key in metadata.keys() {
+        match key.as_str() {
+            "itemId" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.openai.itemId"),
+                "OpenAI Responses response encoding preserves assistant message item ids on text parts",
+            ),
+            "phase" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.openai.phase"),
+                "OpenAI Responses response encoding preserves output-text phase on text parts",
+            ),
+            "annotations" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.openai.annotations"),
+                "OpenAI Responses response encoding preserves raw output-text annotations on text parts",
+            ),
+            _ => report.record_dropped_field(
+                format!("{path}.provider_metadata.openai.{key}"),
+                "OpenAI Responses response encoding does not preserve this text-part provider metadata field",
             ),
         }
     }
@@ -504,8 +571,6 @@ fn inspect_anthropic_response_provider_metadata(
     metadata: &std::collections::HashMap<String, serde_json::Value>,
     report: &mut BridgeReport,
 ) {
-    let has_reasoning = response_has_reasoning(response);
-
     fn citation_payload_groups_from_top_level(
         value: &serde_json::Value,
     ) -> Vec<Vec<serde_json::Value>> {
@@ -575,17 +640,13 @@ fn inspect_anthropic_response_provider_metadata(
 
     for key in metadata.keys() {
         match key.as_str() {
-            "thinking_signature" if has_reasoning => report.record_carried_provider_metadata(
-                "provider_metadata.anthropic.thinking_signature",
-                "Anthropic Messages response encoding replays thinking signatures on assistant thinking blocks",
-            ),
             "thinking_signature" => report.record_dropped_field(
                 "provider_metadata.anthropic.thinking_signature",
-                "Anthropic Messages response encoding cannot replay a thinking signature without a reasoning block",
+                "Anthropic Messages response encoding reads thinking signatures from reasoning-part providerMetadata rather than top-level response provider_metadata",
             ),
-            "redacted_thinking_data" => report.record_carried_provider_metadata(
+            "redacted_thinking_data" => report.record_dropped_field(
                 "provider_metadata.anthropic.redacted_thinking_data",
-                "Anthropic Messages response encoding replays redacted thinking blocks",
+                "Anthropic Messages response encoding reads redacted thinking data from reasoning-part providerMetadata rather than top-level response provider_metadata",
             ),
             "stopSequence" => report.record_carried_provider_metadata(
                 "provider_metadata.anthropic.stopSequence",
@@ -730,7 +791,7 @@ fn inspect_openai_response_tool_result(
             path,
             "OpenAI Responses response encoding replays execution-denied tool results as generic custom tool output",
         ),
-        ToolResultOutput::Content { value } if tool_result_content_has_binary_like_parts(value) => {
+        ToolResultOutput::Content { value, .. } if tool_result_content_has_binary_like_parts(value) => {
             report.record_lossy_field(
                 path,
                 "OpenAI Responses response encoding flattens non-text tool result content into coarse placeholders",
@@ -746,7 +807,7 @@ fn inspect_gemini_code_execution_tool_result(
     report: &mut BridgeReport,
 ) {
     match output {
-        ToolResultOutput::Json { value } | ToolResultOutput::ErrorJson { value } => {
+        ToolResultOutput::Json { value, .. } | ToolResultOutput::ErrorJson { value, .. } => {
             let Some(obj) = value.as_object() else {
                 report.record_lossy_field(
                     path,
@@ -774,7 +835,7 @@ fn inspect_gemini_code_execution_tool_result(
             path,
             "Gemini GenerateContent codeExecutionResult projects execution denial into generic failed output",
         ),
-        ToolResultOutput::Content { value } if tool_result_content_has_binary_like_parts(value) => {
+        ToolResultOutput::Content { value, .. } if tool_result_content_has_binary_like_parts(value) => {
             report.record_lossy_field(
                 path,
                 "Gemini GenerateContent codeExecutionResult flattens non-text tool result content into a string summary",
@@ -856,6 +917,37 @@ fn inspect_anthropic_tool_call_part_provider_metadata(
     }
 }
 
+fn inspect_anthropic_reasoning_part_provider_metadata(
+    path: &str,
+    value: &serde_json::Value,
+    report: &mut BridgeReport,
+) {
+    let Some(metadata) = value.as_object() else {
+        report.record_dropped_field(
+            format!("{path}.provider_metadata.anthropic"),
+            "Anthropic Messages response encoding requires object-shaped reasoning provider metadata",
+        );
+        return;
+    };
+
+    for key in metadata.keys() {
+        match key.as_str() {
+            "signature" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.anthropic.signature"),
+                "Anthropic Messages response encoding preserves thinking signatures on reasoning blocks",
+            ),
+            "redactedData" => report.record_carried_provider_metadata(
+                format!("{path}.provider_metadata.anthropic.redactedData"),
+                "Anthropic Messages response encoding preserves redacted thinking payloads on reasoning blocks",
+            ),
+            _ => report.record_dropped_field(
+                format!("{path}.provider_metadata.anthropic.{key}"),
+                "Anthropic Messages response encoding does not preserve this reasoning-part provider metadata field",
+            ),
+        }
+    }
+}
+
 fn inspect_anthropic_text_part_provider_metadata(
     path: &str,
     value: &serde_json::Value,
@@ -905,6 +997,12 @@ fn content_part_provider_metadata(
         | ContentPart::ToolResult {
             provider_metadata, ..
         }
+        | ContentPart::ReasoningFile {
+            provider_metadata, ..
+        }
+        | ContentPart::Custom {
+            provider_metadata, ..
+        }
         | ContentPart::Reasoning {
             provider_metadata, ..
         } => provider_metadata.as_ref(),
@@ -912,14 +1010,6 @@ fn content_part_provider_metadata(
         | ContentPart::ToolApprovalRequest { .. }
         | ContentPart::ToolApprovalResponse { .. } => None,
     }
-}
-
-fn response_has_reasoning(response: &ChatResponse) -> bool {
-    response.content.as_multimodal().is_some_and(|parts| {
-        parts
-            .iter()
-            .any(|part| matches!(part, ContentPart::Reasoning { .. }))
-    })
 }
 
 fn anthropic_stop_sequence(response: &ChatResponse) -> Option<&str> {
