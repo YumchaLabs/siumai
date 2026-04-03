@@ -12,6 +12,22 @@ use futures_util::StreamExt;
 use siumai::prelude::unified::*;
 use siumai::provider_ext::openai::{OpenAiClient, OpenAiConfig};
 
+fn infer_audio_media_type(path: &str) -> Option<&'static str> {
+    let extension = std::path::Path::new(path)
+        .extension()?
+        .to_string_lossy()
+        .to_ascii_lowercase();
+
+    match extension.as_str() {
+        "mp3" => Some("audio/mpeg"),
+        "wav" => Some("audio/wav"),
+        "m4a" => Some("audio/mp4"),
+        "flac" => Some("audio/flac"),
+        "ogg" => Some("audio/ogg"),
+        _ => None,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let audio_file = std::env::var("OPENAI_AUDIO_FILE")
@@ -22,7 +38,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )?;
 
     let audio_bytes = tokio::fs::read(&audio_file).await?;
-    let mut req = SttRequest::from_audio(audio_bytes);
+    let media_type = if let Ok(media_type) = std::env::var("OPENAI_AUDIO_MEDIA_TYPE") {
+        media_type
+    } else if let Some(media_type) = infer_audio_media_type(&audio_file) {
+        media_type.to_string()
+    } else {
+        return Err("Could not infer OPENAI audio media type; set OPENAI_AUDIO_MEDIA_TYPE".into());
+    };
+    let mut req = SttRequest::from_audio(audio_bytes, media_type);
     req.model = Some("gpt-4o-mini-transcribe".to_string());
 
     let mut stream =

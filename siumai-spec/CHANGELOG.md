@@ -41,6 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Usage` no longer exposes legacy `prompt/completion/total` counts as public storage fields, so new code must use builders/constructors and compatibility accessors instead of struct literals or direct field reads.
 - `ProviderOptionsMap` serde now normalizes provider ids during JSON decode and re-emits the canonical `openaiCompatible` wire key during encode, so JSON request fixtures and builder-authored requests share the same lookup behavior.
 - `ResponseMetadata` now serializes the stable AI SDK field names `modelId` / `timestamp` while continuing to accept legacy `model` / `created` aliases during decode.
+- Shared `SttRequest` / `AudioTranslationRequest` now require `mediaType` directly on the stable
+  struct and constructor surface, so `from_audio(...)` / `from_base64(...)` align with the AI SDK
+  required transcription input contract instead of leaving media type optional.
 
 ## [0.11.0-beta.6] - 2026-03-02
 

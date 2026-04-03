@@ -252,11 +252,9 @@ impl AudioCapability for OpenAiClient {
         let build_form = || -> Result<Form, LlmError> {
             let file_name = format!("audio.{ext}");
             let mut part = Part::bytes(audio.clone()).file_name(file_name);
-            if let Some(mt) = media_type.as_deref() {
-                part = part.mime_str(mt).map_err(|e| {
-                    LlmError::InvalidParameter(format!("Invalid media_type '{mt}': {e}"))
-                })?;
-            }
+            part = part.mime_str(&media_type).map_err(|e| {
+                LlmError::InvalidParameter(format!("Invalid media_type '{}': {e}", media_type))
+            })?;
 
             let mut form = Form::new().part("file", part).text("model", model.clone());
 

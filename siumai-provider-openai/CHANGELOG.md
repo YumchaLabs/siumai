@@ -21,6 +21,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI transcription and audio-translation clients now consume the canonical shared `audio`
   request input directly, and no longer read `file_path` inside provider client code for
   translation or streaming transcription paths.
+- OpenAI provider-side transcription and audio-translation request paths now also treat the shared
+  transcription `mediaType` as required input, so multipart uploads always attach the canonical
+  MIME type instead of silently omitting it.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

@@ -314,7 +314,9 @@ mod tests {
 
     #[test]
     fn xai_speech_transformer_rejects_stt_body() {
-        match XaiSpeechTransformer.build_stt_body(&SttRequest::from_audio(b"abc".to_vec())) {
+        match XaiSpeechTransformer
+            .build_stt_body(&SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg"))
+        {
             Err(LlmError::UnsupportedOperation(message)) => {
                 assert!(message.contains("text-to-speech only"));
             }
@@ -360,7 +362,7 @@ mod tests {
             .expect("build xai client");
 
         let err = client
-            .speech_to_text(SttRequest::from_audio(b"abc".to_vec()))
+            .speech_to_text(SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg"))
             .await
             .expect_err("xai stt should remain unsupported");
 

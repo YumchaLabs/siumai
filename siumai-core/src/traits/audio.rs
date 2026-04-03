@@ -7,11 +7,15 @@ use crate::types::{
 };
 use async_trait::async_trait;
 
-async fn load_audio_file_request(path: &str) -> Result<(Vec<u8>, Option<String>), LlmError> {
+async fn load_audio_file_request(path: &str) -> Result<(Vec<u8>, String), LlmError> {
     let bytes = tokio::fs::read(path)
         .await
         .map_err(|e| LlmError::IoError(format!("Failed to read audio file '{path}': {e}")))?;
-    let media_type = crate::utils::guess_mime_from_path_or_url(path);
+    let media_type = crate::utils::guess_mime_from_path_or_url(path).ok_or_else(|| {
+        LlmError::InvalidInput(format!(
+            "Could not infer audio media type from file path '{path}'; pass a request with an explicit media_type instead."
+        ))
+    })?;
     Ok((bytes, media_type))
 }
 
@@ -74,34 +78,28 @@ pub trait AudioCapability: Send + Sync {
         Ok(response.audio_data)
     }
 
-    async fn transcribe(&self, audio: Vec<u8>) -> Result<String, LlmError> {
-        let request = SttRequest::from_audio(audio);
+    async fn transcribe(&self, audio: Vec<u8>, media_type: String) -> Result<String, LlmError> {
+        let request = SttRequest::from_audio(audio, media_type);
         let response = self.speech_to_text(request).await?;
         Ok(response.text)
     }
 
     async fn transcribe_file(&self, file_path: String) -> Result<String, LlmError> {
         let (audio, media_type) = load_audio_file_request(&file_path).await?;
-        let mut request = SttRequest::from_audio(audio);
-        if let Some(media_type) = media_type {
-            request = request.with_media_type(media_type);
-        }
+        let request = SttRequest::from_audio(audio, media_type);
         let response = self.speech_to_text(request).await?;
         Ok(response.text)
     }
 
-    async fn translate(&self, audio: Vec<u8>) -> Result<String, LlmError> {
-        let request = AudioTranslationRequest::from_audio(audio);
+    async fn translate(&self, audio: Vec<u8>, media_type: String) -> Result<String, LlmError> {
+        let request = AudioTranslationRequest::from_audio(audio, media_type);
         let response = self.translate_audio(request).await?;
         Ok(response.text)
     }
 
     async fn translate_file(&self, file_path: String) -> Result<String, LlmError> {
         let (audio, media_type) = load_audio_file_request(&file_path).await?;
-        let mut request = AudioTranslationRequest::from_audio(audio);
-        if let Some(media_type) = media_type {
-            request = request.with_media_type(media_type);
-        }
+        let request = AudioTranslationRequest::from_audio(audio, media_type);
         let response = self.translate_audio(request).await?;
         Ok(response.text)
     }
@@ -175,7 +173,7 @@ mod tests {
             .clone()
             .expect("recorded request");
         assert_eq!(request.audio_bytes().expect("audio bytes"), b"abc");
-        assert_eq!(request.media_type.as_deref(), Some("audio/wav"));
+        assert_eq!(request.media_type, "audio/wav");
     }
 
     #[tokio::test]
@@ -201,6 +199,6 @@ mod tests {
             .clone()
             .expect("recorded request");
         assert_eq!(request.audio_bytes().expect("audio bytes"), b"xyz");
-        assert_eq!(request.media_type.as_deref(), Some("audio/wav"));
+        assert_eq!(request.media_type, "audio/wav");
     }
 }

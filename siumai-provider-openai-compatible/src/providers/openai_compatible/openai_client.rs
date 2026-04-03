@@ -1722,7 +1722,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec());
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("whisper-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -1779,7 +1779,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec());
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("whisper-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -2251,7 +2251,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec());
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request = request.with_media_type("audio/mpeg".to_string());
 
         let response = crate::traits::AudioCapability::speech_to_text(&client, request)
@@ -2305,8 +2305,7 @@ mod tests {
             .await
             .unwrap();
 
-        let request = crate::types::SttRequest::from_audio(b"abc".to_vec())
-            .with_media_type("audio/mpeg".to_string());
+        let request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
         let _ = crate::traits::AudioCapability::speech_to_text(&client, request)
             .await
@@ -2344,7 +2343,7 @@ mod tests {
             .await
             .unwrap();
 
-        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec());
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("FunAudioLLM/SenseVoiceSmall".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 

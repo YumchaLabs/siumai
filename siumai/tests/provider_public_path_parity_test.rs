@@ -1305,7 +1305,7 @@ mod openai_public_path {
             .transcription_model("openai:whisper-1")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.language = Some("en".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -1406,9 +1406,11 @@ mod openai_public_path {
             .transcription_model("openai:whisper-1")
             .expect("build registry transcription model");
 
-        let mut request =
-            siumai_core::types::AudioTranslationRequest::from_audio(b"hello".to_vec())
-                .with_media_type("audio/mpeg".to_string());
+        let mut request = siumai_core::types::AudioTranslationRequest::from_audio(
+            b"hello".to_vec(),
+            "audio/mpeg",
+        )
+        .with_media_type("audio/mpeg".to_string());
         request
             .extra_params
             .insert("prompt".to_string(), serde_json::json!("translate this"));
@@ -1794,8 +1796,7 @@ mod openai_public_path {
             .downcast_ref::<siumai::provider_ext::openai::OpenAiClient>()
             .expect("registry should build provider-owned OpenAiClient");
 
-        let mut request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.language = Some("en".to_string());
 
         let siumai_text = collect_transcript_text(
@@ -2059,8 +2060,7 @@ mod openai_public_path {
             .transcription_model("openai:gpt-4o-mini-transcribe")
             .expect("build registry transcription model");
 
-        let mut request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.language = Some("en".to_string());
 
         let siumai_text = collect_generic_transcript_text(
@@ -2711,8 +2711,7 @@ mod openai_public_path {
             .transcription_model("openai:whisper-1")
             .expect("build openai transcription model");
 
-        let request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
         let response = registry_model
             .speech_to_text(request)
@@ -5443,7 +5442,7 @@ mod azure_public_path {
             .transcription_model("azure:stt-deployment")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.language = Some("en".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -5620,8 +5619,7 @@ mod azure_public_path {
             .transcription_model("azure:stt-deployment")
             .expect("build azure transcription model");
 
-        let request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
         let response = registry_model
             .speech_to_text(request)
@@ -6032,8 +6030,7 @@ mod azure_public_path {
             .transcription_model("azure:stt-deployment")
             .expect("build registry transcription model");
 
-        let request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
         let siumai_resp = siumai_client
             .speech_to_text(request.clone())
@@ -7541,8 +7538,7 @@ mod gemini_public_path {
         let tts_request = TtsRequest::new("hello gemini audio".to_string())
             .with_voice("alloy".to_string())
             .with_format("mp3".to_string());
-        let stt_request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let stt_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
         let siumai_tts_err = siumai_client
             .text_to_speech(tts_request.clone())
@@ -12102,8 +12098,9 @@ mod openai_compatible_audio_public_path {
     use siumai_registry::registry::builder::RegistryBuilder;
 
     fn make_audio_translation_request(model: &str) -> siumai_core::types::AudioTranslationRequest {
-        let mut request = siumai_core::types::AudioTranslationRequest::from_audio(b"abc".to_vec())
-            .with_media_type("audio/mpeg".to_string());
+        let mut request =
+            siumai_core::types::AudioTranslationRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+                .with_media_type("audio/mpeg".to_string());
         request.model = Some(model.to_string());
         request
     }
@@ -12394,7 +12391,7 @@ mod openai_compatible_audio_public_path {
             .transcription_model("together:openai/whisper-large-v3")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("openai/whisper-large-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -12410,7 +12407,7 @@ mod openai_compatible_audio_public_path {
             .speech_to_text(request)
             .await
             .expect("config stt ok");
-        let mut registry_request = SttRequest::from_audio(b"abc".to_vec());
+        let mut registry_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         registry_request.model = Some("openai/whisper-large-v3".to_string());
         registry_request = registry_request.with_media_type("audio/mpeg".to_string());
 
@@ -12549,7 +12546,7 @@ mod openai_compatible_audio_public_path {
             .transcription_model("together:openai/whisper-large-v3")
             .expect("build together transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("openai/whisper-large-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -13396,7 +13393,7 @@ mod openai_compatible_audio_public_path {
             .transcription_model("siliconflow:FunAudioLLM/SenseVoiceSmall")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("FunAudioLLM/SenseVoiceSmall".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -13412,7 +13409,7 @@ mod openai_compatible_audio_public_path {
             .speech_to_text(request)
             .await
             .expect("config stt ok");
-        let mut registry_request = SttRequest::from_audio(b"abc".to_vec());
+        let mut registry_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         registry_request.model = Some("FunAudioLLM/SenseVoiceSmall".to_string());
         registry_request = registry_request.with_media_type("audio/mpeg".to_string());
 
@@ -13489,7 +13486,7 @@ mod openai_compatible_audio_public_path {
             .transcription_model("siliconflow:FunAudioLLM/SenseVoiceSmall")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("FunAudioLLM/SenseVoiceSmall".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -13654,7 +13651,7 @@ mod openai_compatible_audio_public_path {
             .transcription_model("fireworks:whisper-v3")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("whisper-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -13670,7 +13667,7 @@ mod openai_compatible_audio_public_path {
             .speech_to_text(request)
             .await
             .expect("config stt ok");
-        let mut registry_request = SttRequest::from_audio(b"abc".to_vec());
+        let mut registry_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         registry_request.model = Some("whisper-v3".to_string());
         registry_request = registry_request.with_media_type("audio/mpeg".to_string());
         let registry_resp = registry_model
@@ -13746,7 +13743,7 @@ mod openai_compatible_audio_public_path {
             .transcription_model("fireworks:whisper-v3")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("whisper-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -15095,7 +15092,7 @@ mod openai_compatible_audio_public_path {
             .with_voice("alloy".to_string())
             .with_format("mp3".to_string());
 
-        let mut stt_request = SttRequest::from_audio(b"abc".to_vec());
+        let mut stt_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         stt_request.model = Some(model.to_string());
         stt_request = stt_request.with_media_type("audio/mpeg".to_string());
 
@@ -15204,7 +15201,7 @@ mod openai_compatible_audio_public_path {
             .with_voice("alloy".to_string())
             .with_format("mp3".to_string());
 
-        let mut stt_request = SttRequest::from_audio(b"abc".to_vec());
+        let mut stt_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         stt_request.model = Some(model.to_string());
         stt_request = stt_request.with_media_type("audio/mpeg".to_string());
 
@@ -20531,9 +20528,7 @@ mod groq_public_path {
             Err(err) => err,
         };
         let registry_stt_stream_err = match registry_model
-            .stt_stream(
-                SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string()),
-            )
+            .stt_stream(SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg"))
             .await
         {
             Ok(_) => panic!("groq registry transcription stream extras should be unavailable"),
@@ -20541,8 +20536,11 @@ mod groq_public_path {
         };
         let registry_translate_err = registry_model
             .audio_translate(
-                siumai_core::types::AudioTranslationRequest::from_audio(b"abc".to_vec())
-                    .with_media_type("audio/mpeg".to_string()),
+                siumai_core::types::AudioTranslationRequest::from_audio(
+                    b"abc".to_vec(),
+                    "audio/mpeg",
+                )
+                .with_media_type("audio/mpeg".to_string()),
             )
             .await
             .expect_err("groq registry translation should be unsupported");
@@ -23095,7 +23093,7 @@ data: [DONE]
             .transcription_model("groq:whisper-large-v3")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request = request.with_media_type("audio/wav".to_string());
 
         let siumai_resp = siumai_client
@@ -23110,8 +23108,7 @@ data: [DONE]
             .speech_to_text(request)
             .await
             .expect("config stt ok");
-        let registry_request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/wav".to_string());
+        let registry_request = SttRequest::from_audio(b"abc".to_vec(), "audio/wav");
 
         let registry_resp = registry_model
             .speech_to_text(registry_request)
@@ -25491,8 +25488,7 @@ mod ollama_public_path {
         let tts_request = TtsRequest::new("hello ollama audio".to_string())
             .with_voice("alloy".to_string())
             .with_format("mp3".to_string());
-        let stt_request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let stt_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
         let siumai_tts_err = siumai_client
             .text_to_speech(tts_request.clone())
@@ -27043,7 +27039,7 @@ mod minimaxi_public_path {
         )
         .expect("build config client");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some(model.to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -33237,8 +33233,7 @@ mod anthropic_public_path {
         let tts_request = TtsRequest::new("hello anthropic audio".to_string())
             .with_voice("alloy".to_string())
             .with_format("mp3".to_string());
-        let stt_request =
-            SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+        let stt_request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
         let siumai_tts_err = siumai_client
             .text_to_speech(tts_request.clone())
@@ -42237,7 +42232,7 @@ data: [DONE]
         .await
         .expect("build config client");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec());
+        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some(model.to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 

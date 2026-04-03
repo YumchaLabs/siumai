@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `openai-compatible`, canonical `openaiCompatible`, and provider-owned keys instead of only
   `providerOptions.openai|azure`, and image generation now surfaces stable
   `unsupported { feature: "seed" }` warnings instead of silently dropping `seed`.
+- OpenAI-compatible transcription public paths now follow the tightened shared AI SDK-aligned
+  contract as well: stable STT requests require `mediaType`, and compat transcription tests/builders
+  now compile against the canonical `from_audio(audio, mediaType)` surface.
+- Built-in `openrouter` and `perplexity` compat presets now default `supportsStructuredOutputs` to
+  enabled on their public builder/config/registry paths, matching the schema-preserving structured
+  output behavior expected by their provider-owned parity tests.
 - OpenAI-compatible chat runtime now also installs AI SDK-style provider-defined tool warnings on
   the default response path: provider-defined tools remain filtered out of Chat Completions
   requests, and successful chat responses now emit `unsupported { feature: "provider-defined tool

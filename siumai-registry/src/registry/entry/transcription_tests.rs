@@ -133,7 +133,10 @@ async fn provider_factory_transcription_family_bridge_works() {
     );
 
     let response = model
-        .transcribe(crate::types::SttRequest::from_audio(Vec::new()))
+        .transcribe(crate::types::SttRequest::from_audio(
+            Vec::new(),
+            "audio/wav",
+        ))
         .await
         .unwrap();
     assert_eq!(response.text, "bridge transcription");
@@ -215,7 +218,10 @@ async fn provider_factory_native_transcription_family_path_works() {
     );
 
     let response = model
-        .transcribe(crate::types::SttRequest::from_audio(Vec::new()))
+        .transcribe(crate::types::SttRequest::from_audio(
+            Vec::new(),
+            "audio/wav",
+        ))
         .await
         .unwrap();
     assert_eq!(response.text, "native transcription");
@@ -299,7 +305,7 @@ async fn transcription_model_handle_uses_native_family_path_when_available() {
 
     let response = siumai_core::transcription::TranscriptionModelV3::transcribe(
         &handle,
-        crate::types::SttRequest::from_audio(Vec::new()),
+        crate::types::SttRequest::from_audio(Vec::new(), "audio/wav"),
     )
     .await
     .unwrap();
@@ -382,13 +388,13 @@ async fn transcription_model_handle_reuses_cached_family_model() {
 
     let first = siumai_core::transcription::TranscriptionModelV3::transcribe(
         &handle,
-        crate::types::SttRequest::from_audio(Vec::new()),
+        crate::types::SttRequest::from_audio(Vec::new(), "audio/wav"),
     )
     .await
     .unwrap();
     let second = siumai_core::transcription::TranscriptionModelV3::transcribe(
         &handle,
-        crate::types::SttRequest::from_audio(Vec::new()),
+        crate::types::SttRequest::from_audio(Vec::new(), "audio/wav"),
     )
     .await
     .unwrap();

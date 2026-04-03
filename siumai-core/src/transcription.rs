@@ -68,9 +68,12 @@ mod tests {
     #[tokio::test]
     async fn adapter_transcribe_uses_capability() {
         let model = FakeTranscription;
-        let resp = TranscriptionModelV3::transcribe(&model, SttRequest::from_audio(Vec::new()))
-            .await
-            .unwrap();
+        let resp = TranscriptionModelV3::transcribe(
+            &model,
+            SttRequest::from_audio(Vec::new(), "audio/wav"),
+        )
+        .await
+        .unwrap();
         assert_eq!(resp.text, "ok");
     }
 

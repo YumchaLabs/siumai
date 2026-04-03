@@ -64,7 +64,7 @@ async fn audio_stt_json_retries_on_401() {
         policy: siumai::experimental::execution::ExecutionPolicy::new(),
     };
 
-    let result = AudioExecutor::stt(&exec, SttRequest::from_audio(vec![1, 2, 3]))
+    let result = AudioExecutor::stt(&exec, SttRequest::from_audio(vec![1, 2, 3], "audio/mpeg"))
         .await
         .unwrap();
     assert_eq!(result.text, "hello");

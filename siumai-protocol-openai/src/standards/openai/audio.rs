@@ -123,11 +123,9 @@ fn build_stt_body_impl(
 
     let mut part =
         reqwest::multipart::Part::bytes(audio).file_name(defaults.stt_file_name.to_string());
-    if let Some(media_type) = req.media_type.as_deref() {
-        part = part.mime_str(media_type).map_err(|e| {
-            LlmError::InvalidParameter(format!("Invalid STT media_type '{media_type}': {e}"))
-        })?;
-    }
+    part = part.mime_str(&req.media_type).map_err(|e| {
+        LlmError::InvalidParameter(format!("Invalid STT media_type '{}': {e}", req.media_type))
+    })?;
     let mut form = reqwest::multipart::Form::new().part("file", part);
     form = form.text("model", model);
     if let Some(fmt) = lookup_extra(

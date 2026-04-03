@@ -84,6 +84,15 @@ impl std::fmt::Debug for OpenAiCompatibleConfig {
 }
 
 impl OpenAiCompatibleConfig {
+    fn default_supports_structured_outputs(provider_id: &str) -> Option<bool> {
+        match provider_id {
+            // These built-in compat presets are expected to preserve JSON Schema outputs on the
+            // public path by default rather than falling back to generic `json_object`.
+            "openrouter" | "perplexity" => Some(true),
+            _ => None,
+        }
+    }
+
     /// Create a new configuration
     pub fn new(
         provider_id: &str,
@@ -105,7 +114,7 @@ impl OpenAiCompatibleConfig {
             model_middlewares: Vec::new(),
             query_params: BTreeMap::new(),
             include_usage: None,
-            supports_structured_outputs: None,
+            supports_structured_outputs: Self::default_supports_structured_outputs(provider_id),
             request_body_transformer: None,
         }
     }
@@ -1161,6 +1170,63 @@ mod tests {
         .with_supports_structured_outputs(false);
 
         assert_eq!(config.supports_structured_outputs, Some(false));
+    }
+
+    #[test]
+    fn test_builtin_provider_structured_outputs_defaults() {
+        #[derive(Debug, Clone)]
+        struct DummyAdapter(&'static str);
+        impl super::super::adapter::ProviderAdapter for DummyAdapter {
+            fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+                std::borrow::Cow::Borrowed(self.0)
+            }
+            fn transform_request_params(
+                &self,
+                _params: &mut serde_json::Value,
+                _model: &str,
+                _request_type: super::super::types::RequestType,
+            ) -> Result<(), LlmError> {
+                Ok(())
+            }
+            fn get_field_mappings(&self, _model: &str) -> super::super::types::FieldMappings {
+                super::super::types::FieldMappings::standard()
+            }
+            fn get_model_config(&self, _model: &str) -> super::super::types::ModelConfig {
+                super::super::types::ModelConfig::default()
+            }
+            fn capabilities(&self) -> ProviderCapabilities {
+                ProviderCapabilities::new().with_chat()
+            }
+            fn base_url(&self) -> &str {
+                "https://api.test.com/v1"
+            }
+            fn clone_adapter(&self) -> Box<dyn super::super::adapter::ProviderAdapter> {
+                Box::new(self.clone())
+            }
+        }
+
+        let openrouter = OpenAiCompatibleConfig::new(
+            "openrouter",
+            "test-key",
+            "https://openrouter.ai/api/v1",
+            Arc::new(DummyAdapter("openrouter")),
+        );
+        let perplexity = OpenAiCompatibleConfig::new(
+            "perplexity",
+            "test-key",
+            "https://api.perplexity.ai",
+            Arc::new(DummyAdapter("perplexity")),
+        );
+        let generic = OpenAiCompatibleConfig::new(
+            "generic",
+            "test-key",
+            "https://api.example.com/v1",
+            Arc::new(DummyAdapter("generic")),
+        );
+
+        assert_eq!(openrouter.supports_structured_outputs, Some(true));
+        assert_eq!(perplexity.supports_structured_outputs, Some(true));
+        assert_eq!(generic.supports_structured_outputs, None);
     }
 
     #[test]

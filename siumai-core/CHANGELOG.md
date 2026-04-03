@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Audio helper APIs such as `transcribe_file(...)` and `translate_file(...)` now materialize local
   files into canonical shared audio inputs before execution, and the audio executor no longer owns
   request-shape `file_path` fallback behavior.
+- Audio convenience helpers now also follow the required `mediaType` contract of the shared
+  transcription request types: `transcribe(...)` / `translate(...)` take explicit media types, and
+  file-based helpers fail fast when a local path does not imply a recognizable audio media type.
+- OpenAI-compatible config defaults now treat built-in `openrouter` and `perplexity` presets as
+  structured-output-capable, so config-first public paths preserve JSON Schema response formats by
+  default instead of falling back to generic `json_object`.
 
 ## [0.11.0-beta.6] - 2026-03-02
 

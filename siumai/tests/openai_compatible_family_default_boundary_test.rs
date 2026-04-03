@@ -390,7 +390,7 @@ async fn compat_fireworks_stt_missing_request_model_uses_family_default_across_p
     )
     .await;
 
-    let request = SttRequest::from_audio(b"abc".to_vec()).with_media_type("audio/mpeg".to_string());
+    let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
 
     let _ = siumai_client
         .speech_to_text(request.clone())

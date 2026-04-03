@@ -47,13 +47,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await?;
 
     let audio_bytes = tokio::fs::read(&audio_file).await?;
-    let mut request = SttRequest::from_audio(audio_bytes).with_model(SILICONFLOW_STT_MODEL);
-
-    if let Ok(media_type) = std::env::var("SILICONFLOW_AUDIO_MEDIA_TYPE") {
-        request = request.with_media_type(media_type);
+    let media_type = if let Ok(media_type) = std::env::var("SILICONFLOW_AUDIO_MEDIA_TYPE") {
+        media_type
     } else if let Some(media_type) = infer_audio_media_type(&audio_file) {
-        request = request.with_media_type(media_type.to_string());
-    }
+        media_type.to_string()
+    } else {
+        return Err(
+            "Could not infer SILICONFLOW audio media type; set SILICONFLOW_AUDIO_MEDIA_TYPE".into(),
+        );
+    };
+    let request = SttRequest::from_audio(audio_bytes, media_type).with_model(SILICONFLOW_STT_MODEL);
 
     let response = transcription::transcribe(
         &client,

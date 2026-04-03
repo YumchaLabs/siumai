@@ -3909,7 +3909,7 @@ mod openai_contract {
             .transcription_model("together:openai/whisper-large-v3")
             .expect("build together transcription handle");
 
-        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec());
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("openai/whisper-large-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -4124,7 +4124,7 @@ mod openai_contract {
             .transcription_model("siliconflow:FunAudioLLM/SenseVoiceSmall")
             .expect("build siliconflow transcription handle");
 
-        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec());
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("FunAudioLLM/SenseVoiceSmall".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 
@@ -5527,7 +5527,7 @@ data: [DONE]
             .transcription_model("fireworks:whisper-v3")
             .expect("build fireworks transcription handle");
 
-        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec());
+        let mut request = crate::types::SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         request.model = Some("whisper-v3".to_string());
         request = request.with_media_type("audio/mpeg".to_string());
 

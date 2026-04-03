@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI audio multipart shaping now consumes the canonical shared transcription audio input,
   including base64-backed request payloads, instead of depending on the removed stable
   `audio_data | file_path` split.
+- OpenAI STT multipart shaping now also requires and forwards the stable transcription
+  `mediaType`, matching the AI SDK required-input contract instead of treating MIME attachment as
+  optional.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

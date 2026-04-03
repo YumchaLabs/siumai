@@ -447,7 +447,7 @@ mod tests {
             policy: ExecutionPolicy::new(),
         };
 
-        let req = SttRequest::from_audio(b"abc".to_vec());
+        let req = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         let err = exec.stt(req).await.expect_err("should short-circuit");
         assert!(matches!(err, LlmError::InvalidInput(_)));
     }

@@ -128,7 +128,7 @@ async fn openai_stt_sends_multipart_and_maps_metadata() {
         .await
         .expect("build ok");
 
-    let mut req = SttRequest::from_audio(b"hello".to_vec());
+    let mut req = SttRequest::from_audio(b"hello".to_vec(), "audio/mpeg");
     req.language = Some("en".to_string());
     req.timestamp_granularities = Some(vec!["word".to_string()]);
 
@@ -198,7 +198,8 @@ async fn openai_audio_translation_sends_multipart_and_parses_json() {
         .await
         .expect("build ok");
 
-    let mut req = siumai_core::types::AudioTranslationRequest::from_audio(b"hello".to_vec());
+    let mut req =
+        siumai_core::types::AudioTranslationRequest::from_audio(b"hello".to_vec(), "audio/mpeg");
     req.extra_params.insert(
         "prompt".to_string(),
         serde_json::Value::String("translate this".to_string()),

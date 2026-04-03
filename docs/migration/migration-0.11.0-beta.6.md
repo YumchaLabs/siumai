@@ -52,7 +52,7 @@ The most common migration is “keep construction, swap invocation”:
 - `client.generate_images(..)` → `image::generate(&client, ImageGenerationRequest { .. }, ..)`
 - `client.rerank(..)` → `rerank::rerank(&client, RerankRequest::new(..), ..)`
 - `client.tts(..)` → `speech::synthesize(&client, TtsRequest::new(..), ..)`
-- `client.stt(..)` → `transcription::transcribe(&client, SttRequest::from_audio(..), ..)`
+- `client.stt(..)` → `transcription::transcribe(&client, SttRequest::from_audio(.., "audio/mpeg"), ..)`
 
 ## 1) Text generation: `client.chat_*` → `siumai::text::*`
 

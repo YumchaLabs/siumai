@@ -103,7 +103,7 @@ fn public_family_helpers_compile_against_stable_family_models() {
     fn _assert_transcription_surface<M: TranscriptionModel + ?Sized>(model: &M) {
         std::mem::drop(transcription::transcribe(
             model,
-            SttRequest::from_audio(Vec::new()),
+            SttRequest::from_audio(Vec::new(), "audio/wav"),
             Default::default(),
         ));
     }

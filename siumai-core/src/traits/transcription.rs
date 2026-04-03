@@ -100,9 +100,10 @@ mod tests {
     #[tokio::test]
     async fn legacy_audio_capability_adapts_into_transcription_capability() {
         let model = FakeLegacyAudio;
-        let response = TranscriptionCapability::stt(&model, SttRequest::from_audio(Vec::new()))
-            .await
-            .expect("audio adapter should provide transcription capability");
+        let response =
+            TranscriptionCapability::stt(&model, SttRequest::from_audio(Vec::new(), "audio/wav"))
+                .await
+                .expect("audio adapter should provide transcription capability");
 
         assert_eq!(response.text, "legacy shim ok");
     }

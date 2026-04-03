@@ -85,6 +85,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `translate_file(...)` instead of leaking `file_path` into the stable request contract, and the
   OpenAI/OpenAI-compatible audio shaping paths now consume the canonical shared audio input
   directly.
+- Shared transcription/audio-translation requests now also require `mediaType` on the stable Rust
+  surface, so constructors, helpers, examples, and OpenAI/OpenAI-compatible multipart shaping now
+  align with the AI SDK required-input contract instead of treating media type as optional.
+- Built-in OpenAI-compatible `openrouter` and `perplexity` presets now default structured outputs
+  to the schema-preserving path, so their public builder/config/registry surfaces no longer fall
+  back to generic `json_object` formatting when AI SDK-aligned JSON Schema outputs are requested.
 - Shared image edit/provider boundaries now align more closely with AI SDK image-model semantics:
   `ImageEditRequest` carries typed multi-input `images[]` plus typed `mask`, xAI native edit now
   emits single-input `image` vs multi-input `images`, and OpenAI/OpenAI-compatible multipart edit

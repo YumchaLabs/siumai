@@ -168,8 +168,8 @@ pub struct SttRequest {
     pub audio: AudioInputData,
     /// Audio format
     pub format: Option<String>,
-    /// Audio media type (e.g., "audio/wav")
-    pub media_type: Option<String>,
+    /// Required IANA media type for the audio input (e.g., "audio/wav").
+    pub media_type: String,
     /// Language code (e.g., "en-US")
     pub language: Option<String>,
     /// Model to use
@@ -186,11 +186,11 @@ pub struct SttRequest {
 
 impl SttRequest {
     /// Create STT request from audio data
-    pub fn from_audio(audio_data: impl Into<Vec<u8>>) -> Self {
+    pub fn from_audio(audio_data: impl Into<Vec<u8>>, media_type: impl Into<String>) -> Self {
         Self {
             audio: AudioInputData::binary(audio_data),
             format: None,
-            media_type: None,
+            media_type: media_type.into(),
             language: None,
             model: None,
             timestamp_granularities: None,
@@ -201,8 +201,18 @@ impl SttRequest {
     }
 
     /// Create STT request from a base64 audio payload.
-    pub fn from_base64(audio_data: impl Into<String>) -> Self {
-        Self::from_audio(Vec::<u8>::new()).with_audio(AudioInputData::base64(audio_data))
+    pub fn from_base64(audio_data: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self {
+            audio: AudioInputData::base64(audio_data),
+            format: None,
+            media_type: media_type.into(),
+            language: None,
+            model: None,
+            timestamp_granularities: None,
+            provider_options_map: ProviderOptionsMap::default(),
+            extra_params: HashMap::new(),
+            http_config: None,
+        }
     }
 
     /// Replace the full provider options map (open JSON map).
@@ -243,8 +253,8 @@ impl SttRequest {
     }
 
     /// Set audio media type (e.g., "audio/mpeg", "audio/wav")
-    pub fn with_media_type(mut self, media_type: String) -> Self {
-        self.media_type = Some(media_type);
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        self.media_type = media_type.into();
         self
     }
 
@@ -297,8 +307,8 @@ pub struct AudioTranslationRequest {
     pub audio: AudioInputData,
     /// Audio format
     pub format: Option<String>,
-    /// Audio media type (e.g., "audio/wav")
-    pub media_type: Option<String>,
+    /// Required IANA media type for the audio input (e.g., "audio/wav").
+    pub media_type: String,
     /// Model to use
     pub model: Option<String>,
     /// Open provider options map (Vercel-aligned).
@@ -311,11 +321,11 @@ pub struct AudioTranslationRequest {
 
 impl AudioTranslationRequest {
     /// Create translation request from audio data
-    pub fn from_audio(audio_data: impl Into<Vec<u8>>) -> Self {
+    pub fn from_audio(audio_data: impl Into<Vec<u8>>, media_type: impl Into<String>) -> Self {
         Self {
             audio: AudioInputData::binary(audio_data),
             format: None,
-            media_type: None,
+            media_type: media_type.into(),
             model: None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
@@ -324,8 +334,16 @@ impl AudioTranslationRequest {
     }
 
     /// Create translation request from a base64 audio payload.
-    pub fn from_base64(audio_data: impl Into<String>) -> Self {
-        Self::from_audio(Vec::<u8>::new()).with_audio(AudioInputData::base64(audio_data))
+    pub fn from_base64(audio_data: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self {
+            audio: AudioInputData::base64(audio_data),
+            format: None,
+            media_type: media_type.into(),
+            model: None,
+            provider_options_map: ProviderOptionsMap::default(),
+            extra_params: HashMap::new(),
+            http_config: None,
+        }
     }
 
     /// Replace the full provider options map (open JSON map).
@@ -366,8 +384,8 @@ impl AudioTranslationRequest {
     }
 
     /// Set audio media type (e.g., "audio/mpeg", "audio/wav")
-    pub fn with_media_type(mut self, media_type: String) -> Self {
-        self.media_type = Some(media_type);
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        self.media_type = media_type.into();
         self
     }
 
@@ -456,18 +474,17 @@ mod tests {
 
     #[test]
     fn stt_request_uses_canonical_audio_input() {
-        let request = SttRequest::from_base64("AQID").with_media_type("audio/mpeg".to_string());
+        let request = SttRequest::from_base64("AQID", "audio/mpeg");
 
         assert_eq!(request.audio_bytes().expect("audio bytes"), vec![1, 2, 3]);
-        assert_eq!(request.media_type.as_deref(), Some("audio/mpeg"));
+        assert_eq!(request.media_type, "audio/mpeg");
     }
 
     #[test]
     fn audio_translation_request_uses_canonical_audio_input() {
-        let request =
-            AudioTranslationRequest::from_audio(vec![4, 5, 6]).with_media_type("audio/wav".into());
+        let request = AudioTranslationRequest::from_audio(vec![4, 5, 6], "audio/wav");
 
         assert_eq!(request.audio_bytes().expect("audio bytes"), vec![4, 5, 6]);
-        assert_eq!(request.media_type.as_deref(), Some("audio/wav"));
+        assert_eq!(request.media_type, "audio/wav");
     }
 }

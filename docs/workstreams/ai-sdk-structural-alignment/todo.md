@@ -234,8 +234,10 @@ Status legend:
     - local file-path materialization moved behind helper-level `transcribe_file(...)` /
       `translate_file(...)` instead of living on the stable request shape
     - `AudioTranslationRequest` was updated in the same pass so STT/translation stay aligned
-  - [ ] Decide whether the shared transcription `mediaType` field should be tightened from optional
-    to required for full AI SDK parity.
+  - [x] Tighten the shared transcription `mediaType` field to required for full AI SDK parity.
+    - stable `SttRequest` / `AudioTranslationRequest` now require `mediaType`
+    - `from_audio(...)` / `from_base64(...)` constructors now take `mediaType`
+    - helper/file-based convenience paths now infer `mediaType` eagerly or fail fast
 
 ## Track C - Finish V4-capable prompt/content modeling
 

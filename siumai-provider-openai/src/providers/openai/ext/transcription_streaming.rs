@@ -54,7 +54,7 @@ mod tests {
         let cfg = OpenAiConfig::new("KEY").with_base_url(format!("{}/v1", server.uri()));
         let client = OpenAiClient::new(cfg, reqwest::Client::new());
 
-        let req = SttRequest::from_audio(b"abc".to_vec());
+        let req = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         let mut req = req;
         req.model = Some("gpt-4o-mini-transcribe".to_string());
 
@@ -119,7 +119,7 @@ mod tests {
         let cfg = OpenAiConfig::new("KEY").with_base_url(format!("{}/v1", server.uri()));
         let client = OpenAiClient::new(cfg, reqwest::Client::new());
 
-        let mut req = SttRequest::from_audio(b"abc".to_vec());
+        let mut req = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
         req.model = Some("gpt-4o-mini-transcribe".to_string());
 
         let mut stream = stt_sse_stream(&client, req).await.unwrap();
