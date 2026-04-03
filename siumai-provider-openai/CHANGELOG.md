@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Part(ResponseMetadata)` events in addition to the legacy `openai:response-metadata` custom
   event, so HTTP and websocket wrappers still call `POST /responses/{id}/cancel` after the
   stream-part migration.
+- OpenAI transcription and audio-translation clients now consume the canonical shared `audio`
+  request input directly, and no longer read `file_path` inside provider client code for
+  translation or streaming transcription paths.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

@@ -219,23 +219,11 @@ impl AudioCapability for OpenAiClient {
             Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
         let config = self.http_wiring().config(spec);
 
-        // Allow users to pass either raw bytes or a file path (mirrors the STT executor behavior).
         let mut req = request;
         req.model = Some(self.resolved_stt_model(req.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut req.provider_options_map);
-        if req.audio_data.is_none()
-            && let Some(path) = req.file_path.as_deref()
-        {
-            let bytes = tokio::fs::read(path).await.map_err(|e| {
-                LlmError::IoError(format!("Failed to read audio file '{path}': {e}"))
-            })?;
-            req.audio_data = Some(bytes);
-        }
-
-        let audio = req.audio_data.clone().ok_or_else(|| {
-            LlmError::InvalidInput(
-                "audio_data or file_path is required for audio translation".into(),
-            )
+        let audio = req.audio_bytes().map_err(|err| {
+            LlmError::InvalidParameter(format!("Invalid audio translation input: {err}"))
         })?;
 
         let model = self.resolved_stt_model(req.model.as_deref());

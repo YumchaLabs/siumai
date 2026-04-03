@@ -28,6 +28,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI Responses SSE parsing now emits first-class runtime stream parts for `stream-start`, `response-metadata`, non-tool `text-*`, `reasoning-*`, `source`, successful `finish`, and provider-hosted tool / MCP / approval semantics, and document sources can now reserialize back to Responses annotations via `providerMetadata.openai.fileId` even when the stable source shape no longer carries a top-level document URL.
 - OpenAI Responses same-protocol replay of provider-hosted tool / MCP / approval items now uses a dedicated runtime replay carrier for `rawItem` / `outputIndex`, so parser output, bridge output, and SSE serialization no longer depend on loose provider-scoped custom JSON extras for those hints.
 - OpenAI Responses failed/unknown finish replay now preserves `null` usage totals end-to-end instead of materializing zero counts inside buffered terminal events.
+- OpenAI audio multipart shaping now consumes the canonical shared transcription audio input,
+  including base64-backed request payloads, instead of depending on the removed stable
+  `audio_data | file_path` split.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

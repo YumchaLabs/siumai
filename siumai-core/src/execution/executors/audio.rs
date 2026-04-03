@@ -257,18 +257,6 @@ impl AudioExecutor for HttpAudioExecutor {
             ));
         }
 
-        // Allow users to pass either raw bytes or a file path (common in provider docs).
-        // We load the file here (async) so transformer implementations can stay sync.
-        let mut req = req;
-        if req.audio_data.is_none()
-            && let Some(path) = req.file_path.as_deref()
-        {
-            let bytes = tokio::fs::read(path).await.map_err(|e| {
-                LlmError::IoError(format!("Failed to read audio file '{path}': {e}"))
-            })?;
-            req.audio_data = Some(bytes);
-        }
-
         let base_url = self.provider_spec.audio_base_url(&self.provider_context);
         let url = crate::utils::url::join_url(&base_url, self.transformer.stt_endpoint());
 
@@ -407,11 +395,11 @@ mod tests {
     }
 
     #[derive(Clone)]
-    struct ExpectFileLoadedTransformer {
+    struct ExpectAudioInputTransformer {
         expected: Vec<u8>,
     }
 
-    impl AudioTransformer for ExpectFileLoadedTransformer {
+    impl AudioTransformer for ExpectAudioInputTransformer {
         fn provider_id(&self) -> &str {
             "test"
         }
@@ -422,10 +410,9 @@ mod tests {
 
         fn build_stt_body(&self, req: &SttRequest) -> Result<AudioHttpBody, LlmError> {
             let got = req
-                .audio_data
-                .as_ref()
-                .ok_or_else(|| LlmError::InvalidInput("audio_data should be loaded".into()))?;
-            assert_eq!(got, &self.expected);
+                .audio_bytes()
+                .map_err(|err| LlmError::InvalidInput(format!("invalid audio input: {err}")))?;
+            assert_eq!(got, self.expected);
             Err(LlmError::InvalidInput("stop after assertion".into()))
         }
 
@@ -443,14 +430,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stt_loads_file_path_into_audio_data_before_transformer() {
-        let tmp = tempfile::NamedTempFile::new().expect("temp file");
-        std::fs::write(tmp.path(), b"abc").expect("write");
-
+    async fn stt_passes_canonical_audio_input_to_transformer() {
         let exec = HttpAudioExecutor {
             provider_id: "test".to_string(),
             http_client: reqwest::Client::new(),
-            transformer: Arc::new(ExpectFileLoadedTransformer {
+            transformer: Arc::new(ExpectAudioInputTransformer {
                 expected: b"abc".to_vec(),
             }),
             provider_spec: Arc::new(SupportsTranscriptionSpec),
@@ -463,7 +447,7 @@ mod tests {
             policy: ExecutionPolicy::new(),
         };
 
-        let req = SttRequest::from_file(tmp.path().to_string_lossy().to_string());
+        let req = SttRequest::from_audio(b"abc".to_vec());
         let err = exec.stt(req).await.expect_err("should short-circuit");
         assert!(matches!(err, LlmError::InvalidInput(_)));
     }

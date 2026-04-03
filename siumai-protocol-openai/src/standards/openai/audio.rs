@@ -104,9 +104,8 @@ fn build_stt_body_impl(
         .clone()
         .unwrap_or_else(|| defaults.stt_model.to_string());
     let audio = req
-        .audio_data
-        .clone()
-        .ok_or_else(|| LlmError::InvalidInput("audio_data required for STT".to_string()))?;
+        .audio_bytes()
+        .map_err(|err| LlmError::InvalidParameter(format!("Invalid STT audio input: {err}")))?;
 
     if lookup_extra(
         provider_id,

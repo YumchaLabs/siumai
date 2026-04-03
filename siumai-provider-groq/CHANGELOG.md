@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Groq transcription request coverage now follows the canonical shared `audio` input surface after
+  the AI SDK-style STT request-shape alignment.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

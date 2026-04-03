@@ -7,6 +7,14 @@ use crate::types::{
 };
 use async_trait::async_trait;
 
+async fn load_audio_file_request(path: &str) -> Result<(Vec<u8>, Option<String>), LlmError> {
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|e| LlmError::IoError(format!("Failed to read audio file '{path}': {e}")))?;
+    let media_type = crate::utils::guess_mime_from_path_or_url(path);
+    Ok((bytes, media_type))
+}
+
 #[async_trait]
 pub trait AudioCapability: Send + Sync {
     fn supported_features(&self) -> &[AudioFeature];
@@ -73,7 +81,11 @@ pub trait AudioCapability: Send + Sync {
     }
 
     async fn transcribe_file(&self, file_path: String) -> Result<String, LlmError> {
-        let request = SttRequest::from_file(file_path);
+        let (audio, media_type) = load_audio_file_request(&file_path).await?;
+        let mut request = SttRequest::from_audio(audio);
+        if let Some(media_type) = media_type {
+            request = request.with_media_type(media_type);
+        }
         let response = self.speech_to_text(request).await?;
         Ok(response.text)
     }
@@ -85,8 +97,110 @@ pub trait AudioCapability: Send + Sync {
     }
 
     async fn translate_file(&self, file_path: String) -> Result<String, LlmError> {
-        let request = AudioTranslationRequest::from_file(file_path);
+        let (audio, media_type) = load_audio_file_request(&file_path).await?;
+        let mut request = AudioTranslationRequest::from_audio(audio);
+        if let Some(media_type) = media_type {
+            request = request.with_media_type(media_type);
+        }
         let response = self.translate_audio(request).await?;
         Ok(response.text)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct RecordingAudioCapability {
+        stt_request: Mutex<Option<SttRequest>>,
+        translation_request: Mutex<Option<AudioTranslationRequest>>,
+    }
+
+    #[async_trait]
+    impl AudioCapability for RecordingAudioCapability {
+        fn supported_features(&self) -> &[AudioFeature] {
+            &[]
+        }
+
+        async fn speech_to_text(&self, request: SttRequest) -> Result<SttResponse, LlmError> {
+            *self.stt_request.lock().expect("stt lock") = Some(request);
+            Ok(SttResponse {
+                text: "ok".to_string(),
+                language: None,
+                confidence: None,
+                words: None,
+                duration: None,
+                metadata: Default::default(),
+            })
+        }
+
+        async fn translate_audio(
+            &self,
+            request: AudioTranslationRequest,
+        ) -> Result<SttResponse, LlmError> {
+            *self.translation_request.lock().expect("translation lock") = Some(request);
+            Ok(SttResponse {
+                text: "translated".to_string(),
+                language: None,
+                confidence: None,
+                words: None,
+                duration: None,
+                metadata: Default::default(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_file_loads_bytes_into_canonical_audio_input() {
+        let tmp = tempfile::Builder::new()
+            .suffix(".wav")
+            .tempfile()
+            .expect("temp file");
+        std::fs::write(tmp.path(), b"abc").expect("write");
+
+        let capability = RecordingAudioCapability::default();
+        let text = capability
+            .transcribe_file(tmp.path().to_string_lossy().to_string())
+            .await
+            .expect("transcribe file");
+
+        assert_eq!(text, "ok");
+
+        let request = capability
+            .stt_request
+            .lock()
+            .expect("stt lock")
+            .clone()
+            .expect("recorded request");
+        assert_eq!(request.audio_bytes().expect("audio bytes"), b"abc");
+        assert_eq!(request.media_type.as_deref(), Some("audio/wav"));
+    }
+
+    #[tokio::test]
+    async fn translate_file_loads_bytes_into_canonical_audio_input() {
+        let tmp = tempfile::Builder::new()
+            .suffix(".wav")
+            .tempfile()
+            .expect("temp file");
+        std::fs::write(tmp.path(), b"xyz").expect("write");
+
+        let capability = RecordingAudioCapability::default();
+        let text = capability
+            .translate_file(tmp.path().to_string_lossy().to_string())
+            .await
+            .expect("translate file");
+
+        assert_eq!(text, "translated");
+
+        let request = capability
+            .translation_request
+            .lock()
+            .expect("translation lock")
+            .clone()
+            .expect("recorded request");
+        assert_eq!(request.audio_bytes().expect("audio bytes"), b"xyz");
+        assert_eq!(request.media_type.as_deref(), Some("audio/wav"));
     }
 }

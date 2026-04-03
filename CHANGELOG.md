@@ -22,6 +22,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   of the older raw `seed_image` / `seed_video` byte fields.
 - Shared video input typing now also exposes per-input `providerOptions` on typed file/url inputs,
   bringing the stable `VideoGenerationInput` shape closer to AI SDK `VideoModelV4File`.
+- Shared transcription and audio-translation typing now uses a canonical `audio` input plus
+  `mediaType` / `providerOptions`, replacing the older stable `audio_data | file_path` split and
+  bringing the request surface much closer to AI SDK `TranscriptionModelV4CallOptions`.
 
 ### Fixed
 
@@ -78,6 +81,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - xAI Responses SSE custom-tool streaming now matches the audited `repo-ref/ai/packages/xai/src/responses/xai-responses-language-model.ts` flow more closely: xAI `custom_tool_call` items (`x_search`, `view_x_video`) defer the finalized `tool-input-start` / `tool-input-delta` / `tool-input-end` plus `tool-call` emission until `response.output_item.done`, `response.custom_tool_call_input.*` is treated as input buffering instead of a second public event lane, and the fixture-backed xAI stream regression suite now covers `web_search`, `file_search`, and `x_search` on the stable part boundary.
 - xAI public model constants were refreshed to match the current AI SDK reference set more closely, including `grok-4-1-fast-*`, `grok-4-fast-*`, `grok-4.20-*`, `grok-code-fast-1`, and `grok-3-mini-latest`.
 - xAI provider-owned image/video parity now follows the audited AI SDK split much more closely: typed `XaiImageOptions` / `XaiVideoOptions` plus request ext traits are public, xAI native image generation/edit now use `/images/generations` and `/images/edits`, xAI native video create/query now use `/videos/generations|edits` and `GET /videos/{request_id}`, registry/native metadata/public-path parity now expose xAI image generation and video task support, and the shared video request/response types now carry AI SDK-style `providerOptions`, per-request `HttpConfig`, `aspectRatio`, `videoUrl`, metadata, warnings, and response envelopes.
+- Local transcription file loading now happens in helper APIs such as `transcribe_file(...)` and
+  `translate_file(...)` instead of leaking `file_path` into the stable request contract, and the
+  OpenAI/OpenAI-compatible audio shaping paths now consume the canonical shared audio input
+  directly.
 - Shared image edit/provider boundaries now align more closely with AI SDK image-model semantics:
   `ImageEditRequest` carries typed multi-input `images[]` plus typed `mask`, xAI native edit now
   emits single-input `image` vs multi-input `images`, and OpenAI/OpenAI-compatible multipart edit

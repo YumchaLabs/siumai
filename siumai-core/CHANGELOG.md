@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI-compatible chat/non-stream response decoding now maps `message.annotations` / `delta.annotations` URL citations into stable `source` parts, and URL `source` stream parts now serialize back into chat-completions `annotations`.
 - `systemMessageMode=remove` warnings now use the explicit `compatibility` warning shape instead of a generic warning string.
 - OpenAI-compatible and OpenAI Chat request conversion now read canonical message/part `providerOptions` for request-only behavior such as extra params, assistant reasoning replay hints, and image detail; request-side `provider_metadata` / `message.metadata.custom` are no longer treated as input on those main paths.
+- Audio helper APIs such as `transcribe_file(...)` and `translate_file(...)` now materialize local
+  files into canonical shared audio inputs before execution, and the audio executor no longer owns
+  request-shape `file_path` fallback behavior.
 
 ## [0.11.0-beta.6] - 2026-03-02
 

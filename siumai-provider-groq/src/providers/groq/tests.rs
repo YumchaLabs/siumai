@@ -254,8 +254,7 @@ mod groq_tests {
 
         // STT defaults
         let stt = crate::types::SttRequest {
-            audio_data: Some(vec![1, 2, 3]),
-            file_path: None,
+            audio: crate::types::AudioInputData::binary(vec![1, 2, 3]),
             format: None,
             media_type: None,
             model: None,

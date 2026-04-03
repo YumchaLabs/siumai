@@ -45,7 +45,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client =
         OpenAiCompatibleClient::from_builtin_env("fireworks", Some(FIREWORKS_STT_MODEL)).await?;
 
-    let mut request = SttRequest::from_file(audio_file.clone()).with_model(FIREWORKS_STT_MODEL);
+    let audio_bytes = tokio::fs::read(&audio_file).await?;
+    let mut request = SttRequest::from_audio(audio_bytes).with_model(FIREWORKS_STT_MODEL);
 
     if let Ok(media_type) = std::env::var("FIREWORKS_AUDIO_MEDIA_TYPE") {
         request = request.with_media_type(media_type);

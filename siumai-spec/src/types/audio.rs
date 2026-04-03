@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use crate::types::{HttpConfig, ProviderOptionsMap};
+use base64::Engine;
 
 fn should_fill_model_slot(slot: Option<&str>, fallback: &str) -> bool {
     let fallback = fallback.trim();
@@ -123,13 +124,48 @@ pub struct TtsResponse {
     pub metadata: HashMap<String, serde_json::Value>,
 }
 
+/// Audio input payload for transcription and audio translation requests.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AudioInputData {
+    /// Base64-encoded audio data.
+    Base64(String),
+    /// Binary audio bytes.
+    Binary(Vec<u8>),
+}
+
+impl AudioInputData {
+    /// Create audio input from binary bytes.
+    pub fn binary(data: impl Into<Vec<u8>>) -> Self {
+        Self::Binary(data.into())
+    }
+
+    /// Create audio input from a base64 string.
+    pub fn base64(data: impl Into<String>) -> Self {
+        Self::Base64(data.into())
+    }
+
+    /// Convert the audio input to a base64 string.
+    pub fn as_base64(&self) -> String {
+        match self {
+            Self::Base64(data) => data.clone(),
+            Self::Binary(data) => base64::engine::general_purpose::STANDARD.encode(data),
+        }
+    }
+
+    /// Convert the audio input to bytes, decoding base64 when necessary.
+    pub fn as_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        match self {
+            Self::Base64(data) => base64::engine::general_purpose::STANDARD.decode(data),
+            Self::Binary(data) => Ok(data.clone()),
+        }
+    }
+}
+
 /// Speech-to-text request
 #[derive(Debug, Clone)]
 pub struct SttRequest {
-    /// Audio data
-    pub audio_data: Option<Vec<u8>>,
-    /// File path (alternative to `audio_data`)
-    pub file_path: Option<String>,
+    /// Canonical audio input aligned with AI SDK transcription call options.
+    pub audio: AudioInputData,
     /// Audio format
     pub format: Option<String>,
     /// Audio media type (e.g., "audio/wav")
@@ -150,10 +186,9 @@ pub struct SttRequest {
 
 impl SttRequest {
     /// Create STT request from audio data
-    pub fn from_audio(audio_data: Vec<u8>) -> Self {
+    pub fn from_audio(audio_data: impl Into<Vec<u8>>) -> Self {
         Self {
-            audio_data: Some(audio_data),
-            file_path: None,
+            audio: AudioInputData::binary(audio_data),
             format: None,
             media_type: None,
             language: None,
@@ -165,20 +200,9 @@ impl SttRequest {
         }
     }
 
-    /// Create STT request from file path
-    pub fn from_file(file_path: String) -> Self {
-        Self {
-            audio_data: None,
-            file_path: Some(file_path),
-            format: None,
-            media_type: None,
-            language: None,
-            model: None,
-            timestamp_granularities: None,
-            provider_options_map: ProviderOptionsMap::default(),
-            extra_params: HashMap::new(),
-            http_config: None,
-        }
+    /// Create STT request from a base64 audio payload.
+    pub fn from_base64(audio_data: impl Into<String>) -> Self {
+        Self::from_audio(Vec::<u8>::new()).with_audio(AudioInputData::base64(audio_data))
     }
 
     /// Replace the full provider options map (open JSON map).
@@ -222,6 +246,17 @@ impl SttRequest {
     pub fn with_media_type(mut self, media_type: String) -> Self {
         self.media_type = Some(media_type);
         self
+    }
+
+    /// Replace the canonical audio input payload.
+    pub fn with_audio(mut self, audio: AudioInputData) -> Self {
+        self.audio = audio;
+        self
+    }
+
+    /// Return the audio input as bytes, decoding base64 when necessary.
+    pub fn audio_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        self.audio.as_bytes()
     }
 }
 
@@ -258,10 +293,8 @@ pub struct WordTimestamp {
 /// Audio translation request (speech to English text)
 #[derive(Debug, Clone)]
 pub struct AudioTranslationRequest {
-    /// Audio data
-    pub audio_data: Option<Vec<u8>>,
-    /// File path (alternative to `audio_data`)
-    pub file_path: Option<String>,
+    /// Canonical audio input aligned with AI SDK transcription call options.
+    pub audio: AudioInputData,
     /// Audio format
     pub format: Option<String>,
     /// Audio media type (e.g., "audio/wav")
@@ -278,10 +311,9 @@ pub struct AudioTranslationRequest {
 
 impl AudioTranslationRequest {
     /// Create translation request from audio data
-    pub fn from_audio(audio_data: Vec<u8>) -> Self {
+    pub fn from_audio(audio_data: impl Into<Vec<u8>>) -> Self {
         Self {
-            audio_data: Some(audio_data),
-            file_path: None,
+            audio: AudioInputData::binary(audio_data),
             format: None,
             media_type: None,
             model: None,
@@ -291,18 +323,9 @@ impl AudioTranslationRequest {
         }
     }
 
-    /// Create translation request from file path
-    pub fn from_file(file_path: String) -> Self {
-        Self {
-            audio_data: None,
-            file_path: Some(file_path),
-            format: None,
-            media_type: None,
-            model: None,
-            provider_options_map: ProviderOptionsMap::default(),
-            extra_params: HashMap::new(),
-            http_config: None,
-        }
+    /// Create translation request from a base64 audio payload.
+    pub fn from_base64(audio_data: impl Into<String>) -> Self {
+        Self::from_audio(Vec::<u8>::new()).with_audio(AudioInputData::base64(audio_data))
     }
 
     /// Replace the full provider options map (open JSON map).
@@ -346,6 +369,17 @@ impl AudioTranslationRequest {
     pub fn with_media_type(mut self, media_type: String) -> Self {
         self.media_type = Some(media_type);
         self
+    }
+
+    /// Replace the canonical audio input payload.
+    pub fn with_audio(mut self, audio: AudioInputData) -> Self {
+        self.audio = audio;
+        self
+    }
+
+    /// Return the audio input as bytes, decoding base64 when necessary.
+    pub fn audio_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        self.audio.as_bytes()
     }
 }
 
@@ -404,4 +438,36 @@ pub enum AudioFeature {
     AudioEnhancement,
     /// Multi-modal audio-visual processing
     MultimodalAudio,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audio_input_data_helpers_support_binary_and_base64() {
+        let binary = AudioInputData::binary(vec![1, 2, 3]);
+        assert_eq!(binary.as_bytes().expect("bytes"), vec![1, 2, 3]);
+
+        let base64 = AudioInputData::base64("AQID");
+        assert_eq!(base64.as_bytes().expect("decode"), vec![1, 2, 3]);
+        assert_eq!(base64.as_base64(), "AQID");
+    }
+
+    #[test]
+    fn stt_request_uses_canonical_audio_input() {
+        let request = SttRequest::from_base64("AQID").with_media_type("audio/mpeg".to_string());
+
+        assert_eq!(request.audio_bytes().expect("audio bytes"), vec![1, 2, 3]);
+        assert_eq!(request.media_type.as_deref(), Some("audio/mpeg"));
+    }
+
+    #[test]
+    fn audio_translation_request_uses_canonical_audio_input() {
+        let request =
+            AudioTranslationRequest::from_audio(vec![4, 5, 6]).with_media_type("audio/wav".into());
+
+        assert_eq!(request.audio_bytes().expect("audio bytes"), vec![4, 5, 6]);
+        assert_eq!(request.media_type.as_deref(), Some("audio/wav"));
+    }
 }

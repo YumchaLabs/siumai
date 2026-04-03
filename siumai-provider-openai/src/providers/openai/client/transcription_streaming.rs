@@ -68,18 +68,9 @@ impl OpenAiClient {
         let spec: Arc<dyn ProviderSpec> =
             Arc::new(crate::providers::openai::spec::OpenAiSpec::new());
 
-        // Allow users to pass either raw bytes or a file path.
         let mut request = request;
         request.model = Some(self.resolved_stt_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
-        if request.audio_data.is_none()
-            && let Some(path) = request.file_path.as_deref()
-        {
-            let bytes = tokio::fs::read(path).await.map_err(|e| {
-                LlmError::IoError(format!("Failed to read audio file '{path}': {e}"))
-            })?;
-            request.audio_data = Some(bytes);
-        }
 
         // Build multipart form using the existing transformer, but enforce streaming at the HTTP layer.
         // (The unified transformer explicitly rejects `extra_params["stream"]=true`.)

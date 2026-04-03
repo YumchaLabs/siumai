@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Extend typed `VideoGenerationInput` file/url inputs with first-class per-input
   `providerOptions`, aligning the shared video file shape more closely with AI SDK
   `VideoModelV4File`.
+- Add canonical `AudioInputData` plus helper constructors/accessors, and refactor shared
+  `SttRequest` / `AudioTranslationRequest` typing onto the AI SDK-style
+  `audio + mediaType + providerOptions` surface instead of the older `audio_data | file_path`
+  split.
 
 ### Fixed
 

@@ -227,12 +227,15 @@ Status legend:
       `providerOptions["minimaxi"]`
     - MiniMaxi video request/body shaping and public provider-owned builder helpers were updated to
       use that provider-owned lane instead of shared top-level fields
-  - [ ] Refactor the shared transcription/audio-input surface toward AI SDK V4.
-    - AI SDK `TranscriptionModelV4CallOptions` uses canonical `audio + mediaType + providerOptions`
-      instead of the current Rust `audio_data | file_path` split
-    - `file_path` loading should likely move behind a compatibility/helper lane instead of living on
-      the stable request shape
-    - `AudioTranslationRequest` should be reviewed in the same pass so STT/translation stay aligned
+  - [x] Refactor the shared transcription/audio-input surface toward AI SDK V4.
+    - shared STT and audio-translation requests now use canonical
+      `audio + mediaType + providerOptions`
+    - stable request types no longer expose the old `audio_data | file_path` split
+    - local file-path materialization moved behind helper-level `transcribe_file(...)` /
+      `translate_file(...)` instead of living on the stable request shape
+    - `AudioTranslationRequest` was updated in the same pass so STT/translation stay aligned
+  - [ ] Decide whether the shared transcription `mediaType` field should be tightened from optional
+    to required for full AI SDK parity.
 
 ## Track C - Finish V4-capable prompt/content modeling
 

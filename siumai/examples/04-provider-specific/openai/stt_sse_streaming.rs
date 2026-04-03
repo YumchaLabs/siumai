@@ -21,7 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         OpenAiConfig::new(std::env::var("OPENAI_API_KEY")?).with_model("gpt-4o-mini"),
     )?;
 
-    let mut req = SttRequest::from_file(audio_file);
+    let audio_bytes = tokio::fs::read(&audio_file).await?;
+    let mut req = SttRequest::from_audio(audio_bytes);
     req.model = Some("gpt-4o-mini-transcribe".to_string());
 
     let mut stream =
