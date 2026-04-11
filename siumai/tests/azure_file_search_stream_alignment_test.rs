@@ -79,26 +79,26 @@ fn azure_file_search_stream_emits_custom_tool_name_and_azure_metadata() {
 
         let tool_calls: Vec<serde_json::Value> = events
             .iter()
-            .filter_map(|e| match e {
-                ChatStreamEvent::Custom { data, .. }
-                    if data.get("type") == Some(&serde_json::json!("tool-call")) =>
-                {
-                    Some(data.clone())
+            .filter_map(|event| match event {
+                ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                    Some(serde_json::to_value(part).expect("serialize stream part"))
                 }
+                ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
                 _ => None,
             })
+            .filter(|data| data.get("type") == Some(&serde_json::json!("tool-call")))
             .collect();
 
         let tool_results: Vec<serde_json::Value> = events
             .iter()
-            .filter_map(|e| match e {
-                ChatStreamEvent::Custom { data, .. }
-                    if data.get("type") == Some(&serde_json::json!("tool-result")) =>
-                {
-                    Some(data.clone())
+            .filter_map(|event| match event {
+                ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                    Some(serde_json::to_value(part).expect("serialize stream part"))
                 }
+                ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
                 _ => None,
             })
+            .filter(|data| data.get("type") == Some(&serde_json::json!("tool-result")))
             .collect();
 
         assert!(
@@ -121,6 +121,16 @@ fn azure_file_search_stream_emits_custom_tool_name_and_azure_metadata() {
         }
 
         let has_azure_provider_metadata = events.iter().any(|e| match e {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                serde_json::to_value(part)
+                    .ok()
+                    .and_then(|data| {
+                        data.get("providerMetadata")
+                            .and_then(|m| m.get("azure"))
+                            .cloned()
+                    })
+                    .is_some()
+            }
             ChatStreamEvent::Custom { data, .. } => data
                 .get("providerMetadata")
                 .and_then(|m| m.get("azure"))

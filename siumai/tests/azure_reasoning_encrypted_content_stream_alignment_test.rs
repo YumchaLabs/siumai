@@ -23,17 +23,17 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
         .collect()
 }
 
-fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+fn stream_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
         .collect()
 }
 
@@ -88,9 +88,9 @@ fn azure_reasoning_encrypted_content_stream_emits_azure_provider_metadata() {
         }
     }
 
-    let reasoning_starts = custom_events_by_type(&events, "reasoning-start");
-    let reasoning_deltas = custom_events_by_type(&events, "reasoning-delta");
-    let reasoning_ends = custom_events_by_type(&events, "reasoning-end");
+    let reasoning_starts = stream_events_by_type(&events, "reasoning-start");
+    let reasoning_deltas = stream_events_by_type(&events, "reasoning-delta");
+    let reasoning_ends = stream_events_by_type(&events, "reasoning-end");
 
     assert!(
         !reasoning_starts.is_empty(),

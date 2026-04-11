@@ -75,26 +75,26 @@ fn azure_web_search_preview_stream_emits_custom_tool_name_when_provided() {
 
     let tool_calls: Vec<serde_json::Value> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-call")) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::json!("tool-call")))
         .collect();
 
     let tool_results: Vec<serde_json::Value> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-result")) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::json!("tool-result")))
         .collect();
 
     assert!(!tool_calls.is_empty(), "expected tool-call events");

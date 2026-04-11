@@ -69,38 +69,38 @@ fn azure_web_search_preview_stream_emits_vercel_aligned_tool_names() {
 
     let tool_calls: Vec<serde_json::Value> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-call")) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::json!("tool-call")))
         .collect();
 
     let tool_results: Vec<serde_json::Value> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-result")) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::json!("tool-result")))
         .collect();
 
     let text_starts: Vec<serde_json::Value> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("text-start")) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::json!("text-start")))
         .collect();
 
     assert!(!tool_calls.is_empty(), "expected tool-call events");
@@ -131,6 +131,12 @@ fn azure_web_search_preview_stream_emits_vercel_aligned_tool_names() {
     }
 
     let has_url_sources = events.iter().any(|e| match e {
+        ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+            serde_json::to_value(part).ok().is_some_and(|data| {
+                data.get("type") == Some(&serde_json::json!("source"))
+                    && data.get("sourceType") == Some(&serde_json::json!("url"))
+            })
+        }
         ChatStreamEvent::Custom { data, .. } => {
             data.get("type") == Some(&serde_json::json!("source"))
                 && data.get("sourceType") == Some(&serde_json::json!("url"))

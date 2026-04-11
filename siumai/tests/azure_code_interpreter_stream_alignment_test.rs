@@ -23,17 +23,17 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
         .collect()
 }
 
-fn collect_custom_events(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+fn collect_stream_events(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
         .collect()
 }
 
@@ -88,8 +88,8 @@ fn azure_code_interpreter_stream_emits_vercel_aligned_tool_names() {
         }
     }
 
-    let tool_input_starts = collect_custom_events(&events, "tool-input-start");
-    let tool_input_deltas = collect_custom_events(&events, "tool-input-delta");
+    let tool_input_starts = collect_stream_events(&events, "tool-input-start");
+    let tool_input_deltas = collect_stream_events(&events, "tool-input-delta");
 
     assert!(
         !tool_input_starts.is_empty(),
