@@ -1,8 +1,85 @@
 //! Shared provider metadata extraction helpers for OpenAI-compatible providers.
 
+use serde_json::{Map, Value};
 use std::collections::HashMap;
 
-pub(super) type NestedProviderMetadata = HashMap<String, HashMap<String, serde_json::Value>>;
+pub type NestedProviderMetadata = crate::types::ProviderMetadataMap;
+
+pub fn nested_provider_metadata_to_map(
+    metadata: NestedProviderMetadata,
+) -> crate::types::ProviderMetadataMap {
+    metadata
+}
+
+pub fn provider_options_key(provider_id: &str) -> String {
+    provider_id
+        .split('.')
+        .next()
+        .unwrap_or(provider_id)
+        .trim()
+        .to_ascii_lowercase()
+}
+
+pub fn to_camel_case(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    let mut uppercase_next = false;
+
+    for ch in value.chars() {
+        if matches!(ch, '-' | '_') {
+            uppercase_next = true;
+            continue;
+        }
+
+        if uppercase_next {
+            out.extend(ch.to_uppercase());
+            uppercase_next = false;
+        } else {
+            out.push(ch);
+        }
+    }
+
+    out
+}
+
+pub fn resolve_provider_metadata_key(
+    provider_id: &str,
+    provider_options: Option<&crate::types::ProviderOptionsMap>,
+) -> String {
+    let raw_name = provider_options_key(provider_id);
+    let camel_name = to_camel_case(&raw_name);
+
+    if camel_name != raw_name
+        && provider_options
+            .and_then(|options| options.get(&camel_name))
+            .is_some()
+    {
+        camel_name
+    } else {
+        raw_name
+    }
+}
+
+pub fn ensure_provider_metadata_namespace(
+    metadata: Option<NestedProviderMetadata>,
+    provider_key: &str,
+    raw_provider_key: &str,
+) -> NestedProviderMetadata {
+    let mut metadata = metadata.unwrap_or_default();
+
+    if provider_key != raw_provider_key
+        && let Some(entries) = metadata.remove(raw_provider_key)
+    {
+        crate::types::provider_metadata::merge_provider_metadata(
+            &mut metadata,
+            HashMap::from([(provider_key.to_string(), entries)]),
+        );
+    }
+
+    metadata
+        .entry(provider_key.to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    metadata
+}
 
 fn namespaced_provider_metadata(
     provider_id: &str,
@@ -11,7 +88,7 @@ fn namespaced_provider_metadata(
     if meta.is_empty() {
         None
     } else {
-        Some(HashMap::from([(provider_id.to_string(), meta)]))
+        Some(crate::types::provider_metadata::provider_metadata_from_object(provider_id, meta))
     }
 }
 
@@ -70,25 +147,140 @@ pub(super) fn extract_perplexity_provider_metadata(
     // `search_results` and `videos` (see Perplexity OpenAPI spec). These are intentionally
     // exposed as provider metadata instead of being added to the unified surface.
     let mut meta = HashMap::<String, serde_json::Value>::new();
-    for key in ["search_results", "videos", "citations", "images"] {
+    for key in ["search_results", "videos", "citations"] {
         if let Some(value) = raw.get(key).filter(|value| !value.is_null()) {
             meta.insert(key.to_string(), value.clone());
         }
     }
-    if let Some(usage) = raw.get("usage").filter(|value| !value.is_null()) {
-        meta.insert("usage".to_string(), usage.clone());
-    }
+
+    let usage = raw.get("usage").and_then(|value| value.as_object());
+    meta.insert(
+        "images".to_string(),
+        map_perplexity_images_metadata(raw.get("images")),
+    );
+    meta.insert(
+        "usage".to_string(),
+        Value::Object(Map::from_iter([
+            (
+                "citationTokens".to_string(),
+                perplexity_usage_field(usage, "citation_tokens", "citationTokens"),
+            ),
+            (
+                "numSearchQueries".to_string(),
+                perplexity_usage_field(usage, "num_search_queries", "numSearchQueries"),
+            ),
+            (
+                "reasoningTokens".to_string(),
+                perplexity_usage_field(usage, "reasoning_tokens", "reasoningTokens"),
+            ),
+        ])),
+    );
+    meta.insert(
+        "cost".to_string(),
+        map_perplexity_cost_metadata(
+            usage
+                .and_then(|usage| usage.get("cost"))
+                .filter(|value| !value.is_null()),
+        ),
+    );
 
     namespaced_provider_metadata(provider_id, meta)
+}
+
+fn perplexity_usage_field(
+    usage: Option<&Map<String, Value>>,
+    snake_case: &str,
+    camel_case: &str,
+) -> Value {
+    usage
+        .and_then(|usage| usage.get(snake_case).or_else(|| usage.get(camel_case)))
+        .cloned()
+        .unwrap_or(Value::Null)
+}
+
+fn map_perplexity_images_metadata(images: Option<&Value>) -> Value {
+    match images.filter(|value| !value.is_null()) {
+        Some(Value::Array(images)) => Value::Array(
+            images
+                .iter()
+                .map(|image| match image {
+                    Value::Object(image) => {
+                        let mut mapped = Map::new();
+
+                        if let Some(value) =
+                            image.get("image_url").or_else(|| image.get("imageUrl"))
+                        {
+                            mapped.insert("imageUrl".to_string(), value.clone());
+                        }
+                        if let Some(value) =
+                            image.get("origin_url").or_else(|| image.get("originUrl"))
+                        {
+                            mapped.insert("originUrl".to_string(), value.clone());
+                        }
+
+                        for (key, value) in image {
+                            if matches!(
+                                key.as_str(),
+                                "image_url" | "imageUrl" | "origin_url" | "originUrl"
+                            ) {
+                                continue;
+                            }
+                            mapped.insert(key.clone(), value.clone());
+                        }
+
+                        Value::Object(mapped)
+                    }
+                    value => value.clone(),
+                })
+                .collect(),
+        ),
+        Some(value) => value.clone(),
+        None => Value::Null,
+    }
+}
+
+fn map_perplexity_cost_metadata(cost: Option<&Value>) -> Value {
+    match cost {
+        Some(Value::Object(cost)) => Value::Object(Map::from_iter([
+            (
+                "inputTokensCost".to_string(),
+                cost.get("input_tokens_cost")
+                    .or_else(|| cost.get("inputTokensCost"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            ),
+            (
+                "outputTokensCost".to_string(),
+                cost.get("output_tokens_cost")
+                    .or_else(|| cost.get("outputTokensCost"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            ),
+            (
+                "requestCost".to_string(),
+                cost.get("request_cost")
+                    .or_else(|| cost.get("requestCost"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            ),
+            (
+                "totalCost".to_string(),
+                cost.get("total_cost")
+                    .or_else(|| cost.get("totalCost"))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+            ),
+        ])),
+        Some(value) => value.clone(),
+        None => Value::Null,
+    }
 }
 
 pub(super) fn merge_nested_provider_metadata(
     target: &mut NestedProviderMetadata,
     source: NestedProviderMetadata,
 ) {
-    for (provider, metadata) in source {
-        target.entry(provider).or_default().extend(metadata);
-    }
+    crate::types::provider_metadata::merge_provider_metadata(target, source);
 }
 
 #[cfg(test)]
@@ -104,7 +296,14 @@ mod tests {
                 "completion_tokens": 2,
                 "total_tokens": 3,
                 "citation_tokens": 4,
-                "num_search_queries": 1
+                "num_search_queries": 1,
+                "reasoning_tokens": 6,
+                "cost": {
+                    "input_tokens_cost": 0.12,
+                    "output_tokens_cost": 0.34,
+                    "request_cost": 0.01,
+                    "total_cost": 0.47
+                }
             },
             "citations": ["https://example.com"],
             "images": [{
@@ -122,11 +321,17 @@ mod tests {
             perplexity.get("citations"),
             Some(&serde_json::json!(["https://example.com"]))
         );
-        assert_eq!(perplexity["usage"]["citation_tokens"], serde_json::json!(4));
+        assert_eq!(perplexity["usage"]["citationTokens"], serde_json::json!(4));
         assert_eq!(
-            perplexity["images"][0]["image_url"],
+            perplexity["usage"]["numSearchQueries"],
+            serde_json::json!(1)
+        );
+        assert_eq!(perplexity["usage"]["reasoningTokens"], serde_json::json!(6));
+        assert_eq!(
+            perplexity["images"][0]["imageUrl"],
             serde_json::json!("https://images.example.com/rust.png")
         );
+        assert_eq!(perplexity["cost"]["requestCost"], serde_json::json!(0.01));
     }
 
     #[test]

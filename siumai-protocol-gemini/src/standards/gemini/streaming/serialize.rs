@@ -130,7 +130,9 @@ pub(super) fn serialize_event(
             let mut state = this.serialize_state.lock().map_err(|_| {
                 LlmError::InternalError("serialize_state lock poisoned".to_string())
             })?;
-            state.pending_reasoning_chunk.take()
+            let pending = state.pending_reasoning_chunk.take();
+            state.expect_reasoning_delta_custom_duplicate = false;
+            pending
         };
 
         let Some(pending) = pending else {
@@ -164,6 +166,7 @@ pub(super) fn serialize_event(
                 let mut state = this.serialize_state.lock().map_err(|_| {
                     LlmError::InternalError("serialize_state lock poisoned".to_string())
                 })?;
+                state.expect_reasoning_delta_custom_duplicate = false;
                 (
                     state.pending_reasoning_chunk.take(),
                     state.active_reasoning_provider_metadata.clone(),
@@ -361,6 +364,12 @@ pub(super) fn serialize_event(
             let Some(part) = LanguageModelV3StreamPart::try_from_chat_event(event) else {
                 return Ok(Vec::new());
             };
+            if matches!(part, LanguageModelV3StreamPart::ReasoningDelta { .. }) {
+                let mut state = this.serialize_state.lock().map_err(|_| {
+                    LlmError::InternalError("serialize_state lock poisoned".to_string())
+                })?;
+                state.expect_reasoning_delta_custom_duplicate = true;
+            }
             let Some(custom_event) =
                 part.to_custom_event(crate::streaming::StreamPartNamespace::Gemini)
             else {
@@ -389,7 +398,7 @@ pub(super) fn serialize_event(
                     provider_metadata,
                     ..
                 } => {
-                    let previous = {
+                    let (previous, ignore_duplicate) = {
                         let mut state = this.serialize_state.lock().map_err(|_| {
                             LlmError::InternalError("serialize_state lock poisoned".to_string())
                         })?;
@@ -398,17 +407,37 @@ pub(super) fn serialize_event(
                             .clone()
                             .or_else(|| state.active_reasoning_provider_metadata.clone());
 
-                        if let Some(provider_metadata) = provider_metadata {
-                            state.active_reasoning_provider_metadata = Some(provider_metadata);
-                        }
+                        if state.expect_reasoning_delta_custom_duplicate
+                            && state
+                                .pending_reasoning_chunk
+                                .as_ref()
+                                .is_some_and(|pending| {
+                                    pending.delta == delta
+                                        && pending.provider_metadata == carry_provider_metadata
+                                })
+                        {
+                            state.expect_reasoning_delta_custom_duplicate = false;
+                            (None, true)
+                        } else {
+                            if let Some(provider_metadata) = provider_metadata {
+                                state.active_reasoning_provider_metadata = Some(provider_metadata);
+                            }
 
-                        state.pending_reasoning_chunk.replace(
-                            GeminiPendingReasoningSerializeState {
-                                delta,
-                                provider_metadata: carry_provider_metadata,
-                            },
-                        )
+                            (
+                                state.pending_reasoning_chunk.replace(
+                                    GeminiPendingReasoningSerializeState {
+                                        delta,
+                                        provider_metadata: carry_provider_metadata,
+                                    },
+                                ),
+                                false,
+                            )
+                        }
                     };
+
+                    if ignore_duplicate {
+                        return Ok(Vec::new());
+                    }
 
                     let Some(previous) = previous else {
                         return Ok(Vec::new());

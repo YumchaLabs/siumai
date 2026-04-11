@@ -27,6 +27,23 @@ fn google_provider_metadata(value: serde_json::Value) -> crate::types::StreamPro
     provider_metadata
 }
 
+fn custom_events_by_type(
+    events: &[Result<ChatStreamEvent, crate::error::LlmError>],
+    ty: &str,
+) -> Vec<serde_json::Value> {
+    events
+        .iter()
+        .filter_map(|event| match event.as_ref().ok()? {
+            ChatStreamEvent::Custom { data, .. }
+                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
+            {
+                Some(data.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 #[tokio::test]
 async fn test_gemini_streaming_conversion() {
     let config = create_test_config();
@@ -146,6 +163,96 @@ async fn test_gemini_streaming_emits_reasoning_parts_with_signature() {
             ChatStreamEvent::ThinkingDelta { delta } if delta == "thinking.."
         )
     }));
+
+    let reasoning_starts = custom_events_by_type(&result, "reasoning-start");
+    let reasoning_deltas = custom_events_by_type(&result, "reasoning-delta");
+    assert_eq!(
+        reasoning_starts.len(),
+        1,
+        "expected one reasoning-start custom event"
+    );
+    assert_eq!(
+        reasoning_deltas.len(),
+        1,
+        "expected one reasoning-delta custom event"
+    );
+    assert_eq!(
+        reasoning_starts[0]
+            .get("providerMetadata")
+            .and_then(|meta| meta.get("google"))
+            .and_then(|meta| meta.get("thoughtSignature"))
+            .and_then(|value| value.as_str()),
+        Some("sig_1")
+    );
+    assert_eq!(
+        reasoning_deltas[0]
+            .get("providerMetadata")
+            .and_then(|meta| meta.get("google"))
+            .and_then(|meta| meta.get("thoughtSignature"))
+            .and_then(|value| value.as_str()),
+        Some("sig_1")
+    );
+}
+
+#[tokio::test]
+async fn test_vertex_streaming_emits_reasoning_custom_events_with_vertex_namespace() {
+    let config = create_test_config().with_provider_metadata_key("vertex");
+    let converter = GeminiEventConverter::new(config);
+
+    let thinking_event = eventsource_stream::Event {
+        event: "".into(),
+        data: r#"{"candidates":[{"content":{"parts":[{"text":"thinking...","thought":true,"thoughtSignature":"stream_sig"}]}}]}"#
+            .into(),
+        id: "".into(),
+        retry: None,
+    };
+    let finish_event = eventsource_stream::Event {
+        event: "".into(),
+        data: r#"{"candidates":[{"finishReason":"STOP"}]}"#.into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let mut result = converter.convert_event(thinking_event).await;
+    result.extend(converter.convert_event(finish_event).await);
+
+    let reasoning_starts = custom_events_by_type(&result, "reasoning-start");
+    let reasoning_deltas = custom_events_by_type(&result, "reasoning-delta");
+    let reasoning_ends = custom_events_by_type(&result, "reasoning-end");
+
+    assert_eq!(
+        reasoning_starts.len(),
+        1,
+        "expected one reasoning-start custom event"
+    );
+    assert_eq!(
+        reasoning_deltas.len(),
+        1,
+        "expected one reasoning-delta custom event"
+    );
+    assert_eq!(
+        reasoning_ends.len(),
+        1,
+        "expected one reasoning-end custom event"
+    );
+
+    for event in [&reasoning_starts[0], &reasoning_deltas[0]] {
+        assert_eq!(
+            event
+                .get("providerMetadata")
+                .and_then(|meta| meta.get("vertex"))
+                .and_then(|meta| meta.get("thoughtSignature"))
+                .and_then(|value| value.as_str()),
+            Some("stream_sig")
+        );
+        assert!(
+            event
+                .get("providerMetadata")
+                .and_then(|meta| meta.get("google"))
+                .is_none(),
+            "vertex custom event should not include google namespace"
+        );
+    }
 }
 
 #[tokio::test]
@@ -457,8 +564,16 @@ async fn test_invalid_json_emits_error() {
         retry: None,
     };
     let result = converter.convert_event(event).await;
-    assert_eq!(result.len(), 1);
-    assert!(matches!(result[0], Err(LlmError::ParseError(_))));
+    assert_eq!(result.len(), 2);
+    match result.first().expect("stream-start event") {
+        Ok(ChatStreamEvent::StreamStart { metadata }) => {
+            assert_eq!(metadata.model.as_deref(), Some("gemini-2.5-flash"));
+            assert_eq!(metadata.provider, "gemini");
+            assert!(metadata.created.is_some());
+        }
+        other => panic!("expected stream-start event, got {other:?}"),
+    }
+    assert!(matches!(result[1], Err(LlmError::ParseError(_))));
 }
 
 // In tolerant mode (json-repair enabled), invalid JSON should not error with ParseError
@@ -806,6 +921,7 @@ async fn gemini_stream_proxy_serializes_stream_end_finish_reason() {
                 ),
                 finish_reason: Some(FinishReason::Stop),
                 audio: None,
+                raw_finish_reason: None,
                 system_fingerprint: None,
                 service_tier: None,
                 warnings: None,
@@ -1058,6 +1174,26 @@ fn gemini_serializes_reasoning_metadata_through_thinking_delta_without_duplicate
     assert!(
         delta_bytes.is_empty(),
         "reasoning-delta should wait for the paired ThinkingDelta"
+    );
+
+    let duplicate_custom_delta_bytes = converter
+        .serialize_event(&ChatStreamEvent::Custom {
+            event_type: "gemini:reasoning".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-delta",
+                "id": "rs_1",
+                "delta": "thinking...",
+                "providerMetadata": {
+                    "google": {
+                        "thoughtSignature": "stream_sig"
+                    }
+                }
+            }),
+        })
+        .expect("serialize duplicate reasoning-delta custom event");
+    assert!(
+        duplicate_custom_delta_bytes.is_empty(),
+        "duplicate reasoning-delta custom event should be suppressed after the typed part"
     );
 
     let thinking_bytes = converter

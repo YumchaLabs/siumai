@@ -8,7 +8,7 @@ use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{
     ChatStreamEvent, LanguageModelV3Source, LanguageModelV3StreamPart, SharedV3ProviderMetadata,
-    StreamStateTracker, V3UnsupportedPartBehavior,
+    StreamPartNamespace, StreamStateTracker, V3UnsupportedPartBehavior,
 };
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
@@ -30,6 +30,7 @@ struct GeminiSerializeState {
     function_calls_by_id: std::collections::HashMap<String, GeminiFunctionCallSerializeState>,
     active_reasoning_provider_metadata: Option<SharedV3ProviderMetadata>,
     pending_reasoning_chunk: Option<GeminiPendingReasoningSerializeState>,
+    expect_reasoning_delta_custom_duplicate: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -293,6 +294,30 @@ impl GeminiEventConverter {
         lock.take()
     }
 
+    fn add_gemini_custom_stream_part(
+        &self,
+        builder: crate::streaming::EventBuilder,
+        part: LanguageModelV3StreamPart,
+    ) -> crate::streaming::EventBuilder {
+        let builder = match part.to_part_event() {
+            ChatStreamEvent::Part { part } => builder.add_part(part),
+            other => {
+                debug_assert!(
+                    false,
+                    "typed stream parts should convert to ChatStreamEvent::Part, got {other:?}"
+                );
+                builder
+            }
+        };
+
+        match part.to_custom_event(StreamPartNamespace::Gemini) {
+            Some(ChatStreamEvent::Custom { event_type, data }) => {
+                builder.add_custom_event(event_type, data)
+            }
+            _ => builder,
+        }
+    }
+
     /// Convert Gemini stream response to multiple ChatStreamEvents
     async fn convert_gemini_response_async(
         &self,
@@ -335,20 +360,26 @@ impl GeminiEventConverter {
                     let next = self.next_block_id.fetch_add(1, Ordering::Relaxed);
                     let id = next.to_string();
                     *lock = Some(id.clone());
-                    builder = builder.add_part(crate::types::ChatStreamPart::ReasoningStart {
-                        id: id.clone(),
-                        provider_metadata: provider_metadata.clone(),
-                    });
+                    builder = self.add_gemini_custom_stream_part(
+                        builder,
+                        LanguageModelV3StreamPart::ReasoningStart {
+                            id: id.clone(),
+                            provider_metadata: provider_metadata.clone(),
+                        },
+                    );
                     id
                 }
             };
 
             // reasoning-delta
-            builder = builder.add_part(crate::types::ChatStreamPart::ReasoningDelta {
-                id,
-                delta: thinking.clone(),
-                provider_metadata,
-            });
+            builder = self.add_gemini_custom_stream_part(
+                builder,
+                LanguageModelV3StreamPart::ReasoningDelta {
+                    id,
+                    delta: thinking.clone(),
+                    provider_metadata,
+                },
+            );
 
             builder = builder.add_thinking_delta(thinking);
         }
@@ -417,10 +448,13 @@ impl GeminiEventConverter {
         // Handle completion/finish reason
         if let Some(end_response) = self.extract_completion(&response) {
             if let Some(id) = self.take_reasoning_block_id() {
-                builder = builder.add_part(crate::types::ChatStreamPart::ReasoningEnd {
-                    id,
-                    provider_metadata: None,
-                });
+                builder = self.add_gemini_custom_stream_part(
+                    builder,
+                    LanguageModelV3StreamPart::ReasoningEnd {
+                        id,
+                        provider_metadata: None,
+                    },
+                );
             }
             builder = builder.add_stream_end(end_response);
         }
@@ -783,9 +817,12 @@ impl GeminiEventConverter {
                 if meta.is_empty() {
                     None
                 } else {
-                    let mut all = std::collections::HashMap::new();
-                    all.insert(provider_key.to_string(), meta);
-                    Some(all)
+                    Some(
+                        crate::types::provider_metadata::provider_metadata_from_object(
+                            provider_key,
+                            meta,
+                        ),
+                    )
                 }
             };
 
@@ -795,6 +832,7 @@ impl GeminiEventConverter {
                 content: MessageContent::Text("".to_string()),
                 usage: None,
                 finish_reason: Some(finish_reason),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -911,9 +949,16 @@ impl SseEventConverter for GeminiEventConverter {
                     .map(Ok)
                     .collect(),
                 Err(e) => {
-                    vec![Err(LlmError::ParseError(format!(
+                    let mut out = Vec::new();
+                    if self.needs_stream_start() {
+                        out.push(Ok(ChatStreamEvent::StreamStart {
+                            metadata: self.create_stream_start_metadata(),
+                        }));
+                    }
+                    out.push(Err(LlmError::ParseError(format!(
                         "Failed to parse Gemini SSE JSON: {e}"
-                    )))]
+                    ))));
+                    out
                 }
             }
         })
@@ -936,6 +981,7 @@ impl SseEventConverter for GeminiEventConverter {
             content: MessageContent::Text("".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Unknown),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
