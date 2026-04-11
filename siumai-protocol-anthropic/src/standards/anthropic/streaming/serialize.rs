@@ -405,6 +405,9 @@ pub(super) fn serialize_event(
                 arguments_delta,
                 ..
             } => {
+                if state.provider_executed_tool_call_ids.contains(id) {
+                    return Ok(Vec::new());
+                }
                 state.last_v3_text_delta = None;
                 state.last_v3_thinking_delta = None;
                 let signature = AnthropicToolDeltaSignature {
@@ -563,6 +566,15 @@ pub(super) fn serialize_event(
             .map(ToOwned::to_owned)
     }
 
+    fn anthropic_tool_call_caller(data: &serde_json::Value) -> Option<serde_json::Value> {
+        let caller = anthropic_provider_metadata(data)?.get("caller")?.clone();
+        let caller = serde_json::from_value::<
+            crate::provider_metadata::anthropic::AnthropicToolCaller,
+        >(caller)
+        .ok()?;
+        serde_json::to_value(caller).ok()
+    }
+
     fn parse_json_value(value: Option<&serde_json::Value>) -> serde_json::Value {
         let Some(value) = value else {
             return serde_json::json!({});
@@ -602,6 +614,125 @@ pub(super) fn serialize_event(
                     })
             })
             .and_then(|value| usize::try_from(value).ok())
+    }
+
+    fn serialize_text_part(
+        part: &LanguageModelV3StreamPart,
+        data: &serde_json::Value,
+        state: &mut AnthropicSerializeState,
+    ) -> Result<Option<Vec<u8>>, LlmError> {
+        let is_compaction =
+            anthropic_provider_metadata_string(data, "type").as_deref() == Some("compaction");
+        let block_kind = if is_compaction {
+            AnthropicSerializeBlockKind::Compaction
+        } else {
+            AnthropicSerializeBlockKind::Text
+        };
+
+        match part {
+            LanguageModelV3StreamPart::TextStart { .. } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+
+                let index = provider_content_block_index(data, state);
+                let mut out = ensure_message_start_emitted(state)?;
+                let (block_out, _) =
+                    ensure_active_block_at(state, block_kind, index, move |idx| {
+                        if is_compaction {
+                            serde_json::json!({
+                                "type": "content_block_start",
+                                "index": idx,
+                                "content_block": { "type": "compaction" }
+                            })
+                        } else {
+                            serde_json::json!({
+                                "type": "content_block_start",
+                                "index": idx,
+                                "content_block": { "type": "text", "text": "" }
+                            })
+                        }
+                    })?;
+                out.extend_from_slice(&block_out);
+                Ok(Some(out))
+            }
+            LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+                if state.last_v3_text_delta.as_deref() == Some(delta.as_str()) {
+                    state.last_v3_text_delta = None;
+                    return Ok(Some(Vec::new()));
+                }
+                state.last_v3_text_delta = None;
+
+                let index = provider_content_block_index(data, state);
+                let mut out = ensure_message_start_emitted(state)?;
+                let (block_out, idx) =
+                    ensure_active_block_at(state, block_kind, index, move |idx| {
+                        if is_compaction {
+                            serde_json::json!({
+                                "type": "content_block_start",
+                                "index": idx,
+                                "content_block": { "type": "compaction" }
+                            })
+                        } else {
+                            serde_json::json!({
+                                "type": "content_block_start",
+                                "index": idx,
+                                "content_block": { "type": "text", "text": "" }
+                            })
+                        }
+                    })?;
+                out.extend_from_slice(&block_out);
+
+                let delta_payload = if is_compaction {
+                    serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": idx,
+                        "delta": { "type": "compaction_delta", "content": delta }
+                    })
+                } else {
+                    serde_json::json!({
+                        "type": "content_block_delta",
+                        "index": idx,
+                        "delta": { "type": "text_delta", "text": delta }
+                    })
+                };
+                out.extend_from_slice(&sse_typed_frame(&delta_payload)?);
+                state.last_v3_text_delta = Some(delta.clone());
+                Ok(Some(out))
+            }
+            LanguageModelV3StreamPart::TextEnd { .. } => {
+                state.last_v3_text_delta = None;
+                state.last_v3_thinking_delta = None;
+                state.last_v3_tool_call = None;
+
+                let active_text_index = state.active_block.as_ref().and_then(|active| {
+                    if matches!(
+                        active.kind,
+                        AnthropicSerializeBlockKind::Text | AnthropicSerializeBlockKind::Compaction
+                    ) {
+                        Some(active.index)
+                    } else {
+                        None
+                    }
+                });
+                let target_index = provider_content_block_index(data, state);
+
+                if let Some(active_index) = active_text_index
+                    && target_index.is_none_or(|index| index == active_index)
+                {
+                    return Ok(Some(close_active_block(state)?));
+                }
+
+                if let Some(target_index) = target_index {
+                    return Ok(Some(emit_content_block_stop(target_index)?));
+                }
+
+                Ok(Some(Vec::new()))
+            }
+            _ => Ok(None),
+        }
     }
 
     fn serialize_reasoning_part(
@@ -751,7 +882,17 @@ pub(super) fn serialize_event(
         };
 
         match event_type {
-            "tool-call" => false,
+            "tool-call" => {
+                data.get("rawContentBlock")
+                    .is_some_and(serde_json::Value::is_object)
+                    || anthropic_provider_metadata(data).is_some_and(|meta| {
+                        meta.get("rawContentBlock")
+                            .is_some_and(serde_json::Value::is_object)
+                            || meta.contains_key("caller")
+                            || meta.contains_key("serverToolName")
+                            || meta.contains_key("serverName")
+                    })
+            }
             "tool-result" => {
                 let Some(tool_call_id) = data.get("toolCallId").and_then(|value| value.as_str())
                 else {
@@ -759,6 +900,10 @@ pub(super) fn serialize_event(
                 };
 
                 state.provider_executed_tool_call_ids.contains(tool_call_id)
+                    || data
+                        .get("dynamic")
+                        .and_then(|value| value.as_bool())
+                        .unwrap_or(false)
                     || anthropic_provider_metadata(data).is_some_and(|meta| {
                         meta.contains_key("contentBlockIndex")
                             || meta.contains_key("serverToolName")
@@ -793,6 +938,7 @@ pub(super) fn serialize_event(
             Some("tool-call") => {
                 let tool_name = data.get("toolName").and_then(|v| v.as_str())?;
                 let input = parse_json_value(data.get("input"));
+                let caller = anthropic_tool_call_caller(data);
                 let raw_server_tool_name =
                     anthropic_provider_metadata_string(data, "serverToolName").or_else(|| {
                         state
@@ -807,15 +953,27 @@ pub(super) fn serialize_event(
                             .get(&tool_call_id)
                             .cloned()
                     });
-                let content_block =
+                let provider_executed = data
+                    .get("providerExecuted")
+                    .and_then(|value| value.as_bool())
+                    .unwrap_or(false);
+                let content_block = if provider_executed {
                     crate::standards::anthropic::json_response::provider_tool_use_block(
                         &tool_call_id,
                         tool_name,
                         &input,
-                        None,
+                        caller,
                         raw_server_tool_name.as_deref(),
                         mcp_server_name.as_deref(),
-                    );
+                    )
+                } else {
+                    crate::standards::anthropic::json_response::tool_use_block(
+                        &tool_call_id,
+                        tool_name,
+                        &input,
+                        caller,
+                    )
+                };
                 Some((tool_call_id, content_block))
             }
             Some("tool-result") => {
@@ -986,13 +1144,12 @@ pub(super) fn serialize_event(
 
             let mut out = Vec::new();
             match &part {
-                LanguageModelV3StreamPart::TextDelta { delta, .. } => {
-                    state.last_v3_thinking_delta = None;
-                    state.last_v3_tool_call = None;
-                    for ev in part.to_best_effort_chat_events() {
-                        out.extend_from_slice(&serialize_inner(&ev, &mut state)?);
+                LanguageModelV3StreamPart::TextStart { .. }
+                | LanguageModelV3StreamPart::TextDelta { .. }
+                | LanguageModelV3StreamPart::TextEnd { .. } => {
+                    if let Some(out) = serialize_text_part(&part, data, &mut state)? {
+                        return Ok(out);
                     }
-                    state.last_v3_text_delta = Some(delta.clone());
                     return Ok(out);
                 }
                 LanguageModelV3StreamPart::ReasoningStart { .. }

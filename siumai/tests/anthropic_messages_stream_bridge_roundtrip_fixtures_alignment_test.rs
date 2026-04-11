@@ -139,6 +139,11 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
         source_urls: BTreeMap::new(),
     };
     let mut text_deltas = Vec::new();
+    let mut saw_part_metadata = false;
+    let mut saw_part_finish = false;
+    let mut saw_part_tool_calls = false;
+    let mut saw_part_tool_results = false;
+    let mut saw_part_sources = false;
 
     for event in events {
         match event {
@@ -151,8 +156,57 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                 push_adjacent_unique(&mut text_deltas, delta.clone());
             }
             ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
-                if let ChatStreamPart::TextDelta { delta, .. } = part {
-                    push_adjacent_unique(&mut text_deltas, delta.clone());
+                let value = serde_json::to_value(part).expect("serialize stream part");
+                match part {
+                    ChatStreamPart::TextDelta { delta, .. } => {
+                        push_adjacent_unique(&mut text_deltas, delta.clone());
+                    }
+                    ChatStreamPart::ResponseMetadata(metadata) => {
+                        saw_part_metadata = true;
+                        if summary.start_id.is_none() {
+                            summary.start_id = metadata.id.clone();
+                        }
+                        if summary.start_model.is_none() {
+                            summary.start_model = metadata.model.clone();
+                        }
+                    }
+                    ChatStreamPart::Finish {
+                        usage,
+                        finish_reason,
+                        ..
+                    } => {
+                        saw_part_finish = true;
+                        summary.has_finish = true;
+                        summary.finish_reason = finish_reason_to_string(&finish_reason.unified)
+                            .or_else(|| summary.finish_reason.clone());
+                        summary.prompt_tokens = usage.prompt_tokens().or(summary.prompt_tokens);
+                        summary.completion_tokens =
+                            usage.completion_tokens().or(summary.completion_tokens);
+                    }
+                    ChatStreamPart::ToolCall(call) => {
+                        saw_part_tool_calls = true;
+                        if call.provider_executed.unwrap_or(false) {
+                            increment_count(
+                                &mut summary.provider_tool_calls,
+                                Some(call.tool_name.as_str()),
+                            );
+                        }
+                    }
+                    ChatStreamPart::ToolResult(result) => {
+                        saw_part_tool_results = true;
+                        increment_count(
+                            &mut summary.provider_tool_results,
+                            Some(result.tool_name.as_str()),
+                        );
+                    }
+                    ChatStreamPart::Source { .. } => {
+                        saw_part_sources = true;
+                        increment_count(
+                            &mut summary.source_urls,
+                            value.get("url").and_then(Value::as_str),
+                        );
+                    }
+                    _ => {}
                 }
             }
             ChatStreamEvent::UsageUpdate { usage } => {
@@ -184,7 +238,7 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
             }
             ChatStreamEvent::Custom { data, .. } => {
                 match data.get("type").and_then(Value::as_str) {
-                    Some("response-metadata") => {
+                    Some("response-metadata") if !saw_part_metadata => {
                         if summary.start_id.is_none() {
                             summary.start_id = data
                                 .get("id")
@@ -198,7 +252,7 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                                 .map(ToString::to_string);
                         }
                     }
-                    Some("finish") => {
+                    Some("finish") if !saw_part_finish => {
                         summary.has_finish = true;
                         summary.finish_reason = data
                             .pointer("/finishReason/unified")
@@ -216,7 +270,7 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                             .and_then(|value| u32::try_from(value).ok())
                             .or(summary.completion_tokens);
                     }
-                    Some("tool-call") => {
+                    Some("tool-call") if !saw_part_tool_calls => {
                         if data
                             .get("providerExecuted")
                             .and_then(Value::as_bool)
@@ -228,7 +282,7 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                             );
                         }
                     }
-                    Some("tool-result") => {
+                    Some("tool-result") if !saw_part_tool_results => {
                         if data
                             .get("providerExecuted")
                             .and_then(Value::as_bool)
@@ -240,7 +294,7 @@ fn summarize_anthropic_events(events: &[ChatStreamEvent]) -> AnthropicStreamSumm
                             );
                         }
                     }
-                    Some("source") => {
+                    Some("source") if !saw_part_sources => {
                         increment_count(
                             &mut summary.source_urls,
                             data.get("url").and_then(Value::as_str),
@@ -296,9 +350,11 @@ async fn anthropic_messages_stream_bridge_roundtrip_fixture_summary_cases_match(
     ];
 
     for case in summary_cases {
+        let actual = roundtrip_summary(case).await;
+        let expected = fixture_summary(case);
         assert_eq!(
-            roundtrip_summary(case).await,
-            fixture_summary(case),
+            actual,
+            expected,
             "fixture case: {}",
             fixtures_dir().join(case).display()
         );
