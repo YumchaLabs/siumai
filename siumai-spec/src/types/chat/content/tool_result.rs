@@ -197,9 +197,16 @@ pub enum ToolResultContentPart {
         provider_options: ProviderOptionsMap,
     },
 
-    /// File content referenced by provider file id.
+    /// File content referenced by provider file id or provider-reference map.
+    #[serde(rename = "file-reference", alias = "file-id")]
     FileId {
-        #[serde(rename = "fileId", alias = "file_id")]
+        #[serde(
+            alias = "providerReference",
+            alias = "provider_reference",
+            alias = "fileId",
+            alias = "file_id",
+            rename = "providerReference"
+        )]
         file_id: ToolResultFileId,
         #[serde(
             rename = "providerOptions",
@@ -236,9 +243,16 @@ pub enum ToolResultContentPart {
         provider_options: ProviderOptionsMap,
     },
 
-    /// Image content referenced by provider file id.
+    /// Image content referenced by provider file id or provider-reference map.
+    #[serde(rename = "image-file-reference", alias = "image-file-id")]
     ImageFileId {
-        #[serde(rename = "fileId", alias = "file_id")]
+        #[serde(
+            alias = "providerReference",
+            alias = "provider_reference",
+            alias = "fileId",
+            alias = "file_id",
+            rename = "providerReference"
+        )]
         file_id: ToolResultFileId,
         #[serde(
             rename = "providerOptions",
@@ -404,6 +418,11 @@ impl ToolResultContentPart {
         }
     }
 
+    /// Create an image-file-reference content part.
+    pub fn image_file_reference(provider_reference: impl Into<ToolResultFileId>) -> Self {
+        Self::image_file_id(provider_reference)
+    }
+
     /// Create a file-data content part.
     pub fn file_data(
         data: impl Into<String>,
@@ -450,6 +469,11 @@ impl ToolResultContentPart {
             file_id: file_id.into(),
             provider_options: ProviderOptionsMap::default(),
         }
+    }
+
+    /// Create a file-reference content part.
+    pub fn file_reference(provider_reference: impl Into<ToolResultFileId>) -> Self {
+        Self::file_id(provider_reference)
     }
 
     /// Create a custom tool-result content part.
@@ -561,10 +585,10 @@ mod tests {
             Some("report.pdf".to_string()),
         );
 
-        let file_id_json = serde_json::to_value(&file_id).expect("serialize file-id part");
-        assert_eq!(file_id_json["type"], serde_json::json!("file-id"));
+        let file_id_json = serde_json::to_value(&file_id).expect("serialize file-reference part");
+        assert_eq!(file_id_json["type"], serde_json::json!("file-reference"));
         assert_eq!(
-            file_id_json["fileId"]["openai"],
+            file_id_json["providerReference"]["openai"],
             serde_json::json!("file_openai")
         );
 
@@ -590,6 +614,40 @@ mod tests {
 
         assert_eq!(file_id.preferred_value(&["openai"]), Some("file_oa"));
         assert_eq!(file_id.preferred_value(&["google"]), Some("file_ant"));
+    }
+
+    #[test]
+    fn tool_result_content_accepts_provider_reference_aliases() {
+        let file_reference: ToolResultContentPart = serde_json::from_value(serde_json::json!({
+            "type": "file-reference",
+            "providerReference": {
+                "openai": "file_openai",
+                "anthropic": "file_anthropic"
+            }
+        }))
+        .expect("deserialize file-reference alias");
+        let image_reference: ToolResultContentPart = serde_json::from_value(serde_json::json!({
+            "type": "image-file-reference",
+            "providerReference": {
+                "openai": "image_openai"
+            }
+        }))
+        .expect("deserialize image-file-reference alias");
+
+        assert_eq!(
+            file_reference,
+            ToolResultContentPart::file_reference(HashMap::from([
+                ("openai".to_string(), "file_openai".to_string()),
+                ("anthropic".to_string(), "file_anthropic".to_string()),
+            ]))
+        );
+        assert_eq!(
+            image_reference,
+            ToolResultContentPart::image_file_reference(HashMap::from([(
+                "openai".to_string(),
+                "image_openai".to_string(),
+            )]))
+        );
     }
 
     #[test]

@@ -93,7 +93,12 @@ fn openai_responses_request_normalization_fixture_exact_cases_match() {
         "tool-output-shell",
         "tool-output-apply-patch",
         "tool-output-shell-and-apply-patch",
+        "user-image-file-id",
+        "user-image-file-id-assistant-prefix",
         "user-image-detail-openai-low",
+        "user-multiple-file-id-prefixes",
+        "user-pdf-file-id",
+        "user-pdf-file-id-assistant-prefix",
     ];
 
     for case in exact_cases {
@@ -168,7 +173,8 @@ fn openai_responses_request_normalization_item_reference_cases_are_best_effort()
                             "output": {
                                 "type": "json",
                                 "value": { "output": "example output" }
-                            }
+                            },
+                            "dynamic": true
                         }
                     ]
                 },
@@ -233,8 +239,14 @@ fn openai_responses_request_normalization_provider_file_id_cases_collapse_to_sel
                                 "type": "content",
                                 "value": [
                                     { "type": "text", "text": "Provider keyed attachments" },
-                                    { "type": "image-file-id", "fileId": "assistant-img-openai" },
-                                    { "type": "file-id", "fileId": "file-pdf-openai" }
+                                    {
+                                        "type": "image-file-reference",
+                                        "providerReference": "assistant-img-openai"
+                                    },
+                                    {
+                                        "type": "file-reference",
+                                        "providerReference": "file-pdf-openai"
+                                    }
                                 ]
                             }
                         }
@@ -267,8 +279,14 @@ fn openai_responses_request_normalization_tool_result_file_id_parts_are_best_eff
                                 "type": "content",
                                 "value": [
                                     { "type": "text", "text": "Tool generated attachments" },
-                                    { "type": "image-file-id", "fileId": "assistant-img-abc123" },
-                                    { "type": "file-id", "fileId": "file-pdf-xyz789" }
+                                    {
+                                        "type": "image-file-reference",
+                                        "providerReference": "assistant-img-abc123"
+                                    },
+                                    {
+                                        "type": "file-reference",
+                                        "providerReference": "file-pdf-xyz789"
+                                    }
                                 ]
                             }
                         }

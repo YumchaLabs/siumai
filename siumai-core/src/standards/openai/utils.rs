@@ -7,11 +7,12 @@
 use crate::error::LlmError;
 use crate::standards::openai::types::{OpenAiFunction, OpenAiMessage, OpenAiToolCall};
 use crate::types::{
-    ChatMessage, ContentPart, FinishReason, MessageContent, MessageRole, ProviderOptionsMap,
-    ToolResultOutput, Usage,
+    ChatMessage, ContentPart, FilePartSource, FinishReason, MediaSource, MessageContent,
+    MessageRole, ProviderOptionsMap, ProviderReference, ToolResultOutput, Usage,
 };
 use base64::Engine;
 use serde_json::{Map, Value};
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 fn openai_compatible_options_object(
@@ -84,6 +85,33 @@ fn extract_openai_chat_image_detail(
         .map(|s| s.to_string())
 }
 
+fn resolve_openai_chat_provider_reference<'a>(
+    provider_reference: &'a ProviderReference,
+) -> Result<&'a str, LlmError> {
+    for provider_id in ["openai", "azure"] {
+        if let Some(reference) = provider_reference.get(provider_id) {
+            return Ok(reference);
+        }
+    }
+
+    let available = provider_reference.available_providers();
+    let available = if available.is_empty() {
+        "none".to_string()
+    } else {
+        available.join(", ")
+    };
+
+    Err(LlmError::InvalidParameter(format!(
+        "No provider reference found for OpenAI chat. Available providers: {available}"
+    )))
+}
+
+fn unsupported_openai_compatible_provider_reference(label: &str) -> LlmError {
+    LlmError::UnsupportedOperation(format!(
+        "OpenAI-compatible chat does not support {label} with provider references"
+    ))
+}
+
 fn convert_message_content_with_target(
     content: &MessageContent,
     target: MessageConversionTarget,
@@ -124,18 +152,38 @@ fn convert_message_content_with_target(
                         ..
                     } => {
                         let url = match source {
-                            crate::types::chat::MediaSource::Url { url } => url.clone(),
-                            crate::types::chat::MediaSource::Base64 { data } => {
+                            FilePartSource::Media(MediaSource::Url { url }) => url.clone(),
+                            FilePartSource::Media(MediaSource::Base64 { data }) => {
                                 if data.starts_with("data:") {
                                     data.clone()
                                 } else {
                                     format!("data:image/jpeg;base64,{}", data)
                                 }
                             }
-                            crate::types::chat::MediaSource::Binary { data } => {
+                            FilePartSource::Media(MediaSource::Binary { data }) => {
                                 let encoded =
                                     base64::engine::general_purpose::STANDARD.encode(data);
                                 format!("data:image/jpeg;base64,{}", encoded)
+                            }
+                            FilePartSource::ProviderReference { provider_reference } => {
+                                match target {
+                                    MessageConversionTarget::OpenAiChat => {
+                                        content_parts.push(serde_json::json!({
+                                            "type": "file",
+                                            "file": {
+                                                "file_id": resolve_openai_chat_provider_reference(provider_reference)?,
+                                            }
+                                        }));
+                                        continue;
+                                    }
+                                    MessageConversionTarget::OpenAiCompatible => {
+                                        return Err(
+                                            unsupported_openai_compatible_provider_reference(
+                                                "image parts",
+                                            ),
+                                        );
+                                    }
+                                }
                             }
                         };
 
@@ -196,18 +244,38 @@ fn convert_message_content_with_target(
                             };
 
                             let url = match source {
-                                crate::types::chat::MediaSource::Url { url } => url.clone(),
-                                crate::types::chat::MediaSource::Base64 { data } => {
+                                FilePartSource::Media(MediaSource::Url { url }) => url.clone(),
+                                FilePartSource::Media(MediaSource::Base64 { data }) => {
                                     if data.starts_with("data:") {
                                         data.clone()
                                     } else {
                                         format!("data:{};base64,{}", normalized_media_type, data)
                                     }
                                 }
-                                crate::types::chat::MediaSource::Binary { data } => {
+                                FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
                                     format!("data:{};base64,{}", normalized_media_type, encoded)
+                                }
+                                FilePartSource::ProviderReference { provider_reference } => {
+                                    match target {
+                                        MessageConversionTarget::OpenAiChat => {
+                                            content_parts.push(serde_json::json!({
+                                                "type": "file",
+                                                "file": {
+                                                    "file_id": resolve_openai_chat_provider_reference(provider_reference)?,
+                                                }
+                                            }));
+                                            continue;
+                                        }
+                                        MessageConversionTarget::OpenAiCompatible => {
+                                            return Err(
+                                                unsupported_openai_compatible_provider_reference(
+                                                    "file image parts",
+                                                ),
+                                            );
+                                        }
+                                    }
                                 }
                             };
 
@@ -235,18 +303,18 @@ fn convert_message_content_with_target(
                         {
                             let format = openai_chat_audio_format(media_type)?;
                             match source {
-                                crate::types::chat::MediaSource::Url { .. } => {
+                                FilePartSource::Media(MediaSource::Url { .. }) => {
                                     return Err(LlmError::UnsupportedOperation(
                                         "audio file parts with URLs".to_string(),
                                     ));
                                 }
-                                crate::types::chat::MediaSource::Base64 { data } => {
+                                FilePartSource::Media(MediaSource::Base64 { data }) => {
                                     content_parts.push(serde_json::json!({
                                         "type": "input_audio",
                                         "input_audio": { "data": data, "format": format }
                                     }));
                                 }
-                                crate::types::chat::MediaSource::Binary { data } => {
+                                FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
                                     content_parts.push(serde_json::json!({
@@ -254,29 +322,30 @@ fn convert_message_content_with_target(
                                         "input_audio": { "data": encoded, "format": format }
                                     }));
                                 }
+                                FilePartSource::ProviderReference { .. } => {
+                                    return Err(LlmError::UnsupportedOperation(
+                                        "audio file parts with provider references".to_string(),
+                                    ));
+                                }
                             }
                         } else if target == MessageConversionTarget::OpenAiChat
                             && media_type == "application/pdf"
                         {
                             match source {
-                                crate::types::chat::MediaSource::Url { .. } => {
+                                FilePartSource::Media(MediaSource::Url { .. }) => {
                                     return Err(LlmError::UnsupportedOperation(
                                         "PDF file parts with URLs".to_string(),
                                     ));
                                 }
-                                crate::types::chat::MediaSource::Base64 { data } => {
-                                    let file = if data.starts_with("file-") {
-                                        serde_json::json!({ "file_id": data })
-                                    } else {
-                                        serde_json::json!({
-                                            "filename": filename.clone().unwrap_or_else(|| format!("part-{}.pdf", index)),
-                                            "file_data": format!("data:application/pdf;base64,{}", data),
-                                        })
-                                    };
+                                FilePartSource::Media(MediaSource::Base64 { data }) => {
+                                    let file = serde_json::json!({
+                                        "filename": filename.clone().unwrap_or_else(|| format!("part-{}.pdf", index)),
+                                        "file_data": format!("data:application/pdf;base64,{}", data),
+                                    });
                                     content_parts
                                         .push(serde_json::json!({ "type": "file", "file": file }));
                                 }
-                                crate::types::chat::MediaSource::Binary { data } => {
+                                FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
                                     let file = serde_json::json!({
@@ -285,6 +354,14 @@ fn convert_message_content_with_target(
                                     });
                                     content_parts
                                         .push(serde_json::json!({ "type": "file", "file": file }));
+                                }
+                                FilePartSource::ProviderReference { provider_reference } => {
+                                    content_parts.push(serde_json::json!({
+                                        "type": "file",
+                                        "file": {
+                                            "file_id": resolve_openai_chat_provider_reference(provider_reference)?,
+                                        }
+                                    }));
                                 }
                             }
                         } else {
@@ -881,6 +958,100 @@ pub fn parse_openai_usage_value(value: &Value) -> Option<Usage> {
     Some(builder.build())
 }
 
+fn normalize_deepinfra_usage_value<'a>(value: &'a Value) -> Cow<'a, Value> {
+    let Some(object) = value.as_object() else {
+        return Cow::Borrowed(value);
+    };
+
+    let completion_tokens = usage_u32(usage_value(object, &["completion_tokens", "output_tokens"]));
+    let completion_details = usage_object(
+        object,
+        &["completion_tokens_details", "output_tokens_details"],
+    );
+    let reasoning_tokens = usage_u32(usage_value(
+        object,
+        &["reasoning_tokens", "reasoningTokens"],
+    ))
+    .or_else(|| {
+        usage_u32(
+            completion_details
+                .and_then(|details| usage_value(details, &["reasoning_tokens", "reasoningTokens"])),
+        )
+    });
+
+    let (Some(completion_tokens), Some(reasoning_tokens)) = (completion_tokens, reasoning_tokens)
+    else {
+        return Cow::Borrowed(value);
+    };
+
+    if reasoning_tokens <= completion_tokens {
+        return Cow::Borrowed(value);
+    }
+
+    let corrected_completion_tokens = completion_tokens.saturating_add(reasoning_tokens);
+    let mut fixed = object.clone();
+
+    if fixed.contains_key("completion_tokens") {
+        fixed.insert(
+            "completion_tokens".to_string(),
+            serde_json::json!(corrected_completion_tokens),
+        );
+    }
+    if fixed.contains_key("output_tokens") {
+        fixed.insert(
+            "output_tokens".to_string(),
+            serde_json::json!(corrected_completion_tokens),
+        );
+    }
+
+    if let Some(total_tokens) = usage_u32(usage_value(object, &["total_tokens", "totalTokens"])) {
+        let corrected_total_tokens = total_tokens.saturating_add(reasoning_tokens);
+        if fixed.contains_key("total_tokens") {
+            fixed.insert(
+                "total_tokens".to_string(),
+                serde_json::json!(corrected_total_tokens),
+            );
+        }
+        if fixed.contains_key("totalTokens") {
+            fixed.insert(
+                "totalTokens".to_string(),
+                serde_json::json!(corrected_total_tokens),
+            );
+        }
+    }
+
+    if let Some(output_tokens) = fixed.get_mut("outputTokens").and_then(Value::as_object_mut) {
+        if !output_tokens.contains_key("text") && !output_tokens.contains_key("textTokens") {
+            output_tokens.insert("text".to_string(), serde_json::json!(completion_tokens));
+        }
+        output_tokens.insert(
+            if output_tokens.contains_key("totalTokens") {
+                "totalTokens".to_string()
+            } else {
+                "total".to_string()
+            },
+            serde_json::json!(corrected_completion_tokens),
+        );
+    }
+
+    Cow::Owned(Value::Object(fixed))
+}
+
+pub fn normalize_openai_usage_value_for_provider<'a>(
+    provider_id: &str,
+    value: &'a Value,
+) -> Cow<'a, Value> {
+    match provider_id {
+        "deepinfra" => normalize_deepinfra_usage_value(value),
+        _ => Cow::Borrowed(value),
+    }
+}
+
+pub fn parse_provider_openai_usage_value(provider_id: &str, value: &Value) -> Option<Usage> {
+    let normalized = normalize_openai_usage_value_for_provider(provider_id, value);
+    parse_openai_usage_value(normalized.as_ref())
+}
+
 /// Convert unified `Usage` into OpenAI Chat Completions usage JSON.
 pub fn openai_chat_usage_value(usage: &Usage) -> Value {
     let normalized_input = usage.normalized_input_tokens();
@@ -1112,8 +1283,10 @@ pub fn openai_responses_usage_value(usage: &Usage) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::chat::MediaSource;
-    use crate::types::{ChatMessage, MessageMetadata, ProviderOptionsMap, ToolResultContentPart};
+    use crate::types::{
+        ChatMessage, FilePartSource, MessageMetadata, ProviderOptionsMap, ProviderReference,
+        ToolResultContentPart,
+    };
     use std::collections::HashMap;
 
     #[test]
@@ -1121,9 +1294,7 @@ mod tests {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::File {
-                source: MediaSource::Base64 {
-                    data: "Zm9v".to_string(),
-                },
+                source: FilePartSource::base64("Zm9v"),
                 media_type: "application/pdf".to_string(),
                 filename: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
@@ -1146,13 +1317,13 @@ mod tests {
     }
 
     #[test]
-    fn openai_chat_pdf_file_id_maps_to_file_id() {
+    fn openai_chat_pdf_provider_reference_maps_to_file_id() {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::File {
-                source: MediaSource::Base64 {
-                    data: "file-abc".to_string(),
-                },
+                source: FilePartSource::provider_reference(ProviderReference::single(
+                    "openai", "file-abc",
+                )),
                 media_type: "application/pdf".to_string(),
                 filename: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
@@ -1170,13 +1341,36 @@ mod tests {
     }
 
     #[test]
+    fn openai_chat_image_provider_reference_maps_to_file_id() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::Image {
+                source: FilePartSource::provider_reference(ProviderReference::single(
+                    "openai",
+                    "file-image",
+                )),
+                detail: Some(crate::types::ImageDetail::High),
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let out = convert_messages_openai_chat(&[msg]).expect("convert messages");
+        let content = out[0].content.clone().expect("content");
+        let parts = content.as_array().expect("array");
+        assert_eq!(parts[0]["type"], "file");
+        assert_eq!(parts[0]["file"]["file_id"], "file-image");
+        assert!(parts[0]["image_url"].is_null());
+    }
+
+    #[test]
     fn openai_chat_audio_file_part_maps_to_input_audio() {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::File {
-                source: MediaSource::Base64 {
-                    data: "AAEC".to_string(),
-                },
+                source: FilePartSource::base64("AAEC"),
                 media_type: "audio/mpeg".to_string(),
                 filename: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
@@ -1199,9 +1393,7 @@ mod tests {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::File {
-                source: MediaSource::Base64 {
-                    data: "AAEC".to_string(),
-                },
+                source: FilePartSource::base64("AAEC"),
                 media_type: "image/png".to_string(),
                 filename: None,
                 provider_options: ProviderOptionsMap::default(),
@@ -1361,9 +1553,9 @@ mod tests {
                 parts[2]["url"],
                 serde_json::json!("https://example.com/report.pdf")
             );
-            assert_eq!(parts[3]["type"], serde_json::json!("file-id"));
+            assert_eq!(parts[3]["type"], serde_json::json!("file-reference"));
             assert_eq!(
-                parts[3]["fileId"]["openai"],
+                parts[3]["providerReference"]["openai"],
                 serde_json::json!("file_openai")
             );
             assert_eq!(parts[4]["type"], serde_json::json!("image-data"));
@@ -1373,9 +1565,9 @@ mod tests {
                 parts[5]["url"],
                 serde_json::json!("https://example.com/image.png")
             );
-            assert_eq!(parts[6]["type"], serde_json::json!("image-file-id"));
+            assert_eq!(parts[6]["type"], serde_json::json!("image-file-reference"));
             assert_eq!(
-                parts[6]["fileId"]["openai"],
+                parts[6]["providerReference"]["openai"],
                 serde_json::json!("image_openai")
             );
             assert_eq!(parts[7]["type"], serde_json::json!("custom"));
@@ -1423,6 +1615,44 @@ mod tests {
         assert_eq!(
             usage.raw_usage_value().expect("raw usage")["input_tokens"],
             serde_json::json!(12)
+        );
+    }
+
+    #[test]
+    fn parse_provider_openai_usage_value_fixes_deepinfra_reasoning_totals() {
+        let usage = parse_provider_openai_usage_value(
+            "deepinfra",
+            &serde_json::json!({
+                "prompt_tokens": 21,
+                "completion_tokens": 84,
+                "total_tokens": 105,
+                "completion_tokens_details": {
+                    "reasoning_tokens": 1081
+                }
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.prompt_tokens(), Some(21));
+        assert_eq!(usage.completion_tokens(), Some(1165));
+        assert_eq!(usage.total_tokens(), Some(1186));
+        assert_eq!(
+            usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|details| details.reasoning_tokens),
+            Some(1081)
+        );
+        assert_eq!(usage.normalized_output_tokens().total, Some(1165));
+        assert_eq!(usage.normalized_output_tokens().text, Some(84));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(1081));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["completion_tokens"],
+            serde_json::json!(1165)
+        );
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["total_tokens"],
+            serde_json::json!(1186)
         );
     }
 
@@ -1513,9 +1743,7 @@ mod tests {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::File {
-                source: MediaSource::Base64 {
-                    data: "Zm9v".to_string(),
-                },
+                source: FilePartSource::base64("Zm9v"),
                 media_type: "application/pdf".to_string(),
                 filename: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
@@ -1527,5 +1755,30 @@ mod tests {
 
         let err = convert_messages(&[msg]).unwrap_err();
         assert!(matches!(err, LlmError::UnsupportedOperation(_)));
+    }
+
+    #[test]
+    fn openai_compatible_image_provider_reference_is_unsupported() {
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::Image {
+                source: FilePartSource::provider_reference(ProviderReference::single(
+                    "openai",
+                    "file-image",
+                )),
+                detail: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let err = convert_messages(&[msg]).expect_err("expected unsupported provider reference");
+        assert!(matches!(
+            err,
+            LlmError::UnsupportedOperation(message)
+                if message.contains("provider references")
+        ));
     }
 }
