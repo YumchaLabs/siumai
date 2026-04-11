@@ -52,14 +52,16 @@ fn run_converter(lines: Vec<String>) -> Vec<ChatStreamEvent> {
 fn tool_events(events: &[ChatStreamEvent], kind: &str, tool_name: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!(kind))
-                    && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
+        })
+        .filter(|data| {
+            data.get("type") == Some(&serde_json::json!(kind))
+                && data.get("toolName") == Some(&serde_json::json!(tool_name))
         })
         .collect()
 }
@@ -67,14 +69,14 @@ fn tool_events(events: &[ChatStreamEvent], kind: &str, tool_name: &str) -> Vec<s
 fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
         .collect()
 }
 
@@ -284,7 +286,7 @@ fn anthropic_stream_programmatic_tool_calling_emits_code_execution_events() {
 }
 
 #[test]
-fn anthropic_stream_tool_no_args_emits_tool_call_delta() {
+fn anthropic_stream_tool_no_args_emits_stable_tool_call_or_legacy_delta() {
     let path = fixtures_dir().join("anthropic-tool-no-args.chunks.txt");
     assert!(path.exists(), "fixture missing: {:?}", path);
     let lines = read_fixture_lines(&path);
@@ -292,7 +294,17 @@ fn anthropic_stream_tool_no_args_emits_tool_call_delta() {
 
     let events = run_converter(lines);
 
-    let calls: Vec<_> = events
+    let stable_calls: Vec<_> = events
+        .iter()
+        .filter_map(|e| match e.part_ref() {
+            Some(ChatStreamPart::ToolCall(call)) => {
+                Some((call.tool_call_id.clone(), call.tool_name.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+
+    let legacy_calls: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
             ChatStreamEvent::ToolCallDelta {
@@ -305,8 +317,13 @@ fn anthropic_stream_tool_no_args_emits_tool_call_delta() {
         .collect();
 
     assert!(
-        calls.iter().any(|(_, name)| name == "updateIssueList"),
-        "expected ToolCallDelta for updateIssueList"
+        stable_calls
+            .iter()
+            .any(|(_, name)| name == "updateIssueList")
+            || legacy_calls
+                .iter()
+                .any(|(_, name)| name == "updateIssueList"),
+        "expected stable tool-call or ToolCallDelta for updateIssueList"
     );
 }
 
