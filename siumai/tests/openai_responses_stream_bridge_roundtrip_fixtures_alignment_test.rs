@@ -7,7 +7,9 @@ use serde_json::Value;
 use siumai::experimental::bridge::{
     BridgeMode, BridgeTarget, bridge_chat_stream_to_openai_responses_sse,
 };
-use siumai::prelude::unified::{ChatByteStream, ChatStreamEvent, SseEventConverter};
+use siumai::prelude::unified::{
+    ChatByteStream, ChatStreamEvent, ChatStreamPart, SseEventConverter,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -135,7 +137,7 @@ fn finish_reason_to_string(reason: &siumai::prelude::unified::FinishReason) -> O
         .and_then(|value| value.as_str().map(ToString::to_string))
 }
 
-fn reasoning_boundary_from_custom(data: &Value) -> ReasoningBoundary {
+fn reasoning_boundary_from_value(data: &Value) -> ReasoningBoundary {
     ReasoningBoundary {
         id: data
             .get("id")
@@ -185,6 +187,14 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
         finish_logprobs_tokens: 0,
     };
     let mut text_deltas = Vec::new();
+    let mut saw_part_metadata = false;
+    let mut saw_part_finish = false;
+    let mut saw_part_reasoning = false;
+    let mut saw_part_tool_calls = false;
+    let mut saw_part_tool_results = false;
+    let mut saw_part_tool_approval_requests = false;
+    let mut saw_part_sources = false;
+    let mut saw_part_errors = false;
 
     for event in events {
         match event {
@@ -216,16 +226,107 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                     summary.completion_tokens = usage.completion_tokens();
                 }
             }
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                let value = serde_json::to_value(part).expect("serialize stream part");
+                match part {
+                    ChatStreamPart::StreamStart { .. } => {
+                        summary.has_stream_start = true;
+                    }
+                    ChatStreamPart::ResponseMetadata(metadata) => {
+                        saw_part_metadata = true;
+                        summary.has_metadata_id = metadata.id.is_some();
+                        summary.metadata_model = metadata.model.clone();
+                    }
+                    ChatStreamPart::Finish {
+                        usage,
+                        finish_reason,
+                        ..
+                    } => {
+                        saw_part_finish = true;
+                        summary.has_finish = true;
+                        summary.finish_reason = finish_reason_to_string(&finish_reason.unified)
+                            .or_else(|| summary.finish_reason.clone());
+                        summary.prompt_tokens = usage.prompt_tokens().or(summary.prompt_tokens);
+                        summary.completion_tokens =
+                            usage.completion_tokens().or(summary.completion_tokens);
+                        let (blocks, tokens) = count_nested_array_items(
+                            value.pointer("/providerMetadata/openai/logprobs"),
+                        );
+                        summary.finish_logprobs_blocks = blocks;
+                        summary.finish_logprobs_tokens = tokens;
+                    }
+                    ChatStreamPart::ReasoningStart { .. } => {
+                        saw_part_reasoning = true;
+                        push_adjacent_unique(
+                            &mut summary.reasoning_starts,
+                            reasoning_boundary_from_value(&value),
+                        );
+                    }
+                    ChatStreamPart::ReasoningDelta { delta, .. } => {
+                        saw_part_reasoning = true;
+                        push_adjacent_unique(&mut summary.reasoning_deltas, delta.clone());
+                    }
+                    ChatStreamPart::ReasoningEnd { .. } => {
+                        saw_part_reasoning = true;
+                        push_adjacent_unique(
+                            &mut summary.reasoning_ends,
+                            reasoning_boundary_from_value(&value),
+                        );
+                    }
+                    ChatStreamPart::ToolCall(call) => {
+                        saw_part_tool_calls = true;
+                        if call.provider_executed.unwrap_or(false) {
+                            increment_count(
+                                &mut summary.provider_tool_calls,
+                                Some(call.tool_name.as_str()),
+                            );
+                        }
+                    }
+                    ChatStreamPart::ToolResult(result) => {
+                        saw_part_tool_results = true;
+                        increment_count(
+                            &mut summary.provider_tool_results,
+                            Some(result.tool_name.as_str()),
+                        );
+                    }
+                    ChatStreamPart::ToolApprovalRequest(request) => {
+                        saw_part_tool_approval_requests = true;
+                        increment_count(
+                            &mut summary.tool_approval_requests,
+                            Some(request.tool_call_id.as_str()),
+                        );
+                    }
+                    ChatStreamPart::Source { .. } => {
+                        saw_part_sources = true;
+                        increment_count(
+                            &mut summary.source_types,
+                            value.get("sourceType").and_then(Value::as_str),
+                        );
+                        increment_count(
+                            &mut summary.source_urls,
+                            value.get("url").and_then(Value::as_str),
+                        );
+                    }
+                    ChatStreamPart::Error { .. } => {
+                        saw_part_errors = true;
+                        increment_count(
+                            &mut summary.custom_error_types,
+                            value.pointer("/error/type").and_then(Value::as_str),
+                        );
+                    }
+                    _ => {}
+                }
+            }
             ChatStreamEvent::Custom { data, .. } => {
                 match data.get("type").and_then(Value::as_str) {
-                    Some("response-metadata") => {
+                    Some("response-metadata") if !saw_part_metadata => {
                         summary.has_metadata_id = data.get("id").and_then(Value::as_str).is_some();
                         summary.metadata_model = data
                             .get("modelId")
                             .and_then(Value::as_str)
                             .map(ToString::to_string);
                     }
-                    Some("finish") => {
+                    Some("finish") if !saw_part_finish => {
                         summary.has_finish = true;
                         summary.finish_reason = data
                             .pointer("/finishReason/unified")
@@ -248,24 +349,24 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                         summary.finish_logprobs_blocks = blocks;
                         summary.finish_logprobs_tokens = tokens;
                     }
-                    Some("reasoning-start") => {
+                    Some("reasoning-start") if !saw_part_reasoning => {
                         push_adjacent_unique(
                             &mut summary.reasoning_starts,
-                            reasoning_boundary_from_custom(data),
+                            reasoning_boundary_from_value(data),
                         );
                     }
-                    Some("reasoning-delta") => {
+                    Some("reasoning-delta") if !saw_part_reasoning => {
                         if let Some(delta) = data.get("delta").and_then(Value::as_str) {
                             push_adjacent_unique(&mut summary.reasoning_deltas, delta.to_string());
                         }
                     }
-                    Some("reasoning-end") => {
+                    Some("reasoning-end") if !saw_part_reasoning => {
                         push_adjacent_unique(
                             &mut summary.reasoning_ends,
-                            reasoning_boundary_from_custom(data),
+                            reasoning_boundary_from_value(data),
                         );
                     }
-                    Some("tool-call") => {
+                    Some("tool-call") if !saw_part_tool_calls => {
                         if data
                             .get("providerExecuted")
                             .and_then(Value::as_bool)
@@ -277,7 +378,7 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                             );
                         }
                     }
-                    Some("tool-result") => {
+                    Some("tool-result") if !saw_part_tool_results => {
                         if data
                             .get("providerExecuted")
                             .and_then(Value::as_bool)
@@ -289,13 +390,13 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                             );
                         }
                     }
-                    Some("tool-approval-request") => {
+                    Some("tool-approval-request") if !saw_part_tool_approval_requests => {
                         increment_count(
                             &mut summary.tool_approval_requests,
                             data.get("toolCallId").and_then(Value::as_str),
                         );
                     }
-                    Some("source") => {
+                    Some("source") if !saw_part_sources => {
                         increment_count(
                             &mut summary.source_types,
                             data.get("sourceType").and_then(Value::as_str),
@@ -305,7 +406,7 @@ fn summarize_openai_events(events: &[ChatStreamEvent]) -> OpenAiStreamSummary {
                             data.get("url").and_then(Value::as_str),
                         );
                     }
-                    Some("error") => {
+                    Some("error") if !saw_part_errors => {
                         increment_count(
                             &mut summary.custom_error_types,
                             data.pointer("/error/type").and_then(Value::as_str),
