@@ -373,6 +373,17 @@ pub(super) fn serialize_event(
             let Some(custom_event) =
                 part.to_custom_event(crate::streaming::StreamPartNamespace::Gemini)
             else {
+                if this.v3_unsupported_part_behavior == V3UnsupportedPartBehavior::AsText
+                    && let Some(text) = part.to_lossy_text()
+                {
+                    return serialize_event(
+                        this,
+                        &ChatStreamEvent::ContentDelta {
+                            delta: text,
+                            index: None,
+                        },
+                    );
+                }
                 return Ok(Vec::new());
             };
             serialize_event(this, &custom_event)
