@@ -20,6 +20,38 @@ use std::sync::Arc;
 pub struct StreamFactory;
 
 impl StreamFactory {
+    pub(crate) fn expand_textual_part_shadow_events(
+        events: Vec<Result<ChatStreamEvent, LlmError>>,
+    ) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        let mut out = Vec::with_capacity(events.len());
+
+        for event in events {
+            match event {
+                Ok(event) => {
+                    if let Some(part) =
+                        crate::streaming::LanguageModelV3StreamPart::try_from_chat_event(&event)
+                    {
+                        out.push(Ok(event));
+                        for shadow in part.to_best_effort_chat_events() {
+                            if matches!(
+                                shadow,
+                                ChatStreamEvent::ContentDelta { .. }
+                                    | ChatStreamEvent::ThinkingDelta { .. }
+                            ) {
+                                out.push(Ok(shadow));
+                            }
+                        }
+                    } else {
+                        out.push(Ok(event));
+                    }
+                }
+                Err(err) => out.push(Err(err)),
+            }
+        }
+
+        out
+    }
+
     fn is_textual_custom_event(event: &ChatStreamEvent) -> bool {
         let ChatStreamEvent::Custom { data, .. } = event else {
             return false;
@@ -74,7 +106,8 @@ impl StreamFactory {
                 id: "0".to_string(),
                 retry: None,
             };
-            let mut events = converter.clone().convert_event(evt).await;
+            let mut events =
+                Self::expand_textual_part_shadow_events(converter.clone().convert_event(evt).await);
             let saw_content = Self::saw_content_in_events(&events);
 
             let end_events = Self::drain_stream_end_events(&converter);
@@ -157,7 +190,9 @@ impl StreamFactory {
                             if event.data.trim().is_empty() {
                                 return vec![];
                             }
-                            let events = converter.convert_event(event).await;
+                            let events = StreamFactory::expand_textual_part_shadow_events(
+                                converter.convert_event(event).await,
+                            );
                             // Mark if any ContentDelta is present
                             let has_content = StreamFactory::saw_content_in_events(&events);
                             if has_content {
@@ -248,7 +283,8 @@ impl StreamFactory {
                 retry: None,
             };
 
-            let mut events = converter.clone().convert_event(evt).await;
+            let mut events =
+                Self::expand_textual_part_shadow_events(converter.clone().convert_event(evt).await);
             let saw_content = Self::saw_content_in_events(&events);
 
             let end_events = Self::drain_stream_end_events(&converter);
@@ -326,7 +362,9 @@ impl StreamFactory {
                             if event.data.trim().is_empty() {
                                 return vec![];
                             }
-                            let events = converter.convert_event(event).await;
+                            let events = StreamFactory::expand_textual_part_shadow_events(
+                                converter.convert_event(event).await,
+                            );
                             let has_content = StreamFactory::saw_content_in_events(&events);
                             if has_content {
                                 saw_content.store(true, std::sync::atomic::Ordering::Relaxed);
@@ -585,7 +623,9 @@ impl StreamFactory {
                             if trimmed.is_empty() {
                                 return vec![];
                             }
-                            converter.convert_json(trimmed).await
+                            StreamFactory::expand_textual_part_shadow_events(
+                                converter.convert_json(trimmed).await,
+                            )
                         }
                         Err(e) => vec![Err(e)],
                     }
@@ -644,7 +684,7 @@ impl StreamFactory {
 mod tests {
     use super::StreamFactory;
     use crate::error::LlmError;
-    use crate::streaming::{ChatStreamEvent, JsonEventConverter};
+    use crate::streaming::{ChatStreamEvent, ChatStreamPart, JsonEventConverter};
     use crate::types::{ChatResponse, FinishReason};
     use futures_util::StreamExt;
     use serde_json::json;
@@ -653,6 +693,9 @@ mod tests {
 
     #[derive(Clone)]
     struct MultiEndJsonConverter;
+
+    #[derive(Clone)]
+    struct PartJsonConverter;
 
     impl JsonEventConverter for MultiEndJsonConverter {
         fn convert_json<'a>(
@@ -680,6 +723,39 @@ mod tests {
                     response: ChatResponse::empty_with_finish_reason(FinishReason::Stop),
                 }),
             ]
+        }
+    }
+
+    impl JsonEventConverter for PartJsonConverter {
+        fn convert_json<'a>(
+            &'a self,
+            _json_data: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
+        {
+            Box::pin(async move {
+                vec![
+                    Ok(ChatStreamEvent::Part {
+                        part: ChatStreamPart::TextDelta {
+                            id: "0".to_string(),
+                            delta: "hello".to_string(),
+                            provider_metadata: None,
+                        },
+                    }),
+                    Ok(ChatStreamEvent::Part {
+                        part: ChatStreamPart::ReasoningDelta {
+                            id: "0".to_string(),
+                            delta: "think".to_string(),
+                            provider_metadata: None,
+                        },
+                    }),
+                ]
+            })
+        }
+
+        fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+            vec![Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::empty_with_finish_reason(FinishReason::Stop),
+            })]
         }
     }
 
@@ -726,6 +802,68 @@ mod tests {
             }
             other => panic!("unexpected third event: {other:?}"),
         }
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn reqwest_json_stream_emits_legacy_shadow_deltas_for_textual_parts() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/json-part-stream")
+            .with_status(200)
+            .with_header("content-type", "application/x-ndjson")
+            .with_body("{\"ok\":true}\n")
+            .create_async()
+            .await;
+
+        let response = reqwest::Client::new()
+            .get(format!("{}/json-part-stream", server.url()))
+            .send()
+            .await
+            .expect("response should be created");
+
+        let stream = StreamFactory::create_json_stream(response, PartJsonConverter)
+            .await
+            .expect("stream should be created");
+
+        let events = stream.collect::<Vec<_>>().await;
+
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta { .. }
+                })
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "hello"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::ReasoningDelta { .. }
+                })
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                Ok(ChatStreamEvent::ThinkingDelta { delta }) if delta == "think"
+            )
+        }));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                Ok(ChatStreamEvent::StreamEnd { response })
+                    if response.finish_reason == Some(FinishReason::Stop)
+            )
+        }));
 
         mock.assert_async().await;
     }

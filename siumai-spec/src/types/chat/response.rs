@@ -221,7 +221,9 @@ impl ChatResponse {
             MessageContent::MultiModal(parts) => parts
                 .iter()
                 .filter_map(|p| {
-                    if let ContentPart::Reasoning { text, .. } = p {
+                    if let ContentPart::Reasoning { text, .. } = p
+                        && !text.trim().is_empty()
+                    {
                         Some(text.as_str())
                     } else {
                         None
@@ -394,6 +396,7 @@ impl ChatResponse {
 }
 
 #[cfg(test)]
+    use crate::types::ProviderOptionsMap;
 mod tests {
     use super::*;
 
@@ -429,6 +432,23 @@ mod tests {
             Some(&serde_json::json!(42))
         );
         assert_eq!(response.get_metadata("openai", "nonexistent"), None);
+
+    #[test]
+    fn reasoning_ignores_empty_reasoning_parts() {
+        let response = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::reasoning("useful"),
+            ContentPart::Reasoning {
+                text: String::new(),
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({ "redactedData": "abc123" }),
+                )])),
+            },
+        ]));
+
+        assert_eq!(response.reasoning(), vec!["useful"]);
+    }
         assert_eq!(response.get_metadata("anthropic", "key1"), None);
     }
 }

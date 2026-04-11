@@ -263,7 +263,9 @@ where
                         if trimmed.is_empty() {
                             return vec![];
                         }
-                        converter.convert_json(trimmed).await
+                        crate::streaming::StreamFactory::expand_textual_part_shadow_events(
+                            converter.convert_json(trimmed).await,
+                        )
                     }
                     Err(e) => vec![Err(e)],
                 }

@@ -403,7 +403,9 @@ impl ChatMessage {
             MessageContent::MultiModal(parts) => parts
                 .iter()
                 .filter_map(|p| {
-                    if let ContentPart::Reasoning { text, .. } = p {
+                    if let ContentPart::Reasoning { text, .. } = p
+                        && !text.trim().is_empty()
+                    {
                         Some(text.as_str())
                     } else {
                         None
@@ -986,6 +988,7 @@ mod tests {
         assert!(
             !msg.metadata
                 .custom
+    use std::collections::HashMap;
                 .contains_key("anthropic_content_cache_indices")
         );
 
@@ -1001,5 +1004,23 @@ mod tests {
             anthropic["cacheControl"],
             serde_json::json!({ "type": "ephemeral" })
         );
+
+    #[test]
+    fn message_reasoning_ignores_empty_reasoning_parts() {
+        let message = ChatMessage::assistant("")
+            .with_content_parts(vec![
+                ContentPart::reasoning("step"),
+                ContentPart::Reasoning {
+                    text: "   ".to_string(),
+                    provider_options: ProviderOptionsMap::default(),
+                    provider_metadata: Some(HashMap::from([(
+                        "anthropic".to_string(),
+                        serde_json::json!({ "redactedData": "abc123" }),
+                    )])),
+                },
+            ])
+            .build();
+
+        assert_eq!(message.reasoning(), vec!["step"]);
     }
 }
