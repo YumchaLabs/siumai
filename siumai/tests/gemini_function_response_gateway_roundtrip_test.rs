@@ -9,6 +9,7 @@
 
 use eventsource_stream::Event;
 use siumai::prelude::unified::*;
+use siumai_core::types::ChatStreamPart;
 use std::path::Path;
 
 fn gemini_fixtures_dir() -> std::path::PathBuf {
@@ -53,7 +54,7 @@ fn parse_sse_json_frames(bytes: &[u8]) -> Vec<serde_json::Value> {
 }
 
 #[test]
-fn gemini_function_response_frames_are_parsed_as_v3_tool_result_events() {
+fn gemini_function_response_frames_are_parsed_as_stable_tool_result_events() {
     let path = gemini_fixtures_dir().join("function_response_then_finish.sse");
     assert!(path.exists(), "fixture missing: {:?}", path);
 
@@ -80,13 +81,18 @@ fn gemini_function_response_frames_are_parsed_as_v3_tool_result_events() {
 
     let tool_results: Vec<serde_json::Value> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-result")) =>
-            {
-                Some(data.clone())
+        .filter_map(|e| match e.part_ref() {
+            Some(ChatStreamPart::ToolResult(_)) => {
+                serde_json::to_value(e.part_ref().expect("tool-result part")).ok()
             }
-            _ => None,
+            _ => match e {
+                ChatStreamEvent::Custom { data, .. }
+                    if data.get("type") == Some(&serde_json::json!("tool-result")) =>
+                {
+                    Some(data.clone())
+                }
+                _ => None,
+            },
         })
         .collect();
 
@@ -107,13 +113,15 @@ fn gemini_can_serialize_v3_tool_result_as_function_response_frame() {
     .with_emit_function_response_tool_results(true);
 
     let bytes = conv
-        .serialize_event(&ChatStreamEvent::Custom {
-            event_type: "openai:tool-result".to_string(),
-            data: serde_json::json!({
-                "type": "tool-result",
-                "toolCallId": "call_123",
-                "toolName": "test-tool",
-                "result": { "value": 42 }
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolResult(siumai_core::types::ChatStreamToolResult {
+                tool_call_id: "call_123".to_string(),
+                tool_name: "test-tool".to_string(),
+                result: serde_json::json!({ "value": 42 }),
+                is_error: None,
+                preliminary: None,
+                dynamic: None,
+                provider_metadata: None,
             }),
         })
         .expect("serialize tool-result");
