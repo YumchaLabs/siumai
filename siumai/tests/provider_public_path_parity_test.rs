@@ -6,6 +6,7 @@
     feature = "groq",
     feature = "cohere",
     feature = "togetherai",
+    feature = "deepinfra",
     feature = "bedrock",
     feature = "deepseek",
     feature = "ollama",
@@ -27,14 +28,16 @@ use siumai::experimental::execution::http::transport::{
 use siumai::extensions::{AudioCapability, ImageExtras};
 #[allow(unused_imports)]
 use siumai::prelude::unified::{
-    ChatCapability, ChatMessage, ChatRequest, EmbeddingCapability, ImageGenerationCapability,
-    ImageGenerationRequest, LlmError, RerankCapability, RerankRequest, Siumai, SttRequest,
-    TtsRequest,
+    ChatCapability, ChatMessage, ChatRequest, CompletionCapability, CompletionRequest,
+    EmbeddingCapability, ImageGenerationCapability, ImageGenerationRequest, LlmError,
+    RerankCapability, RerankRequest, Siumai, SttRequest, TtsRequest,
 };
 #[cfg(feature = "google-vertex")]
 use siumai::provider_ext::anthropic_vertex::{
     AnthropicChatResponseExt, VertexAnthropicChatRequestExt,
 };
+#[allow(unused_imports)]
+use siumai_registry::LlmClient;
 use std::sync::{Arc, Mutex};
 
 #[allow(dead_code)]
@@ -190,6 +193,10 @@ fn make_chat_request_with_model(model: &str) -> ChatRequest {
     req
 }
 
+fn make_completion_request_with_model(model: &str) -> siumai::prelude::unified::CompletionRequest {
+    siumai::prelude::unified::CompletionRequest::new("hi").with_model(model)
+}
+
 #[allow(dead_code)]
 fn make_rerank_request_with_model(model: &str) -> RerankRequest {
     RerankRequest::new(
@@ -215,6 +222,49 @@ fn make_image_request_with_model(model: &str) -> ImageGenerationRequest {
         enhance_prompt: None,
         response_format: Some("url".to_string()),
         extra_params: Default::default(),
+        provider_options_map: Default::default(),
+        http_config: None,
+    }
+}
+
+fn make_data_url_image_edit_request_with_model(
+    model: &str,
+) -> siumai::extensions::types::ImageEditRequest {
+    siumai::extensions::types::ImageEditRequest {
+        images: vec![siumai::extensions::types::ImageEditInput::url(
+            "data:image/png;base64,aW1hZ2Utb25l",
+        )],
+        mask: Some(siumai::extensions::types::ImageEditInput::url(
+            "data:image/png;base64,bWFzay1vbmU=",
+        )),
+        prompt: "replace the background with a neon skyline".to_string(),
+        model: Some(model.to_string()),
+        count: Some(1),
+        size: Some("1024x1024".to_string()),
+        aspect_ratio: None,
+        seed: None,
+        response_format: Some("b64_json".to_string()),
+        extra_params: Default::default(),
+        provider_options_map: Default::default(),
+        http_config: None,
+    }
+}
+
+fn make_data_url_image_variation_request_with_model(
+    model: &str,
+) -> siumai::extensions::types::ImageVariationRequest {
+    siumai::extensions::types::ImageVariationRequest {
+        image: siumai::extensions::types::ImageEditInput::url("data:image/png;base64,aW1hZ2Utb25l"),
+        model: Some(model.to_string()),
+        count: Some(2),
+        size: None,
+        aspect_ratio: Some("16:9".to_string()),
+        seed: Some(7),
+        response_format: Some("b64_json".to_string()),
+        extra_params: std::collections::HashMap::from([(
+            "prompt".to_string(),
+            serde_json::json!("keep the subject and explore new backgrounds"),
+        )]),
         provider_options_map: Default::default(),
         http_config: None,
     }
@@ -1581,6 +1631,119 @@ mod openai_public_path {
     }
 
     #[tokio::test]
+    async fn openai_siumai_provider_config_image_edit_data_url_request_are_equivalent() {
+        let response = serde_json::json!({
+            "created": 123,
+            "data": [
+                {
+                    "b64_json": "aW1hZ2UtMQ=="
+                }
+            ]
+        });
+
+        let siumai_transport = MultipartCaptureTransport::new(response.clone());
+        let provider_transport = MultipartCaptureTransport::new(response.clone());
+        let config_transport = MultipartCaptureTransport::new(response.clone());
+        let registry_transport = MultipartCaptureTransport::new(response);
+
+        let base_url = "https://example.com/v1";
+        let model = "gpt-image-1";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .image_model("openai:gpt-image-1")
+            .expect("build registry image model");
+
+        let request = make_data_url_image_edit_request_with_model(model);
+
+        let siumai_resp = siumai_client
+            .edit_image(request.clone())
+            .await
+            .expect("siumai image edit ok");
+        let provider_resp = provider_client
+            .edit_image(request.clone())
+            .await
+            .expect("provider image edit ok");
+        let config_resp = config_client
+            .edit_image(request.clone())
+            .await
+            .expect("config image edit ok");
+        let registry_resp = registry_model
+            .edit_image(request)
+            .await
+            .expect("registry image edit ok");
+
+        assert_eq!(
+            siumai_resp.images[0].b64_json.as_deref(),
+            Some("aW1hZ2UtMQ==")
+        );
+        assert_eq!(
+            provider_resp.images[0].b64_json.as_deref(),
+            Some("aW1hZ2UtMQ==")
+        );
+        assert_eq!(
+            config_resp.images[0].b64_json.as_deref(),
+            Some("aW1hZ2UtMQ==")
+        );
+        assert_eq!(
+            registry_resp.images[0].b64_json.as_deref(),
+            Some("aW1hZ2UtMQ==")
+        );
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_multipart_requests_equivalent(&siumai_req, &provider_req);
+        assert_multipart_requests_equivalent(&siumai_req, &config_req);
+        assert_multipart_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://example.com/v1/images/edits");
+
+        let body_text = normalize_multipart_body(&siumai_req);
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("gpt-image-1"));
+        assert!(body_text.contains("name=\"prompt\""));
+        assert!(body_text.contains("replace the background with a neon skyline"));
+        assert!(body_text.contains("name=\"response_format\""));
+        assert!(body_text.contains("b64_json"));
+        assert!(body_text.contains("name=\"image\""));
+        assert!(body_text.contains("filename=\"image-0\""));
+        assert!(body_text.contains("name=\"mask\""));
+        assert!(body_text.contains("filename=\"mask\""));
+        assert!(body_text.contains("Content-Type: image/png"));
+        assert!(body_text.contains("image-one"));
+        assert!(body_text.contains("mask-one"));
+    }
+
+    #[tokio::test]
     async fn openai_siumai_provider_config_tts_sse_request_are_equivalent() {
         let stream_body = concat!(
             "data: {\"type\":\"speech.audio.delta\",\"audio\":\"YWJj\"}\n\n",
@@ -2341,6 +2504,239 @@ mod openai_public_path {
     }
 
     #[tokio::test]
+    async fn openai_completion_siumai_provider_config_registry_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "id": "cmpl-openai-test",
+            "object": "text_completion",
+            "created": 1_718_345_013u64,
+            "model": "gpt-3.5-turbo-instruct",
+            "choices": [
+                {
+                    "text": "done",
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "gpt-3.5-turbo-instruct";
+        let base_url = "https://example.com/v1";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .completion_model(&format!("openai:{model}"))
+            .expect("build registry completion model");
+
+        let request = siumai::prelude::unified::CompletionRequest::from_prompt(vec![
+            ChatMessage::system("Be terse.").build(),
+            ChatMessage::user("Hello").build(),
+            ChatMessage::assistant("Hi").build(),
+            ChatMessage::user("Continue").build(),
+        ])
+        .with_model(model)
+        .with_provider_option("openai", serde_json::json!({ "suffix": "!" }));
+
+        let siumai_resp = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete(request.clone())
+            .await
+            .expect("siumai completion ok");
+        let provider_resp = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete(request.clone())
+            .await
+            .expect("provider completion ok");
+        let config_resp = config_client
+            .complete(request.clone())
+            .await
+            .expect("config completion ok");
+        let registry_resp = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete(request)
+            .await
+            .expect("registry completion ok");
+
+        assert_eq!(siumai_resp.text(), "done");
+        assert_eq!(provider_resp.text(), "done");
+        assert_eq!(config_resp.text(), "done");
+        assert_eq!(registry_resp.text(), "done");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://example.com/v1/completions");
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["suffix"], serde_json::json!("!"));
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!(
+                "Be terse.\n\nuser:\nHello\n\nassistant:\nHi\n\nuser:\nContinue\n\nassistant:\n"
+            )
+        );
+        assert_eq!(siumai_req.body["stop"], serde_json::json!(["\nuser:"]));
+    }
+
+    #[tokio::test]
+    async fn openai_completion_stream_public_paths_keep_raw_chunks_runtime_only() {
+        use futures_util::StreamExt;
+
+        let model = "gpt-3.5-turbo-instruct";
+        let stream_body = concat!(
+            "data: {\"id\":\"cmpl-openai-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\"hello\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-openai-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"gpt-3.5-turbo-instruct\",\"choices\":[{\"text\":\" world\",\"index\":0,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .as_bytes()
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let base_url = "https://example.com/v1";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::openai::OpenAiClient::from_config(
+            siumai::provider_ext::openai::OpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .completion_model(&format!("openai:{model}"))
+            .expect("build registry completion model");
+
+        let request = make_completion_request_with_model(model).with_include_raw_chunks(true);
+
+        let mut siumai_stream = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .complete_stream(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete_stream(request)
+            .await
+            .expect("registry stream ok");
+
+        while siumai_stream.next().await.is_some() {}
+        while provider_stream.next().await.is_some() {}
+        while config_stream.next().await.is_some() {}
+        while registry_stream.next().await.is_some() {}
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://example.com/v1/completions");
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            siumai_req.body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
+        assert!(siumai_req.body.get("includeRawChunks").is_none());
+        assert!(
+            siumai_req.body["stream_options"]
+                .get("includeRawChunks")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
     async fn openai_chat_public_paths_use_canonical_image_detail_provider_options() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -2384,9 +2780,7 @@ mod openai_public_path {
             .expect("build registry language model");
 
         let canonical_part = siumai::prelude::unified::ContentPart::File {
-            source: siumai::prelude::unified::MediaSource::Base64 {
-                data: "AAEC".to_string(),
-            },
+            source: siumai::prelude::unified::FilePartSource::base64("AAEC"),
             media_type: "image/png".to_string(),
             filename: None,
             provider_options: {
@@ -2408,9 +2802,7 @@ mod openai_public_path {
         };
 
         let legacy_only_part = siumai::prelude::unified::ContentPart::File {
-            source: siumai::prelude::unified::MediaSource::Base64 {
-                data: "AQID".to_string(),
-            },
+            source: siumai::prelude::unified::FilePartSource::base64("AQID"),
             media_type: "image/png".to_string(),
             filename: None,
             provider_options: siumai::prelude::unified::ProviderOptionsMap::default(),
@@ -4960,16 +5352,30 @@ mod azure_public_path {
         events: &[siumai::prelude::unified::ChatStreamEvent],
         ty: &str,
     ) -> Vec<serde_json::Value> {
+        let stable_parts: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::Part { part }
+                | siumai::prelude::unified::ChatStreamEvent::PartWithReplay { part, .. } => {
+                    serde_json::to_value(part).ok()
+                }
+                _ => None,
+            })
+            .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
+            .collect();
+        if !stable_parts.is_empty() {
+            return stable_parts;
+        }
+
         events
             .iter()
             .filter_map(|event| match event {
-                siumai::prelude::unified::ChatStreamEvent::Custom { data, .. }
-                    if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-                {
+                siumai::prelude::unified::ChatStreamEvent::Custom { data, .. } => {
                     Some(data.clone())
                 }
                 _ => None,
             })
+            .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
             .collect()
     }
 
@@ -6956,6 +7362,253 @@ mod azure_public_path {
             })
         );
     }
+
+    #[tokio::test]
+    async fn azure_completion_siumai_provider_config_registry_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "id": "cmpl-azure-test",
+            "object": "text_completion",
+            "created": 1_718_345_013u64,
+            "model": "deployment-id",
+            "choices": [
+                {
+                    "text": "done",
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "deployment-id";
+        let base_url = "https://example.invalid/openai";
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .completion_model("azure:deployment-id")
+            .expect("build registry completion model");
+
+        let request = CompletionRequest::from_prompt(vec![
+            ChatMessage::system("Be terse.").build(),
+            ChatMessage::user("Hello").build(),
+            ChatMessage::assistant("Hi").build(),
+            ChatMessage::user("Continue").build(),
+        ])
+        .with_model(model)
+        .with_provider_option("azure", serde_json::json!({ "suffix": "!" }));
+
+        let siumai_resp = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete(request.clone())
+            .await
+            .expect("siumai completion ok");
+        let provider_resp = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete(request.clone())
+            .await
+            .expect("provider completion ok");
+        let config_resp = config_client
+            .complete(request.clone())
+            .await
+            .expect("config completion ok");
+        let registry_resp = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete(request)
+            .await
+            .expect("registry completion ok");
+
+        assert_eq!(siumai_resp.text(), "done");
+        assert_eq!(provider_resp.text(), "done");
+        assert_eq!(config_resp.text(), "done");
+        assert_eq!(registry_resp.text(), "done");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/v1/completions?api-version=v1"
+        );
+        assert_eq!(
+            header_value(&siumai_req, "api-key"),
+            Some("test-key".to_string())
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["suffix"], serde_json::json!("!"));
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!(
+                "Be terse.\n\nuser:\nHello\n\nassistant:\nHi\n\nuser:\nContinue\n\nassistant:\n"
+            )
+        );
+        assert_eq!(siumai_req.body["stop"], serde_json::json!(["\nuser:"]));
+    }
+
+    #[tokio::test]
+    async fn azure_completion_stream_public_paths_keep_raw_chunks_runtime_only() {
+        use futures_util::StreamExt;
+
+        let model = "deployment-id";
+        let stream_body = concat!(
+            "data: {\"id\":\"cmpl-azure-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"deployment-id\",\"choices\":[{\"text\":\"hello\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-azure-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"deployment-id\",\"choices\":[{\"text\":\" world\",\"index\":0,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .as_bytes()
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let base_url = "https://example.invalid/openai";
+
+        let siumai_client = Siumai::builder()
+            .azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::azure()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::azure::AzureOpenAiClient::from_config(
+            siumai::provider_ext::azure::AzureOpenAiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .completion_model("azure:deployment-id")
+            .expect("build registry completion model");
+
+        let request = make_completion_request_with_model(model).with_include_raw_chunks(true);
+
+        let mut siumai_stream = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .complete_stream(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete_stream(request)
+            .await
+            .expect("registry stream ok");
+
+        while siumai_stream.next().await.is_some() {}
+        while provider_stream.next().await.is_some() {}
+        while config_stream.next().await.is_some() {}
+        while registry_stream.next().await.is_some() {}
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.invalid/openai/v1/completions?api-version=v1"
+        );
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(
+            header_value(&siumai_req, "api-key"),
+            Some("test-key".to_string())
+        );
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            siumai_req.body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
+        assert!(siumai_req.body.get("includeRawChunks").is_none());
+        assert!(
+            siumai_req.body["stream_options"]
+                .get("includeRawChunks")
+                .is_none()
+        );
+    }
 }
 
 #[cfg(feature = "google")]
@@ -7053,16 +7706,30 @@ mod gemini_public_path {
         events: &[siumai::prelude::unified::ChatStreamEvent],
         ty: &str,
     ) -> Vec<serde_json::Value> {
+        let stable_parts: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::Part { part }
+                | siumai::prelude::unified::ChatStreamEvent::PartWithReplay { part, .. } => {
+                    serde_json::to_value(part).ok()
+                }
+                _ => None,
+            })
+            .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
+            .collect();
+        if !stable_parts.is_empty() {
+            return stable_parts;
+        }
+
         events
             .iter()
             .filter_map(|event| match event {
-                siumai::prelude::unified::ChatStreamEvent::Custom { data, .. }
-                    if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-                {
+                siumai::prelude::unified::ChatStreamEvent::Custom { data, .. } => {
                     Some(data.clone())
                 }
                 _ => None,
             })
+            .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
             .collect()
     }
 
@@ -8215,8 +8882,346 @@ mod cohere_public_path {
     use super::*;
     use reqwest::header::AUTHORIZATION;
     use siumai::experimental::client::LlmClient;
-    use siumai::provider_ext::cohere::{CohereRerankOptions, CohereRerankRequestExt};
+    use siumai::prelude::unified::{
+        EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
+    };
+    use siumai::provider_ext::cohere::{
+        CohereChatOptions, CohereChatRequestExt, CohereClient, CohereConfig,
+        CohereEmbeddingInputType, CohereEmbeddingOptions, CohereEmbeddingRequestExt,
+        CohereEmbeddingTruncate, CohereRerankOptions, CohereRerankRequestExt, CohereThinkingConfig,
+        CohereThinkingType,
+    };
     use siumai::registry::ProviderBuildOverrides;
+
+    #[tokio::test]
+    async fn cohere_public_builder_exposes_unified_capabilities() {
+        let transport = CaptureTransport::default();
+
+        let client = Provider::cohere()
+            .api_key("test-key")
+            .language_model("command-a-03-2025")
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        assert_eq!(client.provider_id().as_ref(), "cohere");
+        assert!(client.as_chat_capability().is_some());
+        assert!(client.as_embedding_capability().is_some());
+        assert!(client.as_rerank_capability().is_some());
+        assert!(transport.take().is_none());
+        assert!(transport.take_stream().is_none());
+    }
+
+    #[tokio::test]
+    async fn cohere_siumai_provider_config_chat_request_are_equivalent() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let siumai_client = Siumai::builder()
+            .cohere()
+            .api_key("test-key")
+            .base_url("https://example.com/cohere")
+            .model("command-a-03-2025")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::cohere()
+            .api_key("test-key")
+            .base_url("https://example.com/cohere")
+            .language_model("command-a-03-2025")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("test-key")
+                .with_base_url("https://example.com/cohere")
+                .with_model("command-a-03-2025")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let request = make_chat_request_with_model("command-a-03-2025")
+            .with_tools(vec![Tool::function(
+                "lookup_weather",
+                "Look up the weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "location": { "type": "string" } },
+                    "required": ["location"],
+                    "additionalProperties": false
+                }),
+            )])
+            .with_tool_choice(ToolChoice::None)
+            .with_response_format(ResponseFormat::json_schema(schema.clone()))
+            .with_cohere_options(
+                CohereChatOptions::new().with_thinking(
+                    CohereThinkingConfig::new()
+                        .with_type(CohereThinkingType::Enabled)
+                        .with_token_budget(2048),
+                ),
+            );
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(siumai_req.url, "https://example.com/cohere/chat");
+        assert_eq!(
+            siumai_req.body["model"],
+            serde_json::json!("command-a-03-2025")
+        );
+        assert_eq!(siumai_req.body["tool_choice"], serde_json::json!("NONE"));
+        assert_eq!(
+            siumai_req.body["response_format"],
+            serde_json::json!({
+                "type": "json_object",
+                "json_schema": schema
+            })
+        );
+        assert_eq!(
+            siumai_req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "token_budget": 2048
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn cohere_registry_chat_request_matches_config_path() {
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("test-key")
+                .with_base_url("https://example.com/cohere")
+                .with_model("command-a-03-2025")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "cohere".to_string(),
+            Arc::new(siumai::registry::factories::CohereProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/cohere")
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+        let registry_model = registry
+            .language_model("cohere:command-a-03-2025")
+            .expect("build registry language model");
+
+        let request = make_chat_request_with_model("command-a-03-2025")
+            .with_tools(vec![Tool::function(
+                "lookup_weather",
+                "Look up the weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "location": { "type": "string" } },
+                    "required": ["location"],
+                    "additionalProperties": false
+                }),
+            )])
+            .with_tool_choice(ToolChoice::None)
+            .with_response_format(ResponseFormat::json_schema(schema.clone()))
+            .with_cohere_options(
+                CohereChatOptions::new().with_thinking(
+                    CohereThinkingConfig::new()
+                        .with_type(CohereThinkingType::Enabled)
+                        .with_token_budget(2048),
+                ),
+            );
+
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_eq!(
+            registry_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(registry_req.url, "https://example.com/cohere/chat");
+        assert_eq!(
+            registry_req.body["model"],
+            serde_json::json!("command-a-03-2025")
+        );
+        assert_eq!(registry_req.body["tool_choice"], serde_json::json!("NONE"));
+        assert_eq!(
+            registry_req.body["response_format"],
+            serde_json::json!({
+                "type": "json_object",
+                "json_schema": schema
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn cohere_siumai_provider_config_embedding_request_are_equivalent() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .cohere()
+            .api_key("test-key")
+            .base_url("https://example.com/cohere")
+            .model("embed-v4.0")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::cohere()
+            .api_key("test-key")
+            .base_url("https://example.com/cohere")
+            .embedding_model("embed-v4.0")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("test-key")
+                .with_base_url("https://example.com/cohere")
+                .with_model("embed-v4.0")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let request = EmbeddingRequest::new(vec!["text-1".to_string(), "text-2".to_string()])
+            .with_model("embed-v4.0")
+            .with_dimensions(512)
+            .with_cohere_options(
+                CohereEmbeddingOptions::new()
+                    .with_input_type(CohereEmbeddingInputType::SearchDocument)
+                    .with_truncate(CohereEmbeddingTruncate::End)
+                    .with_output_dimension(1024),
+            );
+
+        let _ = siumai_client.embed_with_config(request.clone()).await;
+        let _ = provider_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(siumai_req.url, "https://example.com/cohere/embed");
+        assert_eq!(siumai_req.body["model"], serde_json::json!("embed-v4.0"));
+        assert_eq!(
+            siumai_req.body["embedding_types"],
+            serde_json::json!(["float"])
+        );
+        assert_eq!(
+            siumai_req.body["texts"],
+            serde_json::json!(["text-1", "text-2"])
+        );
+        assert_eq!(
+            siumai_req.body["input_type"],
+            serde_json::json!("search_document")
+        );
+        assert_eq!(siumai_req.body["truncate"], serde_json::json!("END"));
+        assert_eq!(siumai_req.body["output_dimension"], serde_json::json!(1024));
+    }
+
+    #[tokio::test]
+    async fn cohere_registry_embedding_request_matches_config_path() {
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("test-key")
+                .with_base_url("https://example.com/cohere")
+                .with_model("embed-v4.0")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "cohere".to_string(),
+            Arc::new(siumai::registry::factories::CohereProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/cohere")
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+        let registry_model = registry
+            .embedding_model("cohere:embed-v4.0")
+            .expect("build registry embedding model");
+
+        let request = EmbeddingRequest::new(vec!["text-1".to_string(), "text-2".to_string()])
+            .with_model("embed-v4.0")
+            .with_dimensions(512)
+            .with_cohere_options(
+                CohereEmbeddingOptions::new()
+                    .with_input_type(CohereEmbeddingInputType::SearchDocument)
+                    .with_truncate(CohereEmbeddingTruncate::End)
+                    .with_output_dimension(1024),
+            );
+
+        let _ = config_client.embed_with_config(request.clone()).await;
+        let _ = registry_model.embed_with_config(request).await;
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_eq!(
+            registry_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(registry_req.url, "https://example.com/cohere/embed");
+        assert_eq!(registry_req.body["model"], serde_json::json!("embed-v4.0"));
+        assert_eq!(
+            registry_req.body["output_dimension"],
+            serde_json::json!(1024)
+        );
+    }
 
     #[tokio::test]
     async fn cohere_siumai_provider_config_rerank_request_are_equivalent() {
@@ -8228,7 +9233,7 @@ mod cohere_public_path {
             .cohere()
             .api_key("test-key")
             .base_url("https://example.com/cohere")
-            .model("rerank-english-v3.0")
+            .model("rerank-v3.5")
             .fetch(Arc::new(siumai_transport.clone()))
             .build()
             .await
@@ -8237,20 +9242,20 @@ mod cohere_public_path {
         let provider_client = Provider::cohere()
             .api_key("test-key")
             .base_url("https://example.com/cohere")
-            .model("rerank-english-v3.0")
+            .reranking_model("rerank-v3.5")
             .fetch(Arc::new(provider_transport.clone()))
             .build()
             .expect("build provider client");
 
-        let config_client = siumai::provider_ext::cohere::CohereClient::from_config(
-            siumai::provider_ext::cohere::CohereConfig::new("test-key")
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("test-key")
                 .with_base_url("https://example.com/cohere")
-                .with_model("rerank-english-v3.0")
+                .with_model("rerank-v3.5")
                 .with_http_transport(Arc::new(config_transport.clone())),
         )
         .expect("build config client");
 
-        let request = make_rerank_request_with_model("rerank-english-v3.0")
+        let request = make_rerank_request_with_model("rerank-v3.5")
             .with_top_n(1)
             .with_cohere_options(
                 CohereRerankOptions::new()
@@ -8273,6 +9278,7 @@ mod cohere_public_path {
             "Bearer test-key"
         );
         assert_eq!(siumai_req.url, "https://example.com/cohere/rerank");
+        assert_eq!(siumai_req.body["model"], serde_json::json!("rerank-v3.5"));
     }
 
     #[tokio::test]
@@ -8280,10 +9286,10 @@ mod cohere_public_path {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
 
-        let config_client = siumai::provider_ext::cohere::CohereClient::from_config(
-            siumai::provider_ext::cohere::CohereConfig::new("test-key")
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("test-key")
                 .with_base_url("https://example.com/cohere")
-                .with_model("rerank-english-v3.0")
+                .with_model("rerank-v3.5")
                 .with_http_transport(Arc::new(config_transport.clone())),
         )
         .expect("build config client");
@@ -8302,10 +9308,10 @@ mod cohere_public_path {
             .build()
             .expect("build registry");
         let registry_model = registry
-            .reranking_model("cohere:rerank-english-v3.0")
+            .reranking_model("cohere:rerank-v3.5")
             .expect("build registry rerank model");
 
-        let request = make_rerank_request_with_model("rerank-english-v3.0")
+        let request = make_rerank_request_with_model("rerank-v3.5")
             .with_top_n(1)
             .with_cohere_options(
                 CohereRerankOptions::new()
@@ -8325,10 +9331,7 @@ mod cohere_public_path {
             "Bearer test-key"
         );
         assert_eq!(registry_req.url, "https://example.com/cohere/rerank");
-        assert_eq!(
-            registry_req.body["model"],
-            serde_json::json!("rerank-english-v3.0")
-        );
+        assert_eq!(registry_req.body["model"], serde_json::json!("rerank-v3.5"));
         assert_eq!(registry_req.body["top_n"], serde_json::json!(1));
         assert_eq!(
             registry_req.body["max_tokens_per_doc"],
@@ -8365,12 +9368,12 @@ mod cohere_public_path {
             .expect("build registry");
 
         let handle = registry
-            .reranking_model("cohere:rerank-english-v3.0")
+            .reranking_model("cohere:rerank-v3.5")
             .expect("build registry rerank model");
 
         let _ = handle
             .rerank(
-                make_rerank_request_with_model("rerank-english-v3.0")
+                make_rerank_request_with_model("rerank-v3.5")
                     .with_top_n(1)
                     .with_cohere_options(
                         CohereRerankOptions::new()
@@ -8384,75 +9387,10 @@ mod cohere_public_path {
         assert!(global_transport.take().is_none());
         assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
         assert_eq!(req.url, "https://example.com/cohere/rerank");
+        assert_eq!(req.body["model"], serde_json::json!("rerank-v3.5"));
         assert_eq!(req.body["top_n"], serde_json::json!(1));
         assert_eq!(req.body["max_tokens_per_doc"], serde_json::json!(1000));
         assert_eq!(req.body["priority"], serde_json::json!(1));
-    }
-
-    #[tokio::test]
-    async fn cohere_siumai_provider_config_chat_request_is_intentionally_unsupported() {
-        let siumai_transport = CaptureTransport::default();
-        let provider_transport = CaptureTransport::default();
-        let config_transport = CaptureTransport::default();
-        let registry_transport = CaptureTransport::default();
-
-        let siumai_client = Siumai::builder()
-            .cohere()
-            .api_key("test-key")
-            .base_url("https://example.com/cohere")
-            .model("rerank-english-v3.0")
-            .fetch(Arc::new(siumai_transport.clone()))
-            .build()
-            .await
-            .expect("build siumai client");
-
-        let provider_client = Provider::cohere()
-            .api_key("test-key")
-            .base_url("https://example.com/cohere")
-            .model("rerank-english-v3.0")
-            .fetch(Arc::new(provider_transport.clone()))
-            .build()
-            .expect("build provider client");
-
-        let config_client = siumai::provider_ext::cohere::CohereClient::from_config(
-            siumai::provider_ext::cohere::CohereConfig::new("test-key")
-                .with_base_url("https://example.com/cohere")
-                .with_model("rerank-english-v3.0")
-                .with_http_transport(Arc::new(config_transport.clone())),
-        )
-        .expect("build config client");
-        let mut providers = std::collections::HashMap::new();
-        providers.insert(
-            "cohere".to_string(),
-            Arc::new(siumai::registry::factories::CohereProviderFactory)
-                as Arc<dyn siumai::registry::ProviderFactory>,
-        );
-        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("test-key")
-            .with_base_url("https://example.com/cohere")
-            .fetch(Arc::new(registry_transport.clone()))
-            .auto_middleware(false)
-            .build()
-            .expect("build registry");
-
-        let request = make_chat_request_with_model("rerank-english-v3.0");
-
-        let siumai_err = siumai_client
-            .chat_request(request.clone())
-            .await
-            .expect_err("cohere chat should be unsupported");
-        let registry_err = match registry.language_model("cohere:rerank-english-v3.0") {
-            Ok(_) => panic!("cohere registry language model construction should be unsupported"),
-            Err(err) => err,
-        };
-        assert!(matches!(siumai_err, LlmError::UnsupportedOperation(_)));
-        assert_unsupported_operation(&registry_err);
-        assert!(provider_client.as_chat_capability().is_none());
-        assert!(config_client.as_chat_capability().is_none());
-        assert!(siumai_transport.take().is_none());
-        assert!(provider_transport.take().is_none());
-        assert!(config_transport.take().is_none());
-        assert!(registry_transport.take().is_none());
     }
 }
 
@@ -8463,6 +9401,29 @@ mod togetherai_public_path {
     use siumai::experimental::client::LlmClient;
     use siumai::provider_ext::togetherai::{TogetherAiRerankOptions, TogetherAiRerankRequestExt};
     use siumai::registry::ProviderBuildOverrides;
+
+    #[tokio::test]
+    async fn togetherai_public_builder_exposes_unified_capabilities() {
+        let transport = CaptureTransport::default();
+
+        let client = Provider::togetherai()
+            .api_key("test-key")
+            .base_url("https://example.com/together")
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build togetherai unified client");
+
+        assert_eq!(client.provider_id().as_ref(), "togetherai");
+        assert!(client.as_chat_capability().is_some());
+        assert!(client.as_completion_capability().is_some());
+        assert!(client.as_embedding_capability().is_some());
+        assert!(client.as_image_generation_capability().is_some());
+        assert!(client.as_speech_capability().is_some());
+        assert!(client.as_transcription_capability().is_some());
+        assert!(client.as_rerank_capability().is_some());
+        assert!(transport.take().is_none());
+    }
 
     #[tokio::test]
     async fn togetherai_siumai_provider_config_rerank_request_are_equivalent() {
@@ -8486,6 +9447,7 @@ mod togetherai_public_path {
             .model("Salesforce/Llama-Rank-v1")
             .fetch(Arc::new(provider_transport.clone()))
             .build()
+            .await
             .expect("build provider client");
 
         let config_client = siumai::provider_ext::togetherai::TogetherAiClient::from_config(
@@ -8629,17 +9591,16 @@ mod togetherai_public_path {
     }
 
     #[tokio::test]
-    async fn togetherai_siumai_provider_config_chat_request_is_intentionally_unsupported() {
+    async fn togetherai_siumai_provider_registry_chat_request_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
-        let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
 
         let siumai_client = Siumai::builder()
             .togetherai()
             .api_key("test-key")
             .base_url("https://example.com/together")
-            .model("Salesforce/Llama-Rank-v1")
+            .model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
             .fetch(Arc::new(siumai_transport.clone()))
             .build()
             .await
@@ -8648,18 +9609,11 @@ mod togetherai_public_path {
         let provider_client = Provider::togetherai()
             .api_key("test-key")
             .base_url("https://example.com/together")
-            .model("Salesforce/Llama-Rank-v1")
+            .model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
             .fetch(Arc::new(provider_transport.clone()))
             .build()
+            .await
             .expect("build provider client");
-
-        let config_client = siumai::provider_ext::togetherai::TogetherAiClient::from_config(
-            siumai::provider_ext::togetherai::TogetherAiConfig::new("test-key")
-                .with_base_url("https://example.com/together")
-                .with_model("Salesforce/Llama-Rank-v1")
-                .with_http_transport(Arc::new(config_transport.clone())),
-        )
-        .expect("build config client");
         let mut providers = std::collections::HashMap::new();
         providers.insert(
             "togetherai".to_string(),
@@ -8674,26 +9628,1615 @@ mod togetherai_public_path {
             .build()
             .expect("build registry");
 
-        let request = make_chat_request_with_model("Salesforce/Llama-Rank-v1");
+        let registry_model = registry
+            .language_model("togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+            .expect("build registry togetherai language model");
 
-        let siumai_err = siumai_client
+        let request = make_chat_request_with_model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo");
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = ChatCapability::chat_request(&registry_model, request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://example.com/together/chat/completions"
+        );
+        assert_eq!(
+            siumai_req.body["model"],
+            serde_json::json!("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+        );
+    }
+
+    #[tokio::test]
+    async fn togetherai_completion_siumai_provider_registry_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "id": "cmpl-together-test",
+            "object": "text_completion",
+            "created": 1_718_345_013u64,
+            "model": "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+            "choices": [
+                {
+                    "text": "done",
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
+        let base_url = "https://example.com/together";
+
+        let siumai_client = Siumai::builder()
+            .togetherai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::togetherai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "togetherai".to_string(),
+            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url(base_url)
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let registry_model = registry
+            .completion_model(&format!("togetherai:{model}"))
+            .expect("build registry togetherai completion model");
+
+        let request = CompletionRequest::from_prompt(vec![
+            ChatMessage::system("Be terse.").build(),
+            ChatMessage::user("Hello").build(),
+            ChatMessage::assistant("Hi").build(),
+            ChatMessage::user("Continue").build(),
+        ])
+        .with_model(model)
+        .with_provider_option("togetherai", serde_json::json!({ "suffix": "!" }));
+
+        let siumai_resp = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete(request.clone())
+            .await
+            .expect("siumai completion ok");
+        let provider_resp = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete(request.clone())
+            .await
+            .expect("provider completion ok");
+        let registry_resp = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete(request)
+            .await
+            .expect("registry completion ok");
+
+        assert_eq!(siumai_resp.text(), "done");
+        assert_eq!(provider_resp.text(), "done");
+        assert_eq!(registry_resp.text(), "done");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(siumai_req.url, "https://example.com/together/completions");
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["suffix"], serde_json::json!("!"));
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!(
+                "Be terse.\n\nuser:\nHello\n\nassistant:\nHi\n\nuser:\nContinue\n\nassistant:\n"
+            )
+        );
+        assert_eq!(siumai_req.body["stop"], serde_json::json!(["\nuser:"]));
+    }
+
+    #[tokio::test]
+    async fn togetherai_completion_stream_public_paths_keep_raw_chunks_runtime_only() {
+        use futures_util::StreamExt;
+
+        let model = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
+        let stream_body = concat!(
+            "data: {\"id\":\"cmpl-together-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo\",\"choices\":[{\"text\":\"hello\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-together-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo\",\"choices\":[{\"text\":\" world\",\"index\":0,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .as_bytes()
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let base_url = "https://example.com/together";
+
+        let siumai_client = Siumai::builder()
+            .togetherai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::togetherai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "togetherai".to_string(),
+            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url(base_url)
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let registry_model = registry
+            .completion_model(&format!("togetherai:{model}"))
+            .expect("build registry togetherai completion model");
+
+        let request = make_completion_request_with_model(model).with_include_raw_chunks(true);
+
+        let mut siumai_stream = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut registry_stream = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete_stream(request)
+            .await
+            .expect("registry stream ok");
+
+        while siumai_stream.next().await.is_some() {}
+        while provider_stream.next().await.is_some() {}
+        while registry_stream.next().await.is_some() {}
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(siumai_req.url, "https://example.com/together/completions");
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert!(siumai_req.body.get("stream_options").is_none());
+        assert!(siumai_req.body.get("includeRawChunks").is_none());
+    }
+}
+
+#[cfg(feature = "deepinfra")]
+mod deepinfra_public_path {
+    use super::*;
+    use reqwest::header::AUTHORIZATION;
+    use siumai::experimental::client::LlmClient;
+    use siumai::experimental::execution::http::transport::HttpTransportMultipartRequest;
+    use siumai::extensions::types::{ImageEditInput, ImageEditRequest};
+
+    fn make_deepinfra_image_edit_request(model: &str) -> ImageEditRequest {
+        let mut extra_params = std::collections::HashMap::new();
+        extra_params.insert("strength".to_string(), serde_json::json!(0.35));
+
+        let mut provider_options_map = siumai::prelude::unified::ProviderOptionsMap::default();
+        provider_options_map.insert(
+            "deepinfra",
+            serde_json::json!({
+                "guidance_scale": 6.5
+            }),
+        );
+
+        ImageEditRequest {
+            images: vec![ImageEditInput::file(b"image-one".to_vec())],
+            mask: Some(ImageEditInput::file(b"mask-one".to_vec())),
+            prompt: "replace the background with a neon skyline".to_string(),
+            model: Some(model.to_string()),
+            count: Some(1),
+            size: Some("1024x1024".to_string()),
+            aspect_ratio: Some("1:1".to_string()),
+            seed: Some(7),
+            response_format: Some("b64_json".to_string()),
+            extra_params,
+            provider_options_map,
+            http_config: None,
+        }
+    }
+
+    fn normalize_multipart_body(req: &HttpTransportMultipartRequest) -> String {
+        let boundary = req
+            .headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split("boundary=").nth(1))
+            .expect("multipart boundary");
+        String::from_utf8_lossy(&req.body).replace(boundary, "<boundary>")
+    }
+
+    #[tokio::test]
+    async fn deepinfra_public_builder_exposes_unified_capabilities() {
+        let transport = CaptureTransport::default();
+
+        let client = Provider::deepinfra()
+            .api_key("test-key")
+            .base_url("https://example.com/deepinfra/v1")
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build deepinfra unified client");
+
+        assert_eq!(client.provider_id().as_ref(), "deepinfra");
+        assert!(client.as_chat_capability().is_some());
+        assert!(client.as_completion_capability().is_some());
+        assert!(client.as_embedding_capability().is_some());
+        assert!(client.as_image_generation_capability().is_some());
+        assert!(client.as_image_extras().is_some());
+        assert!(client.as_speech_capability().is_none());
+        assert!(client.as_rerank_capability().is_none());
+        assert!(transport.take().is_none());
+    }
+
+    #[tokio::test]
+    async fn deepinfra_siumai_provider_registry_chat_request_are_equivalent() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .deepinfra()
+            .api_key("test-key")
+            .base_url("https://example.com/deepinfra/v1")
+            .model("meta-llama/Llama-3.3-70B-Instruct")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::deepinfra()
+            .api_key("test-key")
+            .base_url("https://example.com/deepinfra/v1")
+            .model("meta-llama/Llama-3.3-70B-Instruct")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepinfra".to_string(),
+            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/deepinfra/v1")
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let registry_model = registry
+            .language_model("deepinfra:meta-llama/Llama-3.3-70B-Instruct")
+            .expect("build registry deepinfra language model");
+
+        let request = make_chat_request_with_model("meta-llama/Llama-3.3-70B-Instruct");
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = ChatCapability::chat_request(&registry_model, request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://example.com/deepinfra/v1/openai/chat/completions"
+        );
+        assert_eq!(
+            siumai_req.body["model"],
+            serde_json::json!("meta-llama/Llama-3.3-70B-Instruct")
+        );
+    }
+
+    #[tokio::test]
+    async fn deepinfra_image_generation_routes_to_provider_owned_inference_path() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .deepinfra()
+            .api_key("test-key")
+            .base_url("https://example.com/deepinfra/v1")
+            .model("meta-llama/Llama-3.3-70B-Instruct")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::deepinfra()
+            .api_key("test-key")
+            .base_url("https://example.com/deepinfra/v1")
+            .model("meta-llama/Llama-3.3-70B-Instruct")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepinfra".to_string(),
+            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/deepinfra/v1")
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+        let registry_model = registry
+            .image_model("deepinfra:black-forest-labs/FLUX-1-schnell")
+            .expect("build registry deepinfra image model");
+
+        let request = make_image_request_with_model("black-forest-labs/FLUX-1-schnell");
+
+        let _ = siumai_client.generate_images(request.clone()).await;
+        let _ = provider_client.generate_images(request.clone()).await;
+        let _ = registry_model.generate_images(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://example.com/deepinfra/v1/inference/black-forest-labs/FLUX-1-schnell"
+        );
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!("a tiny purple robot")
+        );
+        assert_eq!(siumai_req.body["num_images"], serde_json::json!(1));
+        assert_eq!(siumai_req.body["width"], serde_json::json!("1024"));
+        assert_eq!(siumai_req.body["height"], serde_json::json!("1024"));
+        assert!(siumai_req.body.get("negative_prompt").is_none());
+        assert!(siumai_req.body.get("response_format").is_none());
+    }
+
+    #[tokio::test]
+    async fn deepinfra_image_edit_routes_to_provider_owned_openai_edit_path() {
+        let siumai_transport = MixedCaptureTransport::default();
+        let provider_transport = MixedCaptureTransport::default();
+        let registry_transport = MixedCaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .deepinfra()
+            .api_key("test-key")
+            .base_url("https://example.com/deepinfra/v1")
+            .model("meta-llama/Llama-3.3-70B-Instruct")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::deepinfra()
+            .api_key("test-key")
+            .base_url("https://example.com/deepinfra/v1")
+            .model("meta-llama/Llama-3.3-70B-Instruct")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepinfra".to_string(),
+            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/deepinfra/v1")
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+        let registry_model = registry
+            .image_model("deepinfra:black-forest-labs/FLUX-1-schnell")
+            .expect("build registry deepinfra image model");
+
+        let request = make_deepinfra_image_edit_request("black-forest-labs/FLUX-1-schnell");
+
+        let _ = siumai_client.edit_image(request.clone()).await;
+        let _ = provider_client.edit_image(request.clone()).await;
+        let _ = registry_model.edit_image(request).await;
+
+        let siumai_req = siumai_transport.take_multipart().expect("siumai multipart");
+        let provider_req = provider_transport
+            .take_multipart()
+            .expect("provider multipart");
+        let registry_req = registry_transport
+            .take_multipart()
+            .expect("registry multipart");
+
+        assert_eq!(siumai_req.url, provider_req.url);
+        assert_eq!(siumai_req.url, registry_req.url);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://example.com/deepinfra/v1/openai/images/edits"
+        );
+        assert!(
+            siumai_req
+                .headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with("multipart/form-data; boundary="))
+        );
+
+        let body_text = normalize_multipart_body(&siumai_req);
+        let provider_body_text = normalize_multipart_body(&provider_req);
+        let registry_body_text = normalize_multipart_body(&registry_req);
+
+        assert_eq!(body_text, provider_body_text);
+        assert_eq!(body_text, registry_body_text);
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("black-forest-labs/FLUX-1-schnell"));
+        assert!(body_text.contains("name=\"prompt\""));
+        assert!(body_text.contains("replace the background with a neon skyline"));
+        assert!(body_text.contains("name=\"image\"; filename=\"image-0.png\""));
+        assert!(body_text.contains("name=\"mask\"; filename=\"mask-0.png\""));
+        assert!(body_text.contains("name=\"strength\""));
+        assert!(body_text.contains("0.35"));
+        assert!(body_text.contains("name=\"guidance_scale\""));
+        assert!(body_text.contains("6.5"));
+    }
+
+    #[tokio::test]
+    async fn deepinfra_completion_siumai_provider_registry_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "id": "cmpl-deepinfra-test",
+            "object": "text_completion",
+            "created": 1_718_345_013u64,
+            "model": "meta-llama/Llama-3.3-70B-Instruct",
+            "choices": [
+                {
+                    "text": "done",
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "meta-llama/Llama-3.3-70B-Instruct";
+        let base_url = "https://example.com/deepinfra/v1";
+
+        let siumai_client = Siumai::builder()
+            .deepinfra()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::deepinfra()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepinfra".to_string(),
+            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url(base_url)
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let registry_model = registry
+            .completion_model(&format!("deepinfra:{model}"))
+            .expect("build registry deepinfra completion model");
+
+        let request = CompletionRequest::from_prompt(vec![
+            ChatMessage::system("Be terse.").build(),
+            ChatMessage::user("Hello").build(),
+            ChatMessage::assistant("Hi").build(),
+            ChatMessage::user("Continue").build(),
+        ])
+        .with_model(model)
+        .with_provider_option("deepinfra", serde_json::json!({ "suffix": "!" }));
+
+        let siumai_resp = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete(request.clone())
+            .await
+            .expect("siumai completion ok");
+        let provider_resp = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete(request.clone())
+            .await
+            .expect("provider completion ok");
+        let registry_resp = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete(request)
+            .await
+            .expect("registry completion ok");
+
+        assert_eq!(siumai_resp.text(), "done");
+        assert_eq!(provider_resp.text(), "done");
+        assert_eq!(registry_resp.text(), "done");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://example.com/deepinfra/v1/openai/completions"
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["suffix"], serde_json::json!("!"));
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!(
+                "Be terse.\n\nuser:\nHello\n\nassistant:\nHi\n\nuser:\nContinue\n\nassistant:\n"
+            )
+        );
+        assert_eq!(siumai_req.body["stop"], serde_json::json!(["\nuser:"]));
+    }
+
+    #[tokio::test]
+    async fn deepinfra_completion_stream_public_paths_keep_raw_chunks_runtime_only() {
+        use futures_util::StreamExt;
+
+        let model = "meta-llama/Llama-3.3-70B-Instruct";
+        let stream_body = concat!(
+            "data: {\"id\":\"cmpl-deepinfra-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"meta-llama/Llama-3.3-70B-Instruct\",\"choices\":[{\"text\":\"hello\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-deepinfra-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"meta-llama/Llama-3.3-70B-Instruct\",\"choices\":[{\"text\":\" world\",\"index\":0,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .as_bytes()
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let base_url = "https://example.com/deepinfra/v1";
+
+        let siumai_client = Siumai::builder()
+            .deepinfra()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::deepinfra()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "deepinfra".to_string(),
+            Arc::new(siumai::registry::factories::DeepInfraProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url(base_url)
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let registry_model = registry
+            .completion_model(&format!("deepinfra:{model}"))
+            .expect("build registry deepinfra completion model");
+
+        let request = make_completion_request_with_model(model).with_include_raw_chunks(true);
+
+        let mut siumai_stream = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut registry_stream = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete_stream(request)
+            .await
+            .expect("registry stream ok");
+
+        while siumai_stream.next().await.is_some() {}
+        while provider_stream.next().await.is_some() {}
+        while registry_stream.next().await.is_some() {}
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://example.com/deepinfra/v1/openai/completions"
+        );
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert!(siumai_req.body.get("stream_options").is_none());
+        assert!(siumai_req.body.get("includeRawChunks").is_none());
+    }
+}
+
+#[cfg(feature = "google-vertex")]
+mod vertex_maas_public_path {
+    use super::*;
+    use reqwest::header::AUTHORIZATION;
+    use siumai::experimental::client::LlmClient;
+    use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
+    use siumai::registry::ProviderBuildOverrides;
+
+    fn vertex_maas_base_url(project: &str, location: &str) -> String {
+        format!(
+            "https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi"
+        )
+    }
+
+    fn auth_http_config(token: &str) -> siumai::prelude::unified::HttpConfig {
+        let mut http_config = siumai::prelude::unified::HttpConfig::default();
+        http_config
+            .headers
+            .insert("Authorization".to_string(), format!("Bearer {token}"));
+        http_config
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_public_builder_exposes_chat_completion_embedding_capabilities() {
+        let transport = CaptureTransport::default();
+
+        let client = Provider::vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model("deepseek-ai/deepseek-v3.2-maas")
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build vertex-maas unified client");
+
+        assert_eq!(client.provider_id().as_ref(), "vertex-maas");
+        assert!(client.as_chat_capability().is_some());
+        assert!(client.as_completion_capability().is_some());
+        assert!(client.as_embedding_capability().is_some());
+        assert!(client.as_image_generation_capability().is_none());
+        assert!(client.as_speech_capability().is_none());
+        assert!(client.as_rerank_capability().is_none());
+        assert!(transport.take().is_none());
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_siumai_provider_registry_chat_request_are_equivalent() {
+        let model = "deepseek-ai/deepseek-v3.2-maas";
+        let base_url = vertex_maas_base_url("test-project", "us-central1");
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let siumai_client = Siumai::builder()
+            .vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex-maas".to_string(),
+            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex-maas".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url(base_url.clone())
+                .with_http_config(auth_http_config("test-token"))
+                .fetch(Arc::new(registry_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .language_model(&format!("vertex-maas:{model}"))
+            .expect("build registry vertex-maas language model");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = ChatCapability::chat_request(&registry_model, request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-token"
+        );
+        assert_eq!(siumai_req.url, format!("{base_url}/chat/completions"));
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_camel_case_provider_options_prefer_camel_passthrough_and_metadata_root() {
+        let model = "deepseek-ai/deepseek-v3.2-maas";
+        let base_url = vertex_maas_base_url("test-project", "us-central1");
+        let response_json = serde_json::json!({
+            "id": "chatcmpl-vertex-maas",
+            "object": "chat.completion",
+            "created": 1_718_345_013u64,
+            "model": model,
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": "hello from vertex maas"
+                },
+                "finish_reason": "stop"
+            }]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let siumai_client = Siumai::builder()
+            .vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex-maas".to_string(),
+            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex-maas".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url(base_url.clone())
+                .with_http_config(auth_http_config("test-token"))
+                .fetch(Arc::new(registry_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .language_model(&format!("vertex-maas:{model}"))
+            .expect("build registry vertex-maas language model");
+
+        let mut request = make_chat_request_with_model(model);
+        request.provider_options_map.insert(
+            "vertex-maas",
+            serde_json::json!({ "customPassthrough": "raw-value" }),
+        );
+        request.provider_options_map.insert(
+            "vertexMaas",
+            serde_json::json!({ "customPassthrough": "camel-value" }),
+        );
+
+        let siumai_resp = siumai_client
             .chat_request(request.clone())
             .await
-            .expect_err("togetherai chat should be unsupported");
-        let registry_err = match registry.language_model("togetherai:Salesforce/Llama-Rank-v1") {
+            .expect("siumai response ok");
+        let provider_resp = provider_client
+            .chat_request(request.clone())
+            .await
+            .expect("provider response ok");
+        let registry_resp = ChatCapability::chat_request(&registry_model, request)
+            .await
+            .expect("registry response ok");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_eq!(
+            siumai_req.body["customPassthrough"],
+            serde_json::json!("camel-value")
+        );
+        assert_eq!(
+            provider_req.body["customPassthrough"],
+            serde_json::json!("camel-value")
+        );
+        assert_eq!(
+            registry_req.body["customPassthrough"],
+            serde_json::json!("camel-value")
+        );
+
+        for root in [
+            siumai_resp
+                .provider_metadata
+                .as_ref()
+                .expect("siumai provider metadata"),
+            provider_resp
+                .provider_metadata
+                .as_ref()
+                .expect("provider provider metadata"),
+            registry_resp
+                .provider_metadata
+                .as_ref()
+                .expect("registry provider metadata"),
+        ] {
+            assert!(root.get("vertexMaas").is_some());
+            assert!(root.get("vertex-maas").is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_stream_end_metadata_uses_camel_case_provider_key() {
+        use futures_util::StreamExt;
+
+        let model = "deepseek-ai/deepseek-v3.2-maas";
+        let base_url = vertex_maas_base_url("test-project", "us-central1");
+        let stream_body = br#"data: {"id":"chatcmpl-vertex-maas-stream","object":"chat.completion.chunk","created":1718345013,"model":"deepseek-ai/deepseek-v3.2-maas","choices":[{"index":0,"delta":{"content":"hello"},"finish_reason":"stop"}]}
+
+data: [DONE]
+
+"#
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex-maas".to_string(),
+            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex-maas".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url(base_url.clone())
+                .with_http_config(auth_http_config("test-token"))
+                .fetch(Arc::new(registry_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .language_model(&format!("vertex-maas:{model}"))
+            .expect("build registry vertex-maas language model");
+
+        let mut request = make_chat_request_with_model(model);
+        request.provider_options_map.insert(
+            "vertexMaas",
+            serde_json::json!({ "customPassthrough": "camel-value" }),
+        );
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry stream ok");
+
+        let mut siumai_end = None;
+        let mut provider_end = None;
+        let mut registry_end = None;
+
+        while let Some(event) = siumai_stream.next().await {
+            if let Ok(siumai::prelude::unified::ChatStreamEvent::StreamEnd { response }) = event {
+                siumai_end = Some(response);
+                break;
+            }
+        }
+        while let Some(event) = provider_stream.next().await {
+            if let Ok(siumai::prelude::unified::ChatStreamEvent::StreamEnd { response }) = event {
+                provider_end = Some(response);
+                break;
+            }
+        }
+        while let Some(event) = registry_stream.next().await {
+            if let Ok(siumai::prelude::unified::ChatStreamEvent::StreamEnd { response }) = event {
+                registry_end = Some(response);
+                break;
+            }
+        }
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_eq!(
+            siumai_req.body["customPassthrough"],
+            serde_json::json!("camel-value")
+        );
+        assert_eq!(
+            provider_req.body["customPassthrough"],
+            serde_json::json!("camel-value")
+        );
+        assert_eq!(
+            registry_req.body["customPassthrough"],
+            serde_json::json!("camel-value")
+        );
+
+        for root in [
+            siumai_end
+                .expect("siumai stream end")
+                .provider_metadata
+                .expect("siumai stream provider metadata"),
+            provider_end
+                .expect("provider stream end")
+                .provider_metadata
+                .expect("provider stream provider metadata"),
+            registry_end
+                .expect("registry stream end")
+                .provider_metadata
+                .expect("registry stream provider metadata"),
+        ] {
+            assert!(root.get("vertexMaas").is_some());
+            assert!(root.get("vertex-maas").is_none());
+        }
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_completion_siumai_provider_registry_request_are_equivalent() {
+        let model = "deepseek-ai/deepseek-v3.2-maas";
+        let base_url = vertex_maas_base_url("test-project", "us-central1");
+        let response_json = serde_json::json!({
+            "id": "cmpl-vertex-maas-test",
+            "object": "text_completion",
+            "created": 1_718_345_013u64,
+            "model": model,
+            "choices": [
+                {
+                    "text": "done",
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let siumai_client = Siumai::builder()
+            .vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex-maas".to_string(),
+            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex-maas".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url(base_url.clone())
+                .with_http_config(auth_http_config("test-token"))
+                .fetch(Arc::new(registry_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .completion_model(&format!("vertex-maas:{model}"))
+            .expect("build registry vertex-maas completion model");
+
+        let request = CompletionRequest::from_prompt(vec![
+            ChatMessage::system("Be terse.").build(),
+            ChatMessage::user("Hello").build(),
+            ChatMessage::assistant("Hi").build(),
+            ChatMessage::user("Continue").build(),
+        ])
+        .with_model(model)
+        .with_provider_option("vertex-maas", serde_json::json!({ "suffix": "!" }));
+
+        let siumai_resp = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete(request.clone())
+            .await
+            .expect("siumai completion ok");
+        let provider_resp = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete(request.clone())
+            .await
+            .expect("provider completion ok");
+        let registry_resp = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete(request)
+            .await
+            .expect("registry completion ok");
+
+        assert_eq!(siumai_resp.text(), "done");
+        assert_eq!(provider_resp.text(), "done");
+        assert_eq!(registry_resp.text(), "done");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-token"
+        );
+        assert_eq!(siumai_req.url, format!("{base_url}/completions"));
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["suffix"], serde_json::json!("!"));
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!(
+                "Be terse.\n\nuser:\nHello\n\nassistant:\nHi\n\nuser:\nContinue\n\nassistant:\n"
+            )
+        );
+        assert_eq!(siumai_req.body["stop"], serde_json::json!(["\nuser:"]));
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_completion_stream_public_paths_keep_raw_chunks_runtime_only() {
+        use futures_util::StreamExt;
+
+        let model = "deepseek-ai/deepseek-v3.2-maas";
+        let base_url = vertex_maas_base_url("test-project", "us-central1");
+        let stream_body = concat!(
+            "data: {\"id\":\"cmpl-vertex-maas-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"deepseek-ai/deepseek-v3.2-maas\",\"choices\":[{\"text\":\"hello\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-vertex-maas-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"deepseek-ai/deepseek-v3.2-maas\",\"choices\":[{\"text\":\" world\",\"index\":0,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .as_bytes()
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let siumai_client = Siumai::builder()
+            .vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex-maas".to_string(),
+            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex-maas".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url(base_url.clone())
+                .with_http_config(auth_http_config("test-token"))
+                .fetch(Arc::new(registry_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let registry_model = registry
+            .completion_model(&format!("vertex-maas:{model}"))
+            .expect("build registry vertex-maas completion model");
+
+        let request = make_completion_request_with_model(model).with_include_raw_chunks(true);
+
+        let mut siumai_stream = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut registry_stream = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete_stream(request)
+            .await
+            .expect("registry stream ok");
+
+        while siumai_stream.next().await.is_some() {}
+        while provider_stream.next().await.is_some() {}
+        while registry_stream.next().await.is_some() {}
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-token"
+        );
+        assert_eq!(siumai_req.url, format!("{base_url}/completions"));
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert!(siumai_req.body.get("stream_options").is_none());
+        assert!(siumai_req.body.get("includeRawChunks").is_none());
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_builder_project_location_derive_openapi_base_url() {
+        let model = "deepseek-ai/deepseek-v3.2-maas";
+        let base_url = vertex_maas_base_url("test-project", "us-central1");
+        let derived_transport = CaptureTransport::default();
+        let explicit_transport = CaptureTransport::default();
+
+        let derived_client = Siumai::builder()
+            .vertex_maas()
+            .project("test-project")
+            .location("us-central1")
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(derived_transport.clone()))
+            .build()
+            .await
+            .expect("build derived vertex-maas client");
+
+        let explicit_client = Provider::vertex_maas()
+            .base_url(base_url.clone())
+            .model(model)
+            .http_header("Authorization", "Bearer test-token")
+            .fetch(Arc::new(explicit_transport.clone()))
+            .build()
+            .await
+            .expect("build explicit base_url vertex-maas client");
+
+        let request = make_chat_request_with_model(model);
+
+        let _ = derived_client.chat_request(request.clone()).await;
+        let _ = explicit_client.chat_request(request).await;
+
+        let derived_req = derived_transport.take().expect("derived request");
+        let explicit_req = explicit_transport.take().expect("explicit request");
+
+        assert_requests_equivalent(&derived_req, &explicit_req);
+        assert_eq!(derived_req.url, format!("{base_url}/chat/completions"));
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_registry_non_text_handles_remain_intentionally_unsupported() {
+        let model = "deepseek-ai/deepseek-v3.2-maas";
+        let base_url = vertex_maas_base_url("test-project", "us-central1");
+        let registry_transport = CaptureTransport::default();
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "vertex-maas".to_string(),
+            Arc::new(siumai::registry::factories::VertexMaasProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "vertex-maas".to_string(),
+            ProviderBuildOverrides::default()
+                .with_base_url(base_url)
+                .with_http_config(auth_http_config("test-token"))
+                .fetch(Arc::new(registry_transport.clone())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: false,
+            }),
+        );
+
+        let image_err = match registry.image_model(&format!("vertex-maas:{model}")) {
+            Ok(_) => panic!("build vertex-maas registry image model should be unsupported"),
+            Err(err) => err,
+        };
+        let rerank_err = match registry.reranking_model(&format!("vertex-maas:{model}")) {
+            Ok(_) => panic!("build vertex-maas registry rerank handle should be unsupported"),
+            Err(err) => err,
+        };
+        let speech_err = match registry.speech_model(&format!("vertex-maas:{model}")) {
+            Ok(_) => panic!("build vertex-maas registry speech model should be unsupported"),
+            Err(err) => err,
+        };
+        let transcription_err = match registry.transcription_model(&format!("vertex-maas:{model}"))
+        {
             Ok(_) => {
-                panic!("togetherai registry language model construction should be unsupported")
+                panic!("build vertex-maas registry transcription model should be unsupported")
             }
             Err(err) => err,
         };
-        assert!(matches!(siumai_err, LlmError::UnsupportedOperation(_)));
-        assert_unsupported_operation(&registry_err);
-        assert!(provider_client.as_chat_capability().is_none());
-        assert!(config_client.as_chat_capability().is_none());
-        assert!(siumai_transport.take().is_none());
-        assert!(provider_transport.take().is_none());
-        assert!(config_transport.take().is_none());
-        assert!(registry_transport.take().is_none());
+
+        assert_unsupported_operation(&image_err);
+        assert_unsupported_operation(&rerank_err);
+        assert_unsupported_operation(&speech_err);
+        assert_unsupported_operation(&transcription_err);
+        assert_capture_transports_unused(&[&registry_transport]);
     }
 }
 
@@ -12084,6 +14627,9 @@ mod openai_compatible_audio_public_path {
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
+    use siumai::provider_ext::mistral::{
+        MistralChatOptions, MistralChatRequestExt, MistralReasoningEffort,
+    };
     use siumai::provider_ext::openrouter::{
         OpenRouterChatRequestExt, OpenRouterChatResponseExt, OpenRouterOptions,
         OpenRouterSourceExt, OpenRouterTransform,
@@ -12261,7 +14807,7 @@ mod openai_compatible_audio_public_path {
 
         let siumai_client = Siumai::builder()
             .openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model("cartesia/sonic-2")
             .fetch(Arc::new(siumai_transport.clone()))
@@ -12270,7 +14816,7 @@ mod openai_compatible_audio_public_path {
             .expect("build siumai client");
 
         let provider_client = Provider::openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model("cartesia/sonic-2")
             .fetch(Arc::new(provider_transport.clone()))
@@ -12279,14 +14825,14 @@ mod openai_compatible_audio_public_path {
             .expect("build provider client");
 
         let config_client = make_config_client(
-            "together",
+            "togetherai",
             "cartesia/sonic-2",
             Arc::new(config_transport.clone()),
         )
         .await;
-        let registry = make_registry("together", Arc::new(registry_transport.clone()));
+        let registry = make_registry("togetherai", Arc::new(registry_transport.clone()));
         let registry_model = registry
-            .speech_model("together:cartesia/sonic-2")
+            .speech_model("togetherai:cartesia/sonic-2")
             .expect("build registry speech model");
 
         let request = TtsRequest::new("hello from together".to_string())
@@ -12363,7 +14909,7 @@ mod openai_compatible_audio_public_path {
 
         let siumai_client = Siumai::builder()
             .openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model("openai/whisper-large-v3")
             .fetch(Arc::new(siumai_transport.clone()))
@@ -12372,7 +14918,7 @@ mod openai_compatible_audio_public_path {
             .expect("build siumai client");
 
         let provider_client = Provider::openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model("openai/whisper-large-v3")
             .fetch(Arc::new(provider_transport.clone()))
@@ -12381,14 +14927,14 @@ mod openai_compatible_audio_public_path {
             .expect("build provider client");
 
         let config_client = make_config_client(
-            "together",
+            "togetherai",
             "openai/whisper-large-v3",
             Arc::new(config_transport.clone()),
         )
         .await;
-        let registry = make_registry("together", Arc::new(registry_transport.clone()));
+        let registry = make_registry("togetherai", Arc::new(registry_transport.clone()));
         let registry_model = registry
-            .transcription_model("together:openai/whisper-large-v3")
+            .transcription_model("togetherai:openai/whisper-large-v3")
             .expect("build registry transcription model");
 
         let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
@@ -12452,10 +14998,10 @@ mod openai_compatible_audio_public_path {
 
         let mut providers = std::collections::HashMap::new();
         providers.insert(
-            "together".to_string(),
+            "togetherai".to_string(),
             Arc::new(
                 siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "together".to_string(),
+                    "togetherai".to_string(),
                 ),
             ) as Arc<dyn siumai::registry::ProviderFactory>,
         );
@@ -12465,7 +15011,7 @@ mod openai_compatible_audio_public_path {
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
             .with_provider_build_overrides(
-                "together",
+                "togetherai",
                 ProviderBuildOverrides::default()
                     .with_api_key("ctx-key")
                     .with_base_url("https://example.com/together/v1")
@@ -12476,7 +15022,7 @@ mod openai_compatible_audio_public_path {
             .expect("build registry");
 
         let registry_model = registry
-            .speech_model("together:cartesia/sonic-2")
+            .speech_model("togetherai:cartesia/sonic-2")
             .expect("build together speech model");
 
         let response = registry_model
@@ -12519,10 +15065,10 @@ mod openai_compatible_audio_public_path {
 
         let mut providers = std::collections::HashMap::new();
         providers.insert(
-            "together".to_string(),
+            "togetherai".to_string(),
             Arc::new(
                 siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "together".to_string(),
+                    "togetherai".to_string(),
                 ),
             ) as Arc<dyn siumai::registry::ProviderFactory>,
         );
@@ -12532,7 +15078,7 @@ mod openai_compatible_audio_public_path {
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
             .with_provider_build_overrides(
-                "together",
+                "togetherai",
                 ProviderBuildOverrides::default()
                     .with_api_key("ctx-key")
                     .with_base_url("https://example.com/together/v1")
@@ -12543,7 +15089,7 @@ mod openai_compatible_audio_public_path {
             .expect("build registry");
 
         let registry_model = registry
-            .transcription_model("together:openai/whisper-large-v3")
+            .transcription_model("togetherai:openai/whisper-large-v3")
             .expect("build together transcription model");
 
         let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
@@ -12601,7 +15147,7 @@ mod openai_compatible_audio_public_path {
 
         let siumai_client = Siumai::builder()
             .openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model(model)
             .fetch(Arc::new(siumai_transport.clone()))
@@ -12610,7 +15156,7 @@ mod openai_compatible_audio_public_path {
             .expect("build siumai client");
 
         let provider_client = Provider::openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model(model)
             .fetch(Arc::new(provider_transport.clone()))
@@ -12619,10 +15165,10 @@ mod openai_compatible_audio_public_path {
             .expect("build provider client");
 
         let config_client =
-            make_config_client("together", model, Arc::new(config_transport.clone())).await;
-        let registry = make_registry("together", Arc::new(registry_transport.clone()));
+            make_config_client("togetherai", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("togetherai", Arc::new(registry_transport.clone()));
         let registry_model = registry
-            .transcription_model("together:openai/whisper-large-v3")
+            .transcription_model("togetherai:openai/whisper-large-v3")
             .expect("build registry transcription model");
 
         let request = make_audio_translation_request(model);
@@ -14019,7 +16565,7 @@ mod openai_compatible_audio_public_path {
 
         let siumai_client = Siumai::builder()
             .openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model(model)
             .fetch(Arc::new(siumai_transport.clone()))
@@ -14028,7 +16574,7 @@ mod openai_compatible_audio_public_path {
             .expect("build siumai client");
 
         let provider_client = Provider::openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model(model)
             .fetch(Arc::new(provider_transport.clone()))
@@ -14037,7 +16583,7 @@ mod openai_compatible_audio_public_path {
             .expect("build provider client");
 
         let config_client =
-            make_config_client("together", model, Arc::new(config_transport.clone())).await;
+            make_config_client("togetherai", model, Arc::new(config_transport.clone())).await;
 
         let request = ImageGenerationRequest {
             prompt: "a tiny blue robot".to_string(),
@@ -14148,10 +16694,10 @@ mod openai_compatible_audio_public_path {
         let model = "black-forest-labs/FLUX.1-schnell";
 
         let config_client =
-            make_config_client("together", model, Arc::new(config_transport.clone())).await;
-        let registry = make_registry("together", Arc::new(registry_transport.clone()));
+            make_config_client("togetherai", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("togetherai", Arc::new(registry_transport.clone()));
         let registry_model = registry
-            .image_model("together:black-forest-labs/FLUX.1-schnell")
+            .image_model("togetherai:black-forest-labs/FLUX.1-schnell")
             .expect("build registry image model");
 
         let request = ImageGenerationRequest {
@@ -14279,10 +16825,10 @@ mod openai_compatible_audio_public_path {
 
         let mut providers = std::collections::HashMap::new();
         providers.insert(
-            "together".to_string(),
+            "togetherai".to_string(),
             Arc::new(
                 siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "together".to_string(),
+                    "togetherai".to_string(),
                 ),
             ) as Arc<dyn siumai::registry::ProviderFactory>,
         );
@@ -14292,7 +16838,7 @@ mod openai_compatible_audio_public_path {
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
             .with_provider_build_overrides(
-                "together",
+                "togetherai",
                 ProviderBuildOverrides::default()
                     .with_api_key("ctx-key")
                     .with_base_url("https://example.com/together/v1")
@@ -14303,7 +16849,7 @@ mod openai_compatible_audio_public_path {
             .expect("build registry");
 
         let handle = registry
-            .image_model("together:black-forest-labs/FLUX.1-schnell")
+            .image_model("togetherai:black-forest-labs/FLUX.1-schnell")
             .expect("build together image model");
 
         let _ = handle
@@ -14492,6 +17038,393 @@ mod openai_compatible_audio_public_path {
         assert_eq!(req.url, "https://example.com/mistral/v1/embeddings");
         assert_eq!(req.body["model"], serde_json::json!("mistral-embed"));
         assert_eq!(req.body["input"], serde_json::json!(["hello mistral"]));
+    }
+
+    #[tokio::test]
+    async fn mistral_public_completion_family_is_intentionally_unsupported() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "mistral-large-latest";
+
+        let siumai_client = Siumai::builder()
+            .mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai mistral client");
+
+        let provider_client = Provider::mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider mistral client");
+
+        let config_client =
+            make_config_client("mistral", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("mistral", Arc::new(registry_transport.clone()));
+
+        assert!(!siumai_client.capabilities().supports("completion"));
+        assert!(!provider_client.capabilities().supports("completion"));
+        assert!(!config_client.capabilities().supports("completion"));
+        assert!(siumai_client.as_completion_capability().is_none());
+        assert!(provider_client.as_completion_capability().is_none());
+        assert!(config_client.as_completion_capability().is_none());
+
+        let completion_err = match registry.completion_model(&format!("mistral:{model}")) {
+            Ok(_) => panic!("mistral registry completion handle should be unsupported"),
+            Err(err) => err,
+        };
+
+        assert_unsupported_operation(&completion_err);
+        assert_capture_transports_unused(&[
+            &siumai_transport,
+            &provider_transport,
+            &config_transport,
+            &registry_transport,
+        ]);
+    }
+
+    #[tokio::test]
+    async fn mistral_top_level_builder_chat_request_matches_config_registry_path() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "mistral-large-latest";
+
+        let siumai_client = Siumai::builder()
+            .mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai mistral client");
+
+        let provider_client = Provider::mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider mistral client");
+
+        let config_client =
+            make_config_client("mistral", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("mistral", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model(&format!("mistral:{model}"))
+            .expect("build registry mistral model");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![
+                ChatMessage::system("Be terse.").build(),
+                ChatMessage::user("hi").build(),
+            ])
+            .build();
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://api.mistral.ai/v1/chat/completions");
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["messages"][0]["role"],
+            serde_json::json!("system")
+        );
+        assert_eq!(
+            siumai_req.body["messages"][0]["content"],
+            serde_json::json!("Be terse.")
+        );
+        assert_eq!(
+            siumai_req.body["messages"][1]["role"],
+            serde_json::json!("user")
+        );
+        assert_eq!(
+            siumai_req.body["messages"][1]["content"],
+            serde_json::json!("hi")
+        );
+    }
+
+    #[tokio::test]
+    async fn mistral_top_level_builder_embedding_request_matches_config_registry_path() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "mistral-embed";
+
+        let siumai_client = Siumai::builder()
+            .mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai mistral client");
+
+        let provider_client = Provider::mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider mistral client");
+
+        let config_client =
+            make_config_client("mistral", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("mistral", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .embedding_model(&format!("mistral:{model}"))
+            .expect("build registry mistral embedding model");
+
+        let request = EmbeddingRequest::single("hello top-level mistral embedding")
+            .with_model(model)
+            .with_dimensions(1024)
+            .with_encoding_format(EmbeddingFormat::Float);
+
+        let _ = siumai_client.embed_with_config(request.clone()).await;
+        let _ = provider_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request.clone()).await;
+        let _ = registry_model.embed_with_config(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://api.mistral.ai/v1/embeddings");
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["input"],
+            serde_json::json!(["hello top-level mistral embedding"])
+        );
+        assert_eq!(siumai_req.body["dimensions"], serde_json::json!(1024));
+        assert_eq!(
+            siumai_req.body["encoding_format"],
+            serde_json::json!("float")
+        );
+    }
+
+    #[tokio::test]
+    async fn mistral_top_level_builder_chat_stream_request_matches_config_registry_path() {
+        use futures_util::StreamExt;
+
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "mistral-large-latest";
+
+        let siumai_client = Siumai::builder()
+            .mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai mistral client");
+
+        let provider_client = Provider::mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider mistral client");
+
+        let config_client =
+            make_config_client("mistral", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("mistral", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model(&format!("mistral:{model}"))
+            .expect("build registry mistral model");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("stream hi").build()])
+            .build();
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai mistral stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider mistral stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("config mistral stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry mistral stream ok");
+
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+        let _ = registry_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai mistral stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider mistral stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config mistral stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry mistral stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://api.mistral.ai/v1/chat/completions");
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["messages"][0]["content"],
+            serde_json::json!("stream hi")
+        );
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn mistral_siumai_provider_config_chat_request_options_are_equivalent() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "mistral-small-latest";
+
+        let siumai_client = Siumai::builder()
+            .mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai mistral client");
+
+        let provider_client = Provider::mistral()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider mistral client");
+
+        let config_client =
+            make_config_client("mistral", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("mistral", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model(&format!("mistral:{model}"))
+            .expect("build registry mistral model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "lookup",
+                "Lookup value",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::None)
+            .response_format(ResponseFormat::json_schema(schema).with_name("response"))
+            .build()
+            .with_mistral_options(
+                MistralChatOptions::new()
+                    .with_safe_prompt(true)
+                    .with_document_image_limit(8)
+                    .with_document_page_limit(16)
+                    .with_structured_outputs(false)
+                    .with_strict_json_schema(false)
+                    .with_parallel_tool_calls(false)
+                    .with_reasoning_effort(MistralReasoningEffort::None),
+            );
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://api.mistral.ai/v1/chat/completions");
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["safe_prompt"], serde_json::json!(true));
+        assert_eq!(
+            siumai_req.body["document_image_limit"],
+            serde_json::json!(8)
+        );
+        assert_eq!(
+            siumai_req.body["document_page_limit"],
+            serde_json::json!(16)
+        );
+        assert_eq!(
+            siumai_req.body["reasoning_effort"],
+            serde_json::json!("none")
+        );
+        assert_eq!(
+            siumai_req.body["parallel_tool_calls"],
+            serde_json::json!(false)
+        );
+        assert_eq!(siumai_req.body["tool_choice"], serde_json::json!("none"));
+        assert_eq!(
+            siumai_req.body["response_format"],
+            serde_json::json!({ "type": "json_object" })
+        );
+        assert!(siumai_req.body.get("safePrompt").is_none());
+        assert!(siumai_req.body.get("documentImageLimit").is_none());
+        assert!(siumai_req.body.get("documentPageLimit").is_none());
+        assert!(siumai_req.body.get("parallelToolCalls").is_none());
+        assert!(siumai_req.body.get("structuredOutputs").is_none());
+        assert!(siumai_req.body.get("strictJsonSchema").is_none());
     }
 
     #[tokio::test]
@@ -15272,6 +18205,221 @@ mod openai_compatible_audio_public_path {
         }
 
         assert_mixed_capture_transports_unused(&[&registry_transport]);
+    }
+
+    #[tokio::test]
+    async fn perplexity_public_completion_family_is_intentionally_unsupported() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "sonar";
+
+        let siumai_client = Siumai::builder()
+            .perplexity()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai perplexity client");
+
+        let provider_client = Provider::perplexity()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider perplexity client");
+
+        let config_client =
+            make_config_client("perplexity", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("perplexity", Arc::new(registry_transport.clone()));
+
+        assert!(!siumai_client.capabilities().supports("completion"));
+        assert!(!provider_client.capabilities().supports("completion"));
+        assert!(!config_client.capabilities().supports("completion"));
+        assert!(siumai_client.as_completion_capability().is_none());
+        assert!(provider_client.as_completion_capability().is_none());
+        assert!(config_client.as_completion_capability().is_none());
+
+        let completion_err = match registry.completion_model(&format!("perplexity:{model}")) {
+            Ok(_) => panic!("perplexity registry completion handle should be unsupported"),
+            Err(err) => err,
+        };
+
+        assert_unsupported_operation(&completion_err);
+        assert_capture_transports_unused(&[
+            &siumai_transport,
+            &provider_transport,
+            &config_transport,
+            &registry_transport,
+        ]);
+    }
+
+    #[tokio::test]
+    async fn perplexity_top_level_builder_chat_request_matches_config_registry_path() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "sonar";
+
+        let siumai_client = Siumai::builder()
+            .perplexity()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai perplexity client");
+
+        let provider_client = Provider::perplexity()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider perplexity client");
+
+        let config_client =
+            make_config_client("perplexity", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("perplexity", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model(&format!("perplexity:{model}"))
+            .expect("build registry perplexity model");
+
+        let request = make_chat_request_with_model(model).with_perplexity_options(
+            PerplexityOptions::new()
+                .with_search_mode(PerplexitySearchMode::Academic)
+                .with_search_recency_filter(PerplexitySearchRecencyFilter::Month)
+                .with_return_images(true),
+        );
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://api.perplexity.ai/chat/completions");
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["search_mode"],
+            serde_json::json!("academic")
+        );
+        assert_eq!(
+            siumai_req.body["search_recency_filter"],
+            serde_json::json!("month")
+        );
+        assert_eq!(siumai_req.body["return_images"], serde_json::json!(true));
+    }
+
+    #[tokio::test]
+    async fn perplexity_top_level_builder_chat_stream_request_matches_config_registry_path() {
+        use futures_util::StreamExt;
+
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "sonar";
+
+        let siumai_client = Siumai::builder()
+            .perplexity()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai perplexity client");
+
+        let provider_client = Provider::perplexity()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider perplexity client");
+
+        let config_client =
+            make_config_client("perplexity", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("perplexity", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model(&format!("perplexity:{model}"))
+            .expect("build registry perplexity model");
+
+        let request = make_chat_request_with_model(model).with_perplexity_options(
+            PerplexityOptions::new()
+                .with_search_mode(PerplexitySearchMode::Academic)
+                .with_search_recency_filter(PerplexitySearchRecencyFilter::Month)
+                .with_return_images(true),
+        );
+
+        let mut siumai_stream = siumai_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("siumai perplexity stream ok");
+        let mut provider_stream = provider_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("provider perplexity stream ok");
+        let mut config_stream = config_client
+            .chat_stream_request(request.clone())
+            .await
+            .expect("config perplexity stream ok");
+        let mut registry_stream = registry_model
+            .chat_stream_request(request)
+            .await
+            .expect("registry perplexity stream ok");
+
+        let _ = siumai_stream.next().await;
+        let _ = provider_stream.next().await;
+        let _ = config_stream.next().await;
+        let _ = registry_stream.next().await;
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai perplexity stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider perplexity stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config perplexity stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry perplexity stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, "https://api.perplexity.ai/chat/completions");
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["search_mode"],
+            serde_json::json!("academic")
+        );
+        assert_eq!(
+            siumai_req.body["search_recency_filter"],
+            serde_json::json!("month")
+        );
+        assert_eq!(siumai_req.body["return_images"], serde_json::json!(true));
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
     }
 
     #[tokio::test]
@@ -19440,7 +22588,7 @@ data: [DONE]
 
         let siumai_client = Siumai::builder()
             .openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model("togethercomputer/m2-bert-80M-8k-retrieval")
             .fetch(Arc::new(siumai_transport.clone()))
@@ -19449,7 +22597,7 @@ data: [DONE]
             .expect("build siumai client");
 
         let provider_client = Provider::openai()
-            .together()
+            .togetherai_openai_compatible()
             .api_key("test-key")
             .model("togethercomputer/m2-bert-80M-8k-retrieval")
             .fetch(Arc::new(provider_transport.clone()))
@@ -19458,7 +22606,7 @@ data: [DONE]
             .expect("build provider client");
 
         let config_client = make_config_client(
-            "together",
+            "togetherai",
             "togethercomputer/m2-bert-80M-8k-retrieval",
             Arc::new(config_transport.clone()),
         )
@@ -19503,14 +22651,14 @@ data: [DONE]
         let registry_transport = CaptureTransport::default();
 
         let config_client = make_config_client(
-            "together",
+            "togetherai",
             "togethercomputer/m2-bert-80M-8k-retrieval",
             Arc::new(config_transport.clone()),
         )
         .await;
-        let registry = make_registry("together", Arc::new(registry_transport.clone()));
+        let registry = make_registry("togetherai", Arc::new(registry_transport.clone()));
         let registry_model = registry
-            .embedding_model("together:togethercomputer/m2-bert-80M-8k-retrieval")
+            .embedding_model("togetherai:togethercomputer/m2-bert-80M-8k-retrieval")
             .expect("build registry embedding model");
 
         let request = EmbeddingRequest::single("hello together embedding")
@@ -19553,10 +22701,10 @@ data: [DONE]
 
         let mut providers = std::collections::HashMap::new();
         providers.insert(
-            "together".to_string(),
+            "togetherai".to_string(),
             Arc::new(
                 siumai::registry::factories::OpenAICompatibleProviderFactory::new(
-                    "together".to_string(),
+                    "togetherai".to_string(),
                 ),
             ) as Arc<dyn siumai::registry::ProviderFactory>,
         );
@@ -19566,7 +22714,7 @@ data: [DONE]
             .with_base_url("https://example.com/global/v1")
             .fetch(Arc::new(global_transport.clone()))
             .with_provider_build_overrides(
-                "together",
+                "togetherai",
                 ProviderBuildOverrides::default()
                     .with_api_key("ctx-key")
                     .with_base_url("https://example.com/together/v1")
@@ -19577,7 +22725,7 @@ data: [DONE]
             .expect("build registry");
 
         let handle = registry
-            .embedding_model("together:togethercomputer/m2-bert-80M-8k-retrieval")
+            .embedding_model("togetherai:togethercomputer/m2-bert-80M-8k-retrieval")
             .expect("build together embedding handle");
 
         let _ = handle
@@ -28040,6 +31188,7 @@ mod minimaxi_public_path {
             mime_type: Some("text/plain".to_string()),
             purpose: "t2a_async_input".to_string(),
             metadata: HashMap::new(),
+            provider_options: Default::default(),
             http_config: None,
         };
 
@@ -28686,6 +31835,7 @@ mod minimaxi_public_path {
                 mime_type: Some("text/plain".to_string()),
                 purpose: "t2a_async_input".to_string(),
                 metadata: HashMap::new(),
+                provider_options: Default::default(),
                 http_config: None,
             })
             .await
@@ -31205,6 +34355,7 @@ mod bedrock_public_path {
             prompt: "a tiny silver robot".to_string(),
             negative_prompt: None,
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
             count: 1,
             model: Some(model.to_string()),
             quality: None,
@@ -31257,7 +34408,9 @@ mod anthropic_public_path {
     };
     use siumai::provider_ext::anthropic::{
         AnthropicChatRequestExt, AnthropicChatResponseExt, AnthropicClient, AnthropicConfig,
-        AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode, ThinkingModeConfig,
+        AnthropicContextManagementConfig, AnthropicContextManagementEdit,
+        AnthropicContextManagementInputTokensValue, AnthropicEffort, AnthropicOptions,
+        AnthropicStructuredOutputMode, ThinkingModeConfig,
     };
     use siumai::registry::ProviderBuildOverrides;
 
@@ -31443,8 +34596,14 @@ mod anthropic_public_path {
         assert_eq!(
             req.body["context_management"],
             serde_json::json!({
-                "clear_at_least": 1,
-                "exclude_tools": ["editor"]
+                "edits": [{
+                    "type": "clear_tool_uses_20250919",
+                    "clear_at_least": {
+                        "type": "input_tokens",
+                        "value": 1
+                    },
+                    "exclude_tools": ["editor"]
+                }]
             })
         );
         assert_eq!(
@@ -31760,10 +34919,17 @@ mod anthropic_public_path {
                 thinking_budget: Some(1000),
             })
             .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
-            .with_anthropic_context_management(serde_json::json!({
-                "clear_at_least": 1,
-                "exclude_tools": ["editor"]
-            }))
+            .with_anthropic_context_management(AnthropicContextManagementConfig::new().with_edit(
+                AnthropicContextManagementEdit::ClearToolUses20250919 {
+                    trigger: None,
+                    keep: None,
+                    clear_at_least: Some(AnthropicContextManagementInputTokensValue::input_tokens(
+                        1,
+                    )),
+                    clear_tool_inputs: None,
+                    exclude_tools: Some(vec!["editor".to_string()]),
+                },
+            ))
             .with_anthropic_tool_streaming(false)
             .with_anthropic_effort(AnthropicEffort::High)
             .fetch(Arc::new(siumai_transport.clone()))
@@ -31780,10 +34946,17 @@ mod anthropic_public_path {
                 thinking_budget: Some(1000),
             })
             .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
-            .with_anthropic_context_management(serde_json::json!({
-                "clear_at_least": 1,
-                "exclude_tools": ["editor"]
-            }))
+            .with_anthropic_context_management(AnthropicContextManagementConfig::new().with_edit(
+                AnthropicContextManagementEdit::ClearToolUses20250919 {
+                    trigger: None,
+                    keep: None,
+                    clear_at_least: Some(AnthropicContextManagementInputTokensValue::input_tokens(
+                        1,
+                    )),
+                    clear_tool_inputs: None,
+                    exclude_tools: Some(vec!["editor".to_string()]),
+                },
+            ))
             .with_anthropic_tool_streaming(false)
             .with_anthropic_effort(AnthropicEffort::High)
             .fetch(Arc::new(provider_transport.clone()))
@@ -31800,10 +34973,19 @@ mod anthropic_public_path {
                     thinking_budget: Some(1000),
                 })
                 .with_anthropic_structured_output_mode(AnthropicStructuredOutputMode::JsonTool)
-                .with_anthropic_context_management(serde_json::json!({
-                    "clear_at_least": 1,
-                    "exclude_tools": ["editor"]
-                }))
+                .with_anthropic_context_management(
+                    AnthropicContextManagementConfig::new().with_edit(
+                        AnthropicContextManagementEdit::ClearToolUses20250919 {
+                            trigger: None,
+                            keep: None,
+                            clear_at_least: Some(
+                                AnthropicContextManagementInputTokensValue::input_tokens(1),
+                            ),
+                            clear_tool_inputs: None,
+                            exclude_tools: Some(vec!["editor".to_string()]),
+                        },
+                    ),
+                )
                 .with_anthropic_tool_streaming(false)
                 .with_anthropic_effort(AnthropicEffort::High)
                 .with_http_transport(Arc::new(config_transport.clone())),
@@ -33342,16 +36524,30 @@ mod vertex_public_path {
         events: &[siumai::prelude::unified::ChatStreamEvent],
         ty: &str,
     ) -> Vec<serde_json::Value> {
+        let stable_parts: Vec<_> = events
+            .iter()
+            .filter_map(|event| match event {
+                siumai::prelude::unified::ChatStreamEvent::Part { part }
+                | siumai::prelude::unified::ChatStreamEvent::PartWithReplay { part, .. } => {
+                    serde_json::to_value(part).ok()
+                }
+                _ => None,
+            })
+            .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
+            .collect();
+        if !stable_parts.is_empty() {
+            return stable_parts;
+        }
+
         events
             .iter()
             .filter_map(|event| match event {
-                siumai::prelude::unified::ChatStreamEvent::Custom { data, .. }
-                    if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-                {
+                siumai::prelude::unified::ChatStreamEvent::Custom { data, .. } => {
                     Some(data.clone())
                 }
                 _ => None,
             })
+            .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
             .collect()
     }
 
@@ -37408,6 +40604,7 @@ mod vertex_public_path {
             prompt: "a tiny orange robot".to_string(),
             negative_prompt: None,
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
             count: 1,
             model: Some("imagen-4.0-generate-001".to_string()),
             quality: None,
@@ -37465,6 +40662,7 @@ mod vertex_public_path {
             prompt: "a tiny orange robot".to_string(),
             negative_prompt: None,
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
             count: 1,
             model: Some(model.to_string()),
             quality: None,
@@ -37558,6 +40756,7 @@ mod vertex_public_path {
                     prompt: "a tiny orange robot".to_string(),
                     negative_prompt: None,
                     size: Some("1024x1024".to_string()),
+                    aspect_ratio: None,
                     count: 1,
                     model: Some("imagen-4.0-generate-001".to_string()),
                     quality: None,
@@ -37648,6 +40847,8 @@ mod vertex_public_path {
             model: Some("imagen-3.0-edit-001".to_string()),
             count: Some(1),
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("b64_json".to_string()),
             extra_params: Default::default(),
             provider_options_map: Default::default(),
@@ -37681,6 +40882,245 @@ mod vertex_public_path {
     }
 
     #[tokio::test]
+    async fn vertex_siumai_provider_config_registry_image_edit_data_url_request_are_equivalent() {
+        let response = serde_json::json!({
+            "predictions": [
+                {
+                    "bytesBase64Encoded": "aGVsbG8=",
+                    "mimeType": "image/png"
+                }
+            ]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response.clone());
+        let provider_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let base_url = "https://example.com/custom";
+        let model = "imagen-3.0-edit-001";
+
+        let siumai_client = Siumai::builder()
+            .vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
+            siumai::provider_ext::google_vertex::GoogleVertexConfig::new(base_url, model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .image_model("vertex:imagen-3.0-edit-001")
+            .expect("build registry image model");
+
+        let request = make_data_url_image_edit_request_with_model(model)
+            .with_vertex_imagen_options(
+                VertexImagenOptions::new().with_edit(
+                    VertexImagenEditOptions::new()
+                        .with_mode("EDIT_MODE_INPAINT_INSERTION")
+                        .with_mask_mode("MASK_MODE_USER_PROVIDED"),
+                ),
+            );
+
+        let siumai_resp = siumai_client
+            .edit_image(request.clone())
+            .await
+            .expect("siumai image edit ok");
+        let provider_resp = provider_client
+            .edit_image(request.clone())
+            .await
+            .expect("provider image edit ok");
+        let config_resp = config_client
+            .edit_image(request.clone())
+            .await
+            .expect("config image edit ok");
+        let registry_resp = registry_model
+            .edit_image(request)
+            .await
+            .expect("registry image edit ok");
+
+        assert_eq!(siumai_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            provider_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(config_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            registry_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert!(
+            siumai_req
+                .url
+                .contains("/models/imagen-3.0-edit-001:predict?key=test-key"),
+            "unexpected url: {}",
+            siumai_req.url
+        );
+        assert_eq!(
+            siumai_req.body["instances"][0]["referenceImages"][0]["referenceImage"]["bytesBase64Encoded"],
+            serde_json::json!("aW1hZ2Utb25l")
+        );
+        assert_eq!(
+            siumai_req.body["instances"][0]["referenceImages"][1]["referenceImage"]["bytesBase64Encoded"],
+            serde_json::json!("bWFzay1vbmU=")
+        );
+        assert_eq!(
+            siumai_req.body["instances"][0]["referenceImages"][1]["maskImageConfig"]["maskMode"],
+            serde_json::json!("MASK_MODE_USER_PROVIDED")
+        );
+        assert_eq!(
+            siumai_req.body["parameters"]["editMode"],
+            serde_json::json!("EDIT_MODE_INPAINT_INSERTION")
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_siumai_provider_config_registry_image_variation_data_url_request_are_equivalent()
+     {
+        let response = serde_json::json!({
+            "predictions": [
+                {
+                    "bytesBase64Encoded": "aGVsbG8=",
+                    "mimeType": "image/png"
+                }
+            ]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response.clone());
+        let provider_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let base_url = "https://example.com/custom";
+        let model = "imagen-3.0-generate-001";
+
+        let siumai_client = Siumai::builder()
+            .vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
+            siumai::provider_ext::google_vertex::GoogleVertexConfig::new(base_url, model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .image_model("vertex:imagen-3.0-generate-001")
+            .expect("build registry image model");
+
+        let request = make_data_url_image_variation_request_with_model(model)
+            .with_vertex_imagen_options(VertexImagenOptions::new().with_negative_prompt("blurry"));
+
+        let siumai_resp = siumai_client
+            .create_variation(request.clone())
+            .await
+            .expect("siumai image variation ok");
+        let provider_resp = provider_client
+            .create_variation(request.clone())
+            .await
+            .expect("provider image variation ok");
+        let config_resp = config_client
+            .create_variation(request.clone())
+            .await
+            .expect("config image variation ok");
+        let registry_resp = registry_model
+            .create_variation(request)
+            .await
+            .expect("registry image variation ok");
+
+        assert_eq!(siumai_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            provider_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(config_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            registry_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert!(
+            siumai_req
+                .url
+                .contains("/models/imagen-3.0-generate-001:predict?key=test-key"),
+            "unexpected url: {}",
+            siumai_req.url
+        );
+        assert_eq!(
+            siumai_req.body["instances"][0]["prompt"],
+            serde_json::json!("keep the subject and explore new backgrounds")
+        );
+        assert_eq!(
+            siumai_req.body["instances"][0]["referenceImages"][0]["referenceImage"]["bytesBase64Encoded"],
+            serde_json::json!("aW1hZ2Utb25l")
+        );
+        assert_eq!(
+            siumai_req.body["parameters"]["sampleCount"],
+            serde_json::json!(2)
+        );
+        assert_eq!(
+            siumai_req.body["parameters"]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(siumai_req.body["parameters"]["seed"], serde_json::json!(7));
+        assert_eq!(
+            siumai_req.body["parameters"]["negativePrompt"],
+            serde_json::json!("blurry")
+        );
+        assert!(siumai_req.body["parameters"].get("editMode").is_none());
+    }
+
+    #[tokio::test]
     async fn vertex_registry_imagen_edit_request_options_match_config_path() {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
@@ -37710,6 +41150,8 @@ mod vertex_public_path {
             model: Some(model.to_string()),
             count: Some(1),
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("b64_json".to_string()),
             extra_params: Default::default(),
             provider_options_map: Default::default(),
@@ -37807,6 +41249,8 @@ mod vertex_public_path {
                     model: Some("imagen-3.0-edit-001".to_string()),
                     count: Some(1),
                     size: Some("1024x1024".to_string()),
+                    aspect_ratio: None,
+                    seed: None,
                     response_format: Some("b64_json".to_string()),
                     extra_params: Default::default(),
                     provider_options_map: Default::default(),
@@ -38124,6 +41568,7 @@ mod xai_public_path {
             model: Some(model.to_string()),
             quality: None,
             style: Some("comic".to_string()),
+            aspect_ratio: None,
             seed: Some(7),
             steps: Some(20),
             guidance_scale: Some(7.5),
@@ -38177,6 +41622,8 @@ mod xai_public_path {
             model: Some(model.to_string()),
             count: Some(1),
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("url".to_string()),
             extra_params: Default::default(),
             provider_options_map: Default::default(),
@@ -38201,6 +41648,8 @@ mod xai_public_path {
             model: Some(model.to_string()),
             count: Some(2),
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
+            seed: None,
             response_format: Some("url".to_string()),
             extra_params: Default::default(),
             provider_options_map: Default::default(),

@@ -398,19 +398,15 @@ fn anthropic_message_delta_transcodes_to_openai_chat_completions_with_single_sto
 #[test]
 fn anthropic_v3_finish_part_serializes_to_openai_chat_completion_finish_chunk() {
     let bytes = encode_openai_chat_completions(
-        vec![ChatStreamEvent::Custom {
-            event_type: "anthropic:finish".to_string(),
-            data: serde_json::json!({
-                "type": "finish",
-                "finishReason": {
-                    "unified": "stop",
-                    "raw": "end_turn"
+        vec![ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish {
+                usage: Usage::new(11, 7),
+                finish_reason: ChatStreamFinishInfo {
+                    unified: FinishReason::Stop,
+                    raw: Some("end_turn".to_string()),
                 },
-                "usage": {
-                    "inputTokens": { "total": 11 },
-                    "outputTokens": { "total": 7 }
-                }
-            }),
+                provider_metadata: None,
+            },
         }],
         siumai::experimental::streaming::V3UnsupportedPartBehavior::Drop,
     );
