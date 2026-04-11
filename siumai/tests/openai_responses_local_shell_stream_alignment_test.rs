@@ -22,6 +22,31 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
         .collect()
 }
 
+fn event_payloads_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+    let stable_parts: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
+            }
+            _ => None,
+        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
+            _ => None,
+        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
+        .collect()
+}
+
 #[test]
 fn openai_responses_local_shell_stream_emits_vercel_aligned_tool_call() {
     let path = fixture_path();
@@ -38,7 +63,7 @@ fn openai_responses_local_shell_stream_emits_vercel_aligned_tool_call() {
     let conv = siumai::provider_ext::openai::ext::OpenAiResponsesEventConverter::new()
         .with_request_tools(&tools);
 
-    let mut tool_calls: Vec<serde_json::Value> = Vec::new();
+    let mut events: Vec<ChatStreamEvent> = Vec::new();
     for (i, line) in lines.into_iter().enumerate() {
         let ev = eventsource_stream::Event {
             event: "".to_string(),
@@ -49,15 +74,11 @@ fn openai_responses_local_shell_stream_emits_vercel_aligned_tool_call() {
 
         let out = futures::executor::block_on(conv.convert_event(ev));
         for item in out {
-            let evt = item.expect("convert chunk");
-            if let ChatStreamEvent::Custom { data, .. } = evt
-                && data.get("type") == Some(&serde_json::json!("tool-call"))
-            {
-                tool_calls.push(data);
-            }
+            events.push(item.expect("convert chunk"));
         }
     }
 
+    let tool_calls = event_payloads_by_type(&events, "tool-call");
     assert_eq!(tool_calls.len(), 1, "expected exactly one tool-call");
     let call = &tool_calls[0];
     assert_eq!(call.get("toolName").and_then(|v| v.as_str()), Some("shell"));

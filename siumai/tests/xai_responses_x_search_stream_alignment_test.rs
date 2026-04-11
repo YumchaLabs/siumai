@@ -23,12 +23,23 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
 }
 
 fn stream_events_by_type(events: &[ChatStreamEvent], kind: &str) -> Vec<serde_json::Value> {
-    events
+    let stable_parts: Vec<_> = events
         .iter()
         .filter_map(|event| match event {
             ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
                 Some(serde_json::to_value(part).expect("serialize stream part"))
             }
+            _ => None,
+        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(kind))
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
             ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
             _ => None,
         })

@@ -22,6 +22,31 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
         .collect()
 }
 
+fn event_payloads_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+    let stable_parts: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
+            }
+            _ => None,
+        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
+            _ => None,
+        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
+        .collect()
+}
+
 #[test]
 fn openai_responses_web_search_stream_emits_vercel_aligned_tool_names() {
     let path = fixture_path();
@@ -56,29 +81,8 @@ fn openai_responses_web_search_stream_emits_vercel_aligned_tool_names() {
         }
     }
 
-    let tool_calls: Vec<serde_json::Value> = events
-        .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-call")) =>
-            {
-                Some(data.clone())
-            }
-            _ => None,
-        })
-        .collect();
-
-    let tool_results: Vec<serde_json::Value> = events
-        .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-result")) =>
-            {
-                Some(data.clone())
-            }
-            _ => None,
-        })
-        .collect();
+    let tool_calls = event_payloads_by_type(&events, "tool-call");
+    let tool_results = event_payloads_by_type(&events, "tool-result");
 
     assert!(!tool_calls.is_empty(), "expected tool-call events");
     assert!(!tool_results.is_empty(), "expected tool-result events");
@@ -91,12 +95,8 @@ fn openai_responses_web_search_stream_emits_vercel_aligned_tool_names() {
         assert!(ev.get("toolCallId").and_then(|v| v.as_str()).is_some());
     }
 
-    let has_url_sources = events.iter().any(|e| match e {
-        ChatStreamEvent::Custom { data, .. } => {
-            data.get("type") == Some(&serde_json::json!("source"))
-                && data.get("sourceType") == Some(&serde_json::json!("url"))
-        }
-        _ => false,
-    });
+    let has_url_sources = event_payloads_by_type(&events, "source")
+        .iter()
+        .any(|value| value.get("sourceType") == Some(&serde_json::json!("url")));
     assert!(has_url_sources, "expected url citation sources");
 }

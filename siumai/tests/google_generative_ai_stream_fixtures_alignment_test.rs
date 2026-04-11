@@ -102,31 +102,58 @@ fn run_converter_with_provider_id(provider_id: &str, lines: Vec<String>) -> Vec<
 }
 
 fn tool_events(events: &[ChatStreamEvent], kind: &str, tool_name: &str) -> Vec<serde_json::Value> {
-    events
+    let stable_parts: Vec<_> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!(kind))
-                    && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
             _ => None,
+        })
+        .filter(|data| {
+            data.get("type") == Some(&serde_json::json!(kind))
+                && data.get("toolName") == Some(&serde_json::json!(tool_name))
+        })
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
+            _ => None,
+        })
+        .filter(|data| {
+            data.get("type") == Some(&serde_json::json!(kind))
+                && data.get("toolName") == Some(&serde_json::json!(tool_name))
         })
         .collect()
 }
 
 fn custom_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
-    events
+    let stable_parts: Vec<_> = events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-            {
-                Some(data.clone())
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
             }
             _ => None,
         })
+        .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
+            _ => None,
+        })
+        .filter(|data| data.get("type") == Some(&serde_json::Value::String(ty.to_string())))
         .collect()
 }
 

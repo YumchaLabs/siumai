@@ -55,6 +55,31 @@ fn convert_fixture(
     events
 }
 
+fn event_payloads_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+    let stable_parts: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
+            }
+            _ => None,
+        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
+            _ => None,
+        })
+        .filter(|value| value.get("type").and_then(|v| v.as_str()) == Some(ty))
+        .collect()
+}
+
 #[test]
 fn openai_responses_file_search_stream_emits_vercel_aligned_tool_names() {
     let tools = vec![Tool::ProviderDefined(ProviderDefinedTool::new(
@@ -68,29 +93,8 @@ fn openai_responses_file_search_stream_emits_vercel_aligned_tool_names() {
     for path in fixture_paths() {
         let events = convert_fixture(&path, &conv);
 
-        let tool_calls: Vec<serde_json::Value> = events
-            .iter()
-            .filter_map(|e| match e {
-                ChatStreamEvent::Custom { data, .. }
-                    if data.get("type") == Some(&serde_json::json!("tool-call")) =>
-                {
-                    Some(data.clone())
-                }
-                _ => None,
-            })
-            .collect();
-
-        let tool_results: Vec<serde_json::Value> = events
-            .iter()
-            .filter_map(|e| match e {
-                ChatStreamEvent::Custom { data, .. }
-                    if data.get("type") == Some(&serde_json::json!("tool-result")) =>
-                {
-                    Some(data.clone())
-                }
-                _ => None,
-            })
-            .collect();
+        let tool_calls = event_payloads_by_type(&events, "tool-call");
+        let tool_results = event_payloads_by_type(&events, "tool-result");
 
         assert!(
             !tool_calls.is_empty(),

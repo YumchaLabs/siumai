@@ -91,7 +91,7 @@ fn v3_tool_parts(
     kind: &str,
     tool_name: &str,
 ) -> Vec<serde_json::Value> {
-    events
+    let stable_parts: Vec<_> = events
         .iter()
         .filter_map(|e| match e {
             _ if matches!(
@@ -105,6 +105,16 @@ fn v3_tool_parts(
                 e.part_ref()
                     .and_then(|part| serde_json::to_value(part).ok())
             }
+            _ => None,
+        })
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
             ChatStreamEvent::Custom { data, .. }
                 if data.get("type") == Some(&serde_json::Value::String(kind.to_string()))
                     && data.get("toolName")

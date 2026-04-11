@@ -27,6 +27,31 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
         .collect()
 }
 
+fn stream_events_by_type(events: &[ChatStreamEvent], ty: &str) -> Vec<serde_json::Value> {
+    let stable_parts: Vec<_> = events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(serde_json::to_value(part).expect("serialize stream part"))
+            }
+            _ => None,
+        })
+        .filter(|data| data.get("type") == Some(&serde_json::json!(ty)))
+        .collect();
+    if !stable_parts.is_empty() {
+        return stable_parts;
+    }
+
+    events
+        .iter()
+        .filter_map(|event| match event {
+            ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
+            _ => None,
+        })
+        .filter(|data| data.get("type") == Some(&serde_json::json!(ty)))
+        .collect()
+}
+
 #[test]
 fn azure_file_search_stream_emits_custom_tool_name_and_azure_metadata() {
     let tools = vec![Tool::ProviderDefined(ProviderDefinedTool::new(
@@ -77,29 +102,8 @@ fn azure_file_search_stream_emits_custom_tool_name_and_azure_metadata() {
             }
         }
 
-        let tool_calls: Vec<serde_json::Value> = events
-            .iter()
-            .filter_map(|event| match event {
-                ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
-                    Some(serde_json::to_value(part).expect("serialize stream part"))
-                }
-                ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
-                _ => None,
-            })
-            .filter(|data| data.get("type") == Some(&serde_json::json!("tool-call")))
-            .collect();
-
-        let tool_results: Vec<serde_json::Value> = events
-            .iter()
-            .filter_map(|event| match event {
-                ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
-                    Some(serde_json::to_value(part).expect("serialize stream part"))
-                }
-                ChatStreamEvent::Custom { data, .. } => Some(data.clone()),
-                _ => None,
-            })
-            .filter(|data| data.get("type") == Some(&serde_json::json!("tool-result")))
-            .collect();
+        let tool_calls = stream_events_by_type(&events, "tool-call");
+        let tool_results = stream_events_by_type(&events, "tool-result");
 
         assert!(
             !tool_calls.is_empty(),
