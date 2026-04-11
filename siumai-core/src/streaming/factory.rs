@@ -23,6 +23,12 @@ impl StreamFactory {
     pub(crate) fn expand_textual_part_shadow_events(
         events: Vec<Result<ChatStreamEvent, LlmError>>,
     ) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        let has_content_delta = events
+            .iter()
+            .any(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
+        let has_thinking_delta = events
+            .iter()
+            .any(|event| matches!(event, Ok(ChatStreamEvent::ThinkingDelta { .. })));
         let mut out = Vec::with_capacity(events.len());
 
         for event in events {
@@ -33,12 +39,14 @@ impl StreamFactory {
                     {
                         out.push(Ok(event));
                         for shadow in part.to_best_effort_chat_events() {
-                            if matches!(
-                                shadow,
-                                ChatStreamEvent::ContentDelta { .. }
-                                    | ChatStreamEvent::ThinkingDelta { .. }
-                            ) {
-                                out.push(Ok(shadow));
+                            match shadow {
+                                ChatStreamEvent::ContentDelta { .. } if !has_content_delta => {
+                                    out.push(Ok(shadow));
+                                }
+                                ChatStreamEvent::ThinkingDelta { .. } if !has_thinking_delta => {
+                                    out.push(Ok(shadow));
+                                }
+                                _ => {}
                             }
                         }
                     } else {
@@ -866,5 +874,44 @@ mod tests {
         }));
 
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn shadow_deltas_are_not_duplicated_when_converter_already_emits_legacy_deltas() {
+        let events = StreamFactory::expand_textual_part_shadow_events(vec![
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ReasoningDelta {
+                    id: "0".to_string(),
+                    delta: "think".to_string(),
+                    provider_metadata: None,
+                },
+            }),
+            Ok(ChatStreamEvent::ThinkingDelta {
+                delta: "think".to_string(),
+            }),
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "0".to_string(),
+                    delta: "hello".to_string(),
+                    provider_metadata: None,
+                },
+            }),
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "hello".to_string(),
+                index: None,
+            }),
+        ]);
+
+        let content_delta_count = events
+            .iter()
+            .filter(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })))
+            .count();
+        let thinking_delta_count = events
+            .iter()
+            .filter(|event| matches!(event, Ok(ChatStreamEvent::ThinkingDelta { .. })))
+            .count();
+
+        assert_eq!(content_delta_count, 1);
+        assert_eq!(thinking_delta_count, 1);
     }
 }
