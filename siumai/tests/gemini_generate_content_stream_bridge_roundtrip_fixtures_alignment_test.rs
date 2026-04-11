@@ -9,7 +9,9 @@ use siumai::experimental::bridge::{
 };
 use siumai::experimental::core::{ProviderContext, ProviderSpec};
 use siumai::experimental::execution::transformers::stream::StreamChunkTransformer;
-use siumai::prelude::unified::{ChatByteStream, ChatRequest, ChatStreamEvent, CommonParams};
+use siumai::prelude::unified::{
+    ChatByteStream, ChatRequest, ChatStreamEvent, ChatStreamPart, CommonParams,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -212,7 +214,7 @@ fn thought_signature_metadata(data: &Value) -> (Option<String>, Option<String>) 
         .unwrap_or((None, None))
 }
 
-fn reasoning_marker_from_custom(data: &Value) -> ReasoningMarkerSummary {
+fn reasoning_marker_from_value(data: &Value) -> ReasoningMarkerSummary {
     let (provider_namespace, thought_signature) = thought_signature_metadata(data);
     ReasoningMarkerSummary {
         id: data
@@ -224,7 +226,7 @@ fn reasoning_marker_from_custom(data: &Value) -> ReasoningMarkerSummary {
     }
 }
 
-fn reasoning_delta_from_custom(data: &Value) -> ReasoningDeltaSummary {
+fn reasoning_delta_from_value(data: &Value) -> ReasoningDeltaSummary {
     let (provider_namespace, thought_signature) = thought_signature_metadata(data);
     ReasoningDeltaSummary {
         id: data
@@ -241,6 +243,16 @@ fn reasoning_delta_from_custom(data: &Value) -> ReasoningDeltaSummary {
     }
 }
 
+fn reasoning_marker_from_part(part: &ChatStreamPart) -> ReasoningMarkerSummary {
+    let value = serde_json::to_value(part).expect("serialize reasoning marker part");
+    reasoning_marker_from_value(&value)
+}
+
+fn reasoning_delta_from_part(part: &ChatStreamPart) -> ReasoningDeltaSummary {
+    let value = serde_json::to_value(part).expect("serialize reasoning delta part");
+    reasoning_delta_from_value(&value)
+}
+
 fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
     let mut summary = GeminiStreamSummary {
         has_stream_start: false,
@@ -255,6 +267,9 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
         provider_tool_calls: BTreeMap::new(),
         provider_tool_results: BTreeMap::new(),
     };
+    let mut saw_part_reasoning = false;
+    let mut saw_part_tool_calls = false;
+    let mut saw_part_tool_results = false;
 
     for event in events {
         match event {
@@ -288,26 +303,80 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
                     summary.total_tokens = usage.total_tokens();
                 }
             }
-            ChatStreamEvent::Custom { data, .. } => {
-                match data.get("type").and_then(Value::as_str) {
-                    Some("reasoning-start") => {
+            ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                match part {
+                    ChatStreamPart::StreamStart { .. } => {
+                        summary.has_stream_start = true;
+                    }
+                    ChatStreamPart::Finish {
+                        usage,
+                        finish_reason,
+                        ..
+                    } => {
+                        if summary.finish_reason.is_none() {
+                            summary.finish_reason = finish_reason_to_string(&finish_reason.unified);
+                        }
+                        if summary.prompt_tokens.is_none() {
+                            summary.prompt_tokens = usage.prompt_tokens();
+                            summary.completion_tokens = usage.completion_tokens();
+                            summary.total_tokens = usage.total_tokens();
+                        }
+                    }
+                    ChatStreamPart::ReasoningStart { .. } => {
+                        saw_part_reasoning = true;
                         summary
                             .reasoning_starts
-                            .push(reasoning_marker_from_custom(data));
+                            .push(reasoning_marker_from_part(part));
                     }
-                    Some("reasoning-delta") => {
+                    ChatStreamPart::ReasoningDelta { .. } => {
+                        saw_part_reasoning = true;
                         summary
                             .reasoning_deltas
-                            .push(reasoning_delta_from_custom(data));
+                            .push(reasoning_delta_from_part(part));
                     }
-                    Some("reasoning-end") => {
+                    ChatStreamPart::ReasoningEnd { id, .. } => {
+                        saw_part_reasoning = true;
+                        summary.reasoning_ends.push(Some(id.clone()));
+                    }
+                    ChatStreamPart::ToolCall(call) => {
+                        saw_part_tool_calls = true;
+                        if call.provider_executed.unwrap_or(false) {
+                            increment_count(
+                                &mut summary.provider_tool_calls,
+                                Some(call.tool_name.as_str()),
+                            );
+                        }
+                    }
+                    ChatStreamPart::ToolResult(result) => {
+                        saw_part_tool_results = true;
+                        increment_count(
+                            &mut summary.provider_tool_results,
+                            Some(result.tool_name.as_str()),
+                        );
+                    }
+                    _ => {}
+                }
+            }
+            ChatStreamEvent::Custom { data, .. } => {
+                match data.get("type").and_then(Value::as_str) {
+                    Some("reasoning-start") if !saw_part_reasoning => {
+                        summary
+                            .reasoning_starts
+                            .push(reasoning_marker_from_value(data));
+                    }
+                    Some("reasoning-delta") if !saw_part_reasoning => {
+                        summary
+                            .reasoning_deltas
+                            .push(reasoning_delta_from_value(data));
+                    }
+                    Some("reasoning-end") if !saw_part_reasoning => {
                         summary.reasoning_ends.push(
                             data.get("id")
                                 .and_then(Value::as_str)
                                 .map(ToString::to_string),
                         );
                     }
-                    Some("tool-call") => {
+                    Some("tool-call") if !saw_part_tool_calls => {
                         if data
                             .get("providerExecuted")
                             .and_then(Value::as_bool)
@@ -319,7 +388,7 @@ fn summarize_gemini_events(events: &[ChatStreamEvent]) -> GeminiStreamSummary {
                             );
                         }
                     }
-                    Some("tool-result") => {
+                    Some("tool-result") if !saw_part_tool_results => {
                         if data
                             .get("providerExecuted")
                             .and_then(Value::as_bool)
