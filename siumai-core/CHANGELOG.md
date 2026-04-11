@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ProviderMetadataMap`: stream aggregation, OpenAI-compatible terminal metadata, and typed
   metadata accessors now all keep explicit provider-rooted object payloads instead of
   lane-specific nested `HashMap` conventions.
+- OpenAI Responses cross-protocol bridging now prefers the stable semantic part lane: parseable
+  legacy/custom v3 stream-part payloads are promoted into `ChatStreamEvent::Part` /
+  `PartWithReplay`, and `LanguageModelV3StreamPart::to_runtime_part()` is public so adapters can
+  project the typed overlay back into the runtime contract without reusing provider-prefixed
+  custom events.
 - Injectable HTTP transport parity now also covers non-stream `GET` / binary `GET` executor
   paths: `execute_get_request` and `execute_get_binary` now route through
   `HttpTransport::execute_get`, preserving per-request headers and retry/401-refresh behavior

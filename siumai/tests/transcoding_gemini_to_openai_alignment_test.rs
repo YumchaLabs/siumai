@@ -9,6 +9,7 @@
 use eventsource_stream::Event;
 use siumai::experimental::streaming::OpenAiResponsesStreamPartsBridge;
 use siumai::prelude::unified::*;
+use siumai_core::types::ChatStreamPart;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -240,14 +241,39 @@ fn decode_openai_responses(bytes: &[u8]) -> Vec<ChatStreamEvent> {
 fn custom_v3_tool_calls(events: &[ChatStreamEvent], tool_name: &str) -> Vec<serde_json::Value> {
     events
         .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-call"))
-                    && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
-            {
-                Some(data.clone())
+        .filter_map(|e| match e.part_ref() {
+            Some(ChatStreamPart::ToolCall(call)) if call.tool_name == tool_name => {
+                serde_json::to_value(e.part_ref().expect("tool-call part")).ok()
             }
-            _ => None,
+            _ => match e {
+                ChatStreamEvent::Custom { data, .. }
+                    if data.get("type") == Some(&serde_json::json!("tool-call"))
+                        && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
+                {
+                    Some(data.clone())
+                }
+                _ => None,
+            },
+        })
+        .collect()
+}
+
+fn tool_result_parts(events: &[ChatStreamEvent], tool_name: &str) -> Vec<serde_json::Value> {
+    events
+        .iter()
+        .filter_map(|e| match e.part_ref() {
+            Some(ChatStreamPart::ToolResult(result)) if result.tool_name == tool_name => {
+                serde_json::to_value(e.part_ref().expect("tool-result part")).ok()
+            }
+            _ => match e {
+                ChatStreamEvent::Custom { data, .. }
+                    if data.get("type") == Some(&serde_json::json!("tool-result"))
+                        && data.get("toolName") == Some(&serde_json::json!(tool_name)) =>
+                {
+                    Some(data.clone())
+                }
+                _ => None,
+            },
         })
         .collect()
 }
@@ -283,15 +309,17 @@ fn gemini_simple_text_transcodes_to_openai_chat_completions_and_responses() {
 
     let responses_bytes = encode_openai_responses_with_bridge(upstream);
     let responses_events = decode_openai_responses(&responses_bytes);
-    let has_text_delta = responses_events.iter().any(|e| match e {
-        ChatStreamEvent::Custom { data, .. } => {
-            data.get("type") == Some(&serde_json::json!("text-delta"))
-        }
-        _ => false,
+    let has_text_delta = responses_events.iter().any(|e| {
+        matches!(e.part_ref(), Some(ChatStreamPart::TextDelta { .. }))
+            || matches!(
+                e,
+                ChatStreamEvent::Custom { data, .. }
+                    if data.get("type") == Some(&serde_json::json!("text-delta"))
+            )
     });
     assert!(
         has_text_delta,
-        "expected OpenAI Responses v3 text-delta parts"
+        "expected OpenAI Responses text-delta semantics"
     );
 }
 
@@ -338,6 +366,13 @@ fn gemini_function_call_transcodes_to_openai_chat_completions_and_responses() {
     let responses_events = decode_openai_responses(&responses_bytes);
 
     let has_responses_tool_call = responses_events.iter().any(|e| match e {
+        _ if matches!(
+            e.part_ref(),
+            Some(ChatStreamPart::ToolCall(call)) if call.tool_name == "test-tool"
+        ) =>
+        {
+            true
+        }
         ChatStreamEvent::ToolCallDelta { function_name, .. } => {
             function_name.as_deref() == Some("test-tool")
         }
@@ -400,17 +435,7 @@ fn gemini_function_response_transcodes_to_openai_responses_tool_result() {
     let bytes = encode_openai_responses_with_bridge(upstream);
     let events = decode_openai_responses(&bytes);
 
-    let tool_results: Vec<serde_json::Value> = events
-        .iter()
-        .filter_map(|e| match e {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::json!("tool-result")) =>
-            {
-                Some(data.clone())
-            }
-            _ => None,
-        })
-        .collect();
+    let tool_results = tool_result_parts(&events, "test-tool");
 
     assert_eq!(tool_results.len(), 1, "expected one tool-result event");
     let tr = &tool_results[0];

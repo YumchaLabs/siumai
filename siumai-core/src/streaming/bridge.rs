@@ -1,8 +1,9 @@
 //! Stream event bridging utilities.
 //!
 //! This module provides best-effort transformations between provider-specific
-//! Vercel-aligned stream parts (`ChatStreamEvent::Custom`) so that a stream can
-//! be re-serialized into another provider's protocol (gateway/proxy use-cases).
+//! legacy/custom stream-part carriers and the stronger runtime semantic part
+//! lane so that a stream can be re-serialized into another provider's protocol
+//! (gateway/proxy use-cases).
 //!
 //! English-only comments in code as requested.
 
@@ -14,12 +15,16 @@ use crate::types::{
     StreamProviderMetadata,
 };
 
-/// Bridges Gemini/Anthropic Vercel-aligned stream parts into OpenAI Responses
-/// stream parts (`openai:*`) that can be serialized by the OpenAI Responses SSE
-/// converter.
+/// Bridges Gemini/Anthropic legacy stream-part carriers into OpenAI Responses-
+/// compatible runtime events.
 ///
-/// This is intentionally conservative: unknown/unsupported custom event types
-/// are passed through unchanged.
+/// When the incoming custom payload already matches the audited V4-capable
+/// stream-part shape, the bridge upgrades it onto `ChatStreamEvent::Part`
+/// directly. Tool call/result parts still get `PartWithReplay` so downstream
+/// OpenAI Responses serializers keep same-protocol raw-item fidelity.
+///
+/// Unknown or target-unsupported custom event types are passed through
+/// unchanged.
 #[derive(Debug, Default, Clone)]
 pub struct OpenAiResponsesStreamPartsBridge {
     emitted_tool_call_ids: HashSet<String>,
@@ -51,76 +56,54 @@ impl OpenAiResponsesStreamPartsBridge {
         event_type: String,
         data: serde_json::Value,
     ) -> Vec<ChatStreamEvent> {
+        if let Some(out) = self.bridge_v3_custom_event(&data) {
+            return out;
+        }
+
         match event_type.as_str() {
             // Gemini: multiplexed custom events
             "gemini:tool" => self.bridge_tool_like_custom_event(&data),
             // Legacy Gemini: split tool events (kept for backward compatibility)
             "gemini:tool-call" | "gemini:tool-result" => self.bridge_tool_like_custom_event(&data),
-            "gemini:source" => self.rename_custom("openai:source", data),
             "gemini:reasoning" => self.bridge_reasoning_multiplexed_custom_event(&data),
 
-            // Anthropic: already split into multiple custom event types
-            "anthropic:stream-start" => self.rename_custom("openai:stream-start", data),
-            "anthropic:response-metadata" => self.rename_custom("openai:response-metadata", data),
-            "anthropic:text-start" => self.rename_custom("openai:text-start", data),
-            "anthropic:text-delta" => self.rename_custom("openai:text-delta", data),
-            "anthropic:text-end" => self.rename_custom("openai:text-end", data),
-            "anthropic:reasoning-start" => {
-                self.bridge_anthropic_reasoning_start_end("openai:reasoning-start", &data)
-            }
-            "anthropic:reasoning-end" => {
-                self.bridge_anthropic_reasoning_start_end("openai:reasoning-end", &data)
-            }
-            "anthropic:tool-call" => self.bridge_tool_call_custom_event(&data),
-            "anthropic:tool-result" => self.bridge_tool_result_custom_event(&data),
-            "anthropic:source" => self.rename_custom("openai:source", data),
-            "anthropic:finish" => self.rename_custom("openai:finish", data),
+            // Anthropic legacy reasoning hints may still arrive without a full v3 payload.
+            "anthropic:reasoning-start" => self.bridge_anthropic_reasoning_start_end(true, &data),
+            "anthropic:reasoning-end" => self.bridge_anthropic_reasoning_start_end(false, &data),
 
-            _ => {
-                if let Some(out) = self.bridge_v3_custom_event(&data) {
-                    return out;
-                }
-                vec![ChatStreamEvent::Custom { event_type, data }]
-            }
+            _ => vec![ChatStreamEvent::Custom { event_type, data }],
         }
     }
 
-    fn rename_custom(&self, new_event_type: &str, data: serde_json::Value) -> Vec<ChatStreamEvent> {
-        vec![ChatStreamEvent::Custom {
-            event_type: new_event_type.to_string(),
-            data,
-        }]
-    }
-
     fn bridge_v3_custom_event(&mut self, data: &serde_json::Value) -> Option<Vec<ChatStreamEvent>> {
-        let tpe = data.get("type").and_then(|v| v.as_str())?;
+        let part = LanguageModelV3StreamPart::parse_loose_json(data)?;
 
-        match tpe {
-            "stream-start" => Some(self.rename_custom("openai:stream-start", data.clone())),
-            "response-metadata" => {
-                Some(self.rename_custom("openai:response-metadata", data.clone()))
+        match part {
+            LanguageModelV3StreamPart::ToolCall(_) => {
+                Some(self.bridge_tool_call_custom_event(data))
             }
-            "text-start" => Some(self.rename_custom("openai:text-start", data.clone())),
-            "text-delta" => Some(self.rename_custom("openai:text-delta", data.clone())),
-            "text-end" => Some(self.rename_custom("openai:text-end", data.clone())),
-            "reasoning-start" => Some(self.rename_custom("openai:reasoning-start", data.clone())),
-            "reasoning-delta" => Some(self.rename_custom("openai:reasoning-delta", data.clone())),
-            "reasoning-end" => Some(self.rename_custom("openai:reasoning-end", data.clone())),
-            "tool-input-start" => Some(self.rename_custom("openai:tool-input-start", data.clone())),
-            "tool-input-delta" => Some(self.rename_custom("openai:tool-input-delta", data.clone())),
-            "tool-input-end" => Some(self.rename_custom("openai:tool-input-end", data.clone())),
-            "tool-approval-request" => {
-                Some(self.rename_custom("openai:tool-approval-request", data.clone()))
+            LanguageModelV3StreamPart::ToolResult(_) => {
+                Some(self.bridge_tool_result_custom_event(data))
             }
-            "tool-call" => Some(self.bridge_tool_call_custom_event(data)),
-            "tool-result" => Some(self.bridge_tool_result_custom_event(data)),
-            "source" => Some(self.rename_custom("openai:source", data.clone())),
-            "finish" => Some(self.rename_custom("openai:finish", data.clone())),
-            "error" => Some(self.rename_custom("openai:error", data.clone())),
-            _ => {
-                let _ = LanguageModelV3StreamPart::parse_loose_json(data)?;
-                None
-            }
+            LanguageModelV3StreamPart::StreamStart { .. }
+            | LanguageModelV3StreamPart::ResponseMetadata(_)
+            | LanguageModelV3StreamPart::TextStart { .. }
+            | LanguageModelV3StreamPart::TextDelta { .. }
+            | LanguageModelV3StreamPart::TextEnd { .. }
+            | LanguageModelV3StreamPart::ReasoningStart { .. }
+            | LanguageModelV3StreamPart::ReasoningDelta { .. }
+            | LanguageModelV3StreamPart::ReasoningEnd { .. }
+            | LanguageModelV3StreamPart::ToolInputStart { .. }
+            | LanguageModelV3StreamPart::ToolInputDelta { .. }
+            | LanguageModelV3StreamPart::ToolInputEnd { .. }
+            | LanguageModelV3StreamPart::ToolApprovalRequest(_)
+            | LanguageModelV3StreamPart::Source(_)
+            | LanguageModelV3StreamPart::Finish { .. }
+            | LanguageModelV3StreamPart::Error { .. } => Some(vec![part.to_part_event()]),
+            LanguageModelV3StreamPart::Raw { .. }
+            | LanguageModelV3StreamPart::Custom(_)
+            | LanguageModelV3StreamPart::File(_)
+            | LanguageModelV3StreamPart::ReasoningFile(_) => None,
         }
     }
 
@@ -128,19 +111,31 @@ impl OpenAiResponsesStreamPartsBridge {
         &self,
         data: &serde_json::Value,
     ) -> Vec<ChatStreamEvent> {
+        if let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) {
+            return vec![part.to_part_event()];
+        }
+
         let tpe = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
         let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
 
-        let (event_type, mut out_data) = match tpe {
-            "reasoning-start" => ("openai:reasoning-start", serde_json::json!({ "id": id })),
-            "reasoning-delta" => (
-                "openai:reasoning-delta",
-                serde_json::json!({
-                    "id": id,
-                    "delta": data.get("delta").cloned().unwrap_or(serde_json::Value::Null),
-                }),
-            ),
-            "reasoning-end" => ("openai:reasoning-end", serde_json::json!({ "id": id })),
+        let part = match tpe {
+            "reasoning-start" => LanguageModelV3StreamPart::ReasoningStart {
+                id: id.to_string(),
+                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
+            },
+            "reasoning-delta" => LanguageModelV3StreamPart::ReasoningDelta {
+                id: id.to_string(),
+                delta: data
+                    .get("delta")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or_default()
+                    .to_string(),
+                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
+            },
+            "reasoning-end" => LanguageModelV3StreamPart::ReasoningEnd {
+                id: id.to_string(),
+                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
+            },
             _ => {
                 return vec![ChatStreamEvent::Custom {
                     event_type: "gemini:reasoning".to_string(),
@@ -149,38 +144,38 @@ impl OpenAiResponsesStreamPartsBridge {
             }
         };
 
-        if let Some(pm) = data.get("providerMetadata")
-            && let Some(obj) = out_data.as_object_mut()
-        {
-            obj.insert("providerMetadata".to_string(), pm.clone());
-        }
-
-        vec![ChatStreamEvent::Custom {
-            event_type: event_type.to_string(),
-            data: out_data,
-        }]
+        vec![part.to_part_event()]
     }
 
     fn bridge_anthropic_reasoning_start_end(
         &self,
-        new_event_type: &str,
+        is_start: bool,
         data: &serde_json::Value,
     ) -> Vec<ChatStreamEvent> {
+        if let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) {
+            return vec![part.to_part_event()];
+        }
+
         let idx = data
             .get("contentBlockIndex")
             .and_then(|v| v.as_u64())
             .map(|v| v.to_string())
             .unwrap_or_default();
-        if idx.is_empty() {
-            return vec![ChatStreamEvent::Custom {
-                event_type: new_event_type.to_string(),
-                data: serde_json::json!({}),
-            }];
-        }
-        vec![ChatStreamEvent::Custom {
-            event_type: new_event_type.to_string(),
-            data: serde_json::json!({ "id": idx }),
-        }]
+
+        let provider_metadata = provider_metadata_from_value(data.get("providerMetadata"));
+        let part = if is_start {
+            LanguageModelV3StreamPart::ReasoningStart {
+                id: idx,
+                provider_metadata,
+            }
+        } else {
+            LanguageModelV3StreamPart::ReasoningEnd {
+                id: idx,
+                provider_metadata,
+            }
+        };
+
+        vec![part.to_part_event()]
     }
 
     fn bridge_tool_like_custom_event(&mut self, data: &serde_json::Value) -> Vec<ChatStreamEvent> {
@@ -551,7 +546,7 @@ mod tests {
     }
 
     #[test]
-    fn bridge_v3_tool_input_parts_are_renamed() {
+    fn bridge_v3_tool_input_parts_are_promoted_to_runtime_parts() {
         let mut bridge = OpenAiResponsesStreamPartsBridge::new();
 
         let in_event = ChatStreamEvent::Custom {
@@ -566,11 +561,134 @@ mod tests {
         let out = bridge.bridge_event(in_event);
         assert_eq!(out.len(), 1);
 
-        let ChatStreamEvent::Custom { event_type, data } = &out[0] else {
-            panic!("expected Custom");
+        let ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputStart { id, tool_name, .. },
+        } = &out[0]
+        else {
+            panic!("expected stable tool-input-start part");
         };
-        assert_eq!(event_type, "openai:tool-input-start");
-        assert_eq!(data.get("id").and_then(|v| v.as_str()), Some("call_1"));
+        assert_eq!(id, "call_1");
+        assert_eq!(tool_name, "web_search");
+    }
+
+    #[test]
+    fn bridge_v3_text_and_source_parts_are_promoted_to_runtime_parts() {
+        let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+        let text_start = ChatStreamEvent::Custom {
+            event_type: "anthropic:text-start".to_string(),
+            data: serde_json::json!({
+                "type": "text-start",
+                "id": "0",
+                "providerMetadata": { "anthropic": { "contentBlockIndex": 0 } }
+            }),
+        };
+        let source = ChatStreamEvent::Custom {
+            event_type: "gemini:source".to_string(),
+            data: serde_json::json!({
+                "type": "source",
+                "sourceType": "url",
+                "id": "src_1",
+                "url": "https://example.com",
+                "title": "Example",
+                "providerMetadata": { "gemini": { "traceId": "trace_1" } }
+            }),
+        };
+
+        let bridged_text = bridge.bridge_event(text_start);
+        assert_eq!(bridged_text.len(), 1);
+        match &bridged_text[0] {
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::TextStart {
+                        id,
+                        provider_metadata,
+                    },
+            } => {
+                assert_eq!(id, "0");
+                assert_eq!(
+                    provider_metadata
+                        .as_ref()
+                        .and_then(|value| value.get("anthropic"))
+                        .and_then(|value| value.get("contentBlockIndex"))
+                        .and_then(|value| value.as_u64()),
+                    Some(0)
+                );
+            }
+            other => panic!("expected stable text-start part, got {other:?}"),
+        }
+
+        let bridged_source = bridge.bridge_event(source);
+        assert_eq!(bridged_source.len(), 1);
+        match &bridged_source[0] {
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::Source {
+                        id,
+                        source: crate::types::SourcePart::Url { url, title },
+                        provider_metadata,
+                    },
+            } => {
+                assert_eq!(id, "src_1");
+                assert_eq!(url, "https://example.com");
+                assert_eq!(title.as_deref(), Some("Example"));
+                assert_eq!(
+                    provider_metadata
+                        .as_ref()
+                        .and_then(|value| value.get("gemini"))
+                        .and_then(|value| value.get("traceId"))
+                        .and_then(|value| value.as_str()),
+                    Some("trace_1")
+                );
+            }
+            other => panic!("expected stable source part, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn bridge_v3_finish_parts_are_promoted_to_runtime_parts() {
+        let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+        let in_event = ChatStreamEvent::Custom {
+            event_type: "custom:any".to_string(),
+            data: serde_json::json!({
+                "type": "finish",
+                "usage": {
+                    "inputTokens": { "total": 3, "noCache": 3, "cacheRead": 0, "cacheWrite": 0 },
+                    "outputTokens": { "total": 5, "text": 5, "reasoning": 0 },
+                    "raw": { "native": true }
+                },
+                "finishReason": { "unified": "stop", "raw": "stop" },
+                "providerMetadata": { "anthropic": { "stopSequence": null } }
+            }),
+        };
+
+        let out = bridge.bridge_event(in_event);
+        assert_eq!(out.len(), 1);
+
+        match &out[0] {
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::Finish {
+                        usage,
+                        finish_reason,
+                        provider_metadata,
+                    },
+            } => {
+                assert_eq!(usage.normalized_input_tokens().total, Some(3));
+                assert_eq!(usage.normalized_output_tokens().total, Some(5));
+                assert_eq!(finish_reason.unified, crate::types::FinishReason::Stop);
+                assert_eq!(finish_reason.raw.as_deref(), Some("stop"));
+                assert_eq!(
+                    provider_metadata
+                        .as_ref()
+                        .and_then(|value| value.get("anthropic"))
+                        .and_then(|value| value.get("stopSequence")),
+                    Some(&serde_json::Value::Null)
+                );
+            }
+            other => panic!("expected stable finish part, got {other:?}"),
+        }
     }
 
     #[test]
