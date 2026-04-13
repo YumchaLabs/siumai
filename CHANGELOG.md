@@ -149,6 +149,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Extras `stream_object`, tool-loop assistant-history accumulation, and streamed orchestrator
   fallback now also consume stable `TextDelta` parts directly, so semantic-only streams no longer
   lose structured-output text, follow-up assistant history, or fallback `StepResult.text()`.
+- Shared stream wrappers now also treat stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` as
+  existing text when deciding whether to synthesize fallback legacy deltas, so semantic-only
+  streams no longer get duplicate tail text from `StreamFactory` or `SimulateStreamingMiddleware`.
 - Gemini streaming no longer emits parser-side `gemini:reasoning` custom shadows on top of stable
   `reasoning-*` parts, reducing runtime dual-lane duplication while keeping serializer-side custom
   compatibility handling intact.

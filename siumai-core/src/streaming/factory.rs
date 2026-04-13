@@ -74,6 +74,13 @@ impl StreamFactory {
     fn saw_content_in_events(events: &[Result<ChatStreamEvent, LlmError>]) -> bool {
         events.iter().any(|ev| match ev {
             Ok(ChatStreamEvent::ContentDelta { .. }) => true,
+            Ok(ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::TextDelta { .. },
+            })
+            | Ok(ChatStreamEvent::PartWithReplay {
+                part: crate::types::ChatStreamPart::TextDelta { .. },
+                ..
+            }) => true,
             Ok(other) => Self::is_textual_custom_event(other),
             Err(_) => false,
         })
@@ -640,10 +647,11 @@ impl StreamFactory {
                 }
             })
             .flat_map(futures::stream::iter)
-            // Chain the end-of-stream event
-            .chain(futures::stream::iter(
-                end_converter.handle_stream_end_events(),
-            ));
+            // Defer end-of-stream synthesis until the line stream is actually exhausted.
+            .chain(
+                futures::stream::once(async move { end_converter.handle_stream_end_events() })
+                    .flat_map(futures::stream::iter),
+            );
 
         Ok(Box::pin(chat_stream))
     }
@@ -913,5 +921,28 @@ mod tests {
 
         assert_eq!(content_delta_count, 1);
         assert_eq!(thinking_delta_count, 1);
+    }
+
+    #[test]
+    fn saw_content_in_events_accepts_stable_text_parts() {
+        let events = vec![
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: "hello".to_string(),
+                    provider_metadata: None,
+                },
+            }),
+            Ok(ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: " world".to_string(),
+                    provider_metadata: None,
+                },
+                replay: crate::types::ChatStreamReplay::default(),
+            }),
+        ];
+
+        assert!(StreamFactory::saw_content_in_events(&events));
     }
 }

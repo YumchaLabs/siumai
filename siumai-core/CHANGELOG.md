@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared textual shadow replay is now idempotent for mixed converters: when a stream batch already
   contains legacy `ContentDelta` / `ThinkingDelta`, the shared stream factory no longer
   synthesizes a second copy from stable textual runtime parts.
+- Shared stream wrappers now also treat stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` as
+  existing text when deciding whether to synthesize fallback legacy deltas, so `StreamFactory`
+  tail injection and `SimulateStreamingMiddleware` no longer append duplicate text after
+  semantic-only streams.
 - OpenAI-compatible Perplexity typed metadata now also preserves hosted-search
   `usage.reasoningTokens` instead of dropping that field while normalizing the response into the
   stable provider-rooted metadata surface.

@@ -103,6 +103,22 @@ Why this matters:
 - the plain-text Axum helper now also consumes stable `TextDelta` parts directly, so semantic-only
   streams no longer lose text just because they skipped the legacy `ContentDelta` shadow lane
 
+### 5. Shared stream wrappers now avoid duplicate fallback text on semantic-only streams
+
+Current Siumai behavior:
+
+- shared `StreamFactory` content-presence detection now treats stable `Part(TextDelta)` /
+  `PartWithReplay(TextDelta)` as real text, not only legacy `ContentDelta`
+- `SimulateStreamingMiddleware` now also treats stable text parts as existing text before deciding
+  whether it should synthesize fallback legacy chunks from `StreamEnd.response`
+
+Why this matters:
+
+- semantic-only streams no longer pick up an extra tail copy of the final text just because a
+  wrapper only tracked the legacy delta lane
+- it keeps compatibility synthesis as a fallback path instead of letting it overwrite the stable
+  semantic lane
+
 ## Remaining gaps
 
 ### 1. Public transport guidance is now explicit for Axum SSE
