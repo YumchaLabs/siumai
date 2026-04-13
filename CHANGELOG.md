@@ -121,6 +121,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   implementation sample now all read stable `Part(TextDelta)` / `PartWithReplay(TextDelta)`
   first, and the MiniMaxi sample also reads stable `ReasoningDelta` before falling back to legacy
   `ThinkingDelta`.
+- The public image model family now also exposes AI SDK-style `ImageModelV4` on core and
+  `siumai::image` facade boundaries while keeping `ImageModel` / `ImageModelV3` as compatibility
+  aliases.
 
 ### Fixed
 

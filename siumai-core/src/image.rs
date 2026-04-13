@@ -1,6 +1,9 @@
-//! Image generation model family (V3).
+//! Image generation model family (V3/V4-compatible).
 //!
 //! This module provides a Rust-first, family-oriented abstraction for image generation.
+//! The stable runtime request/response contract now also exposes AI SDK-style
+//! `ImageModelV4` naming while keeping the historical `ImageModelV3` /
+//! `ImageModel` aliases for compatibility.
 //! In V3-M2 it is implemented as an adapter over `ImageGenerationCapability`.
 
 use async_trait::async_trait;
@@ -19,10 +22,15 @@ pub trait ImageModelV3: Send + Sync {
     ) -> Result<ImageGenerationResponse, LlmError>;
 }
 
-/// Stable image-model contract for the V4 refactor spike.
-pub trait ImageModel: ImageModelV3 + ModelMetadata + Send + Sync {}
+/// Stable image-model contract aligned with AI SDK `ImageModelV4`.
+pub trait ImageModelV4: ImageModelV3 + ModelMetadata + Send + Sync {}
 
-impl<T> ImageModel for T where T: ImageModelV3 + ModelMetadata + Send + Sync + ?Sized {}
+impl<T> ImageModelV4 for T where T: ImageModelV3 + ModelMetadata + Send + Sync + ?Sized {}
+
+/// Short compatibility alias kept for the Rust facade.
+pub trait ImageModel: ImageModelV4 {}
+
+impl<T> ImageModel for T where T: ImageModelV4 + ?Sized {}
 
 /// Adapter: any `ImageGenerationCapability` can be used as an `ImageModelV3`.
 #[async_trait]

@@ -34,11 +34,13 @@ pub trait ImageGenerationCapability: Send + Sync {
     }
 }
 
-/// Provider-specific image extras (non-unified surface).
+/// Provider-specific image extras that sit outside the stable family contract.
 ///
-/// Vercel AI SDK's unified `ImageModel` surface focuses on generation.
-/// Image editing/variation and provider-specific metadata are intentionally
-/// separated into this extension trait.
+/// Vercel AI SDK exposes one shared `ImageModelV4` request/result surface, but
+/// providers still vary widely in how image edit/variation routes are actually
+/// executed. Siumai keeps those transport/provider-specific behaviors on this
+/// extension trait while the stable family contract remains centered on the
+/// shared image-generation request/response types.
 #[async_trait]
 pub trait ImageExtras: Send + Sync {
     async fn edit_image(
