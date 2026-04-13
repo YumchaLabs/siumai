@@ -115,6 +115,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Public streaming examples, migration snippets, and gateway bridge samples now treat stable
   `Part(TextDelta)` / `PartWithReplay(TextDelta)` as first-class streamed text instead of
   teaching legacy-only `ContentDelta` consumers.
+- Additional public streaming samples now also consume the stable semantic lane by default:
+  advanced middleware, Anthropic web-search streaming, MiniMaxi basic streaming, OpenAI
+  Responses streaming tools/websocket examples, registry quickstart, and the custom-provider
+  implementation sample now all read stable `Part(TextDelta)` / `PartWithReplay(TextDelta)`
+  first, and the MiniMaxi sample also reads stable `ReasoningDelta` before falling back to legacy
+  `ThinkingDelta`.
 
 ### Fixed
 

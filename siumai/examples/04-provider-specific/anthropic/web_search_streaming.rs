@@ -1,8 +1,10 @@
 //! Anthropic - Web Search (provider-hosted tool) with streaming observability
 //!
 //! This example demonstrates how to observe provider-hosted tool execution in streaming mode:
-//! - Anthropic server tools emit `ChatStreamEvent::Custom` events (`anthropic:tool-call` / `anthropic:tool-result`)
-//! - Use `siumai::provider_ext::anthropic::ext::tools::AnthropicCustomEvent` to parse them
+//! - Anthropic server tools emit stable `Part` / `PartWithReplay` events, with legacy custom-event
+//!   compatibility where needed
+//! - Use `siumai::provider_ext::anthropic::ext::tools::AnthropicCustomEvent` to parse the
+//!   normalized extension semantics
 //!
 //! Run:
 //! ```bash
@@ -11,6 +13,20 @@
 
 use futures_util::StreamExt;
 use siumai::prelude::unified::*;
+
+fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta { delta, .. },
+            ..
+        } => Some(delta.as_str()),
+        _ => None,
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -49,8 +65,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
 
+        if let Some(delta) = stream_text_delta(&ev) {
+            print!("{delta}");
+            continue;
+        }
+
         match ev {
-            ChatStreamEvent::ContentDelta { delta, .. } => print!("{delta}"),
             ChatStreamEvent::StreamEnd { .. } => break,
             _ => {}
         }

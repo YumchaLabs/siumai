@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gateway bridge samples, Axum transcode tests, and bridge customization guidance now mutate
   stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` directly instead of assuming the legacy
   `ContentDelta` shadow lane is always present.
+- The streaming orchestrator example now also consumes stable `Part(TextDelta)` /
+  `PartWithReplay(TextDelta)` directly instead of teaching a legacy-only `ContentDelta`
+  consumption pattern.
 - Orchestrator step-usage aggregation now follows AI SDK `totalUsage` semantics more closely:
   `StepResult::merge_usage()` / `AgentResult::total_usage()` still sum token/accounting fields
   across steps, but aggregated results no longer preserve per-step provider-native `Usage.raw`,

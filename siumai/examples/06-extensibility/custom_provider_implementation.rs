@@ -25,6 +25,20 @@ use siumai::experimental::custom_provider::{
 use siumai::prelude::unified::*;
 use std::sync::Arc;
 
+fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta { delta, .. },
+            ..
+        } => Some(delta.as_str()),
+        _ => None,
+    }
+}
+
 /// Custom provider example — simulates a simple AI service
 #[derive(Clone)]
 pub struct MyCustomProvider {
@@ -109,9 +123,12 @@ impl CustomProvider for MyCustomProvider {
         let events: Vec<Result<ChatStreamEvent, LlmError>> = chunks
             .into_iter()
             .map(|chunk| {
-                Ok(ChatStreamEvent::ContentDelta {
-                    delta: chunk.to_string(),
-                    index: None,
+                Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta {
+                        id: "custom_text_1".to_string(),
+                        delta: chunk.to_string(),
+                        provider_metadata: None,
+                    },
                 })
             })
             .collect();
@@ -197,7 +214,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     print!("📥 Streaming response: ");
     use futures::StreamExt;
     while let Some(event) = stream.next().await {
-        if let ChatStreamEvent::ContentDelta { delta, .. } = event? {
+        let event = event?;
+        if let Some(delta) = stream_text_delta(&event) {
             print!("{}", delta);
             std::io::Write::flush(&mut std::io::stdout())?;
         }

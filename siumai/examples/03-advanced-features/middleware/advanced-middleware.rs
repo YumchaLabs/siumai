@@ -21,6 +21,20 @@ use siumai::prelude::unified::*;
 use siumai::providers::openai::{OpenAiClient, OpenAiConfig};
 use std::sync::Arc;
 
+fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta { delta, .. },
+            ..
+        } => Some(delta.as_str()),
+        _ => None,
+    }
+}
+
 // Middleware 1: Logging middleware using wrap_generate_async
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -66,18 +80,10 @@ impl LanguageModelMiddleware for LoggingMiddleware {
                 let logged_stream = stream.map(move |event| {
                     event_count += 1;
                     if let Ok(ev) = &event {
-                        match ev {
-                            ChatStreamEvent::ContentDelta { delta, .. } => {
-                                println!(
-                                    "📝 [Logging] Delta #{}: {} chars",
-                                    event_count,
-                                    delta.len()
-                                );
-                            }
-                            ChatStreamEvent::StreamEnd { .. } => {
-                                println!("✅ [Logging] Stream ended after {} events", event_count);
-                            }
-                            _ => {}
+                        if let Some(delta) = stream_text_delta(ev) {
+                            println!("📝 [Logging] Delta #{}: {} chars", event_count, delta.len());
+                        } else if matches!(ev, ChatStreamEvent::StreamEnd { .. }) {
+                            println!("✅ [Logging] Stream ended after {} events", event_count);
                         }
                     }
                     event
@@ -146,17 +152,16 @@ impl LanguageModelMiddleware for StreamFilterMiddleware {
         _req: &ChatRequest,
         ev: ChatStreamEvent,
     ) -> Result<Vec<ChatStreamEvent>, LlmError> {
-        match &ev {
-            ChatStreamEvent::ContentDelta { delta, .. } => {
-                // Filter out empty deltas
-                if delta.is_empty() {
-                    println!("🚫 [Filter] Filtered empty delta");
-                    Ok(vec![]) // Return empty vec to filter out this event
-                } else {
-                    Ok(vec![ev])
-                }
+        if let Some(delta) = stream_text_delta(&ev) {
+            // Filter out empty deltas
+            if delta.is_empty() {
+                println!("🚫 [Filter] Filtered empty delta");
+                Ok(vec![]) // Return empty vec to filter out this event
+            } else {
+                Ok(vec![ev])
             }
-            _ => Ok(vec![ev]),
+        } else {
+            Ok(vec![ev])
         }
     }
 }

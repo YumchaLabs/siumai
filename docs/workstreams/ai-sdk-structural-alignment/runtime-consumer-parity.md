@@ -135,6 +135,31 @@ Why this matters:
 - future gateway/customization code is more likely to stay aligned with the stable runtime lane by
   default
 
+### 7. Second-pass public streaming examples now default to stable semantic text/reasoning lanes
+
+Current Siumai behavior:
+
+- the remaining public streaming-oriented examples now read stable text/reasoning deltas first:
+  - `siumai/examples/03-advanced-features/middleware/advanced-middleware.rs`
+  - `siumai/examples/04-provider-specific/anthropic/web_search_streaming.rs`
+  - `siumai/examples/04-provider-specific/minimaxi/minimaxi_basic.rs`
+  - `siumai/examples/04-provider-specific/openai/responses-streaming-tools.rs`
+  - `siumai/examples/04-provider-specific/openai/responses-websocket-incremental.rs`
+  - `siumai/examples/05-integrations/registry/quickstart.rs`
+  - `siumai/examples/06-extensibility/custom_provider_implementation.rs`
+  - `siumai-extras/examples/streaming-orchestrator.rs`
+- the custom-provider example now emits stable `ChatStreamEvent::Part(ChatStreamPart::TextDelta)`
+  directly instead of teaching new provider authors to synthesize only legacy `ContentDelta`
+- the MiniMaxi example now treats stable `ReasoningDelta` / `TextDelta` as the primary stream lane
+  while keeping legacy `ThinkingDelta` / `ContentDelta` as compatibility input
+
+Why this matters:
+
+- the public facade is now much less likely to regress into legacy-only stream consumption patterns
+  during future provider/example updates
+- new custom-provider implementations now start from the stronger semantic stream contract instead
+  of inheriting a compatibility-first design from the example code
+
 ## Remaining gaps
 
 ### 1. Public transport guidance is now explicit for Axum SSE
@@ -152,6 +177,12 @@ This is acceptable for compatibility, but the remaining direction should be:
 
 - stable semantic assertions first
 - legacy delta assertions only where a provider intentionally keeps shadow compatibility output
+
+One intentional example-level exception still exists:
+
+- `siumai-extras/examples/gateway-loss-policy.rs` currently synthesizes a legacy-shaped cross-
+  protocol stream on purpose to demonstrate lossy-bridge policy behavior; that example should only
+  change if/when we decide the demonstration should also show an equivalent stable-part lane
 
 ### 3. The runtime naming story is still heavier than AI SDK
 

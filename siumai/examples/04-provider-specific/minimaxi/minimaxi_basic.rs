@@ -12,6 +12,34 @@ use siumai::prelude::unified::*;
 use siumai::provider_ext::minimaxi::options::MinimaxiTtsRequestBuilder;
 use siumai::providers::minimaxi::{MinimaxiClient, MinimaxiConfig};
 
+fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta { delta, .. },
+            ..
+        } => Some(delta.as_str()),
+        _ => None,
+    }
+}
+
+fn stream_reasoning_delta(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ThinkingDelta { delta } => Some(delta.as_str()),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::ReasoningDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ReasoningDelta { delta, .. },
+            ..
+        } => Some(delta.as_str()),
+        _ => None,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("MiniMaxi Basic Chat Example\n");
@@ -40,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Print final answer text (without reasoning tags)
     println!("AI: {}", resp.content_text().unwrap_or_default());
 
-    // --- Streaming demo: prints ThinkingDelta and ContentDelta ---
+    // --- Streaming demo: prints reasoning and text deltas from both legacy and stable lanes ---
     println!("\nStreaming (answer only):\n");
     let mut stream = text::stream(
         &client,
@@ -57,24 +85,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let show_stream_thinking = std::env::var("SIUMAI_SHOW_THINKING").ok().as_deref() == Some("1");
 
     while let Some(event) = stream.next().await {
-        match event? {
-            ChatStreamEvent::ThinkingDelta { delta } => {
-                if show_stream_thinking {
-                    if !printed_any_content {
-                        println!("Thinking: ");
-                    }
-                    print!("{}", delta);
-                    std::io::Write::flush(&mut std::io::stdout())?;
-                }
-            }
-            ChatStreamEvent::ContentDelta { delta, .. } => {
+        let event = event?;
+        if let Some(delta) = stream_reasoning_delta(&event) {
+            if show_stream_thinking {
                 if !printed_any_content {
-                    println!("\n\nAI: ");
-                    printed_any_content = true;
+                    println!("Thinking: ");
                 }
                 print!("{}", delta);
                 std::io::Write::flush(&mut std::io::stdout())?;
             }
+            continue;
+        }
+        if let Some(delta) = stream_text_delta(&event) {
+            if !printed_any_content {
+                println!("\n\nAI: ");
+                printed_any_content = true;
+            }
+            print!("{}", delta);
+            std::io::Write::flush(&mut std::io::stdout())?;
+            continue;
+        }
+
+        match event {
+            ChatStreamEvent::ContentDelta { .. } | ChatStreamEvent::ThinkingDelta { .. } => {}
             ChatStreamEvent::StreamStart { .. }
             | ChatStreamEvent::UsageUpdate { .. }
             | ChatStreamEvent::ToolCallDelta { .. }

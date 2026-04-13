@@ -12,6 +12,20 @@ use futures::StreamExt;
 use siumai::prelude::unified::*;
 use siumai_extras::orchestrator::{ToolLoopAgent, ToolResolver, step_count_is};
 
+fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta { delta, .. },
+            ..
+        } => Some(delta.as_str()),
+        _ => None,
+    }
+}
+
 // Simple tool resolver
 struct NewsResolver;
 
@@ -112,35 +126,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while let Some(event) = stream.next().await {
         match event {
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => {
-                print!("{}", delta);
-                current_text.push_str(&delta);
-                std::io::Write::flush(&mut std::io::stdout())?;
-            }
-            Ok(ChatStreamEvent::ToolCallDelta {
-                function_name: Some(name),
-                ..
-            }) => {
-                println!("\n  [Tool call: {}]", name);
-            }
-            Ok(ChatStreamEvent::Part {
-                part: ChatStreamPart::ToolInputStart { tool_name, .. },
-            }) => {
-                println!("\n  [Tool input start: {}]", tool_name);
-            }
-            Ok(ChatStreamEvent::Part {
-                part: ChatStreamPart::ToolCall(call),
-            }) => {
-                println!("\n  [Tool call ready: {}]", call.tool_name);
-            }
-            Ok(ChatStreamEvent::StreamEnd { .. }) => {
-                println!("\n  [Stream complete]");
+            Ok(event) => {
+                if let Some(delta) = stream_text_delta(&event) {
+                    print!("{}", delta);
+                    current_text.push_str(delta);
+                    std::io::Write::flush(&mut std::io::stdout())?;
+                    continue;
+                }
+
+                match event {
+                    ChatStreamEvent::ToolCallDelta {
+                        function_name: Some(name),
+                        ..
+                    } => {
+                        println!("\n  [Tool call: {}]", name);
+                    }
+                    ChatStreamEvent::Part {
+                        part: ChatStreamPart::ToolInputStart { tool_name, .. },
+                    } => {
+                        println!("\n  [Tool input start: {}]", tool_name);
+                    }
+                    ChatStreamEvent::Part {
+                        part: ChatStreamPart::ToolCall(call),
+                    } => {
+                        println!("\n  [Tool call ready: {}]", call.tool_name);
+                    }
+                    ChatStreamEvent::StreamEnd { .. } => {
+                        println!("\n  [Stream complete]");
+                    }
+                    _ => {}
+                }
             }
             Err(e) => {
                 eprintln!("\nStream error: {}", e);
                 break;
             }
-            _ => {}
         }
     }
 
