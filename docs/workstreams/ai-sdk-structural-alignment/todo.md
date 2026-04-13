@@ -676,6 +676,9 @@ Status legend:
   - [x] shared stream wrappers (`StreamFactory`, `SimulateStreamingMiddleware`) now treat stable
     `TextDelta` parts as existing text before synthesizing fallback legacy deltas, avoiding
     duplicate tail text on semantic-only streams
+  - [x] public streaming examples, migration snippets, gateway transform examples, and
+    bridge/transcode tests now match stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` as
+    first-class streamed text instead of teaching legacy-only `ContentDelta` consumers
   - [x] `OpenAiResponsesStreamPartsBridge` now promotes parseable legacy/custom v3 payloads onto
     stable `Part` / `PartWithReplay` events instead of only renaming them into `openai:*`
     custom prefixes, so OpenAI Responses gateway paths default to the stronger semantic contract

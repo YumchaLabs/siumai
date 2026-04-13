@@ -49,6 +49,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   crate without event-kind-dependent payload shape drift.
 - The Axum plain-text helper `to_text_stream()` now also reads stable `Part(TextDelta)` /
   `PartWithReplay(TextDelta)` events instead of depending only on legacy `ContentDelta`.
+- Gateway bridge samples, Axum transcode tests, and bridge customization guidance now mutate
+  stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` directly instead of assuming the legacy
+  `ContentDelta` shadow lane is always present.
 - Orchestrator step-usage aggregation now follows AI SDK `totalUsage` semantics more closely:
   `StepResult::merge_usage()` / `AgentResult::total_usage()` still sum token/accounting fields
   across steps, but aggregated results no longer preserve per-step provider-native `Usage.raw`,

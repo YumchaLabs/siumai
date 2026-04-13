@@ -12,6 +12,20 @@ use futures::StreamExt;
 use siumai::prelude::unified::*;
 use std::time::Duration;
 
+fn stream_text_delta(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta.as_str()),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta { delta, .. },
+            ..
+        } => Some(delta.as_str()),
+        _ => None,
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Recommended construction: resolve a model handle from the registry.
@@ -34,9 +48,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let stream = handle.stream;
             futures::pin_mut!(stream);
             while let Some(event) = stream.next().await {
-                if let Ok(ChatStreamEvent::ContentDelta { delta, .. }) = event {
-                    print!("{}", delta);
-                    std::io::Write::flush(&mut std::io::stdout()).ok();
+                if let Ok(event) = event {
+                    if let Some(delta) = stream_text_delta(&event) {
+                        print!("{}", delta);
+                        std::io::Write::flush(&mut std::io::stdout()).ok();
+                    }
                 }
             }
         } => {

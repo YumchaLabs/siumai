@@ -54,6 +54,50 @@ use siumai_extras::{
     },
 };
 
+fn redact_textual_part(part: ChatStreamPart) -> ChatStreamPart {
+    match part {
+        ChatStreamPart::TextDelta {
+            id,
+            provider_metadata,
+            ..
+        } => ChatStreamPart::TextDelta {
+            id,
+            delta: "[REDACTED]\n".to_string(),
+            provider_metadata,
+        },
+        ChatStreamPart::ReasoningDelta {
+            id,
+            provider_metadata,
+            ..
+        } => ChatStreamPart::ReasoningDelta {
+            id,
+            delta: "[REDACTED]\n".to_string(),
+            provider_metadata,
+        },
+        other => other,
+    }
+}
+
+fn redact_textual_stream_event(event: ChatStreamEvent) -> Vec<ChatStreamEvent> {
+    match event {
+        ChatStreamEvent::ContentDelta { index, .. } => vec![ChatStreamEvent::ContentDelta {
+            delta: "[REDACTED]\n".to_string(),
+            index,
+        }],
+        ChatStreamEvent::ThinkingDelta { .. } => vec![ChatStreamEvent::ThinkingDelta {
+            delta: "[REDACTED]\n".to_string(),
+        }],
+        ChatStreamEvent::Part { part } => vec![ChatStreamEvent::Part {
+            part: redact_textual_part(part),
+        }],
+        ChatStreamEvent::PartWithReplay { part, replay } => vec![ChatStreamEvent::PartWithReplay {
+            part: redact_textual_part(part),
+            replay,
+        }],
+        other => vec![other],
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
     client: Arc<registry::LanguageModelHandle>,
@@ -104,17 +148,8 @@ fn build_bridge_options(q: &GatewayQuery) -> BridgeOptionsOverride {
                 );
                 Ok(())
             }))
-            .with_stream_hook(stream_bridge_hook(|_, event| match event {
-                ChatStreamEvent::ContentDelta { index, .. } => {
-                    vec![ChatStreamEvent::ContentDelta {
-                        delta: "[REDACTED]\n".to_string(),
-                        index,
-                    }]
-                }
-                ChatStreamEvent::ThinkingDelta { .. } => vec![ChatStreamEvent::ThinkingDelta {
-                    delta: "[REDACTED]\n".to_string(),
-                }],
-                other => vec![other],
+            .with_stream_hook(stream_bridge_hook(|_, event| {
+                redact_textual_stream_event(event)
             }));
     }
 

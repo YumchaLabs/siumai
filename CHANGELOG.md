@@ -110,6 +110,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   recommended}`, typed `MoonshotAIChatOptions` / `MoonshotAILanguageModelOptions`, and
   `MoonshotAIChatRequestExt` are now available on the Rust facade.
 
+### Changed
+
+- Public streaming examples, migration snippets, and gateway bridge samples now treat stable
+  `Part(TextDelta)` / `PartWithReplay(TextDelta)` as first-class streamed text instead of
+  teaching legacy-only `ContentDelta` consumers.
+
 ### Fixed
 
 - Anthropic Messages request fixtures now pin AI SDK-style message/part request option handling

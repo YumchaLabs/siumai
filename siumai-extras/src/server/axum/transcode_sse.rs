@@ -899,6 +899,56 @@ mod transcode_tests {
         }
     }
 
+    fn uppercase_textual_part(
+        part: siumai::prelude::unified::ChatStreamPart,
+    ) -> siumai::prelude::unified::ChatStreamPart {
+        match part {
+            siumai::prelude::unified::ChatStreamPart::TextDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => siumai::prelude::unified::ChatStreamPart::TextDelta {
+                id,
+                delta: delta.to_uppercase(),
+                provider_metadata,
+            },
+            siumai::prelude::unified::ChatStreamPart::ReasoningDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => siumai::prelude::unified::ChatStreamPart::ReasoningDelta {
+                id,
+                delta: delta.to_uppercase(),
+                provider_metadata,
+            },
+            other => other,
+        }
+    }
+
+    fn uppercase_textual_event(event: ChatStreamEvent) -> Vec<ChatStreamEvent> {
+        match event {
+            ChatStreamEvent::ContentDelta { delta, index } => {
+                vec![ChatStreamEvent::ContentDelta {
+                    delta: delta.to_uppercase(),
+                    index,
+                }]
+            }
+            ChatStreamEvent::ThinkingDelta { delta } => vec![ChatStreamEvent::ThinkingDelta {
+                delta: delta.to_uppercase(),
+            }],
+            ChatStreamEvent::Part { part } => vec![ChatStreamEvent::Part {
+                part: uppercase_textual_part(part),
+            }],
+            ChatStreamEvent::PartWithReplay { part, replay } => {
+                vec![ChatStreamEvent::PartWithReplay {
+                    part: uppercase_textual_part(part),
+                    replay,
+                }]
+            }
+            other => vec![other],
+        }
+    }
+
     #[test]
     fn transcode_options_defaults_are_stable() {
         let opts = TranscodeSseOptions::default();
@@ -935,12 +985,15 @@ mod transcode_tests {
     #[tokio::test]
     async fn transcode_sse_bridge_options_can_transform_events() {
         use futures::stream;
-        use siumai::prelude::unified::{ChatResponse, MessageContent};
+        use siumai::prelude::unified::{ChatResponse, ChatStreamPart, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: "hello".to_string(),
+                    provider_metadata: None,
+                },
             }),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
@@ -953,14 +1006,8 @@ mod transcode_tests {
             TranscodeSseOptions::default().with_bridge_options(
                 BridgeOptions::new(BridgeMode::BestEffort)
                     .with_route_label("tests.axum.sse.transform")
-                    .with_stream_hook(stream_bridge_hook(|_, event| match event {
-                        ChatStreamEvent::ContentDelta { delta, index } => {
-                            vec![ChatStreamEvent::ContentDelta {
-                                delta: delta.to_uppercase(),
-                                index,
-                            }]
-                        }
-                        other => vec![other],
+                    .with_stream_hook(stream_bridge_hook(|_, event| {
+                        uppercase_textual_event(event)
                     })),
             ),
         );
@@ -975,12 +1022,15 @@ mod transcode_tests {
     #[tokio::test]
     async fn transcode_sse_bridge_customization_can_transform_events() {
         use futures::stream;
-        use siumai::prelude::unified::{ChatResponse, MessageContent};
+        use siumai::prelude::unified::{ChatResponse, ChatStreamPart, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: "hello".to_string(),
+                    provider_metadata: None,
+                },
             }),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
@@ -993,15 +1043,7 @@ mod transcode_tests {
             TranscodeSseOptions::default().with_bridge_customization(Arc::new(
                 ClosureBridgeCustomization::default().with_stream(|ctx, event| {
                     assert_eq!(ctx.target, BridgeTarget::OpenAiResponses);
-                    match event {
-                        ChatStreamEvent::ContentDelta { delta, index } => {
-                            vec![ChatStreamEvent::ContentDelta {
-                                delta: delta.to_uppercase(),
-                                index,
-                            }]
-                        }
-                        other => vec![other],
-                    }
+                    uppercase_textual_event(event)
                 }),
             )),
         );
@@ -1305,12 +1347,15 @@ mod transcode_tests {
     #[cfg(feature = "openai")]
     async fn openai_responses_direct_helper_applies_bridge_options() {
         use futures::stream;
-        use siumai::prelude::unified::{ChatResponse, MessageContent};
+        use siumai::prelude::unified::{ChatResponse, ChatStreamPart, MessageContent};
 
         let chat_stream: ChatStream = Box::pin(stream::iter(vec![
-            Ok(ChatStreamEvent::ContentDelta {
-                delta: "hello".to_string(),
-                index: None,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: "hello".to_string(),
+                    provider_metadata: None,
+                },
             }),
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::new(MessageContent::Text("done".to_string())),
@@ -1322,14 +1367,8 @@ mod transcode_tests {
             TranscodeSseOptions::default().with_bridge_options(
                 BridgeOptions::new(BridgeMode::BestEffort)
                     .with_route_label("tests.axum.sse.direct-transform")
-                    .with_stream_hook(stream_bridge_hook(|_, event| match event {
-                        ChatStreamEvent::ContentDelta { delta, index } => {
-                            vec![ChatStreamEvent::ContentDelta {
-                                delta: delta.to_uppercase(),
-                                index,
-                            }]
-                        }
-                        other => vec![other],
+                    .with_stream_hook(stream_bridge_hook(|_, event| {
+                        uppercase_textual_event(event)
                     })),
             ),
         );

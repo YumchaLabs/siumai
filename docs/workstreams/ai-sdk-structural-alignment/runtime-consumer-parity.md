@@ -119,6 +119,22 @@ Why this matters:
 - it keeps compatibility synthesis as a fallback path instead of letting it overwrite the stable
   semantic lane
 
+### 6. Public gateway examples now treat stable text parts as first-class stream text
+
+Current Siumai behavior:
+
+- the main streaming examples, migration snippets, gateway transform example, and bridge/transcode
+  tests now match stable `Part(TextDelta)` / `PartWithReplay(TextDelta)` alongside legacy
+  `ContentDelta`
+- gateway stream-hook guidance now explicitly tells callers to mutate stable text/reasoning parts,
+  not only legacy shadow deltas
+
+Why this matters:
+
+- public examples no longer teach downstream users to write new legacy-only stream consumers
+- future gateway/customization code is more likely to stay aligned with the stable runtime lane by
+  default
+
 ## Remaining gaps
 
 ### 1. Public transport guidance is now explicit for Axum SSE

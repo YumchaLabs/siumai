@@ -324,6 +324,10 @@ Use the struct-based `BridgeCustomization` path when the policy is reusable acro
 Use the closure-friendly wrappers when the customization is local to one gateway adapter, test, or
 application entry point.
 
+For stream hooks specifically, prefer matching both legacy `ContentDelta` / `ThinkingDelta` and
+stable `Part(TextDelta|ReasoningDelta)` / `PartWithReplay(...)`. The runtime semantic lane is now
+the preferred contract, so semantic-only streams might never emit the older shadow deltas.
+
 Gateway routes that only need partial overrides should prefer `BridgeOptionsOverride`.
 
 If only one phase needs customization, keep using the smaller dedicated trait instead of forcing a
