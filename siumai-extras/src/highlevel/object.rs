@@ -182,6 +182,59 @@ enum ToolArgumentStreamSource {
     StablePart,
 }
 
+fn maybe_extract_partial_object(
+    acc: &str,
+    emit_partial: bool,
+    last_partial: &mut Option<serde_json::Value>,
+) -> Option<serde_json::Value> {
+    if !emit_partial {
+        return None;
+    }
+
+    let slice = crate::structured_output::extract_balanced_json_slice(acc)?;
+    let cand = crate::structured_output::strip_trailing_commas(slice);
+    let value = serde_json::from_str::<serde_json::Value>(&cand).ok()?;
+    let changed = match last_partial {
+        Some(previous) => previous != &value,
+        None => true,
+    };
+
+    if !changed {
+        return None;
+    }
+
+    *last_partial = Some(value.clone());
+    Some(value)
+}
+
+fn maybe_accumulate_text_from_runtime_part(
+    part: &ChatStreamPart,
+    acc: &mut String,
+) -> Option<String> {
+    match part {
+        ChatStreamPart::TextDelta { delta, .. } => {
+            acc.push_str(delta);
+            Some(delta.clone())
+        }
+        _ => None,
+    }
+}
+
+fn maybe_accumulate_text_from_loose_part(
+    data: &serde_json::Value,
+    acc: &mut String,
+) -> Option<String> {
+    let part = siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)?;
+
+    match part {
+        siumai::experimental::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+            acc.push_str(&delta);
+            Some(delta)
+        }
+        _ => None,
+    }
+}
+
 fn maybe_accumulate_tool_arguments_from_runtime_part(
     part: &ChatStreamPart,
     tool_args_acc: &mut String,
@@ -284,21 +337,10 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                 ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
-                    if emit_partial {
-                        // Try parse a balanced JSON slice from the accumulated text.
-                        if let Some(slice) = crate::structured_output::extract_balanced_json_slice(&acc) {
-                            let cand = crate::structured_output::strip_trailing_commas(slice);
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cand) {
-                                let changed = match &last_partial {
-                                    Some(prev) => prev != &v,
-                                    None => true,
-                                };
-                                if changed {
-                                    last_partial = Some(v.clone());
-                                    yield StreamObjectEvent::PartialObject { partial: v };
-                                }
-                            }
-                        }
+                    if let Some(partial) =
+                        maybe_extract_partial_object(&acc, emit_partial, &mut last_partial)
+                    {
+                        yield StreamObjectEvent::PartialObject { partial };
                     }
                 }
                 ChatStreamEvent::ToolCallDelta { arguments_delta: Some(d), .. } => {
@@ -311,6 +353,14 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                     }
                 }
                 ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                    if let Some(delta) = maybe_accumulate_text_from_runtime_part(&part, &mut acc) {
+                        yield StreamObjectEvent::TextDelta { delta };
+                        if let Some(partial) =
+                            maybe_extract_partial_object(&acc, emit_partial, &mut last_partial)
+                        {
+                            yield StreamObjectEvent::PartialObject { partial };
+                        }
+                    }
                     let _ = maybe_accumulate_tool_arguments_from_runtime_part(
                         &part,
                         &mut tool_args_acc,
@@ -318,6 +368,14 @@ pub async fn stream_object<T: DeserializeOwned + Send + 'static>(
                     );
                 }
                 ChatStreamEvent::Custom { data, .. } => {
+                    if let Some(delta) = maybe_accumulate_text_from_loose_part(&data, &mut acc) {
+                        yield StreamObjectEvent::TextDelta { delta };
+                        if let Some(partial) =
+                            maybe_extract_partial_object(&acc, emit_partial, &mut last_partial)
+                        {
+                            yield StreamObjectEvent::PartialObject { partial };
+                        }
+                    }
                     let _ = maybe_accumulate_tool_arguments_from_loose_part(
                         &data,
                         &mut tool_args_acc,
@@ -675,19 +733,19 @@ pub async fn stream_object_openai<T: DeserializeOwned + Send + 'static>(
                 ChatStreamEvent::ContentDelta { delta, .. } => {
                     acc.push_str(&delta);
                     yield StreamObjectEvent::TextDelta { delta };
-                    if emit_partial {
-                        if let Some(slice) = crate::structured_output::extract_balanced_json_slice(&acc) {
-                            let cand = crate::structured_output::strip_trailing_commas(slice);
-                            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cand) {
-                                let changed = match &last_partial {
-                                    Some(prev) => prev != &v,
-                                    None => true,
-                                };
-                                if changed {
-                                    last_partial = Some(v.clone());
-                                    yield StreamObjectEvent::PartialObject { partial: v };
-                                }
-                            }
+                    if let Some(partial) =
+                        maybe_extract_partial_object(&acc, emit_partial, &mut last_partial)
+                    {
+                        yield StreamObjectEvent::PartialObject { partial };
+                    }
+                }
+                ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+                    if let Some(delta) = maybe_accumulate_text_from_runtime_part(&part, &mut acc) {
+                        yield StreamObjectEvent::TextDelta { delta };
+                        if let Some(partial) =
+                            maybe_extract_partial_object(&acc, emit_partial, &mut last_partial)
+                        {
+                            yield StreamObjectEvent::PartialObject { partial };
                         }
                     }
                 }

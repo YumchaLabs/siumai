@@ -9,7 +9,7 @@
 //!
 //! English-only comments in code as requested.
 
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::sync::Arc;
 
 use futures::StreamExt;
@@ -18,6 +18,7 @@ use siumai::prelude::unified::*;
 use tokio::sync::mpsc;
 
 use crate::orchestrator::types::ToolResolver;
+use crate::tool_runtime::update_pending_deferred_tool_calls;
 
 fn validate_args_with_schema(schema: &Value, instance: &Value) -> Result<(), String> {
     #[cfg(feature = "schema")]
@@ -141,6 +142,16 @@ fn accumulate_runtime_tool_part(
     }
 }
 
+fn accumulate_runtime_text_part(part: &ChatStreamPart, acc_text: &mut String) -> bool {
+    match part {
+        ChatStreamPart::TextDelta { delta, .. } => {
+            acc_text.push_str(delta);
+            true
+        }
+        _ => false,
+    }
+}
+
 fn accumulate_loose_tool_part(
     data: &Value,
     acc: &mut HashMap<String, ToolCallAcc>,
@@ -197,6 +208,22 @@ fn accumulate_loose_tool_part(
     }
 }
 
+fn accumulate_loose_text_part(data: &Value, acc_text: &mut String) -> bool {
+    let Some(part) =
+        siumai::experimental::streaming::LanguageModelV3StreamPart::parse_loose_json(data)
+    else {
+        return false;
+    };
+
+    match part {
+        siumai::experimental::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. } => {
+            acc_text.push_str(&delta);
+            true
+        }
+        _ => false,
+    }
+}
+
 fn tool_calls_from_acc_ordered(
     mut acc: HashMap<String, ToolCallAcc>,
     order: Vec<String>,
@@ -216,6 +243,10 @@ fn tool_calls_from_acc_ordered(
             tool_name: name,
             arguments: args,
             provider_executed: item.provider_executed,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
@@ -234,6 +265,10 @@ fn tool_calls_from_acc_ordered(
             tool_name: name,
             arguments: args,
             provider_executed: item.provider_executed,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         });
@@ -242,13 +277,25 @@ fn tool_calls_from_acc_ordered(
     out
 }
 
-fn v3_tool_result_event(
+fn gateway_tool_result_events(
     tool_call_id: String,
     tool_name: String,
     result: Value,
     is_error: bool,
-) -> ChatStreamEvent {
-    ChatStreamEvent::Custom {
+) -> [ChatStreamEvent; 2] {
+    let stable = ChatStreamEvent::Part {
+        part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+            tool_call_id: tool_call_id.clone(),
+            tool_name: tool_name.clone(),
+            result: result.clone(),
+            is_error: Some(is_error),
+            preliminary: None,
+            dynamic: None,
+            provider_metadata: None,
+        }),
+    };
+
+    let legacy = ChatStreamEvent::Custom {
         event_type: "gateway:tool-result".to_string(),
         data: serde_json::json!({
             "type": "tool-result",
@@ -257,7 +304,9 @@ fn v3_tool_result_event(
             "result": result,
             "isError": is_error,
         }),
-    }
+    };
+
+    [stable, legacy]
 }
 
 /// Create a single `ChatStream` that keeps the downstream stream open across tool-loop steps.
@@ -265,7 +314,8 @@ fn v3_tool_result_event(
 /// This function:
 /// - emits the upstream `StreamStart` only once (from the first step)
 /// - suppresses intermediate `StreamEnd` events until the final step completes
-/// - emits v3 `tool-result` events between steps so downstream protocols can surface results
+/// - emits stable `tool-result` parts plus legacy v3 `tool-result` custom events between steps so
+///   downstream protocols and older consumers can both surface results
 pub async fn tool_loop_chat_stream(
     model: Arc<dyn ChatCapability + Send + Sync>,
     initial_messages: Vec<ChatMessage>,
@@ -299,6 +349,7 @@ pub async fn tool_loop_chat_stream(
         let mut history = initial_messages;
         let mut emitted_stream_start = false;
         let mut final_stream_end: Option<ChatResponse> = None;
+        let mut pending_deferred_tool_calls: HashSet<String> = HashSet::new();
 
         'outer: for _step_idx in 0..max_steps {
             let handle = match model
@@ -318,6 +369,7 @@ pub async fn tool_loop_chat_stream(
             let mut acc_text = String::new();
             let mut tool_calls_acc: HashMap<String, ToolCallAcc> = HashMap::new();
             let mut tool_call_order: Vec<String> = Vec::new();
+            let mut step_response: Option<ChatResponse> = None;
 
             while let Some(item) = upstream.next().await {
                 let ev = match item {
@@ -385,6 +437,7 @@ pub async fn tool_loop_chat_stream(
                     }
                     ChatStreamEvent::Part { part }
                     | ChatStreamEvent::PartWithReplay { part, .. } => {
+                        let _ = accumulate_runtime_text_part(part, &mut acc_text);
                         let _ = accumulate_runtime_tool_part(
                             part,
                             &mut tool_calls_acc,
@@ -396,6 +449,7 @@ pub async fn tool_loop_chat_stream(
                         }
                     }
                     ChatStreamEvent::Custom { data, .. } => {
+                        let _ = accumulate_loose_text_part(data, &mut acc_text);
                         let _ = accumulate_loose_tool_part(
                             data,
                             &mut tool_calls_acc,
@@ -407,6 +461,7 @@ pub async fn tool_loop_chat_stream(
                         }
                     }
                     ChatStreamEvent::StreamEnd { response } => {
+                        step_response = Some(response.clone());
                         final_stream_end = Some(response.clone());
                     }
                     other => {
@@ -419,6 +474,22 @@ pub async fn tool_loop_chat_stream(
             }
 
             let tool_calls = tool_calls_from_acc_ordered(tool_calls_acc, tool_call_order);
+            let response_tool_results = step_response
+                .as_ref()
+                .map(|response| {
+                    response
+                        .tool_results()
+                        .into_iter()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            update_pending_deferred_tool_calls(
+                &mut pending_deferred_tool_calls,
+                Some(tools.as_slice()),
+                &tool_calls,
+                &response_tool_results,
+            );
 
             let mut assistant_parts: Vec<ContentPart> = Vec::new();
             if !acc_text.trim().is_empty() {
@@ -429,6 +500,7 @@ pub async fn tool_loop_chat_stream(
                 });
             }
             assistant_parts.extend(tool_calls.clone());
+            assistant_parts.extend(response_tool_results.clone());
 
             // Always add the assistant message to history (tool-call steps require it).
             history.push(ChatMessage {
@@ -475,17 +547,15 @@ pub async fn tool_loop_chat_stream(
                     };
                     if let Err(reason) = validate_args_with_schema(schema, &arguments) {
                         let err = serde_json::json!({"error":"invalid_args","reason":reason});
-                        if sender
-                            .send(Ok(v3_tool_result_event(
-                                tool_call_id.clone(),
-                                tool_name.clone(),
-                                err.clone(),
-                                true,
-                            )))
-                            .await
-                            .is_err()
-                        {
-                            break 'outer;
+                        for event in gateway_tool_result_events(
+                            tool_call_id.clone(),
+                            tool_name.clone(),
+                            err.clone(),
+                            true,
+                        ) {
+                            if sender.send(Ok(event)).await.is_err() {
+                                break 'outer;
+                            }
                         }
                         history.push(
                             ChatMessage::tool_error_json(tool_call_id, tool_name, err).build(),
@@ -525,21 +595,14 @@ pub async fn tool_loop_chat_stream(
                 }
                 executed_any = true;
 
-                if sender
-                    .send(Ok(v3_tool_result_event(
-                        tool_call_id,
-                        tool_name,
-                        value,
-                        is_error,
-                    )))
-                    .await
-                    .is_err()
-                {
-                    break 'outer;
+                for event in gateway_tool_result_events(tool_call_id, tool_name, value, is_error) {
+                    if sender.send(Ok(event)).await.is_err() {
+                        break 'outer;
+                    }
                 }
             }
 
-            if !executed_any {
+            if !executed_any && pending_deferred_tool_calls.is_empty() {
                 break 'outer;
             }
         }
@@ -554,6 +617,7 @@ pub async fn tool_loop_chat_stream(
                     content: MessageContent::Text(String::new()),
                     usage: None,
                     finish_reason: Some(FinishReason::Unknown),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
@@ -578,8 +642,10 @@ mod tests {
     use async_trait::async_trait;
     use futures::stream;
     use serde_json::json;
-    use siumai::prelude::unified::ChatStreamToolCall;
-    use siumai::prelude::unified::ResponseMetadata;
+    use siumai::prelude::unified::{
+        ChatStreamToolCall, ChatStreamToolResult, ProviderOptionsMap, ResponseMetadata,
+    };
+    use siumai::types::ToolResultOutput;
     use std::sync::Mutex;
 
     struct MockResolver;
@@ -656,6 +722,7 @@ mod tests {
                                 )]),
                                 usage: None,
                                 finish_reason: Some(FinishReason::ToolCalls),
+                                raw_finish_reason: None,
                                 audio: None,
                                 system_fingerprint: None,
                                 service_tier: None,
@@ -715,6 +782,7 @@ mod tests {
         let mut seen_end = 0;
         let mut seen_tool_call_delta = false;
         let mut seen_gateway_tool_result = false;
+        let mut seen_tool_result_part = false;
         let mut seen_final_text = false;
 
         while let Some(item) = stream.next().await {
@@ -727,6 +795,14 @@ mod tests {
                     if delta.contains("sunny") {
                         seen_final_text = true;
                     }
+                }
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolResult(result),
+                } if result.tool_call_id == "call_1"
+                    && result.tool_name == "get_weather"
+                    && result.result == json!({"city":"Guangzhou","temperature_c":26}) =>
+                {
+                    seen_tool_result_part = true;
                 }
                 ChatStreamEvent::Custom { event_type, data } => {
                     if event_type == "gateway:tool-result"
@@ -743,8 +819,12 @@ mod tests {
         assert_eq!(seen_end, 1, "should emit StreamEnd only once");
         assert!(seen_tool_call_delta, "should forward tool call deltas");
         assert!(
+            seen_tool_result_part,
+            "should insert stable tool-result part between steps"
+        );
+        assert!(
             seen_gateway_tool_result,
-            "should insert gateway tool-result v3 part"
+            "should keep gateway tool-result legacy compatibility event"
         );
         assert!(seen_final_text, "should forward final answer content");
 
@@ -763,6 +843,7 @@ mod tests {
     #[derive(Default)]
     struct StablePartToolModel {
         calls: Mutex<usize>,
+        requests: Mutex<Vec<Vec<ChatMessage>>>,
     }
 
     #[async_trait]
@@ -777,9 +858,10 @@ mod tests {
 
         async fn chat_stream(
             &self,
-            _messages: Vec<ChatMessage>,
+            messages: Vec<ChatMessage>,
             _tools: Option<Vec<Tool>>,
         ) -> Result<ChatStream, LlmError> {
+            self.requests.lock().unwrap().push(messages);
             let idx = {
                 let mut g = self.calls.lock().unwrap();
                 let idx = *g;
@@ -799,6 +881,13 @@ mod tests {
                 0 => {
                     let events = vec![
                         Ok(ChatStreamEvent::StreamStart { metadata: meta }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::TextDelta {
+                                id: "txt_1".to_string(),
+                                delta: "Checking weather. ".to_string(),
+                                provider_metadata: None,
+                            },
+                        }),
                         Ok(ChatStreamEvent::Part {
                             part: ChatStreamPart::ToolInputStart {
                                 id: "call_1".to_string(),
@@ -844,6 +933,7 @@ mod tests {
                                 )]),
                                 usage: None,
                                 finish_reason: Some(FinishReason::ToolCalls),
+                                raw_finish_reason: None,
                                 audio: None,
                                 system_fingerprint: None,
                                 service_tier: None,
@@ -857,14 +947,15 @@ mod tests {
                 _ => {
                     let events = vec![
                         Ok(ChatStreamEvent::StreamStart { metadata: meta }),
-                        Ok(ChatStreamEvent::ContentDelta {
-                            delta: "Stable parts worked.".to_string(),
-                            index: None,
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::TextDelta {
+                                id: "txt_2".to_string(),
+                                delta: "Stable parts worked.".to_string(),
+                                provider_metadata: None,
+                            },
                         }),
                         Ok(ChatStreamEvent::StreamEnd {
-                            response: ChatResponse::new(MessageContent::Text(
-                                "Stable parts worked.".to_string(),
-                            )),
+                            response: ChatResponse::new(MessageContent::Text(String::new())),
                         }),
                     ];
                     Ok(Box::pin(stream::iter(events)))
@@ -875,7 +966,8 @@ mod tests {
 
     #[tokio::test]
     async fn tool_loop_accepts_stable_tool_parts() {
-        let model: Arc<dyn ChatCapability + Send + Sync> = Arc::new(StablePartToolModel::default());
+        let model = Arc::new(StablePartToolModel::default());
+        let model_dyn: Arc<dyn ChatCapability + Send + Sync> = model.clone();
         let resolver: Arc<dyn ToolResolver + Send + Sync> = Arc::new(MockResolver);
 
         let tools = vec![Tool::function(
@@ -889,7 +981,7 @@ mod tests {
         )];
 
         let mut stream = tool_loop_chat_stream(
-            model,
+            model_dyn,
             vec![ChatMessage::user("weather?").build()],
             tools,
             resolver,
@@ -908,7 +1000,9 @@ mod tests {
                 } if call.tool_call_id == "call_1" && call.tool_name == "get_weather" => {
                     saw_tool_call_part = true;
                 }
-                ChatStreamEvent::ContentDelta { delta, .. } if delta.contains("Stable parts") => {
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta { delta, .. },
+                } if delta.contains("Stable parts") => {
                     saw_final_text = true;
                 }
                 _ => {}
@@ -919,6 +1013,199 @@ mod tests {
         assert!(
             saw_final_text,
             "should continue to the post-tool answer step"
+        );
+
+        let recorded = model.requests.lock().unwrap();
+        assert_eq!(
+            recorded.len(),
+            2,
+            "stable-part tool loop should issue a follow-up request"
+        );
+        let follow_up_assistant = recorded[1]
+            .iter()
+            .find(|message| message.role == MessageRole::Assistant)
+            .expect("assistant follow-up message");
+        assert_eq!(
+            follow_up_assistant.content_text(),
+            Some("Checking weather. ")
+        );
+        assert_eq!(follow_up_assistant.tool_calls().len(), 1);
+    }
+
+    #[derive(Default)]
+    struct DeferredProviderToolModel {
+        calls: Mutex<usize>,
+        requests: Mutex<Vec<Vec<ChatMessage>>>,
+    }
+
+    #[async_trait]
+    impl ChatCapability for DeferredProviderToolModel {
+        async fn chat_with_tools(
+            &self,
+            _messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatResponse, LlmError> {
+            Ok(ChatResponse::new(MessageContent::Text("ok".to_string())))
+        }
+
+        async fn chat_stream(
+            &self,
+            messages: Vec<ChatMessage>,
+            _tools: Option<Vec<Tool>>,
+        ) -> Result<ChatStream, LlmError> {
+            self.requests.lock().unwrap().push(messages);
+            let idx = {
+                let mut g = self.calls.lock().unwrap();
+                let idx = *g;
+                *g += 1;
+                idx
+            };
+
+            let meta = ResponseMetadata {
+                id: Some(format!("deferred_resp_{idx}")),
+                model: Some("mock".to_string()),
+                created: None,
+                provider: "mock".to_string(),
+                request_id: None,
+            };
+
+            match idx {
+                0 => {
+                    let events = vec![
+                        Ok(ChatStreamEvent::StreamStart { metadata: meta }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputStart {
+                                id: "call_code_execution".to_string(),
+                                tool_name: "code_execution".to_string(),
+                                provider_metadata: None,
+                                provider_executed: Some(true),
+                                dynamic: None,
+                                title: None,
+                            },
+                        }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputDelta {
+                                id: "call_code_execution".to_string(),
+                                delta: "{\"code\":\"print('hi')\"}".to_string(),
+                                provider_metadata: None,
+                            },
+                        }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                                tool_call_id: "call_code_execution".to_string(),
+                                tool_name: "code_execution".to_string(),
+                                input: "{\"code\":\"print('hi')\"}".to_string(),
+                                provider_executed: Some(true),
+                                dynamic: None,
+                                provider_metadata: None,
+                            }),
+                        }),
+                        Ok(ChatStreamEvent::StreamEnd {
+                            response: ChatResponse {
+                                id: Some("deferred_resp_0".to_string()),
+                                model: Some("mock".to_string()),
+                                content: MessageContent::MultiModal(vec![ContentPart::tool_call(
+                                    "call_code_execution",
+                                    "code_execution",
+                                    json!({"code":"print('hi')"}),
+                                    Some(true),
+                                )]),
+                                usage: None,
+                                finish_reason: Some(FinishReason::ToolCalls),
+                                raw_finish_reason: None,
+                                audio: None,
+                                system_fingerprint: None,
+                                service_tier: None,
+                                warnings: None,
+                                provider_metadata: None,
+                            },
+                        }),
+                    ];
+                    Ok(Box::pin(stream::iter(events)))
+                }
+                _ => {
+                    let events = vec![
+                        Ok(ChatStreamEvent::StreamStart { metadata: meta }),
+                        Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolResult(ChatStreamToolResult {
+                                tool_call_id: "call_code_execution".to_string(),
+                                tool_name: "code_execution".to_string(),
+                                result: json!({"stdout":"hi"}),
+                                is_error: Some(false),
+                                preliminary: None,
+                                dynamic: None,
+                                provider_metadata: None,
+                            }),
+                        }),
+                        Ok(ChatStreamEvent::ContentDelta {
+                            delta: "Deferred provider result.".to_string(),
+                            index: None,
+                        }),
+                        Ok(ChatStreamEvent::StreamEnd {
+                            response: ChatResponse::new(MessageContent::MultiModal(vec![
+                                ContentPart::ToolResult {
+                                    tool_call_id: "call_code_execution".to_string(),
+                                    tool_name: "code_execution".to_string(),
+                                    output: ToolResultOutput::json(json!({"stdout":"hi"})),
+                                    input: None,
+                                    provider_executed: Some(true),
+                                    dynamic: None,
+                                    preliminary: None,
+                                    title: None,
+                                    provider_options: ProviderOptionsMap::default(),
+                                    provider_metadata: None,
+                                },
+                                ContentPart::text("Deferred provider result."),
+                            ])),
+                        }),
+                    ];
+                    Ok(Box::pin(stream::iter(events)))
+                }
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn tool_loop_continues_for_deferred_provider_results() {
+        let model = Arc::new(DeferredProviderToolModel::default());
+        let model_dyn: Arc<dyn ChatCapability + Send + Sync> = model.clone();
+        let resolver: Arc<dyn ToolResolver + Send + Sync> = Arc::new(MockResolver);
+
+        let tools = vec![
+            Tool::provider_defined("mock.code_execution", "code_execution")
+                .with_supports_deferred_results(true),
+        ];
+
+        let mut stream = tool_loop_chat_stream(
+            model_dyn,
+            vec![ChatMessage::user("run code").build()],
+            tools,
+            resolver,
+            ToolLoopGatewayOptions { max_steps: 4 },
+        )
+        .await
+        .expect("create deferred provider tool-loop stream");
+
+        let mut saw_final_text = false;
+        while let Some(item) = stream.next().await {
+            match item.expect("event") {
+                ChatStreamEvent::ContentDelta { delta, .. }
+                    if delta.contains("Deferred provider result") =>
+                {
+                    saw_final_text = true;
+                }
+                _ => {}
+            }
+        }
+
+        assert!(
+            saw_final_text,
+            "should continue after deferred provider tool call"
+        );
+        assert_eq!(
+            model.requests.lock().unwrap().len(),
+            2,
+            "should re-enter the upstream model after a deferred provider tool call"
         );
     }
 }

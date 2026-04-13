@@ -26,15 +26,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   configured.
 - Axum server adapters now expose policy-aware request/upstream body read helpers for enforcing
   request-body and upstream-read limits at route/runtime level.
+- Orchestrator/agent/workflow public model bounds now use `LanguageModel` instead of bare
+  `ChatCapability`, so extras step/result surfaces can rely on stable provider/model metadata
+  instead of heuristic response inspection.
+- Orchestrator/agent/workflow now also expose one canonical AI SDK-style runtime `context`
+  object across prepare-step, tool execution, step results, and finish callbacks.
 
 ### Fixed
 
 - `stream_object` and the extras tool-loop gateway now consume the upgraded stable
   `ChatStreamEvent::Part` tool lifecycle directly instead of depending on legacy delta/custom-only
   accumulation.
+- `stream_object`, tool-loop assistant-history accumulation, and streamed orchestrator fallback
+  now also consume stable `Part(TextDelta)` directly instead of depending on legacy
+  `ContentDelta` shadows.
+- The extras tool-loop gateway now also emits stable runtime `Part(ToolResult)` between local
+  tool-execution steps while keeping the legacy `gateway:tool-result` custom event for
+  compatibility, so downstream protocol serializers can prefer the semantic lane.
 - The Axum SSE helper now forwards stable runtime `Part` / `PartWithReplay` events as explicit
-  `event: part` frames, so the AI-SDK-aligned semantic stream lane is observable outside the core
-  crate.
+  `event: part` frames, and both now use one stable `{ part, replay }` JSON envelope (`replay:
+  null` when absent), so the AI-SDK-aligned semantic stream lane is observable outside the core
+  crate without event-kind-dependent payload shape drift.
+- The Axum plain-text helper `to_text_stream()` now also reads stable `Part(TextDelta)` /
+  `PartWithReplay(TextDelta)` events instead of depending only on legacy `ContentDelta`.
+- Orchestrator step-usage aggregation now follows AI SDK `totalUsage` semantics more closely:
+  `StepResult::merge_usage()` / `AgentResult::total_usage()` still sum token/accounting fields
+  across steps, but aggregated results no longer preserve per-step provider-native `Usage.raw`,
+  including the single-step case.
+- Orchestrator/agent/workflow finish callbacks now expose an explicit AI-SDK-style completion
+  event carrying the final response, last step, all `steps`, and aggregated `total_usage`.
+- `StreamOrchestration` now exposes aggregated `total_usage`, and the basic streaming path now
+  records a real final step instead of resolving an empty `steps` list.
+- `StepResult` now also carries stable `call_id`, stable `model { provider, model_id }`,
+  explicit `step_number`, step-scoped `request` / `response`, telemetry `function_id` /
+  `metadata`, and stable `raw_finish_reason` sourced from `ChatResponse.raw_finish_reason`,
+  closing another structural gap against AI SDK step metadata without fabricating provider
+  raw-finish values.
+- `PrepareStepContext` now exposes the base `LanguageModel`, `PrepareStepResult` can swap the
+  model for one step via `with_model(...)`, and both non-stream and stream orchestration now honor
+  that override without leaking it into later steps.
+- `StepResult.text()` now concatenates all top-level text parts from unified step content, and
+  standardized projections now expose `tool_call_views()` / `tool_result_views()` plus
+  `static_*` / `dynamic_*` splits with resolved tool inputs for results.
+- Streaming orchestration now applies `prepare_step`, `tool_choice`, `active_tools`, and
+  runtime `context` on the first streamed step too, and context-aware tool execution remains
+  backward-compatible because `ToolResolver::{call_tool_with_context, call_tool_stream_with_context}`
+  default back to the legacy methods.
 
 ## [0.11.0-beta.5] - 2026-01-15
 
