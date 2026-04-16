@@ -211,6 +211,15 @@ impl ProviderFactory for OpenAIProviderFactory {
         Ok(Arc::new(client))
     }
 
+    async fn completion_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        let client = self.build_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
     async fn embedding_model_with_ctx(
         &self,
         model_id: &str,

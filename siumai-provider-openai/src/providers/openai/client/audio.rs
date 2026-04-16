@@ -230,23 +230,30 @@ impl AudioCapability for OpenAiClient {
         let ext = req.format.clone().unwrap_or_else(|| "mp3".to_string());
 
         // Provider-specific option lookup (OpenAI accepts prompt/response_format/temperature here).
-        let lookup = |key: &str| -> Option<&serde_json::Value> {
-            if let Some(obj) = req.provider_options_map.get_object("openai")
-                && let Some(v) = obj.get(key)
-            {
-                return Some(v);
+        let lookup = |keys: &[&str]| -> Option<&serde_json::Value> {
+            if let Some(obj) = req.provider_options_map.get_object("openai") {
+                for key in keys {
+                    if let Some(v) = obj.get(*key) {
+                        return Some(v);
+                    }
+                }
             }
-            req.extra_params.get(key)
+            for key in keys {
+                if let Some(v) = req.extra_params.get(*key) {
+                    return Some(v);
+                }
+            }
+            None
         };
 
-        let response_format = lookup("response_format")
+        let response_format = lookup(&["response_format", "responseFormat"])
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| "json".to_string());
-        let prompt = lookup("prompt")
+        let prompt = lookup(&["prompt"])
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
-        let temperature = lookup("temperature").and_then(|v| v.as_f64());
+        let temperature = lookup(&["temperature"]).and_then(|v| v.as_f64());
         let media_type = req.media_type.clone();
 
         let build_form = || -> Result<Form, LlmError> {

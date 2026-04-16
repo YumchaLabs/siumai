@@ -14,11 +14,12 @@ impl OpenAiVendorId {
     pub const SILICONFLOW: Self = Self("siliconflow");
     pub const DEEPSEEK: Self = Self("deepseek");
     pub const OPENROUTER: Self = Self("openrouter");
-    pub const TOGETHER: Self = Self("together");
+    pub const TOGETHERAI: Self = Self("togetherai");
     pub const FIREWORKS: Self = Self("fireworks");
     pub const GITHUB_COPILOT: Self = Self("github_copilot");
     pub const PERPLEXITY: Self = Self("perplexity");
     pub const MISTRAL: Self = Self("mistral");
+    pub const MOONSHOTAI: Self = Self("moonshotai");
     pub const JINA: Self = Self("jina");
     pub const VOYAGEAI: Self = Self("voyageai");
     pub const INFINI: Self = Self("infini");

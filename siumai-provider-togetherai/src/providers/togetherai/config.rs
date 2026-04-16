@@ -50,6 +50,8 @@ impl TogetherAiConfig {
     pub const DEFAULT_BASE_URL: &'static str = "https://api.together.xyz/v1";
     /// Default TogetherAI rerank model.
     pub const DEFAULT_MODEL: &'static str = "Salesforce/Llama-Rank-v1";
+    pub(crate) const PRIMARY_API_KEY_ENV: &'static str = "TOGETHER_API_KEY";
+    pub(crate) const DEPRECATED_API_KEY_ENV: &'static str = "TOGETHER_AI_API_KEY";
 
     /// Create a new config with the given API key.
     pub fn new<S: Into<String>>(api_key: S) -> Self {
@@ -68,9 +70,7 @@ impl TogetherAiConfig {
 
     /// Create config from `TOGETHER_API_KEY`.
     pub fn from_env() -> Result<Self, LlmError> {
-        let api_key = std::env::var("TOGETHER_API_KEY")
-            .map_err(|_| LlmError::MissingApiKey("TogetherAI API key not provided".to_string()))?;
-        Ok(Self::new(api_key))
+        Ok(Self::new(resolve_api_key_from_env()?))
     }
 
     pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
@@ -135,6 +135,86 @@ impl TogetherAiConfig {
             ));
         }
         Ok(())
+    }
+}
+
+pub(crate) fn resolve_api_key_from_env() -> Result<String, LlmError> {
+    siumai_core::utils::builder_helpers::get_api_key_with_envs(
+        None,
+        "togetherai",
+        Some(TogetherAiConfig::PRIMARY_API_KEY_ENV),
+        &[TogetherAiConfig::DEPRECATED_API_KEY_ENV.to_string()],
+    )
+    .map_err(|_| LlmError::MissingApiKey("TogetherAI API key not provided".to_string()))
+}
+
+#[cfg(test)]
+mod env_tests {
+    #![allow(unsafe_code)]
+
+    use super::*;
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
+
+    #[test]
+    fn from_env_accepts_deprecated_api_key_alias_when_primary_missing() {
+        let _lock = lock_env();
+        let _primary = EnvGuard::remove(TogetherAiConfig::PRIMARY_API_KEY_ENV);
+        let _legacy = EnvGuard::set(TogetherAiConfig::DEPRECATED_API_KEY_ENV, "legacy-key");
+
+        let config = TogetherAiConfig::from_env().expect("config from deprecated alias");
+        assert_eq!(config.api_key.expose_secret(), "legacy-key");
+    }
+
+    #[test]
+    fn from_env_prefers_primary_api_key_over_deprecated_alias() {
+        let _lock = lock_env();
+        let _primary = EnvGuard::set(TogetherAiConfig::PRIMARY_API_KEY_ENV, "primary-key");
+        let _legacy = EnvGuard::set(TogetherAiConfig::DEPRECATED_API_KEY_ENV, "legacy-key");
+
+        let config = TogetherAiConfig::from_env().expect("config from primary env");
+        assert_eq!(config.api_key.expose_secret(), "primary-key");
     }
 }
 

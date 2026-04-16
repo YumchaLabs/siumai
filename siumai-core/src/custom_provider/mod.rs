@@ -255,10 +255,13 @@ impl CustomChatResponse {
             MessageContent::MultiModal(content_parts)
         };
 
-        // Convert flat metadata to nested provider_metadata structure
+        // Convert flat metadata to provider-scoped provider_metadata structure
         let provider_metadata = if !self.metadata.is_empty() {
             let mut meta = HashMap::new();
-            meta.insert("custom".to_string(), self.metadata.clone());
+            meta.insert(
+                "custom".to_string(),
+                serde_json::Value::Object(self.metadata.clone().into_iter().collect()),
+            );
             Some(meta)
         } else {
             None
@@ -276,6 +279,7 @@ impl CustomChatResponse {
                 "content_filter" => FinishReason::ContentFilter,
                 _ => FinishReason::Other(r.clone()),
             }),
+            raw_finish_reason: self.finish_reason.clone(),
             audio: None,
             system_fingerprint: None,
             service_tier: None,

@@ -77,6 +77,7 @@ impl CustomProvider for MiniProvider {
                     model: None,
                     usage: None,
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     provider_metadata: None,
                     warnings: None,
                     audio: None,

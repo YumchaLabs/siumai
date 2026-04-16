@@ -1,18 +1,29 @@
 #![allow(clippy::collapsible_if)]
 //! Non-streaming orchestrator implementation.
 
-use futures::StreamExt;
+use std::collections::{HashMap, HashSet};
+
 use serde_json::Value;
+
+use crate::tool_runtime::{
+    client_tool_call_count, execute_local_tool_call, execution_denied_tool_result,
+    merge_step_tool_results, preprocess_tool_approval_responses, should_continue_after_tool_step,
+    update_pending_deferred_tool_calls,
+};
 
 use super::prepare_step::{PrepareStepContext, filter_active_tools};
 use super::stop_condition::StopCondition;
-use super::types::{OrchestratorOptions, StepResult, ToolApproval, ToolResolver};
+use super::types::{
+    OrchestratorFinishEvent, OrchestratorOptions, StepLanguageModel, StepModelInfo, StepResult,
+    ToolApproval, ToolResolver,
+};
 use super::validation::validate_args_with_schema;
 use siumai::experimental::observability::telemetry::{
     TelemetryConfig,
     events::{OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
 };
 use siumai::prelude::unified::*;
+use siumai::tooling::{ToolInputAvailableContext, ToolRuntimeMetadata};
 
 /// Convert orchestrator ToolChoice to types::ToolChoice
 fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> ToolChoice {
@@ -23,6 +34,97 @@ fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> ToolChoice {
         super::prepare_step::ToolChoice::Specific { tool_name } => {
             ToolChoice::Tool { name: tool_name }
         }
+    }
+}
+
+fn telemetry_metadata_values(
+    telemetry: Option<&TelemetryConfig>,
+) -> Option<HashMap<String, Value>> {
+    let telemetry = telemetry?;
+    (!telemetry.metadata.is_empty()).then(|| {
+        telemetry
+            .metadata
+            .iter()
+            .map(|(key, value)| (key.clone(), Value::String(value.clone())))
+            .collect()
+    })
+}
+
+fn find_declared_tool<'a>(tools: Option<&'a [Tool]>, tool_name: &str) -> Option<&'a Tool> {
+    tools.and_then(|tools| {
+        tools.iter().find(|tool| match tool {
+            Tool::Function { function } => function.name == tool_name,
+            Tool::ProviderDefined(provider_tool) => provider_tool.name == tool_name,
+        })
+    })
+}
+
+fn annotate_response_tool_calls(response: &mut ChatResponse, resolver: Option<&dyn ToolResolver>) {
+    let Some(resolver) = resolver else {
+        return;
+    };
+
+    let MessageContent::MultiModal(parts) = &mut response.content else {
+        return;
+    };
+
+    for part in parts.iter_mut() {
+        let ContentPart::ToolCall {
+            tool_name, dynamic, ..
+        } = part
+        else {
+            continue;
+        };
+
+        if resolver
+            .runtime_tool_metadata(tool_name)
+            .is_some_and(|metadata| metadata.dynamic())
+        {
+            *dynamic = Some(true);
+        }
+    }
+}
+
+fn append_response_parts(response: &mut ChatResponse, extra_parts: Vec<ContentPart>) {
+    if extra_parts.is_empty() {
+        return;
+    }
+
+    #[allow(unreachable_patterns)]
+    match &mut response.content {
+        MessageContent::Text(text) => {
+            let mut parts = (!text.is_empty())
+                .then(|| ContentPart::text(text.clone()))
+                .into_iter()
+                .collect::<Vec<_>>();
+            parts.extend(extra_parts);
+            response.content = MessageContent::MultiModal(parts);
+        }
+        MessageContent::MultiModal(parts) => parts.extend(extra_parts),
+        _ => {}
+    }
+}
+
+fn tool_message_from_part(part: ContentPart) -> ChatMessage {
+    ChatMessage {
+        role: MessageRole::Tool,
+        content: MessageContent::MultiModal(vec![part]),
+        provider_options: ProviderOptionsMap::default(),
+        metadata: MessageMetadata::default(),
+    }
+}
+
+fn input_available_context(
+    tool_call_id: &str,
+    input: &Value,
+    step_input_messages: &[ChatMessage],
+    context: &super::types::OrchestratorContext,
+) -> ToolInputAvailableContext {
+    ToolInputAvailableContext {
+        tool_call_id: tool_call_id.to_string(),
+        input: input.clone(),
+        messages: step_input_messages.to_vec(),
+        context: context.as_map().clone(),
     }
 }
 
@@ -44,7 +146,7 @@ fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> ToolChoice {
 ///
 /// Returns a tuple of (final ChatResponse, all StepResults)
 pub async fn generate(
-    model: &impl ChatCapability,
+    model: &impl LanguageModel,
     messages: Vec<ChatMessage>,
     tools: Option<Vec<Tool>>,
     resolver: Option<&dyn ToolResolver>,
@@ -52,17 +154,34 @@ pub async fn generate(
     opts: OrchestratorOptions,
 ) -> Result<(ChatResponse, Vec<StepResult>), LlmError> {
     // Initialize telemetry if enabled
+    let call_id = uuid::Uuid::new_v4().to_string();
     let trace_id = uuid::Uuid::new_v4().to_string();
     let span_id = uuid::Uuid::new_v4().to_string();
     let start_time = std::time::SystemTime::now();
 
     let mut history = messages;
     let mut steps: Vec<StepResult> = Vec::new();
+    let mut current_context = opts.context.clone();
+    let mut pending_deferred_tool_calls: HashSet<String> = HashSet::new();
     let max_steps = if opts.max_steps == 0 {
         1
     } else {
         opts.max_steps
     };
+
+    let preprocessed_approvals = preprocess_tool_approval_responses(
+        &history,
+        resolver,
+        &current_context,
+        opts.on_preliminary_tool_result.as_deref(),
+    )
+    .await?;
+    if let Some(message) = preprocessed_approvals.local_tool_message {
+        history.push(message);
+    }
+    if let Some(message) = preprocessed_approvals.provider_forward_message {
+        history.push(message);
+    }
 
     if let Some(ref telemetry) = opts.telemetry {
         if telemetry.enabled {
@@ -87,14 +206,24 @@ pub async fn generate(
         let mut current_tool_choice: Option<ToolChoice> = None;
         let mut current_system: Option<String> = None;
         let mut current_provider_options_map: Option<ProviderOptionsMap> = None;
+        let mut step_model_override: Option<StepLanguageModel> = None;
 
         if let Some(ref prepare_fn) = opts.prepare_step {
             let ctx = PrepareStepContext {
                 step_number: step_idx,
                 steps: &steps,
+                model,
                 messages: &history,
+                context: &current_context,
             };
             let prepare_result = prepare_fn(ctx);
+            if let Some(model_override) = prepare_result.model {
+                step_model_override = Some(model_override);
+            }
+
+            if let Some(context) = prepare_result.context {
+                current_context = context;
+            }
 
             // Apply prepare_step overrides
             if let Some(active_tools) = prepare_result.active_tools {
@@ -123,6 +252,12 @@ pub async fn generate(
             }
         }
 
+        let step_model = step_model_override
+            .as_deref()
+            .map(|model| model as &dyn LanguageModel)
+            .unwrap_or(model);
+        let step_input_messages = current_messages.clone();
+
         // Apply system message override if provided
         if let Some(system) = current_system {
             // Prepend system message to the beginning
@@ -149,16 +284,139 @@ pub async fn generate(
             request.provider_options_map.merge_overrides(map);
         }
 
-        let resp = siumai::text::generate(model, request, siumai::text::GenerateOptions::default())
-            .await?;
+        request.telemetry = opts.telemetry.clone();
+        let step_request = request.clone();
+
+        let mut resp = siumai::text::generate(
+            step_model,
+            request,
+            siumai::text::GenerateOptions::default(),
+        )
+        .await?;
+        annotate_response_tool_calls(&mut resp, resolver);
 
         let mut step_msgs: Vec<ChatMessage> = Vec::new();
-        // Build assistant message; include tool_calls if present
-        let _assistant_text = resp
-            .content_text()
-            .map(|s| s.to_string())
-            .unwrap_or_default();
-        // The response content already contains tool calls, so we just use it directly
+        let mut pending_tool_messages: Vec<ChatMessage> = Vec::new();
+        let mut assistant_extra_parts: Vec<ContentPart> = Vec::new();
+
+        // Execute tools if requested
+        let tool_calls: Vec<_> = resp.tool_calls().into_iter().cloned().collect();
+        let client_tool_calls = client_tool_call_count(&tool_calls);
+        if !tool_calls.is_empty() {
+            if let Some(resolver) = resolver {
+                for call in tool_calls.iter() {
+                    if let ContentPart::ToolCall {
+                        tool_call_id,
+                        tool_name,
+                        arguments,
+                        provider_executed,
+                        dynamic,
+                        ..
+                    } = call
+                    {
+                        if provider_executed == &Some(true) {
+                            continue;
+                        }
+
+                        let declared_tool =
+                            find_declared_tool(current_tools.as_deref(), tool_name.as_str());
+                        let runtime_metadata = resolver.runtime_tool_metadata(tool_name.as_str());
+
+                        if declared_tool.is_none() && runtime_metadata.is_none() {
+                            continue;
+                        }
+
+                        if let Some(Tool::Function { function }) = declared_tool {
+                            if let Err(reason) =
+                                validate_args_with_schema(&function.parameters, arguments)
+                            {
+                                let out_val = Value::Object({
+                                    let mut m = serde_json::Map::new();
+                                    m.insert("error".into(), Value::String("invalid_args".into()));
+                                    m.insert("reason".into(), Value::String(reason));
+                                    m
+                                });
+                                let tool_msg = ChatMessage::tool_error_json(
+                                    tool_call_id.clone(),
+                                    tool_name.clone(),
+                                    out_val,
+                                )
+                                .build();
+                                pending_tool_messages.push(tool_msg);
+                                continue;
+                            }
+                        }
+
+                        if let Some(metadata) = runtime_metadata.as_ref() {
+                            metadata
+                                .invoke_on_input_available(input_available_context(
+                                    tool_call_id,
+                                    arguments,
+                                    &step_input_messages,
+                                    &current_context,
+                                ))
+                                .await?;
+                        }
+
+                        let approval_required = if let Some(metadata) = runtime_metadata.as_ref() {
+                            metadata
+                                .needs_approval(input_available_context(
+                                    tool_call_id,
+                                    arguments,
+                                    &step_input_messages,
+                                    &current_context,
+                                ))
+                                .await?
+                        } else {
+                            false
+                        };
+
+                        if approval_required && opts.on_tool_approval.is_none() {
+                            assistant_extra_parts.push(ContentPart::tool_approval_request(
+                                format!("approval_{}", uuid::Uuid::new_v4()),
+                                tool_call_id.clone(),
+                            ));
+                            continue;
+                        }
+
+                        let decision = if let Some(cb) = &opts.on_tool_approval {
+                            cb(tool_name, arguments)
+                        } else {
+                            ToolApproval::Approve(arguments.clone())
+                        };
+                        let tool_dynamic = (*dynamic)
+                            .or_else(|| runtime_metadata.as_ref().map(ToolRuntimeMetadata::dynamic))
+                            .unwrap_or(false);
+                        let out_part = match decision {
+                            ToolApproval::Approve(args) | ToolApproval::Modify(args) => {
+                                execute_local_tool_call(
+                                    resolver,
+                                    tool_name,
+                                    tool_call_id,
+                                    args,
+                                    tool_dynamic,
+                                    &current_context,
+                                    opts.on_preliminary_tool_result.as_deref(),
+                                )
+                                .await
+                            }
+                            ToolApproval::Deny { reason } => execution_denied_tool_result(
+                                tool_call_id,
+                                tool_name,
+                                arguments.clone(),
+                                Some(reason),
+                                tool_dynamic,
+                                None,
+                            ),
+                        };
+                        pending_tool_messages.push(tool_message_from_part(out_part));
+                    }
+                }
+            }
+        }
+
+        append_response_parts(&mut resp, assistant_extra_parts);
+
         let assistant_built = ChatMessage {
             role: MessageRole::Assistant,
             content: resp.content.clone(),
@@ -167,136 +425,41 @@ pub async fn generate(
         };
         history.push(assistant_built.clone());
         step_msgs.push(assistant_built);
-
-        // Execute tools if requested
-        let tool_calls: Vec<_> = resp.tool_calls().into_iter().cloned().collect();
-        if !tool_calls.is_empty() {
-            if let Some(resolver) = resolver {
-                for call in tool_calls.iter() {
-                    if let ContentPart::ToolCall {
-                        tool_call_id,
-                        tool_name,
-                        arguments,
-                        ..
-                    } = call
-                    {
-                        if let Some(ts) = current_tools.as_ref().and_then(|ts| {
-                            ts.iter().find(|t| match t {
-                                Tool::Function { function } => &function.name == tool_name,
-                                Tool::ProviderDefined(provider_tool) => {
-                                    &provider_tool.name == tool_name
-                                }
-                            })
-                        }) {
-                            let parameters = match ts {
-                                Tool::Function { function } => &function.parameters,
-                                Tool::ProviderDefined(_) => {
-                                    // Provider-defined tools don't have parameters schema
-                                    // Skip validation for them
-                                    continue;
-                                }
-                            };
-                            if let Err(reason) = validate_args_with_schema(parameters, arguments) {
-                                let out_val = Value::Object({
-                                    let mut m = serde_json::Map::new();
-                                    m.insert("error".into(), Value::String("invalid_args".into()));
-                                    m.insert("reason".into(), Value::String(reason));
-                                    m
-                                });
-                                let tool_msg = ChatMessage::tool_error(
-                                    tool_call_id.clone(),
-                                    tool_name.clone(),
-                                    serde_json::to_string(&out_val).unwrap_or_default(),
-                                )
-                                .build();
-                                history.push(tool_msg.clone());
-                                step_msgs.push(tool_msg);
-                                continue;
-                            }
-                        }
-                        let decision = if let Some(cb) = &opts.on_tool_approval {
-                            cb(tool_name, arguments)
-                        } else {
-                            ToolApproval::Approve(arguments.clone())
-                        };
-                        let out_val = match decision {
-                            ToolApproval::Approve(args) | ToolApproval::Modify(args) => {
-                                // Use streaming tool execution
-                                match resolver.call_tool_stream(tool_name, args).await {
-                                    Ok(mut stream) => {
-                                        let mut final_output = None;
-
-                                        // Process stream
-                                        while let Some(result) = stream.next().await {
-                                            match result {
-                                                Ok(tool_result) => {
-                                                    if tool_result.is_preliminary() {
-                                                        // Call preliminary callback if provided
-                                                        if let Some(cb) =
-                                                            &opts.on_preliminary_tool_result
-                                                        {
-                                                            cb(
-                                                                tool_name,
-                                                                tool_call_id,
-                                                                tool_result.output(),
-                                                            );
-                                                        }
-                                                    } else {
-                                                        // Final result
-                                                        final_output =
-                                                            Some(tool_result.into_output());
-                                                    }
-                                                }
-                                                Err(e) => {
-                                                    // Error during streaming
-                                                    final_output = Some(Value::String(format!(
-                                                        "<tool error: {}>",
-                                                        e
-                                                    )));
-                                                    break;
-                                                }
-                                            }
-                                        }
-
-                                        final_output.unwrap_or_else(|| {
-                                            Value::String(
-                                                "<tool error: no final result>".to_string(),
-                                            )
-                                        })
-                                    }
-                                    Err(e) => Value::String(format!("<tool error: {}>", e)),
-                                }
-                            }
-                            ToolApproval::Deny { reason } => Value::Object({
-                                let mut m = serde_json::Map::new();
-                                m.insert("error".into(), Value::String("denied".into()));
-                                m.insert("reason".into(), Value::String(reason));
-                                m
-                            }),
-                        };
-                        // Tool message must carry tool_call_id
-                        let tool_msg = ChatMessage::tool_result_json(
-                            tool_call_id.clone(),
-                            tool_name.clone(),
-                            out_val,
-                        )
-                        .build();
-                        history.push(tool_msg.clone());
-                        step_msgs.push(tool_msg);
-                    }
-                }
-            }
+        for tool_msg in pending_tool_messages {
+            history.push(tool_msg.clone());
+            step_msgs.push(tool_msg);
         }
 
-        // Extract tool results from tool messages
-        let tool_results: Vec<ContentPart> = step_msgs
+        // Extract locally executed tool results from tool messages.
+        let local_tool_results: Vec<ContentPart> = step_msgs
             .iter()
             .filter(|msg| matches!(msg.role, MessageRole::Tool))
             .flat_map(|msg| msg.tool_results())
             .cloned()
             .collect();
+        let tool_results = merge_step_tool_results(&resp, &local_tool_results);
+        update_pending_deferred_tool_calls(
+            &mut pending_deferred_tool_calls,
+            current_tools.as_deref(),
+            &tool_calls,
+            &tool_results,
+        );
+        let step_content = StepResult::compose_content(&resp, &tool_results);
 
         let step = StepResult {
+            call_id: call_id.clone(),
+            step_number: step_idx,
+            model: StepModelInfo::from_language_model(step_model),
+            request: step_request,
+            response: resp.clone(),
+            raw_finish_reason: resp.raw_finish_reason.clone(),
+            function_id: opts
+                .telemetry
+                .as_ref()
+                .and_then(|telemetry| telemetry.function_id.clone()),
+            metadata: telemetry_metadata_values(opts.telemetry.as_ref()),
+            context: current_context.clone(),
+            content: step_content,
             messages: step_msgs,
             finish_reason: resp.finish_reason.clone(),
             usage: resp.usage.clone(),
@@ -313,9 +476,20 @@ pub async fn generate(
         // Check stop conditions
         let should_stop = stop_conditions.iter().any(|c| c.should_stop(&steps));
 
-        if should_stop || tool_calls.is_empty() {
+        let can_continue_tool_loop = should_continue_after_tool_step(
+            resolver.is_some(),
+            client_tool_calls,
+            local_tool_results.len(),
+            &pending_deferred_tool_calls,
+        );
+
+        if should_stop || !can_continue_tool_loop {
             if let Some(cb) = &opts.on_finish {
-                cb(&steps);
+                if let Some(event) =
+                    OrchestratorFinishEvent::from_response_and_steps(resp.clone(), steps.clone())
+                {
+                    cb(&event);
+                }
             }
 
             emit_telemetry_success(
@@ -343,7 +517,11 @@ pub async fn generate(
             .unwrap_or_default();
         let resp = ChatResponse::new(MessageContent::Text(content));
         if let Some(cb) = &opts.on_finish {
-            cb(&steps);
+            if let Some(event) =
+                OrchestratorFinishEvent::from_response_and_steps(resp.clone(), steps.clone())
+            {
+                cb(&event);
+            }
         }
 
         emit_telemetry_max_steps(&opts.telemetry, &span_id, &trace_id, &steps, start_time).await;

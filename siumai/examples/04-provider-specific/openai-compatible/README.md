@@ -61,6 +61,8 @@ shared compat runtime without inventing a provider-owned client package.
 #### Moonshot (Kimi)
 
 Moonshot is documented here as an OpenAI-compatible preset story.
+The canonical built-in compat id is `moonshotai`; legacy `moonshot` remains a hidden
+migration alias only.
 
 Examples:
 
@@ -139,7 +141,7 @@ cargo run --example moonshot-basic --features openai
 
 ## Moonshot Notes
 
-Moonshot is strong in long-context and Chinese/English bilingual workflows.
+MoonshotAI is strong in long-context and Chinese/English bilingual workflows.
 
 Typical examples in this directory cover:
 
@@ -147,6 +149,7 @@ Typical examples in this directory cover:
 - tool calling
 - bilingual prompts
 - config-first compat construction
+- canonical `moonshotai` provider-id wiring on the shared OpenAI-compatible runtime
 
 ## Model Selection Notes
 
@@ -154,7 +157,7 @@ Typical Moonshot model examples include:
 
 | Model | Context window | Best for |
 |---|---:|---|
-| `kimi-k2-0905-preview` | 256K | latest features, agentic coding, long context |
+| `kimi-k2-0905` | 256K | latest features, agentic coding, long context |
 | `moonshot-v1-128k` | 128K | long documents and research |
 | `moonshot-v1-32k` | 32K | long articles and conversations |
 | `moonshot-v1-8k` | 8K | short chats and quick tasks |

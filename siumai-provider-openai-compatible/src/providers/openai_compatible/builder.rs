@@ -453,6 +453,7 @@ impl OpenAiCompatibleBuilder {
     /// - DeepSeek: Uses `reasoning_content` field for thinking output
     /// - OpenRouter: Passes through to underlying model's reasoning capabilities
     /// - SiliconFlow: Maps to `enable_thinking` parameter
+    /// - MoonshotAI: Maps to `thinking.type`
     ///
     /// # Arguments
     /// * `enable` - Whether to enable reasoning output
@@ -482,6 +483,19 @@ impl OpenAiCompatibleBuilder {
                     serde_json::Value::Bool(enable),
                 );
             }
+            "moonshot" | "moonshotai" => {
+                let mut thinking = self
+                    .provider_specific_config
+                    .remove("thinking")
+                    .and_then(|value| value.as_object().cloned())
+                    .unwrap_or_default();
+                thinking.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(if enable { "enabled" } else { "disabled" }.into()),
+                );
+                self.provider_specific_config
+                    .insert("thinking".to_string(), serde_json::Value::Object(thinking));
+            }
             "deepseek" | "openrouter" => {
                 // DeepSeek and OpenRouter use "enable_reasoning"
                 self.provider_specific_config.insert(
@@ -507,6 +521,7 @@ impl OpenAiCompatibleBuilder {
     /// - SiliconFlow: Maps to `thinking_budget` parameter
     /// - DeepSeek: Ignored (uses boolean reasoning mode)
     /// - OpenRouter: Passed through to underlying model
+    /// - MoonshotAI: Maps to `thinking.budget_tokens` and enables thinking
     ///
     /// # Arguments
     /// * `budget` - Number of tokens for reasoning (128-32768)
@@ -541,6 +556,23 @@ impl OpenAiCompatibleBuilder {
                 // Also enable thinking when budget is set
                 self.provider_specific_config
                     .insert("enable_thinking".to_string(), serde_json::Value::Bool(true));
+            }
+            "moonshot" | "moonshotai" => {
+                let mut thinking = self
+                    .provider_specific_config
+                    .remove("thinking")
+                    .and_then(|value| value.as_object().cloned())
+                    .unwrap_or_default();
+                thinking.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("enabled".to_string()),
+                );
+                thinking.insert(
+                    "budget_tokens".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
+                );
+                self.provider_specific_config
+                    .insert("thinking".to_string(), serde_json::Value::Object(thinking));
             }
             "deepseek" | "openrouter" => {
                 // DeepSeek and OpenRouter: store budget but mainly use boolean mode
@@ -584,6 +616,7 @@ impl OpenAiCompatibleBuilder {
             provider_config.api_key_env.as_deref(),
             &provider_config.api_key_env_aliases,
         )?;
+        let canonical_provider_id = provider_config.id.clone();
         let mut adapter: Box<dyn crate::providers::openai_compatible::ProviderAdapter> = Box::new(
             crate::standards::openai::compat::provider_registry::ConfigurableAdapter::new(
                 provider_config,
@@ -606,7 +639,7 @@ impl OpenAiCompatibleBuilder {
         );
 
         let mut config = crate::providers::openai_compatible::OpenAiCompatibleConfig::new(
-            &self.provider_id,
+            &canonical_provider_id,
             &api_key,
             &base_url,
             adapter,
@@ -614,10 +647,10 @@ impl OpenAiCompatibleBuilder {
 
         let effective_model_raw = crate::utils::builder_helpers::get_effective_model(
             &self.common_params.model,
-            &self.provider_id,
+            &canonical_provider_id,
         );
         let effective_model = crate::utils::builder_helpers::normalize_model_id(
-            &self.provider_id,
+            &canonical_provider_id,
             &effective_model_raw,
         );
 
@@ -798,7 +831,7 @@ mod tests {
             raw.get("test_field").map(|value| {
                 std::collections::HashMap::from([(
                     "test-provider".to_string(),
-                    std::collections::HashMap::from([("value".to_string(), value.clone())]),
+                    serde_json::json!({ "value": value }),
                 )])
             })
         });

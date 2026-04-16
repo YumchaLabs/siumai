@@ -628,7 +628,7 @@ pub(super) fn serialize_event(
             return Ok(Vec::new());
         };
         let Some(mut custom_event) =
-            part.to_custom_event(crate::streaming::StreamPartNamespace::OpenAi)
+            part.to_protocol_custom_event(crate::streaming::StreamPartNamespace::OpenAi)
         else {
             return Ok(Vec::new());
         };

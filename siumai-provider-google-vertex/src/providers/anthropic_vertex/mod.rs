@@ -2,6 +2,7 @@ pub mod builder;
 pub mod client;
 pub mod context;
 pub mod ext;
+pub mod models;
 pub mod spec;
 
 pub use crate::provider_options::anthropic_vertex::{

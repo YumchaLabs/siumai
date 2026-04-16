@@ -25,7 +25,7 @@ use crate::registry::entry::ProviderFactory;
 /// - auto_middleware: true (automatically add model-specific middlewares)
 /// - Built-in provider factories registered for common providers
 ///   (OpenAI, Azure OpenAI, Anthropic, Anthropic Vertex, Gemini, Groq, xAI, Ollama,
-///   MiniMaxi, and all OpenAI-compatible providers)
+///   MiniMaxi, DeepSeek, DeepInfra, and all OpenAI-compatible providers)
 #[cfg(feature = "builtins")]
 pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
     // Register built-in provider factories for the handle-level registry.
@@ -161,6 +161,15 @@ pub fn create_registry_with_defaults() -> ProviderRegistryHandle {
         providers.insert(
             ids::DEEPSEEK.to_string(),
             Arc::new(crate::registry::factories::DeepSeekProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+    }
+
+    #[cfg(feature = "deepinfra")]
+    {
+        providers.insert(
+            ids::DEEPINFRA.to_string(),
+            Arc::new(crate::registry::factories::DeepInfraProviderFactory)
                 as Arc<dyn ProviderFactory>,
         );
     }

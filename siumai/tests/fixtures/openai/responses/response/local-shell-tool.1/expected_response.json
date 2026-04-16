@@ -17,6 +17,7 @@
         "toolCallId": "call_XWgeTylovOiS8xLNz2TONOgO",
         "toolName": "shell",
         "input": "{\"action\":{\"type\":\"exec\",\"command\":[\"ls\"],\"working_directory\":\"/root\",\"env\":{}}}",
+        "dynamic": true,
         "providerMetadata": {
           "openai": {
             "itemId": "lsh_68da74abdaec819c9aa19c124308f4600fdbc19a07110799"

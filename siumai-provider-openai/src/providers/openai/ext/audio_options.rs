@@ -6,12 +6,15 @@
 
 use crate::error::LlmError;
 use crate::types::CustomProviderOptions;
+use serde::{Deserialize, Serialize};
 
 /// OpenAI-specific options for TTS requests.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OpenAiTtsOptions {
     /// Optional TTS instructions.
     pub instructions: Option<String>,
+    /// Optional TTS speed override.
+    pub speed: Option<f32>,
 }
 
 impl OpenAiTtsOptions {
@@ -21,6 +24,11 @@ impl OpenAiTtsOptions {
 
     pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
+        self
+    }
+
+    pub const fn with_speed(mut self, speed: f32) -> Self {
+        self.speed = Some(speed);
         self
     }
 
@@ -42,16 +50,21 @@ impl CustomProviderOptions for OpenAiTtsOptions {
                 serde_json::Value::String(v.to_string()),
             );
         }
+        if let Some(v) = self.speed {
+            obj.insert("speed".to_string(), serde_json::json!(v));
+        }
         Ok(serde_json::Value::Object(obj))
     }
 }
 
 /// OpenAI-specific options for STT requests.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OpenAiSttOptions {
     pub response_format: Option<String>,
     pub prompt: Option<String>,
     pub temperature: Option<f64>,
+    pub language: Option<String>,
+    pub timestamp_granularities: Option<Vec<String>>,
     pub chunking_strategy: Option<String>,
     pub include: Option<Vec<String>>,
     pub known_speaker_names: Option<Vec<String>>,
@@ -77,6 +90,16 @@ impl OpenAiSttOptions {
 
     pub fn with_temperature(mut self, temperature: f64) -> Self {
         self.temperature = Some(temperature);
+        self
+    }
+
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = Some(language.into());
+        self
+    }
+
+    pub fn with_timestamp_granularities(mut self, granularities: Vec<String>) -> Self {
+        self.timestamp_granularities = Some(granularities);
         self
     }
 
@@ -120,7 +143,7 @@ impl CustomProviderOptions for OpenAiSttOptions {
 
         if let Some(v) = self.response_format.as_deref() {
             obj.insert(
-                "response_format".to_string(),
+                "responseFormat".to_string(),
                 serde_json::Value::String(v.to_string()),
             );
         }
@@ -133,9 +156,18 @@ impl CustomProviderOptions for OpenAiSttOptions {
         if let Some(v) = self.temperature {
             obj.insert("temperature".to_string(), serde_json::json!(v));
         }
+        if let Some(v) = self.language.as_deref() {
+            obj.insert(
+                "language".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
+        }
+        if let Some(v) = self.timestamp_granularities.as_ref() {
+            obj.insert("timestampGranularities".to_string(), serde_json::json!(v));
+        }
         if let Some(v) = self.chunking_strategy.as_deref() {
             obj.insert(
-                "chunking_strategy".to_string(),
+                "chunkingStrategy".to_string(),
                 serde_json::Value::String(v.to_string()),
             );
         }
@@ -143,15 +175,51 @@ impl CustomProviderOptions for OpenAiSttOptions {
             obj.insert("include".to_string(), serde_json::json!(v));
         }
         if let Some(v) = self.known_speaker_names.as_ref() {
-            obj.insert("known_speaker_names".to_string(), serde_json::json!(v));
+            obj.insert("knownSpeakerNames".to_string(), serde_json::json!(v));
         }
         if let Some(v) = self.known_speaker_references.as_ref() {
-            obj.insert("known_speaker_references".to_string(), serde_json::json!(v));
+            obj.insert("knownSpeakerReferences".to_string(), serde_json::json!(v));
         }
         if let Some(v) = self.stream {
             obj.insert("stream".to_string(), serde_json::Value::Bool(v));
         }
 
         Ok(serde_json::Value::Object(obj))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tts_options_serialize_speed_and_instructions() {
+        let value = OpenAiTtsOptions::new()
+            .with_instructions("speak slowly")
+            .with_speed(1.25)
+            .to_json()
+            .expect("tts options serialize");
+
+        assert_eq!(value["instructions"], serde_json::json!("speak slowly"));
+        assert_eq!(value["speed"], serde_json::json!(1.25));
+    }
+
+    #[test]
+    fn stt_options_serialize_ai_sdk_style_keys() {
+        let value = OpenAiSttOptions::new()
+            .with_response_format("verbose_json")
+            .with_language("en")
+            .with_timestamp_granularities(vec!["word".to_string(), "segment".to_string()])
+            .with_chunking_strategy("auto")
+            .to_json()
+            .expect("stt options serialize");
+
+        assert_eq!(value["responseFormat"], serde_json::json!("verbose_json"));
+        assert_eq!(value["language"], serde_json::json!("en"));
+        assert_eq!(
+            value["timestampGranularities"],
+            serde_json::json!(["word", "segment"])
+        );
+        assert_eq!(value["chunkingStrategy"], serde_json::json!("auto"));
     }
 }

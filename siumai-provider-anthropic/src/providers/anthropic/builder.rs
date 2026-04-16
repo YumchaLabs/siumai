@@ -2,8 +2,8 @@ use super::client::AnthropicClient;
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::params::AnthropicParams;
 use crate::provider_options::anthropic::{
-    AnthropicContainerConfig, AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode,
-    ThinkingModeConfig,
+    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort, AnthropicOptions,
+    AnthropicStructuredOutputMode, ThinkingModeConfig,
 };
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmError};
@@ -308,7 +308,10 @@ impl AnthropicBuilder {
     }
 
     /// Set Anthropic default context-management options on the focused builder surface.
-    pub fn with_anthropic_context_management(self, context_management: serde_json::Value) -> Self {
+    pub fn with_anthropic_context_management(
+        self,
+        context_management: AnthropicContextManagementConfig,
+    ) -> Self {
         self.with_anthropic_options(
             AnthropicOptions::new().with_context_management(context_management),
         )

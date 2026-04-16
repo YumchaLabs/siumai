@@ -13,7 +13,8 @@
               "value": {
                 "output": "ok"
               }
-            }
+            },
+            "dynamic": true
           }
         ]
       },

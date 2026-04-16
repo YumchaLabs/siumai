@@ -86,6 +86,96 @@ async fn indexed_text_delta_emits_runtime_text_part() {
 }
 
 #[tokio::test]
+async fn message_start_raw_chunk_follows_stream_start_before_response_metadata() {
+    let converter =
+        AnthropicEventConverter::new(create_test_config()).with_include_raw_chunks(true);
+
+    let result = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_test","model":"claude-test","role":"assistant","usage":{"input_tokens":1,"output_tokens":0}}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let parts: Vec<_> = result
+        .into_iter()
+        .map(|event| event.expect("stream event"))
+        .filter_map(|event| match event {
+            ChatStreamEvent::Part { part } => Some(part),
+            _ => None,
+        })
+        .collect();
+
+    assert!(matches!(
+        parts.first(),
+        Some(ChatStreamPart::StreamStart { .. })
+    ));
+    match parts.get(1).expect("raw part") {
+        ChatStreamPart::Raw { raw_value } => {
+            assert_eq!(raw_value["type"], serde_json::json!("message_start"));
+        }
+        other => panic!("expected raw part, got {other:?}"),
+    }
+    match parts.get(2).expect("response metadata part") {
+        ChatStreamPart::ResponseMetadata(metadata) => {
+            assert_eq!(metadata.id.as_deref(), Some("msg_test"));
+            assert_eq!(metadata.model.as_deref(), Some("claude-test"));
+        }
+        other => panic!("expected response metadata, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn invalid_json_raw_chunk_still_follows_stream_start_before_parse_error() {
+    let converter =
+        AnthropicEventConverter::new(create_test_config()).with_include_raw_chunks(true);
+
+    let result = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: "{ not json".to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    assert_eq!(result.len(), 4);
+    match result.first().expect("stream-start event") {
+        Ok(ChatStreamEvent::StreamStart { metadata }) => {
+            assert_eq!(metadata.id, None);
+            assert_eq!(metadata.model, None);
+            assert_eq!(metadata.provider, "anthropic");
+            assert!(metadata.created.is_some());
+        }
+        other => panic!("expected stream-start event, got {other:?}"),
+    }
+    match result.get(1).expect("stream-start part") {
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::StreamStart { warnings },
+        }) => assert!(warnings.is_empty()),
+        other => panic!("expected stream-start part, got {other:?}"),
+    }
+    match result.get(2).expect("raw part") {
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::Raw { raw_value },
+        }) => assert_eq!(
+            raw_value,
+            &serde_json::Value::String("{ not json".to_string())
+        ),
+        other => panic!("expected raw part, got {other:?}"),
+    }
+    match result.get(3).expect("parse error") {
+        Err(crate::error::LlmError::ParseError(message)) => {
+            assert!(message.contains("Failed to parse Anthropic event"));
+        }
+        other => panic!("expected parse error, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn test_anthropic_streaming_error_event_is_exposed() {
     let config = create_test_config();
     let converter = AnthropicEventConverter::new(config);
@@ -240,10 +330,371 @@ async fn test_anthropic_stream_finish_includes_context_management_provider_metad
     let cm = end
         .anthropic_metadata()
         .and_then(|meta| meta.context_management)
-        .unwrap_or(serde_json::Value::Null);
+        .expect("typed context management metadata");
+    assert_eq!(cm.applied_edits.len(), 1);
+    match &cm.applied_edits[0] {
+        crate::provider_metadata::anthropic::AnthropicContextManagementEdit::ClearToolUses20250919 {
+            cleared_tool_uses,
+            cleared_input_tokens,
+        } => {
+            assert_eq!(*cleared_tool_uses, 5);
+            assert_eq!(*cleared_input_tokens, 10000);
+        }
+        other => panic!("unexpected context-management edit: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_anthropic_stream_finish_replays_container_from_non_terminal_message_delta() {
+    let config = create_test_config();
+    let converter = AnthropicEventConverter::new(config);
+
+    let start = Event {
+        event: "".to_string(),
+        data: r#"{"type":"message_start","message":{"id":"msg_container","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let _ = converter.convert_event(start).await;
+
+    let delta = Event {
+        event: "".to_string(),
+        data: r#"{"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":null,"container":{"id":"container_123","expires_at":"2025-10-14T10:28:40.590791Z","skills":[{"type":"custom","skill_id":"skill_alpha","version":"1"}]}},"usage":{"input_tokens":1,"output_tokens":0}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let _ = converter.convert_event(delta).await;
+
+    let stop = Event {
+        event: "".to_string(),
+        data: r#"{"type":"message_stop"}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out = converter.convert_event(stop).await;
+
+    let finish = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                provider_metadata, ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .expect("expected finish part");
+    let finish_container = finish
+        .as_ref()
+        .and_then(|meta| meta.get("anthropic"))
+        .and_then(|meta| meta.get("container"))
+        .cloned()
+        .expect("finish container metadata");
+    assert_eq!(finish_container["id"], serde_json::json!("container_123"));
     assert_eq!(
-        cm["appliedEdits"][0]["clearedToolUses"],
-        serde_json::json!(5)
+        finish_container["expiresAt"],
+        serde_json::json!("2025-10-14T10:28:40.590791Z")
+    );
+    assert_eq!(
+        finish_container["skills"][0]["skillId"],
+        serde_json::json!("skill_alpha")
+    );
+
+    let end = out.iter().find_map(|r| match r.as_ref().ok() {
+        Some(ChatStreamEvent::StreamEnd { response }) => Some(response.clone()),
+        _ => None,
+    });
+    let end = end.expect("expected StreamEnd");
+    let container = end
+        .anthropic_metadata()
+        .and_then(|meta| meta.container)
+        .expect("container metadata");
+    assert_eq!(container.id.as_deref(), Some("container_123"));
+    assert_eq!(
+        container.expires_at.as_deref(),
+        Some("2025-10-14T10:28:40.590791Z")
+    );
+    let first_skill = container
+        .skills
+        .as_ref()
+        .and_then(|skills| skills.first())
+        .expect("first container skill");
+    assert_eq!(first_skill.r#type.as_deref(), Some("custom"));
+    assert_eq!(first_skill.skill_id.as_deref(), Some("skill_alpha"));
+    assert_eq!(first_skill.version.as_deref(), Some("1"));
+}
+
+#[tokio::test]
+async fn test_anthropic_message_delta_without_container_clears_message_start_container() {
+    let config = create_test_config();
+    let converter = AnthropicEventConverter::new(config);
+
+    let start = Event {
+        event: "".to_string(),
+        data: r#"{"type":"message_start","message":{"id":"msg_container_clear","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0},"container":{"id":"container_123","expires_at":"2025-10-14T10:28:40.590791Z","skills":[{"type":"custom","skill_id":"skill_alpha","version":"1"}]}}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let _ = converter.convert_event(start).await;
+
+    let delta = Event {
+        event: "".to_string(),
+        data: r#"{"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":null},"usage":{"input_tokens":1,"output_tokens":0}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let _ = converter.convert_event(delta).await;
+
+    let stop = Event {
+        event: "".to_string(),
+        data: r#"{"type":"message_stop"}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+    let out = converter.convert_event(stop).await;
+
+    let finish = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                provider_metadata, ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .expect("expected finish part");
+    assert!(
+        finish
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("container"))
+            .is_some_and(serde_json::Value::is_null),
+        "finish container should be cleared after message_delta without container"
+    );
+
+    let end = out.iter().find_map(|r| match r.as_ref().ok() {
+        Some(ChatStreamEvent::StreamEnd { response }) => Some(response.clone()),
+        _ => None,
+    });
+    let end = end.expect("expected StreamEnd");
+    assert!(
+        end.anthropic_metadata()
+            .and_then(|meta| meta.container)
+            .is_none(),
+        "stream end container metadata should be cleared"
+    );
+    assert!(
+        end.provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("anthropic"))
+            .and_then(|metadata| metadata.get("container"))
+            .is_some_and(serde_json::Value::is_null),
+        "stream end raw provider metadata should keep container: null"
+    );
+    assert!(
+        end.provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("anthropic"))
+            .and_then(|metadata| metadata.get("contextManagement"))
+            .is_some_and(serde_json::Value::is_null),
+        "stream end raw provider metadata should keep contextManagement: null"
+    );
+}
+
+#[tokio::test]
+async fn test_anthropic_stream_finish_replays_stop_sequence_from_non_terminal_message_delta() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_stop_seq","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":"STOP"},"usage":{"input_tokens":1,"output_tokens":0}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let out = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_stop"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let finish = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                provider_metadata, ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .expect("expected finish part");
+    assert_eq!(
+        finish
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("stopSequence")),
+        Some(&serde_json::json!("STOP"))
+    );
+
+    let end = out.iter().find_map(|r| match r.as_ref().ok() {
+        Some(ChatStreamEvent::StreamEnd { response }) => Some(response.clone()),
+        _ => None,
+    });
+    let end = end.expect("expected StreamEnd");
+    assert_eq!(
+        end.anthropic_metadata()
+            .and_then(|meta| meta.stop_sequence)
+            .as_deref(),
+        Some("STOP")
+    );
+}
+
+#[tokio::test]
+async fn custom_provider_key_duplicates_finish_and_stream_end_metadata() {
+    let converter = AnthropicEventConverter::new(create_test_config())
+        .with_provider_metadata_key("my-custom-anthropic.messages");
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_custom_stop_seq","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":"STOP"},"usage":{"input_tokens":1,"output_tokens":0}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let out = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_stop"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let finish = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                provider_metadata, ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .expect("expected finish part");
+    assert!(
+        finish
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .is_some()
+    );
+    assert_eq!(
+        finish
+            .as_ref()
+            .and_then(|meta| meta.get("my-custom-anthropic"))
+            .and_then(|meta| meta.get("stopSequence")),
+        Some(&serde_json::json!("STOP"))
+    );
+
+    let end = out.iter().find_map(|r| match r.as_ref().ok() {
+        Some(ChatStreamEvent::StreamEnd { response }) => Some(response.clone()),
+        _ => None,
+    });
+    let end = end.expect("expected StreamEnd");
+    assert_eq!(
+        end.anthropic_metadata_with_key("my-custom-anthropic")
+            .and_then(|meta| meta.stop_sequence)
+            .as_deref(),
+        Some("STOP")
+    );
+}
+
+#[tokio::test]
+async fn test_anthropic_message_delta_without_stop_sequence_clears_older_value() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_stop_seq_clear","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":"START","usage":{"input_tokens":0,"output_tokens":0}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":"STOP"},"usage":{"input_tokens":1,"output_tokens":0}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":null},"usage":{"input_tokens":2,"output_tokens":0}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let out = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_stop"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let finish = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                provider_metadata, ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .expect("expected finish part");
+    assert!(
+        finish
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("stopSequence"))
+            .is_some_and(serde_json::Value::is_null),
+        "finish stopSequence should be cleared after message_delta without stop_sequence"
+    );
+
+    let end = out.iter().find_map(|r| match r.as_ref().ok() {
+        Some(ChatStreamEvent::StreamEnd { response }) => Some(response.clone()),
+        _ => None,
+    });
+    let end = end.expect("expected StreamEnd");
+    assert!(
+        end.anthropic_metadata()
+            .and_then(|meta| meta.stop_sequence)
+            .is_none(),
+        "stream end stop_sequence should be cleared"
     );
 }
 
@@ -254,7 +705,7 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     let _ = converter
         .convert_event(Event {
             event: "".to_string(),
-            data: r#"{"type":"message_start","message":{"id":"msg_usage","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":17,"output_tokens":0,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"service_tier":"standard","server_tool_use":{"web_search_requests":2}}}}"#.to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_usage","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":17,"output_tokens":0,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","service_tier":"standard","server_tool_use":{"web_search_requests":2},"iterations":[{"type":"compaction","input_tokens":6,"output_tokens":1},{"type":"message","input_tokens":11,"output_tokens":0}]}}}"#.to_string(),
             id: "".to_string(),
             retry: None,
         })
@@ -263,11 +714,35 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     let out = converter
         .convert_event(Event {
             event: "".to_string(),
-            data: r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":17,"output_tokens":1,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"service_tier":"standard","server_tool_use":{"web_search_requests":2}}}"#.to_string(),
+            data: r#"{"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":17,"output_tokens":1,"cache_creation_input_tokens":10,"cache_read_input_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":0},"inference_geo":"not_available","service_tier":"standard","server_tool_use":{"web_search_requests":2},"iterations":[{"type":"compaction","input_tokens":6,"output_tokens":1},{"type":"message","input_tokens":11,"output_tokens":1}]}}"#.to_string(),
             id: "".to_string(),
             retry: None,
         })
         .await;
+
+    let finish = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                provider_metadata, ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .expect("expected finish part");
+    assert_eq!(
+        finish
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.pointer("/iterations/0/inputTokens")),
+        Some(&serde_json::json!(6))
+    );
+    assert_eq!(
+        finish
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.pointer("/iterations/1/outputTokens")),
+        Some(&serde_json::json!(1))
+    );
 
     let end = out.iter().find_map(|r| match r.as_ref().ok() {
         Some(ChatStreamEvent::StreamEnd { response }) => Some(response.clone()),
@@ -281,8 +756,38 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     assert_eq!(
         usage
             .prompt_tokens_details
+            .as_ref()
             .and_then(|details| details.cached_tokens),
         Some(5)
+    );
+    assert_eq!(
+        usage.raw_usage_value(),
+        Some(serde_json::json!({
+            "input_tokens": 17,
+            "output_tokens": 1,
+            "cache_creation_input_tokens": 10,
+            "cache_read_input_tokens": 5,
+            "cache_creation": {
+                "ephemeral_5m_input_tokens": 0
+            },
+            "inference_geo": "not_available",
+            "service_tier": "standard",
+            "server_tool_use": {
+                "web_search_requests": 2
+            },
+            "iterations": [
+                {
+                    "type": "compaction",
+                    "input_tokens": 6,
+                    "output_tokens": 1
+                },
+                {
+                    "type": "message",
+                    "input_tokens": 11,
+                    "output_tokens": 1
+                }
+            ]
+        }))
     );
     assert_eq!(end.service_tier.as_deref(), Some("standard"));
 
@@ -292,9 +797,18 @@ async fn test_anthropic_stream_finish_preserves_extended_usage_fields() {
     assert_eq!(meta.service_tier.as_deref(), Some("standard"));
     assert_eq!(
         meta.server_tool_use
+            .as_ref()
             .and_then(|usage| usage.web_search_requests),
         Some(2)
     );
+    let iterations = meta.iterations.as_ref().expect("iterations");
+    assert_eq!(iterations.len(), 2);
+    assert_eq!(iterations[0].r#type, "compaction");
+    assert_eq!(iterations[0].input_tokens, 6);
+    assert_eq!(iterations[0].output_tokens, 1);
+    assert_eq!(iterations[1].r#type, "message");
+    assert_eq!(iterations[1].input_tokens, 11);
+    assert_eq!(iterations[1].output_tokens, 1);
     assert_eq!(
         meta.usage
             .as_ref()
@@ -481,6 +995,297 @@ async fn thinking_blocks_emit_runtime_reasoning_parts() {
 }
 
 #[tokio::test]
+async fn compaction_blocks_emit_runtime_text_parts_with_provider_metadata() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let start = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data:
+                r#"{"type":"content_block_start","index":0,"content_block":{"type":"compaction"}}"#
+                    .to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+    match stream_part(start.first().expect("start event")).expect("text-start part") {
+        crate::streaming::LanguageModelV3StreamPart::TextStart {
+            id,
+            provider_metadata,
+        } => {
+            assert_eq!(id, "0");
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("anthropic"))
+                    .and_then(|meta| meta.get("type")),
+                Some(&serde_json::json!("compaction"))
+            );
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("anthropic"))
+                    .and_then(|meta| meta.get("contentBlockIndex")),
+                Some(&serde_json::json!(0))
+            );
+        }
+        other => panic!("expected TextStart part, got {other:?}"),
+    }
+
+    let delta = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_delta","index":0,"delta":{"type":"compaction_delta","content":"Condensed"}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+    match stream_part(delta.first().expect("delta event")).expect("text-delta part") {
+        crate::streaming::LanguageModelV3StreamPart::TextDelta {
+            id,
+            delta,
+            provider_metadata,
+        } => {
+            assert_eq!(id, "0");
+            assert_eq!(delta, "Condensed");
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("anthropic"))
+                    .and_then(|meta| meta.get("type")),
+                Some(&serde_json::json!("compaction"))
+            );
+        }
+        other => panic!("expected TextDelta part, got {other:?}"),
+    }
+
+    let end = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_stop","index":0}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+    match stream_part(end.first().expect("end event")).expect("text-end part") {
+        crate::streaming::LanguageModelV3StreamPart::TextEnd {
+            id,
+            provider_metadata,
+        } => {
+            assert_eq!(id, "0");
+            assert_eq!(
+                provider_metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("anthropic"))
+                    .and_then(|meta| meta.get("type")),
+                Some(&serde_json::json!("compaction"))
+            );
+        }
+        other => panic!("expected TextEnd part, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn compaction_text_is_accumulated_into_stream_end_content() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let events = [
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_compaction","model":"claude-test","type":"message","role":"assistant","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":0,"content_block":{"type":"compaction"}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_delta","index":0,"delta":{"type":"compaction_delta","content":"Condensed"}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_stop","index":0}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+        Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_stop"}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    ];
+
+    let mut stream_end = None;
+    for event in events {
+        let out = converter.convert_event(event).await;
+        if let Some(response) = out.into_iter().flatten().find_map(|event| match event {
+            ChatStreamEvent::StreamEnd { response } => Some(response),
+            _ => None,
+        }) {
+            stream_end = Some(response);
+            break;
+        }
+    }
+
+    let response = stream_end.expect("expected stream end");
+    assert_eq!(response.id.as_deref(), Some("msg_compaction"));
+    assert_eq!(response.content_text(), Some("Condensed"));
+}
+
+#[tokio::test]
+async fn message_start_preloaded_tool_use_emits_runtime_tool_parts_and_caller_metadata() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let out = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"message_start","message":{"id":"msg_preloaded","model":"claude-test","type":"message","role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"code_execution","input":{"code":"print(1)"},"caller":{"type":"server_tool_use","tool_id":"srvtoolu_1"}}],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    assert!(out.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ToolInputStart {
+                ref id,
+                ref tool_name,
+                ..
+            }) if id == "toolu_1" && tool_name == "code_execution"
+        )
+    }));
+
+    let input_delta = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::ToolInputDelta {
+                id,
+                delta,
+                provider_metadata,
+            }) if id == "toolu_1" => Some((delta, provider_metadata)),
+            _ => None,
+        })
+        .expect("tool-input-delta");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&input_delta.0).expect("input delta json"),
+        serde_json::json!({ "code": "print(1)" })
+    );
+    assert_eq!(
+        input_delta
+            .1
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("contentBlockIndex")),
+        Some(&serde_json::json!(0))
+    );
+
+    let tool_call = out
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+                if call.tool_call_id == "toolu_1" =>
+            {
+                Some(call)
+            }
+            _ => None,
+        })
+        .expect("tool-call part");
+    assert_eq!(tool_call.tool_name, "code_execution");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&tool_call.input).expect("tool input json"),
+        serde_json::json!({ "code": "print(1)" })
+    );
+    assert_eq!(
+        tool_call
+            .provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("caller"))
+            .and_then(|caller| caller.get("type")),
+        Some(&serde_json::json!("server_tool_use"))
+    );
+    assert_eq!(
+        tool_call
+            .provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("caller"))
+            .and_then(|caller| caller.get("toolId")),
+        Some(&serde_json::json!("srvtoolu_1"))
+    );
+}
+
+#[tokio::test]
+async fn tool_use_blocks_preserve_caller_metadata_on_tool_call() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let _ = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"code_execution","input":{"code":"print(1)"},"caller":{"type":"server_tool_use","tool_id":"srvtoolu_1"}}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let end = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_stop","index":0}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    let tool_call = end
+        .iter()
+        .find_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::ToolCall(call))
+                if call.tool_call_id == "toolu_1" =>
+            {
+                Some(call)
+            }
+            _ => None,
+        })
+        .expect("tool-call part");
+    assert_eq!(tool_call.tool_name, "code_execution");
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&tool_call.input).expect("tool input json"),
+        serde_json::json!({ "code": "print(1)" })
+    );
+    assert_eq!(
+        tool_call
+            .provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("caller"))
+            .and_then(|caller| caller.get("type")),
+        Some(&serde_json::json!("server_tool_use"))
+    );
+    assert_eq!(
+        tool_call
+            .provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("anthropic"))
+            .and_then(|meta| meta.get("caller"))
+            .and_then(|caller| caller.get("toolId")),
+        Some(&serde_json::json!("srvtoolu_1"))
+    );
+}
+
+#[tokio::test]
 async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
     let config = create_test_config();
     let converter = AnthropicEventConverter::new(config);
@@ -601,14 +1406,14 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
                 source: crate::types::SourcePart::Url { url, title: _ },
                 provider_metadata,
             } => {
-                assert_eq!(id, "srvtoolu_1:0");
+                assert_eq!(id, "id-0");
                 assert_eq!(url, "https://www.rust-lang.org");
                 assert_eq!(
                     provider_metadata
                         .as_ref()
                         .and_then(|meta| meta.get("anthropic"))
-                        .and_then(|meta| meta.get("toolCallId")),
-                    Some(&serde_json::json!("srvtoolu_1"))
+                        .and_then(|meta| meta.get("pageAge")),
+                    Some(&serde_json::Value::Null)
                 );
             }
             other => panic!("Expected Source part, got {:?}", other),
@@ -828,6 +1633,89 @@ async fn emits_runtime_parts_for_provider_hosted_server_tool_use_and_results() {
             assert_eq!(result.result["return_code"], serde_json::json!(0));
         }
         other => panic!("Expected ToolResult part, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn marks_code_execution_dynamic_for_2026_web_tool_injection() {
+    let converter = AnthropicEventConverter::new(
+        create_test_config().with_tools(&[crate::tools::anthropic::web_search_20260209()]),
+    );
+
+    let evs = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_dyn","name":"code_execution","input":{"code":"print(1)"}}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    match stream_part(evs.first().unwrap()).expect("code_execution tool-input-start part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { dynamic, .. } => {
+            assert_eq!(dynamic, Some(true));
+        }
+        other => panic!("Expected ToolInputStart part, got {:?}", other),
+    }
+
+    let evs = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_stop","index":0}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    match stream_part(evs.get(1).unwrap()).expect("code_execution tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "srvtoolu_dyn");
+            assert_eq!(call.dynamic, Some(true));
+        }
+        other => panic!("Expected ToolCall part, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn explicit_code_execution_tool_disables_dynamic_marking_for_2026_web_tool_injection() {
+    let converter = AnthropicEventConverter::new(create_test_config().with_tools(&[
+        crate::tools::anthropic::web_fetch_20260209(),
+        crate::tools::anthropic::code_execution_20260120(),
+    ]));
+
+    let evs = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_start","index":0,"content_block":{"type":"server_tool_use","id":"srvtoolu_static","name":"code_execution","input":{"code":"print(1)"}}}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    match stream_part(evs.first().unwrap()).expect("code_execution tool-input-start part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { dynamic, .. } => {
+            assert_eq!(dynamic, None);
+        }
+        other => panic!("Expected ToolInputStart part, got {:?}", other),
+    }
+
+    let evs = converter
+        .convert_event(Event {
+            event: "".to_string(),
+            data: r#"{"type":"content_block_stop","index":0}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        })
+        .await;
+
+    match stream_part(evs.get(1).unwrap()).expect("code_execution tool-call part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolCall(call) => {
+            assert_eq!(call.tool_call_id, "srvtoolu_static");
+            assert_eq!(call.dynamic, None);
+        }
+        other => panic!("Expected ToolCall part, got {:?}", other),
     }
 }
 
@@ -1365,7 +2253,7 @@ async fn emits_source_event_for_citations_delta_with_document_location() {
                 provider_metadata,
             },
         ) => {
-            assert_eq!(id, "doc:0:page:1-1");
+            assert_eq!(id, "id-0");
             assert_eq!(media_type, "application/pdf");
             assert_eq!(title, "Doc A");
             assert_eq!(filename.as_deref(), Some("a.pdf"));
@@ -1419,6 +2307,7 @@ async fn accumulates_sources_into_stream_end_provider_metadata() {
                 .and_then(|meta| meta.sources)
                 .expect("sources array");
             assert_eq!(sources.len(), 1);
+            assert_eq!(sources[0].id, "id-0");
             assert_eq!(sources[0].source_type, "document");
             assert_eq!(sources[0].media_type.as_deref(), Some("application/pdf"));
             assert_eq!(sources[0].filename.as_deref(), Some("a.pdf"));
@@ -1534,6 +2423,7 @@ fn serializes_text_stream_events_to_anthropic_sse() {
                         .build(),
                 ),
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -1644,6 +2534,7 @@ fn serializes_blocks_in_order_and_closes_before_message_stop() {
                             .build(),
                     ),
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
@@ -1851,6 +2742,7 @@ fn serializes_interleaved_blocks_as_separate_monotonic_content_blocks() {
                             .build(),
                     ),
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
@@ -1960,6 +2852,7 @@ fn serializes_repeated_thinking_deltas_with_single_start_and_single_stop() {
                     content: MessageContent::Text(String::new()),
                     usage: None,
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
@@ -2033,6 +2926,7 @@ fn stream_end_clears_open_block_state_before_next_end() {
                 content: MessageContent::Text("hello".to_string()),
                 usage: None,
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -2050,6 +2944,7 @@ fn stream_end_clears_open_block_state_before_next_end() {
                 content: MessageContent::Text(String::new()),
                 usage: None,
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -2167,6 +3062,79 @@ fn serializes_runtime_part_to_anthropic_sse_without_custom_wrapper() {
 }
 
 #[test]
+fn serializes_runtime_compaction_text_parts_to_anthropic_sse() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let _ = converter
+        .serialize_event(&ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("msg_test".to_string()),
+                model: Some("claude-test".to_string()),
+                created: None,
+                provider: "anthropic".to_string(),
+                request_id: None,
+            },
+        })
+        .expect("serialize start");
+
+    let provider_metadata = Some(std::collections::HashMap::from([(
+        "anthropic".to_string(),
+        serde_json::json!({
+            "contentBlockIndex": 0,
+            "type": "compaction",
+        }),
+    )]));
+
+    let start_bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::TextStart {
+                id: "0".to_string(),
+                provider_metadata: provider_metadata.clone(),
+            },
+        })
+        .expect("serialize compaction text-start part");
+    let delta_bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "0".to_string(),
+                delta: "Condensed".to_string(),
+                provider_metadata: provider_metadata.clone(),
+            },
+        })
+        .expect("serialize compaction text-delta part");
+    let end_bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::TextEnd {
+                id: "0".to_string(),
+                provider_metadata,
+            },
+        })
+        .expect("serialize compaction text-end part");
+
+    let start_frames = parse_sse_json_frames(&start_bytes);
+    assert!(start_frames.iter().any(|v| {
+        v["type"] == "content_block_start"
+            && v["index"] == serde_json::json!(0)
+            && v["content_block"]["type"] == serde_json::json!("compaction")
+    }));
+
+    let delta_frames = parse_sse_json_frames(&delta_bytes);
+    assert!(delta_frames.iter().any(|v| {
+        v["type"] == "content_block_delta"
+            && v["index"] == serde_json::json!(0)
+            && v["delta"]["type"] == serde_json::json!("compaction_delta")
+            && v["delta"]["content"] == serde_json::json!("Condensed")
+    }));
+
+    let end_frames = parse_sse_json_frames(&end_bytes);
+    assert!(
+        end_frames
+            .iter()
+            .any(|v| { v["type"] == "content_block_stop" && v["index"] == serde_json::json!(0) })
+    );
+}
+
+#[test]
 fn serializes_runtime_tool_input_parts_to_anthropic_sse() {
     let converter = AnthropicEventConverter::new(create_test_config());
 
@@ -2232,6 +3200,61 @@ fn serializes_runtime_tool_input_parts_to_anthropic_sse() {
         end_frames
             .iter()
             .any(|v| v["type"] == serde_json::json!("content_block_stop"))
+    );
+}
+
+#[test]
+fn serializes_runtime_tool_call_part_with_caller_metadata_to_anthropic_sse() {
+    let converter = AnthropicEventConverter::new(create_test_config());
+
+    let _ = converter
+        .serialize_event(&ChatStreamEvent::StreamStart {
+            metadata: ResponseMetadata {
+                id: Some("msg_test".to_string()),
+                model: Some("claude-test".to_string()),
+                created: None,
+                provider: "anthropic".to_string(),
+                request_id: None,
+            },
+        })
+        .expect("serialize start");
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                tool_call_id: "toolu_1".to_string(),
+                tool_name: "code_execution".to_string(),
+                input: r#"{"code":"print(1)"}"#.to_string(),
+                provider_executed: None,
+                dynamic: None,
+                provider_metadata: Some(std::collections::HashMap::from([(
+                    "anthropic".to_string(),
+                    serde_json::json!({
+                        "contentBlockIndex": 0,
+                        "caller": {
+                            "type": "server_tool_use",
+                            "toolId": "srvtoolu_1"
+                        }
+                    }),
+                )])),
+            }),
+        })
+        .expect("serialize runtime tool-call part");
+
+    let frames = parse_sse_json_frames(&bytes);
+    assert!(frames.iter().any(|v| {
+        v["type"] == "content_block_start"
+            && v["index"] == serde_json::json!(0)
+            && v["content_block"]["type"] == serde_json::json!("tool_use")
+            && v["content_block"]["id"] == serde_json::json!("toolu_1")
+            && v["content_block"]["name"] == serde_json::json!("code_execution")
+            && v["content_block"]["caller"]["type"] == serde_json::json!("server_tool_use")
+            && v["content_block"]["caller"]["tool_id"] == serde_json::json!("srvtoolu_1")
+    }));
+    assert!(
+        frames
+            .iter()
+            .any(|v| { v["type"] == "content_block_stop" && v["index"] == serde_json::json!(0) })
     );
 }
 
@@ -2439,31 +3462,26 @@ fn serializes_stream_end_replays_extended_usage_fields_from_provider_metadata() 
                         .build(),
                 ),
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: Some("standard".to_string()),
                 warnings: None,
                 provider_metadata: Some(std::collections::HashMap::from([(
                     "anthropic".to_string(),
-                    std::collections::HashMap::from([
-                        (
-                            "usage".to_string(),
-                            serde_json::json!({
-                                "input_tokens": 17,
-                                "output_tokens": 1,
-                                "cache_creation_input_tokens": 10,
-                                "cache_read_input_tokens": 5,
-                                "service_tier": "standard",
-                                "server_tool_use": {
-                                    "web_search_requests": 2
-                                }
-                            }),
-                        ),
-                        (
-                            "cacheCreationInputTokens".to_string(),
-                            serde_json::json!(10),
-                        ),
-                    ]),
+                    serde_json::json!({
+                        "usage": {
+                            "input_tokens": 17,
+                            "output_tokens": 1,
+                            "cache_creation_input_tokens": 10,
+                            "cache_read_input_tokens": 5,
+                            "service_tier": "standard",
+                            "server_tool_use": {
+                                "web_search_requests": 2
+                            }
+                        },
+                        "cacheCreationInputTokens": 10
+                    }),
                 )])),
             },
         })
@@ -2505,6 +3523,7 @@ fn serializes_stream_end_does_not_synthesize_zero_usage_totals_when_unknown() {
                 content: MessageContent::Text(String::new()),
                 usage: Some(Usage::unknown()),
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: Some("standard".to_string()),

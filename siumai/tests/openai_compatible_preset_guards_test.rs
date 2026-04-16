@@ -18,29 +18,39 @@ fn compat_audio_preset_capability_matrix_matches_documented_policy() {
     assert!(
         provider_ids
             .iter()
-            .any(|provider_id| provider_id == "together")
+            .any(|provider_id| provider_id == "togetherai")
     );
     assert!(
         provider_ids
             .iter()
             .any(|provider_id| provider_id == "fireworks")
     );
+    assert!(
+        provider_ids
+            .iter()
+            .any(|provider_id| provider_id == "moonshotai")
+    );
+    assert!(
+        provider_ids
+            .iter()
+            .all(|provider_id| provider_id != "moonshot")
+    );
 
     let siliconflow = get_provider_config("siliconflow").expect("siliconflow provider config");
-    let together = get_provider_config("together").expect("together provider config");
+    let together = get_provider_config("togetherai").expect("togetherai provider config");
     let fireworks = get_provider_config("fireworks").expect("fireworks provider config");
 
     assert_eq!(siliconflow.id, "siliconflow");
-    assert_eq!(together.id, "together");
+    assert_eq!(together.id, "togetherai");
     assert_eq!(fireworks.id, "fireworks");
 
     assert!(provider_supports_capability("siliconflow", "speech"));
     assert!(provider_supports_capability("siliconflow", "transcription"));
     assert!(provider_supports_capability("siliconflow", "audio"));
 
-    assert!(provider_supports_capability("together", "speech"));
-    assert!(provider_supports_capability("together", "transcription"));
-    assert!(provider_supports_capability("together", "audio"));
+    assert!(provider_supports_capability("togetherai", "speech"));
+    assert!(provider_supports_capability("togetherai", "transcription"));
+    assert!(provider_supports_capability("togetherai", "audio"));
 
     assert!(!provider_supports_capability("fireworks", "speech"));
     assert!(provider_supports_capability("fireworks", "transcription"));
@@ -51,7 +61,7 @@ fn compat_audio_preset_capability_matrix_matches_documented_policy() {
 fn compat_preset_builder_shortcuts_resolve_shared_registry_defaults() {
     let siliconflow_registry =
         get_provider_config("siliconflow").expect("siliconflow provider config");
-    let together_registry = get_provider_config("together").expect("together provider config");
+    let together_registry = get_provider_config("togetherai").expect("togetherai provider config");
     let fireworks_registry = get_provider_config("fireworks").expect("fireworks provider config");
 
     let siliconflow_config = Provider::openai()
@@ -60,10 +70,10 @@ fn compat_preset_builder_shortcuts_resolve_shared_registry_defaults() {
         .into_config()
         .expect("siliconflow config");
     let together_config = Provider::openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .into_config()
-        .expect("together config");
+        .expect("togetherai config");
     let fireworks_config = Provider::openai()
         .fireworks()
         .api_key("test-key")
@@ -71,7 +81,7 @@ fn compat_preset_builder_shortcuts_resolve_shared_registry_defaults() {
         .expect("fireworks config");
 
     assert_eq!(siliconflow_config.provider_id, "siliconflow");
-    assert_eq!(together_config.provider_id, "together");
+    assert_eq!(together_config.provider_id, "togetherai");
     assert_eq!(fireworks_config.provider_id, "fireworks");
 
     assert_eq!(siliconflow_config.base_url, siliconflow_registry.base_url);
@@ -100,12 +110,19 @@ fn compat_preset_builder_shortcuts_resolve_shared_registry_defaults() {
 #[test]
 fn compat_preset_builder_shortcuts_fall_back_to_provider_config_defaults() {
     let mistral_registry = get_provider_config("mistral").expect("mistral provider config");
+    let moonshotai_registry =
+        get_provider_config("moonshotai").expect("moonshotai provider config");
 
     let mistral_config = Provider::openai()
         .mistral()
         .api_key("test-key")
         .into_config()
         .expect("mistral config");
+    let moonshotai_config = Provider::openai()
+        .moonshotai()
+        .api_key("test-key")
+        .into_config()
+        .expect("moonshotai config");
 
     assert_eq!(mistral_config.provider_id, "mistral");
     assert_eq!(mistral_config.base_url, mistral_registry.base_url);
@@ -114,6 +131,15 @@ fn compat_preset_builder_shortcuts_fall_back_to_provider_config_defaults() {
         mistral_registry
             .default_model
             .expect("mistral default model")
+    );
+
+    assert_eq!(moonshotai_config.provider_id, "moonshotai");
+    assert_eq!(moonshotai_config.base_url, moonshotai_registry.base_url);
+    assert_eq!(
+        moonshotai_config.model,
+        moonshotai_registry
+            .default_model
+            .expect("moonshotai default model")
     );
 }
 
@@ -157,7 +183,7 @@ async fn compat_audio_preset_public_clients_expose_documented_audio_split() {
         .await
         .expect("siliconflow client");
     let together = Provider::openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .model("openai/whisper-large-v3")
         .build()
@@ -206,7 +232,7 @@ async fn compat_image_preset_public_clients_expose_documented_image_generation_s
         .await
         .expect("siliconflow client");
     let together = Provider::openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .model("black-forest-labs/FLUX.1-schnell-Free")
         .build()
@@ -231,6 +257,49 @@ async fn compat_image_preset_public_clients_expose_documented_image_generation_s
     let fireworks_caps = fireworks.capabilities();
     assert!(!fireworks_caps.supports("image_generation"));
     assert!(fireworks.as_image_generation_capability().is_none());
+}
+
+#[tokio::test]
+async fn compat_preset_public_clients_expose_documented_completion_split() {
+    let mistral = Provider::openai()
+        .mistral()
+        .api_key("test-key")
+        .model("mistral-large-latest")
+        .build()
+        .await
+        .expect("mistral client");
+    let fireworks = Provider::openai()
+        .fireworks()
+        .api_key("test-key")
+        .model("accounts/fireworks/models/llama-v3p1-8b-instruct")
+        .build()
+        .await
+        .expect("fireworks client");
+    let perplexity = Provider::openai()
+        .perplexity()
+        .api_key("test-key")
+        .model("sonar")
+        .build()
+        .await
+        .expect("perplexity client");
+
+    let mistral_caps = mistral.capabilities();
+    assert!(mistral_caps.supports("chat"));
+    assert!(mistral_caps.supports("streaming"));
+    assert!(!mistral_caps.supports("completion"));
+    assert!(mistral.as_completion_capability().is_none());
+
+    let fireworks_caps = fireworks.capabilities();
+    assert!(fireworks_caps.supports("chat"));
+    assert!(fireworks_caps.supports("streaming"));
+    assert!(fireworks_caps.supports("completion"));
+    assert!(fireworks.as_completion_capability().is_some());
+
+    let perplexity_caps = perplexity.capabilities();
+    assert!(perplexity_caps.supports("chat"));
+    assert!(perplexity_caps.supports("streaming"));
+    assert!(!perplexity_caps.supports("completion"));
+    assert!(perplexity.as_completion_capability().is_none());
 }
 
 #[test]

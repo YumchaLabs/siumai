@@ -11,38 +11,6 @@ fn sum_option(target: &mut Option<u32>, source: Option<u32>) {
     }
 }
 
-fn merge_json_value(target: &mut Value, source: Value) {
-    match (target, source) {
-        (Value::Object(target_obj), Value::Object(source_obj)) => {
-            for (key, value) in source_obj {
-                if let Some(existing) = target_obj.get_mut(&key) {
-                    merge_json_value(existing, value);
-                } else {
-                    target_obj.insert(key, value);
-                }
-            }
-        }
-        (target, source) => {
-            *target = source;
-        }
-    }
-}
-
-fn merge_raw_usage(target: &mut Option<Map<String, Value>>, source: Option<&Map<String, Value>>) {
-    let Some(source) = source else {
-        return;
-    };
-
-    let target = target.get_or_insert_with(Map::new);
-    for (key, value) in source {
-        if let Some(existing) = target.get_mut(key) {
-            merge_json_value(existing, value.clone());
-        } else {
-            target.insert(key.clone(), value.clone());
-        }
-    }
-}
-
 /// AI SDK v4-compatible input token accounting.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UsageInputTokens {
@@ -447,6 +415,10 @@ impl Usage {
     }
 
     /// Merge usage statistics.
+    ///
+    /// This follows AI SDK `addLanguageModelUsage()` semantics:
+    /// normalized counts are aggregated, but provider-native `raw` usage is dropped because
+    /// an aggregated raw payload has no stable cross-provider meaning.
     pub fn merge(&mut self, other: &Usage) {
         let mut merged_input_tokens = self.normalized_input_tokens();
         let mut merged_output_tokens = self.normalized_output_tokens();
@@ -548,7 +520,7 @@ impl Usage {
         merged_output_tokens.merge(&other_output_tokens);
         self.input_tokens = merged_input_tokens;
         self.output_tokens = merged_output_tokens;
-        merge_raw_usage(&mut self.raw, other.raw.as_ref());
+        self.raw = None;
     }
 }
 
@@ -958,7 +930,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_merge_accumulates_v4_breakdowns_and_merges_raw_objects() {
+    fn usage_merge_accumulates_v4_breakdowns_and_drops_raw_usage() {
         let mut usage = Usage::builder()
             .prompt_tokens(10)
             .completion_tokens(4)
@@ -1006,15 +978,7 @@ mod tests {
         assert_eq!(usage.normalized_output_tokens().total, Some(7));
         assert_eq!(usage.normalized_output_tokens().text, Some(5));
         assert_eq!(usage.normalized_output_tokens().reasoning, Some(2));
-        assert_eq!(
-            usage.raw_usage_value(),
-            Some(serde_json::json!({
-                "server_tool_use": {
-                    "web_search_requests": 1,
-                    "web_fetch_requests": 2
-                }
-            }))
-        );
+        assert_eq!(usage.raw_usage_value(), None);
     }
 
     #[test]

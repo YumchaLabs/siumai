@@ -516,6 +516,10 @@ data: [DONE]
         let captured = transport.take_stream().expect("captured stream request");
 
         assert_eq!(captured.body["model"], serde_json::json!("deepseek-chat"));
+        assert_eq!(
+            captured.body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
 
         let end = events
             .iter()

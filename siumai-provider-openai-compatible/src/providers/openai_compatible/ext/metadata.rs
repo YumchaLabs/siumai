@@ -30,6 +30,10 @@ pub struct PerplexityMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub usage: Option<PerplexityUsage>,
 
+    /// Cost details returned by hosted search / answer synthesis.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost: Option<PerplexityCost>,
+
     /// Preserve unknown provider-specific metadata for forward compatibility.
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
@@ -39,9 +43,11 @@ pub struct PerplexityMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PerplexityImage {
     /// Returned image URL.
+    #[serde(rename = "imageUrl", alias = "image_url")]
     pub image_url: String,
 
     /// Source page URL that the image came from.
+    #[serde(rename = "originUrl", alias = "origin_url")]
     pub origin_url: String,
 
     /// Image height in pixels.
@@ -59,18 +65,70 @@ pub struct PerplexityImage {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct PerplexityUsage {
     /// Tokens consumed by returned citations.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "citationTokens",
+        alias = "citation_tokens",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub citation_tokens: Option<u32>,
 
     /// Number of search queries executed by the provider.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "numSearchQueries",
+        alias = "num_search_queries",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub num_search_queries: Option<u32>,
 
     /// Tokens consumed by provider-side reasoning work.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "reasoningTokens",
+        alias = "reasoning_tokens",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reasoning_tokens: Option<u32>,
 
     /// Preserve unknown usage-level metadata for forward compatibility.
+    #[serde(flatten)]
+    pub extra: HashMap<String, serde_json::Value>,
+}
+
+/// Perplexity-specific cost details.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PerplexityCost {
+    /// Cost attributed to prompt/input tokens.
+    #[serde(
+        rename = "inputTokensCost",
+        alias = "input_tokens_cost",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub input_tokens_cost: Option<f64>,
+
+    /// Cost attributed to completion/output tokens.
+    #[serde(
+        rename = "outputTokensCost",
+        alias = "output_tokens_cost",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_tokens_cost: Option<f64>,
+
+    /// Flat request cost reported by the provider.
+    #[serde(
+        rename = "requestCost",
+        alias = "request_cost",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub request_cost: Option<f64>,
+
+    /// Total request cost reported by the provider.
+    #[serde(
+        rename = "totalCost",
+        alias = "total_cost",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub total_cost: Option<f64>,
+
+    /// Preserve unknown cost-level metadata for forward compatibility.
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
@@ -91,8 +149,12 @@ pub trait OpenRouterChatResponseExt {
 impl OpenRouterChatResponseExt for crate::types::ChatResponse {
     fn openrouter_metadata(&self) -> Option<OpenRouterMetadata> {
         use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("openrouter")?;
-        OpenRouterMetadata::from_metadata(meta)
+        let meta = self
+            .provider_metadata
+            .as_ref()?
+            .get("openrouter")?
+            .as_object()?;
+        OpenRouterMetadata::from_metadata(&meta.clone().into_iter().collect())
     }
 }
 
@@ -164,8 +226,12 @@ pub trait PerplexityChatResponseExt {
 impl PerplexityChatResponseExt for crate::types::ChatResponse {
     fn perplexity_metadata(&self) -> Option<PerplexityMetadata> {
         use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("perplexity")?;
-        PerplexityMetadata::from_metadata(meta)
+        let meta = self
+            .provider_metadata
+            .as_ref()?
+            .get("perplexity")?
+            .as_object()?;
+        PerplexityMetadata::from_metadata(&meta.clone().into_iter().collect())
     }
 }
 
@@ -200,7 +266,10 @@ mod tests {
         );
 
         let mut outer = HashMap::new();
-        outer.insert("openrouter".to_string(), inner);
+        outer.insert(
+            "openrouter".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.openrouter_metadata().expect("openrouter metadata");
@@ -273,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn perplexity_metadata_parses_usage_images_and_extra_fields() {
+    fn perplexity_metadata_parses_ai_sdk_shape_and_extra_fields() {
         let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
             "hello".to_string(),
         ));
@@ -283,8 +352,8 @@ mod tests {
             "images".to_string(),
             serde_json::json!([
                 {
-                    "image_url": "https://images.example.com/rust.png",
-                    "origin_url": "https://example.com/rust",
+                    "imageUrl": "https://images.example.com/rust.png",
+                    "originUrl": "https://example.com/rust",
                     "height": 900,
                     "width": 1600
                 }
@@ -293,9 +362,18 @@ mod tests {
         inner.insert(
             "usage".to_string(),
             serde_json::json!({
-                "citation_tokens": 12,
-                "num_search_queries": 3,
+                "citationTokens": 12,
+                "numSearchQueries": 3,
                 "reasoning_tokens": 4
+            }),
+        );
+        inner.insert(
+            "cost".to_string(),
+            serde_json::json!({
+                "inputTokensCost": 0.12,
+                "outputTokensCost": 0.34,
+                "requestCost": 0.01,
+                "totalCost": 0.47
             }),
         );
         inner.insert(
@@ -304,7 +382,10 @@ mod tests {
         );
 
         let mut outer = HashMap::new();
-        outer.insert("perplexity".to_string(), inner);
+        outer.insert(
+            "perplexity".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.perplexity_metadata().expect("perplexity metadata");
@@ -326,6 +407,14 @@ mod tests {
         assert_eq!(
             meta.usage.as_ref().and_then(|usage| usage.reasoning_tokens),
             Some(4)
+        );
+        assert_eq!(
+            meta.cost.as_ref().and_then(|cost| cost.input_tokens_cost),
+            Some(0.12)
+        );
+        assert_eq!(
+            meta.cost.as_ref().and_then(|cost| cost.total_cost),
+            Some(0.47)
         );
         assert_eq!(meta.extra.get("citations"), None);
     }

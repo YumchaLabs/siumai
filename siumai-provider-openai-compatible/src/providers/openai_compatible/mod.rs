@@ -61,13 +61,22 @@ pub mod registry {
 }
 
 // Re-export model constants for easy access
-pub use providers::models::{deepseek, groq, moonshot, openrouter, siliconflow, xai};
+pub use providers::models::{
+    deepinfra, deepseek, fireworks, groq, mistral, moonshot, moonshotai, openrouter, perplexity,
+    siliconflow, vertex_maas, xai,
+};
 
 // Re-export new adapter system
+#[allow(deprecated)]
+pub use crate::provider_options::MoonshotAIProviderOptions;
 pub use crate::provider_options::{
-    OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchContextSize,
-    PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
-    PerplexityWebSearchOptions,
+    FireworksChatOptions, FireworksLanguageModelOptions, FireworksReasoningHistory,
+    FireworksThinkingConfig, FireworksThinkingType, MistralChatOptions,
+    MistralLanguageModelOptions, MistralReasoningEffort, MoonshotAIChatOptions,
+    MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
+    MoonshotAIThinkingType, OpenRouterOptions, OpenRouterTransform, PerplexityOptions,
+    PerplexitySearchContextSize, PerplexitySearchMode, PerplexitySearchRecencyFilter,
+    PerplexityUserLocation, PerplexityWebSearchOptions,
 };
 pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
@@ -82,15 +91,41 @@ pub use config::{
     get_builtin_providers, get_provider_config, list_provider_ids, provider_supports_capability,
 };
 pub use ext::{
+    FireworksChatRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
     OpenRouterChatRequestExt, OpenRouterChatResponseExt, OpenRouterContentPartExt,
     OpenRouterContentPartMetadata, OpenRouterMetadata, OpenRouterSource, OpenRouterSourceExt,
-    OpenRouterSourceMetadata, PerplexityChatRequestExt, PerplexityChatResponseExt, PerplexityImage,
-    PerplexityMetadata, PerplexityUsage,
+    OpenRouterSourceMetadata, PerplexityChatRequestExt, PerplexityChatResponseExt, PerplexityCost,
+    PerplexityImage, PerplexityMetadata, PerplexityUsage,
 };
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use types::{FieldMappings, ModelConfig, RequestType};
+
+/// AI SDK-style provider-scoped alias for Mistral compat clients.
+pub type MistralClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Mistral compat configs.
+pub type MistralConfig = openai_config::OpenAiCompatibleConfig;
+
+/// AI SDK-style provider-scoped alias for Perplexity compat clients.
+pub type PerplexityClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Perplexity compat configs.
+pub type PerplexityConfig = openai_config::OpenAiCompatibleConfig;
+
+/// AI SDK-style provider-scoped alias for Fireworks compat text-family clients.
+pub type FireworksClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Fireworks compat text-family configs.
+pub type FireworksConfig = openai_config::OpenAiCompatibleConfig;
+
+/// AI SDK-style provider-scoped alias for DeepInfra compat text-family clients.
+pub type DeepInfraClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for DeepInfra compat text-family configs.
+pub type DeepInfraConfig = openai_config::OpenAiCompatibleConfig;
+
+/// AI SDK-style provider-scoped alias for MoonshotAI compat language-model clients.
+pub type MoonshotAIClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for MoonshotAI compat language-model configs.
+pub type MoonshotAIConfig = openai_config::OpenAiCompatibleConfig;
 
 // Test modules
 #[cfg(test)]

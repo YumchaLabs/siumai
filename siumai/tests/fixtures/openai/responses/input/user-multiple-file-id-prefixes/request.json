@@ -4,14 +4,24 @@
       "role": "user",
       "content": {
         "MultiModal": [
-          { "type": "file", "media_type": "image/png", "data": "file-12345" },
-          { "type": "file", "media_type": "application/pdf", "data": "assistant-abc123", "filename": "test.pdf" }
+          {
+            "type": "image",
+            "providerReference": {
+              "openai": "file-12345"
+            }
+          },
+          {
+            "type": "file",
+            "media_type": "application/pdf",
+            "providerReference": {
+              "openai": "assistant-abc123"
+            }
+          }
         ]
       },
       "metadata": {}
     }
   ],
-  "providerOptions": { "openai": { "fileIdPrefixes": ["file-", "assistant-"] } },
   "common_params": {
     "model": "gpt-5-nano",
     "temperature": null,

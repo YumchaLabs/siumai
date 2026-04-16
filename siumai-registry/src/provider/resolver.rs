@@ -5,6 +5,9 @@ pub fn normalize_provider_id(raw: &str) -> String {
     match raw.trim() {
         "google" => ids::GEMINI.to_string(),
         ids::GOOGLE_VERTEX_ALIAS => ids::VERTEX.to_string(),
+        ids::GOOGLE_VERTEX_MAAS_ALIAS | ids::GOOGLE_VERTEX_MAAS_DOTTED_ALIAS | "vertexMaas" => {
+            ids::VERTEX_MAAS.to_string()
+        }
         "google-vertex-anthropic" => ids::ANTHROPIC_VERTEX.to_string(),
         other => other.to_string(),
     }
@@ -14,7 +17,7 @@ pub fn normalize_provider_id(raw: &str) -> String {
 ///
 /// This is used for behaviors like model alias normalization that are specific to OpenAI-compatible
 /// providers (not native OpenAI, Azure OpenAI, or non-OpenAI provider families).
-#[cfg(any(test, feature = "openai", feature = "deepseek"))]
+#[cfg(any(test, feature = "openai", feature = "deepseek", feature = "deepinfra"))]
 pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
     match provider_id {
         // Native / built-in families (not OpenAI-compatible)
@@ -22,7 +25,7 @@ pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
         ids::AZURE | ids::AZURE_CHAT => false,
         ids::ANTHROPIC | ids::ANTHROPIC_VERTEX => false,
         ids::GEMINI | ids::VERTEX => false,
-        ids::OLLAMA | ids::XAI | ids::GROQ | ids::MINIMAXI => false,
+        ids::OLLAMA | ids::FIREWORKS | ids::XAI | ids::GROQ | ids::MINIMAXI => false,
         // Anything else is treated as OpenAI-compatible (custom providers).
         _ => true,
     }
@@ -41,6 +44,7 @@ pub fn is_openai_compatible_provider_id(provider_id: &str) -> bool {
     feature = "cohere",
     feature = "togetherai",
     feature = "bedrock",
+    feature = "deepinfra",
     feature = "ollama",
     feature = "deepseek",
     feature = "xai",
@@ -93,6 +97,9 @@ mod tests {
     fn normalize_provider_id_aliases() {
         assert_eq!(normalize_provider_id("google"), "gemini");
         assert_eq!(normalize_provider_id("google-vertex"), "vertex");
+        assert_eq!(normalize_provider_id("google-vertex-maas"), "vertex-maas");
+        assert_eq!(normalize_provider_id("vertex.maas"), "vertex-maas");
+        assert_eq!(normalize_provider_id("vertexMaas"), "vertex-maas");
         assert_eq!(
             normalize_provider_id("google-vertex-anthropic"),
             "anthropic-vertex"

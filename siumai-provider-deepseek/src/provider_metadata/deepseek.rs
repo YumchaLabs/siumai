@@ -35,30 +35,60 @@ impl crate::types::provider_metadata::FromMetadata for DeepSeekMetadata {
 /// Typed helper for DeepSeek metadata extraction from `ChatResponse`.
 pub trait DeepSeekChatResponseExt {
     fn deepseek_metadata(&self) -> Option<DeepSeekMetadata>;
+    fn deepseek_metadata_with_key(&self, key: &str) -> Option<DeepSeekMetadata>;
 }
 
 impl DeepSeekChatResponseExt for crate::types::ChatResponse {
     fn deepseek_metadata(&self) -> Option<DeepSeekMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("deepseek")?;
-        DeepSeekMetadata::from_metadata(meta)
+        self.deepseek_metadata_with_key("deepseek")
+    }
+
+    fn deepseek_metadata_with_key(&self, key: &str) -> Option<DeepSeekMetadata> {
+        let meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, key)
+            })?
+            .clone();
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
     }
 }
 
 /// Typed helper for DeepSeek metadata extraction from `DeepSeekSource`.
 pub trait DeepSeekSourceExt {
     fn deepseek_metadata(&self) -> Option<DeepSeekSourceMetadata>;
+    fn deepseek_metadata_with_key(&self, key: &str) -> Option<DeepSeekSourceMetadata>;
 }
 
 impl DeepSeekSourceExt for DeepSeekSource {
     fn deepseek_metadata(&self) -> Option<DeepSeekSourceMetadata> {
+        self.deepseek_metadata_with_key("deepseek")
+    }
+
+    fn deepseek_metadata_with_key(&self, key: &str) -> Option<DeepSeekSourceMetadata> {
         let metadata = self.provider_metadata.clone()?;
 
-        if let Some(inner) = metadata.get("deepseek").cloned() {
+        if let Some(inner) = metadata.get(key).cloned() {
             return serde_json::from_value(inner).ok();
         }
 
-        siumai_protocol_openai::provider_metadata::openai::OpenAiSourceExt::openai_metadata(self)
+        if key != "deepseek" {
+            return None;
+        }
+
+        if let Some(inner) = metadata.get("openai").cloned() {
+            return serde_json::from_value(inner).ok();
+        }
+
+        let has_direct_shape = metadata.get("fileId").is_some()
+            || metadata.get("containerId").is_some()
+            || metadata.get("index").is_some();
+        if has_direct_shape {
+            serde_json::from_value(metadata).ok()
+        } else {
+            None
+        }
     }
 }
 
@@ -91,7 +121,10 @@ mod tests {
         inner.insert("vendor_extra".to_string(), serde_json::json!(true));
 
         let mut outer = HashMap::new();
-        outer.insert("deepseek".to_string(), inner);
+        outer.insert(
+            "deepseek".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.deepseek_metadata().expect("deepseek metadata");
@@ -153,5 +186,55 @@ mod tests {
         assert_eq!(meta.file_id.as_deref(), Some("file_789"));
         assert!(meta.container_id.is_none());
         assert_eq!(meta.index, Some(5));
+    }
+
+    #[test]
+    fn deepseek_metadata_supports_custom_provider_key() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut outer = HashMap::new();
+        outer.insert(
+            "my-custom-deepseek".to_string(),
+            serde_json::json!({
+                "logprobs": [{ "token": "hello", "logprob": -0.1 }]
+            }),
+        );
+        resp.provider_metadata = Some(outer);
+
+        assert!(resp.deepseek_metadata().is_none());
+        assert!(
+            resp.deepseek_metadata_with_key("my-custom-deepseek")
+                .and_then(|meta| meta.logprobs)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn deepseek_source_metadata_supports_custom_provider_key() {
+        let source = DeepSeekSource {
+            id: "src_doc_3".to_string(),
+            source_type: "document".to_string(),
+            url: "file_custom".to_string(),
+            title: Some("Doc 3".to_string()),
+            tool_call_id: None,
+            media_type: Some("text/plain".to_string()),
+            filename: Some("doc3.txt".to_string()),
+            provider_metadata: Some(serde_json::json!({
+                "my-custom-deepseek": {
+                    "fileId": "file_custom",
+                    "index": 9
+                }
+            })),
+            snippet: None,
+        };
+
+        assert!(source.deepseek_metadata().is_none());
+        let meta = source
+            .deepseek_metadata_with_key("my-custom-deepseek")
+            .expect("custom deepseek source metadata");
+        assert_eq!(meta.file_id.as_deref(), Some("file_custom"));
+        assert_eq!(meta.index, Some(9));
     }
 }

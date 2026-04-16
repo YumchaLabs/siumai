@@ -1,8 +1,8 @@
 use super::*;
 use crate::error::LlmError;
 use crate::execution::http::transport::{
-    HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
-    HttpTransportStreamBody, HttpTransportStreamResponse,
+    HttpTransport, HttpTransportGetRequest, HttpTransportMultipartRequest, HttpTransportRequest,
+    HttpTransportResponse, HttpTransportStreamBody, HttpTransportStreamResponse,
 };
 use async_trait::async_trait;
 use std::collections::VecDeque;
@@ -23,6 +23,7 @@ impl crate::execution::http::interceptor::HttpInterceptor for FlagInterceptor {
 #[derive(Clone)]
 struct SequenceTransport {
     json_requests: Arc<Mutex<Vec<HttpTransportRequest>>>,
+    get_requests: Arc<Mutex<Vec<HttpTransportGetRequest>>>,
     multipart_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,
     stream_requests: Arc<Mutex<Vec<HttpTransportRequest>>>,
     multipart_stream_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,
@@ -34,6 +35,7 @@ impl SequenceTransport {
     fn new(responses: Vec<HttpTransportResponse>) -> Self {
         Self {
             json_requests: Arc::new(Mutex::new(Vec::new())),
+            get_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_requests: Arc::new(Mutex::new(Vec::new())),
             stream_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_stream_requests: Arc::new(Mutex::new(Vec::new())),
@@ -45,6 +47,7 @@ impl SequenceTransport {
     fn new_streaming(responses: Vec<HttpTransportStreamResponse>) -> Self {
         Self {
             json_requests: Arc::new(Mutex::new(Vec::new())),
+            get_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_requests: Arc::new(Mutex::new(Vec::new())),
             stream_requests: Arc::new(Mutex::new(Vec::new())),
             multipart_stream_requests: Arc::new(Mutex::new(Vec::new())),
@@ -55,6 +58,10 @@ impl SequenceTransport {
 
     fn take_requests(&self) -> Vec<HttpTransportRequest> {
         std::mem::take(&mut *self.json_requests.lock().unwrap())
+    }
+
+    fn take_get_requests(&self) -> Vec<HttpTransportGetRequest> {
+        std::mem::take(&mut *self.get_requests.lock().unwrap())
     }
 
     fn take_multipart_requests(&self) -> Vec<HttpTransportMultipartRequest> {
@@ -89,6 +96,18 @@ impl HttpTransport for SequenceTransport {
         request: HttpTransportMultipartRequest,
     ) -> Result<HttpTransportResponse, LlmError> {
         self.multipart_requests.lock().unwrap().push(request);
+        self.responses
+            .lock()
+            .unwrap()
+            .pop_front()
+            .ok_or_else(|| LlmError::HttpError("missing transport response".into()))
+    }
+
+    async fn execute_get(
+        &self,
+        request: HttpTransportGetRequest,
+    ) -> Result<HttpTransportResponse, LlmError> {
+        self.get_requests.lock().unwrap().push(request);
         self.responses
             .lock()
             .unwrap()
@@ -805,6 +824,176 @@ async fn bytes_request_custom_transport_retries_401_then_200() {
     assert_eq!(requests.len(), 2);
     assert_eq!(requests[0].body, body);
     assert_eq!(requests[1].body, body);
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("0"),
+    );
+    assert_eq!(
+        requests[1]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("1"),
+    );
+}
+
+#[tokio::test]
+async fn get_request_uses_custom_transport_and_returns_json() {
+    let client = reqwest::Client::new();
+    let transport = SequenceTransport::new(vec![HttpTransportResponse {
+        status: 200,
+        headers: reqwest::header::HeaderMap::new(),
+        body: br#"{"ok":true}"#.to_vec(),
+    }]);
+    let mut config = test_config(
+        &client,
+        reqwest::header::HeaderMap::new(),
+        vec![],
+        Some(crate::retry_api::RetryOptions::default()),
+    );
+    config.transport = Some(Arc::new(transport.clone()));
+
+    let url = "http://unused.invalid/v1/files/file_123";
+    let result = execute_get_request(&config, url, None)
+        .await
+        .expect("get request should use custom transport");
+
+    assert_eq!(result.status, 200);
+    assert_eq!(result.json["ok"], true);
+
+    let requests = transport.take_get_requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].url, url);
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("0"),
+    );
+}
+
+#[tokio::test]
+async fn get_request_custom_transport_retries_401_then_200() {
+    let client = reqwest::Client::new();
+    let transport = SequenceTransport::new(vec![
+        HttpTransportResponse {
+            status: 401,
+            headers: reqwest::header::HeaderMap::new(),
+            body: b"unauthorized".to_vec(),
+        },
+        HttpTransportResponse {
+            status: 200,
+            headers: reqwest::header::HeaderMap::new(),
+            body: br#"{"ok":"after retry"}"#.to_vec(),
+        },
+    ]);
+    let mut config = test_config(
+        &client,
+        reqwest::header::HeaderMap::new(),
+        vec![],
+        Some(crate::retry_api::RetryOptions::default()),
+    );
+    config.transport = Some(Arc::new(transport.clone()));
+
+    let url = "http://unused.invalid/v1/files/file_123";
+    let result = execute_get_request(&config, url, None)
+        .await
+        .expect("get request should retry on 401 through custom transport");
+
+    assert_eq!(result.status, 200);
+    assert_eq!(result.json["ok"], "after retry");
+
+    let requests = transport.take_get_requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("0"),
+    );
+    assert_eq!(
+        requests[1]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("1"),
+    );
+}
+
+#[tokio::test]
+async fn get_binary_uses_custom_transport_and_returns_body() {
+    let client = reqwest::Client::new();
+    let transport = SequenceTransport::new(vec![HttpTransportResponse {
+        status: 200,
+        headers: reqwest::header::HeaderMap::new(),
+        body: vec![1, 2, 3, 4],
+    }]);
+    let mut config = test_config(
+        &client,
+        reqwest::header::HeaderMap::new(),
+        vec![],
+        Some(crate::retry_api::RetryOptions::default()),
+    );
+    config.transport = Some(Arc::new(transport.clone()));
+
+    let url = "http://unused.invalid/v1/files/file_123/content";
+    let result = execute_get_binary(&config, url, None)
+        .await
+        .expect("binary get should use custom transport");
+
+    assert_eq!(result.status, 200);
+    assert_eq!(result.bytes, vec![1, 2, 3, 4]);
+
+    let requests = transport.take_get_requests();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].url, url);
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("x-retry-attempt")
+            .and_then(|value| value.to_str().ok()),
+        Some("0"),
+    );
+}
+
+#[tokio::test]
+async fn get_binary_custom_transport_retries_401_then_200() {
+    let client = reqwest::Client::new();
+    let transport = SequenceTransport::new(vec![
+        HttpTransportResponse {
+            status: 401,
+            headers: reqwest::header::HeaderMap::new(),
+            body: b"unauthorized".to_vec(),
+        },
+        HttpTransportResponse {
+            status: 200,
+            headers: reqwest::header::HeaderMap::new(),
+            body: vec![9, 8, 7],
+        },
+    ]);
+    let mut config = test_config(
+        &client,
+        reqwest::header::HeaderMap::new(),
+        vec![],
+        Some(crate::retry_api::RetryOptions::default()),
+    );
+    config.transport = Some(Arc::new(transport.clone()));
+
+    let url = "http://unused.invalid/v1/files/file_123/content";
+    let result = execute_get_binary(&config, url, None)
+        .await
+        .expect("binary get should retry on 401 through custom transport");
+
+    assert_eq!(result.status, 200);
+    assert_eq!(result.bytes, vec![9, 8, 7]);
+
+    let requests = transport.take_get_requests();
+    assert_eq!(requests.len(), 2);
     assert_eq!(
         requests[0]
             .headers

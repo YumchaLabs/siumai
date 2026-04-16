@@ -6,7 +6,9 @@
         "MultiModal": [
           {
             "type": "file",
-            "data": "file-pdf-12345",
+            "providerReference": {
+              "openai": "file-pdf-12345"
+            },
             "media_type": "application/pdf"
           }
         ]
@@ -14,13 +16,6 @@
       "metadata": {}
     }
   ],
-  "providerOptions": {
-    "openai": {
-      "fileIdPrefixes": [
-        "file-"
-      ]
-    }
-  },
   "common_params": {
     "model": "gpt-5-nano",
     "temperature": null,

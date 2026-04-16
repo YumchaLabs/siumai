@@ -26,5 +26,6 @@
     "total_tokens": 34
   },
   "finish_reason": "stop",
+  "raw_finish_reason": "stop",
   "audio": null
 }

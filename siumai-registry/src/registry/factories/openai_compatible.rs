@@ -4,18 +4,21 @@ use super::*;
 use crate::embedding::EmbeddingModel as FamilyEmbeddingModel;
 use crate::image::ImageModel as FamilyImageModel;
 use crate::text::LanguageModel as FamilyLanguageModel;
+use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
-use siumai_core::standards::openai::compat::provider_registry::provider_config_declares_chat_surface;
+use siumai_core::standards::openai::compat::provider_registry::{
+    provider_config_declares_chat_surface, provider_config_declares_completion_surface,
+};
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
 
 /// Generic OpenAI-compatible provider factory
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
 pub struct OpenAICompatibleProviderFactory {
     provider_id: String,
 }
 
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
 impl OpenAICompatibleProviderFactory {
     pub fn new(provider_id: String) -> Self {
         Self { provider_id }
@@ -132,6 +135,7 @@ impl OpenAICompatibleProviderFactory {
             ctx.reasoning_budget,
             http_config,
             None,
+            None,
             ctx.tracing_config.clone(),
             ctx.retry_options.clone(),
             ctx.http_interceptors.clone(),
@@ -142,7 +146,7 @@ impl OpenAICompatibleProviderFactory {
     }
 }
 
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
 #[async_trait::async_trait]
 impl ProviderFactory for OpenAICompatibleProviderFactory {
     fn capabilities(&self) -> ProviderCapabilities {
@@ -167,6 +171,9 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
 
         if provider_config_declares_chat_surface(&cfg) {
             caps = caps.with_chat().with_streaming();
+        }
+        if provider_config_declares_completion_surface(&cfg) {
+            caps = caps.with_completion();
         }
 
         for c in cfg.capabilities {
@@ -239,6 +246,26 @@ impl ProviderFactory for OpenAICompatibleProviderFactory {
         ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.ensure_capability("embedding")?;
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn completion_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.ensure_capability("completion")?;
+        let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(client))
+    }
+
+    async fn completion_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
+        self.ensure_capability("completion")?;
         let client = self.build_text_family_model_with_ctx(model_id, ctx).await?;
         Ok(Arc::new(client))
     }

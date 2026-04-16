@@ -3,7 +3,7 @@
 Note (2026-03-01): This TODO list is for the earlier phase. The active V3 workstream plan is in
 `docs/workstreams/fearless-refactor-v3/todo.md`.
 
-Last updated: 2026-03-01 (phase 1)
+Last updated: 2026-04-06 (historical phase-1 record)
 
 ## Status snapshot
 
@@ -14,7 +14,8 @@ Last updated: 2026-03-01 (phase 1)
 - Unified builder/build path delegates API key and base_url defaults to `ProviderFactory`.
 - Registry handle normalizes common aliases when safe.
 - Provider catalog prefers shared native metadata for built-in providers (avoids “Custom provider” mislabeling).
-- Built-in catalog sets default models for rerank-only providers (Cohere/TogetherAI) for better introspection output.
+- This earlier phase assumed Cohere/TogetherAI were rerank-led; that historical decision has since
+  been superseded by the newer unified-provider workstreams (`cohere`, `togetherai`).
 - Standardize multipart MIME validation errors as `InvalidParameter` (avoid misleading `HttpError`).
 
 ## TODO (next)
@@ -55,16 +56,18 @@ Last updated: 2026-03-01 (phase 1)
 
 ### Metadata-only providers (clarify intent)
 
-- [ ] Decide the policy for `cohere` / `togetherai` / `bedrock`:
-  - implement first-class built-in factories (preferred), or
-  - remove/disable their registry exposure until implementation exists
+- [x] Historical policy decision is superseded by later workstreams:
+  - `cohere` is now a first-class unified native `/v2` provider surface
+  - `togetherai` is now a first-class unified public provider surface
+  - `bedrock` now has a first-class factory/provider path instead of metadata-only reservation
 
 Decision (2026-02-27):
 
-- [x] Implement `cohere` and `togetherai` as built-in rerank-only providers:
-  - add `ProviderFactory` implementations
-  - add no-network factory contract tests
-- [x] Keep `bedrock` as metadata-only/reserved until a first-class factory exists
+- [x] Phase-1 historical step:
+  - `cohere` and `togetherai` first landed as focused rerank-led factories before later
+    unified-surface refactors expanded the public story
+- [x] Phase-1 historical step:
+  - `bedrock` was temporarily metadata-only before later first-class factory/provider work landed
 
 ### Docs & tooling
 

@@ -14,7 +14,8 @@
                 "status": "completed",
                 "output": "applied"
               }
-            }
+            },
+            "dynamic": true
           }
         ]
       },

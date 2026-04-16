@@ -2,8 +2,8 @@
 //!
 //! TogetherAI provider implementation for siumai.
 //!
-//! Currently, this crate focuses on TogetherAI's reranking endpoint (`/v1/rerank`) to align
-//! with the Vercel AI SDK `@ai-sdk/togetherai` behavior.
+//! This crate currently owns TogetherAI's native reranking endpoint (`/v1/rerank`) plus the
+//! provider-owned typed option surface reused by the unified `@ai-sdk/togetherai`-style facade.
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the provider implementation.

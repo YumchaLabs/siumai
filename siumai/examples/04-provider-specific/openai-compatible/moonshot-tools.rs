@@ -20,6 +20,9 @@
 //!
 //! cargo run --example moonshot-tools --features openai
 //! ```
+//!
+//! Canonical built-in compat id: `moonshotai`
+//! Legacy compat alias: `moonshot` (hidden migration bridge only)
 
 use serde_json::json;
 use siumai::models;
@@ -30,9 +33,10 @@ use siumai::provider_ext::openai_compatible::OpenAiCompatibleClient;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build Moonshot client (config-first).
     // Note: API key is automatically read from `MOONSHOT_API_KEY`.
+    // Canonical built-in compat id is `moonshotai`.
     let client = OpenAiCompatibleClient::from_builtin_env(
-        "moonshot",
-        Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+        "moonshotai",
+        Some(models::openai_compatible::moonshotai::KIMI_K2_0905),
     )
     .await?;
 
@@ -192,7 +196,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Notes:");
-    println!("- Moonshot supports OpenAI-compatible function calling");
+    println!("- MoonshotAI supports OpenAI-compatible function calling");
     println!("- Tools can be called multiple times in one conversation");
     println!("- Kimi is strong at following tool instructions in Chinese");
     println!("- Multi-turn tool loops work well for more complex tasks");

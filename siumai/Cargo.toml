@@ -357,12 +357,17 @@ google = [
 google-vertex = [
 
     "siumai-core/google",
+    "siumai-core/openai",
 
     "siumai-registry/google-vertex",
 
     "dep:siumai-provider-google-vertex",
 
     "siumai-provider-google-vertex/google-vertex",
+    "dep:siumai-provider-openai-compatible",
+    "siumai-provider-openai-compatible/openai-standard",
+    "dep:siumai-protocol-openai",
+    "siumai-protocol-openai/openai-standard",
 
     "dep:siumai-protocol-gemini",
 
@@ -387,6 +392,22 @@ deepseek = [
     "dep:siumai-provider-deepseek",
 
     "siumai-provider-deepseek/deepseek",
+
+    "dep:siumai-provider-openai-compatible",
+
+    "siumai-provider-openai-compatible/openai-standard",
+
+    "dep:siumai-protocol-openai",
+
+    "siumai-protocol-openai/openai-standard",
+
+]
+
+deepinfra = [
+
+    "siumai-core/openai",
+
+    "siumai-registry/deepinfra",
 
     "dep:siumai-provider-openai-compatible",
 
@@ -476,6 +497,8 @@ all-providers = [
 
     "deepseek",
 
+    "deepinfra",
+
     "cohere",
 
     "togetherai",
@@ -509,6 +532,7 @@ futures-util.workspace = true
 axum.workspace = true
 
 siumai-provider-openai-compatible = { version = "0.11.0-beta.6", path = "../siumai-provider-openai-compatible", default-features = false, features = ["openai-standard"] }
+siumai-protocol-openai = { version = "0.11.0-beta.6", path = "../siumai-protocol-openai", default-features = false, features = ["openai-standard"] }
 
 
 

@@ -234,16 +234,31 @@ pub fn convert_chat_message(message: &ChatMessage) -> OllamaChatMessage {
             };
 
             match source {
-                crate::types::chat::MediaSource::Url { url } => {
+                crate::types::chat::FilePartSource::Media(
+                    crate::types::chat::MediaSource::Url { url },
+                ) => {
                     // Ollama expects base64-encoded images; preserve URL context as text.
                     url_placeholders.push(url.clone());
                 }
-                crate::types::chat::MediaSource::Base64 { data } => {
+                crate::types::chat::FilePartSource::Media(
+                    crate::types::chat::MediaSource::Base64 { data },
+                ) => {
                     // Ollama expects raw base64 strings (not data URLs).
                     images.push(data.clone());
                 }
-                crate::types::chat::MediaSource::Binary { data } => {
+                crate::types::chat::FilePartSource::Media(
+                    crate::types::chat::MediaSource::Binary { data },
+                ) => {
                     images.push(base64::engine::general_purpose::STANDARD.encode(data));
+                }
+                crate::types::chat::FilePartSource::ProviderReference { provider_reference } => {
+                    let placeholder = provider_reference
+                        .0
+                        .iter()
+                        .next()
+                        .map(|(provider, reference)| format!("{provider}:{reference}"))
+                        .unwrap_or_else(|| "provider-managed-image".to_string());
+                    url_placeholders.push(placeholder);
                 }
             }
         }
@@ -337,7 +352,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
     if let Some(images) = &message.images {
         for data in images {
             parts.push(crate::types::ContentPart::Image {
-                source: crate::types::chat::MediaSource::Base64 { data: data.clone() },
+                source: crate::types::chat::FilePartSource::base64(data.clone()),
                 detail: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
@@ -938,7 +953,7 @@ pub(crate) fn build_ollama_provider_metadata(
     prompt_eval_duration: Option<u64>,
     eval_duration: Option<u64>,
     eval_count: Option<u32>,
-) -> Option<HashMap<String, HashMap<String, serde_json::Value>>> {
+) -> Option<HashMap<String, serde_json::Value>> {
     let mut ollama_metadata = HashMap::new();
 
     if let Some(tokens_per_second) = calculate_tokens_per_second(eval_count, eval_duration) {
@@ -979,7 +994,10 @@ pub(crate) fn build_ollama_provider_metadata(
         None
     } else {
         let mut meta = HashMap::new();
-        meta.insert("ollama".to_string(), ollama_metadata);
+        meta.insert(
+            "ollama".to_string(),
+            serde_json::Value::Object(ollama_metadata.into_iter().collect()),
+        );
         Some(meta)
     }
 }
@@ -1043,6 +1061,7 @@ pub fn convert_chat_response(response: OllamaChatResponse) -> crate::types::Chat
         model: Some(response.model),
         usage,
         finish_reason,
+        raw_finish_reason: None,
         audio: None,
         system_fingerprint: None,
         service_tier: None,
@@ -1076,9 +1095,7 @@ mod tests {
                     provider_metadata: None,
                 },
                 crate::types::ContentPart::Image {
-                    source: crate::types::chat::MediaSource::Url {
-                        url: "image1".to_string(),
-                    },
+                    source: crate::types::chat::FilePartSource::url("image1"),
                     detail: None,
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,

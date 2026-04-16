@@ -17,14 +17,24 @@ use std::time::Duration;
 pub fn backoff_executor_for_provider(provider: &ProviderType) -> BackoffRetryExecutor {
     let backoff = match provider {
         ProviderType::OpenAi
+        | ProviderType::Azure
         | ProviderType::DeepSeek
+        | ProviderType::DeepInfra
+        | ProviderType::Cohere
+        | ProviderType::TogetherAi
+        | ProviderType::Mistral
+        | ProviderType::Fireworks
+        | ProviderType::Perplexity
         | ProviderType::XAI
         | ProviderType::Groq
         | ProviderType::MiniMaxi => openai_compat_backoff(),
         ProviderType::Anthropic => anthropic_backoff(),
-        ProviderType::Gemini => google_backoff(),
+        ProviderType::Gemini
+        | ProviderType::Vertex
+        | ProviderType::AnthropicVertex
+        | ProviderType::VertexMaas => google_backoff(),
         ProviderType::Ollama => ollama_backoff(),
-        ProviderType::Custom(_) => {
+        ProviderType::Bedrock | ProviderType::Custom(_) => {
             return BackoffRetryExecutor::new();
         }
     };

@@ -2,4 +2,8 @@
 
 pub mod togetherai;
 
-pub use togetherai::TogetherAiRerankOptions;
+#[allow(deprecated)]
+pub use togetherai::{
+    TogetherAiImageModelOptions, TogetherAiImageOptions, TogetherAiImageProviderOptions,
+    TogetherAiRerankOptions, TogetherAiRerankingModelOptions, TogetherAiRerankingOptions,
+};

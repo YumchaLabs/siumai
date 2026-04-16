@@ -33,6 +33,7 @@
 //! - **`TranscriptionCapability`** - Transcription/STT capability
 //! - **`ImageGenerationCapability`** - Image generation capability
 //! - **`FileManagementCapability`** - File management capability
+//! - **`SkillsCapability`** - Skill upload capability
 //! - **`ModerationCapability`** - Content moderation capability
 //! - **`RerankCapability`** - Document reranking capability
 //! - **`AudioCapability`** - Compatibility-only catch-all for transitional audio code
@@ -85,8 +86,8 @@ pub use provider_spec::{
 pub use crate::traits::{
     AudioCapability, ChatCapability, ChatExtensions, EmbeddingCapability, EmbeddingExtensions,
     FileManagementCapability, ImageGenerationCapability, ModelListingCapability,
-    ModerationCapability, ProviderCapabilities, RerankCapability, SpeechCapability,
-    TimeoutCapability, TranscriptionCapability, VisionCapability,
+    ModerationCapability, ProviderCapabilities, RerankCapability, SkillsCapability,
+    SpeechCapability, TimeoutCapability, TranscriptionCapability, VisionCapability,
 };
 
 pub use client::LlmClient;

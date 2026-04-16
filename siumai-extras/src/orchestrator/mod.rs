@@ -48,8 +48,9 @@ pub use stop_condition::{
     has_tool_call, has_tool_result, step_count_is,
 };
 pub use types::{
-    AgentResult, OrchestratorOptions, OrchestratorStreamOptions, StepResult, ToolApproval,
-    ToolExecutionResult, ToolResolver,
+    AgentResult, OrchestratorContext, OrchestratorFinishEvent, OrchestratorOptions,
+    OrchestratorStreamOptions, StepLanguageModel, StepModelInfo, StepResult, StepToolCallView,
+    StepToolResultView, ToolApproval, ToolExecutionResult, ToolResolver,
 };
 pub use workflow::{
     InMemoryWorkflowMemory, WORKER_CODER, WORKER_PLANNER, WORKER_RESEARCHER, Worker, Workflow,
@@ -89,7 +90,7 @@ use siumai::prelude::unified::*;
 /// #     }
 /// # }
 /// #
-/// # async fn demo(model: impl ChatCapability) -> Result<(), siumai::prelude::unified::LlmError> {
+/// # async fn demo(model: impl LanguageModel) -> Result<(), siumai::prelude::unified::LlmError> {
 /// let tools = vec![
 ///     Tool::function(
 ///         "get_weather",
@@ -116,7 +117,7 @@ use siumai::prelude::unified::*;
 /// ```
 pub struct Orchestrator<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     model: M,
     tools: Vec<Tool>,
@@ -125,7 +126,7 @@ where
 
 impl<M> Orchestrator<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     /// Create a new orchestrator binding a model and a list of tools.
     pub fn new(model: M, tools: Vec<Tool>) -> Self {
@@ -154,7 +155,7 @@ where
         self
     }
 
-    /// On each step finish callback (non-stream).
+    /// On each step finish callback (applies to both variants).
     pub fn on_step_finish<F>(mut self, cb: F) -> Self
     where
         F: Fn(&StepResult) + Send + Sync + 'static,
@@ -163,10 +164,10 @@ where
         self
     }
 
-    /// Final finish callback with all steps (non-stream).
+    /// Final finish callback with the final response, steps, and aggregated usage.
     pub fn on_finish<F>(mut self, cb: F) -> Self
     where
-        F: Fn(&[StepResult]) + Send + Sync + 'static,
+        F: Fn(&OrchestratorFinishEvent) + Send + Sync + 'static,
     {
         self.builder = self.builder.on_finish(cb);
         self
@@ -195,6 +196,12 @@ where
     /// Prepare-step callback for dynamic tool/message selection (non-stream).
     pub fn prepare_step(mut self, f: PrepareStepFn) -> Self {
         self.builder = self.builder.prepare_step(f);
+        self
+    }
+
+    /// Set the initial orchestration context for both non-stream and stream variants.
+    pub fn context(mut self, context: OrchestratorContext) -> Self {
+        self.builder = self.builder.context(context);
         self
     }
 
@@ -274,7 +281,10 @@ where
     pub async fn run_stream_basic(
         &self,
         messages: Vec<ChatMessage>,
-    ) -> Result<StreamOrchestration, LlmError> {
+    ) -> Result<StreamOrchestration, LlmError>
+    where
+        M: Clone,
+    {
         self.builder
             .run_stream(&self.model, messages, Some(self.tools.clone()))
             .await

@@ -13,6 +13,7 @@ use std::time::Duration;
 pub use siumai_core::text::{
     LanguageModel, TextModelV3, TextRequest, TextResponse, TextStream, TextStreamHandle,
 };
+pub use siumai_core::types::StreamRequestOptions;
 use siumai_core::types::{HttpConfig, Tool, ToolChoice};
 
 /// Options for `text::generate`.
@@ -57,6 +58,8 @@ pub struct StreamOptions {
     pub tool_choice: Option<ToolChoice>,
     /// Optional telemetry config for this call (runtime-only).
     pub telemetry: Option<siumai_core::observability::telemetry::TelemetryConfig>,
+    /// Include provider raw chunks on the stream part lane.
+    pub include_raw_chunks: bool,
 }
 
 fn apply_text_call_options(
@@ -131,7 +134,7 @@ pub async fn stream<M: TextModelV3 + ?Sized>(
     request: TextRequest,
     options: StreamOptions,
 ) -> Result<TextStream, LlmError> {
-    let request = apply_text_call_options(
+    let mut request = apply_text_call_options(
         request,
         options.timeout,
         options.headers,
@@ -139,6 +142,9 @@ pub async fn stream<M: TextModelV3 + ?Sized>(
         options.tool_choice,
         options.telemetry,
     );
+    if options.include_raw_chunks {
+        request = request.with_include_raw_chunks(true);
+    }
 
     if let Some(retry) = options.retry {
         retry_with(
@@ -160,7 +166,7 @@ pub async fn stream_with_cancel<M: TextModelV3 + ?Sized>(
     request: TextRequest,
     options: StreamOptions,
 ) -> Result<TextStreamHandle, LlmError> {
-    let request = apply_text_call_options(
+    let mut request = apply_text_call_options(
         request,
         options.timeout,
         options.headers,
@@ -168,6 +174,9 @@ pub async fn stream_with_cancel<M: TextModelV3 + ?Sized>(
         options.tool_choice,
         options.telemetry,
     );
+    if options.include_raw_chunks {
+        request = request.with_include_raw_chunks(true);
+    }
 
     if let Some(retry) = options.retry {
         retry_with(

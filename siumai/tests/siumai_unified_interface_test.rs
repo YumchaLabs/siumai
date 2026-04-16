@@ -201,12 +201,21 @@ async fn test_provider_id_mapping() {
     // Test that provider_id() method correctly maps provider types
     let test_cases = vec![
         ("openai", ProviderType::OpenAi),
+        ("azure", ProviderType::Azure),
         ("anthropic", ProviderType::Anthropic),
         ("gemini", ProviderType::Gemini),
+        ("vertex", ProviderType::Vertex),
+        ("anthropic-vertex", ProviderType::AnthropicVertex),
+        ("vertex-maas", ProviderType::VertexMaas),
         ("ollama", ProviderType::Ollama),
         ("xai", ProviderType::XAI),
         ("groq", ProviderType::Groq),
         ("deepseek", ProviderType::DeepSeek),
+        ("deepinfra", ProviderType::DeepInfra),
+        ("cohere", ProviderType::Cohere),
+        ("togetherai", ProviderType::TogetherAi),
+        ("bedrock", ProviderType::Bedrock),
+        ("minimaxi", ProviderType::MiniMaxi),
         ("openrouter", ProviderType::Custom("openrouter".to_string())),
     ];
 
@@ -237,6 +246,7 @@ async fn test_common_parameters_consistency() {
     // Test that all providers accept common parameters without errors
     let providers = vec![
         SiumaiBuilder::new().openai(),
+        SiumaiBuilder::new().azure(),
         SiumaiBuilder::new().anthropic(),
         SiumaiBuilder::new().gemini(),
         SiumaiBuilder::new().ollama(),
@@ -442,10 +452,19 @@ fn test_builder_pattern_consistency() {
             .openrouter()
             .api_key("test")
             .model("test"),
+        SiumaiBuilder::new().mistral().api_key("test").model("test"),
+        SiumaiBuilder::new()
+            .fireworks()
+            .api_key("test")
+            .model("test"),
+        SiumaiBuilder::new()
+            .perplexity()
+            .api_key("test")
+            .model("test"),
     ];
 
     // If we reach here, all builders support the basic chaining pattern
-    assert_eq!(builders.len(), 8);
+    assert_eq!(builders.len(), 11);
 }
 
 /// Test provider type consistency
@@ -454,16 +473,63 @@ fn test_provider_type_consistency() {
     // Test that ProviderType enum covers all supported providers
     let provider_types = [
         ProviderType::OpenAi,
+        ProviderType::Azure,
         ProviderType::Anthropic,
         ProviderType::Gemini,
+        ProviderType::Vertex,
+        ProviderType::AnthropicVertex,
+        ProviderType::VertexMaas,
         ProviderType::Ollama,
         ProviderType::XAI,
         ProviderType::Groq,
         ProviderType::DeepSeek,
+        ProviderType::DeepInfra,
+        ProviderType::Cohere,
+        ProviderType::TogetherAi,
+        ProviderType::Mistral,
+        ProviderType::Fireworks,
+        ProviderType::Perplexity,
+        ProviderType::Bedrock,
+        ProviderType::MiniMaxi,
         ProviderType::Custom("openrouter".to_string()),
     ];
 
     assert_eq!(ProviderType::from_name("deepseek"), ProviderType::DeepSeek);
+    assert_eq!(ProviderType::from_name("azure"), ProviderType::Azure);
+    assert_eq!(ProviderType::from_name("azure-chat"), ProviderType::Azure);
+    assert_eq!(ProviderType::from_name("openai-chat"), ProviderType::OpenAi);
+    assert_eq!(
+        ProviderType::from_name("openai-responses"),
+        ProviderType::OpenAi
+    );
+    assert_eq!(ProviderType::from_name("vertex"), ProviderType::Vertex);
+    assert_eq!(
+        ProviderType::from_name("anthropic-vertex"),
+        ProviderType::AnthropicVertex
+    );
+    assert_eq!(
+        ProviderType::from_name("vertex-maas"),
+        ProviderType::VertexMaas
+    );
+    assert_eq!(
+        ProviderType::from_name("deepinfra"),
+        ProviderType::DeepInfra
+    );
+    assert_eq!(ProviderType::from_name("cohere"), ProviderType::Cohere);
+    assert_eq!(ProviderType::from_name("mistral"), ProviderType::Mistral);
+    assert_eq!(
+        ProviderType::from_name("fireworks"),
+        ProviderType::Fireworks
+    );
+    assert_eq!(
+        ProviderType::from_name("perplexity"),
+        ProviderType::Perplexity
+    );
+    assert_eq!(
+        ProviderType::from_name("togetherai"),
+        ProviderType::TogetherAi
+    );
+    assert_eq!(ProviderType::from_name("bedrock"), ProviderType::Bedrock);
     // Test that all provider types can be displayed
     for provider_type in provider_types {
         let display_string = format!("{}", provider_type);

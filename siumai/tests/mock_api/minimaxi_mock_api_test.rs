@@ -587,6 +587,7 @@ mod minimaxi_tests {
                 mime_type: Some("text/plain".to_string()),
                 purpose: "t2a_async_input".to_string(),
                 metadata: HashMap::new(),
+                provider_options: Default::default(),
                 http_config: None,
             })
             .await

@@ -13,6 +13,7 @@
     "total_tokens": 3
   },
   "finish_reason": "stop",
+  "raw_finish_reason": "stop",
   "audio": null
 }
 

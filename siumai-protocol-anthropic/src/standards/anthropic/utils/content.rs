@@ -15,7 +15,11 @@ mod image_block_tests {
                 png_bytes,
                 "image/png",
             )]),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: None,
         };
@@ -54,7 +58,11 @@ mod image_block_tests {
                 value: serde_json::json!({ "ok": true }),
                 provider_options: crate::types::ProviderOptionsMap::default(),
             },
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: None,
         };
@@ -89,9 +97,7 @@ mod document_provider_options_tests {
         );
 
         let part = ContentPart::File {
-            source: MediaSource::Binary {
-                data: b"%PDF-1.7".to_vec(),
-            },
+            source: FilePartSource::binary(b"%PDF-1.7".to_vec()),
             media_type: "application/pdf".to_string(),
             filename: Some("fallback.pdf".to_string()),
             provider_options,
@@ -121,9 +127,7 @@ mod document_provider_options_tests {
         );
 
         let part = ContentPart::File {
-            source: MediaSource::Binary {
-                data: b"%PDF-1.7".to_vec(),
-            },
+            source: FilePartSource::binary(b"%PDF-1.7".to_vec()),
             media_type: "application/pdf".to_string(),
             filename: Some("fallback.pdf".to_string()),
             provider_options: crate::types::ProviderOptionsMap::default(),
@@ -154,7 +158,11 @@ mod document_provider_options_tests {
                     }),
                 ),
             ]),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: None,
         };
@@ -165,6 +173,41 @@ mod document_provider_options_tests {
         assert_eq!(arr[0]["type"], "tool_result");
         assert_eq!(arr[0]["content"][0]["type"], "tool_reference");
         assert_eq!(arr[0]["content"][0]["tool_name"], "get_weather");
+    }
+
+    #[test]
+    fn image_provider_reference_maps_to_anthropic_file_source() {
+        let part = ContentPart::image_provider_reference(ProviderReference::single(
+            "anthropic",
+            "file-anthropic",
+        ));
+
+        let content = MessageContent::MultiModal(vec![part]);
+        let mapped = convert_message_content(&content).expect("convert ok");
+        let arr = mapped.as_array().expect("array");
+
+        assert_eq!(arr[0]["type"], serde_json::json!("image"));
+        assert_eq!(arr[0]["source"]["type"], serde_json::json!("file"));
+        assert_eq!(
+            arr[0]["source"]["file_id"],
+            serde_json::json!("file-anthropic")
+        );
+    }
+
+    #[test]
+    fn image_provider_reference_requires_anthropic_entry() {
+        let part =
+            ContentPart::image_provider_reference(ProviderReference::single("openai", "file-1"));
+
+        let content = MessageContent::MultiModal(vec![part]);
+        let err = convert_message_content(&content).expect_err("expected missing provider");
+
+        assert!(matches!(
+            err,
+            LlmError::InvalidParameter(message)
+                if message
+                    == "No provider reference found for provider 'anthropic'. Available providers: openai"
+        ));
     }
 }
 
@@ -189,7 +232,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                     ContentPart::Image { source, .. } => {
                         // Anthropic requires base64-encoded images
                         let (media_type, data) = match source {
-                            crate::types::chat::MediaSource::Base64 { data } => {
+                            FilePartSource::Media(MediaSource::Base64 { data }) => {
                                 let bytes = base64::engine::general_purpose::STANDARD
                                     .decode(data.as_bytes())
                                     .ok();
@@ -199,18 +242,28 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                     .unwrap_or_else(|| "image/jpeg".to_string());
                                 (media_type, data.clone())
                             }
-                            crate::types::chat::MediaSource::Binary { data } => {
+                            FilePartSource::Media(MediaSource::Binary { data }) => {
                                 let encoded =
                                     base64::engine::general_purpose::STANDARD.encode(data);
                                 let media_type =
                                     super::headers::guess_image_media_type_from_bytes(data);
                                 (media_type, encoded)
                             }
-                            crate::types::chat::MediaSource::Url { url } => {
+                            FilePartSource::Media(MediaSource::Url { url }) => {
                                 // Anthropic doesn't support URLs, convert to text
                                 content_parts.push(serde_json::json!({
                                     "type": "text",
                                     "text": format!("[Image: {}]", url)
+                                }));
+                                continue;
+                            }
+                            FilePartSource::ProviderReference { provider_reference } => {
+                                content_parts.push(serde_json::json!({
+                                    "type": "image",
+                                    "source": {
+                                        "type": "file",
+                                        "file_id": resolve_anthropic_provider_reference(provider_reference)?,
+                                    }
                                 }));
                                 continue;
                             }
@@ -328,14 +381,14 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                         // Anthropic supports document parts for PDFs and plain text.
                         if media_type == "application/pdf" {
                             let source_json = match source {
-                                crate::types::chat::MediaSource::Base64 { data } => {
+                                FilePartSource::Media(MediaSource::Base64 { data }) => {
                                     serde_json::json!({
                                         "type": "base64",
                                         "media_type": "application/pdf",
                                         "data": data
                                     })
                                 }
-                                crate::types::chat::MediaSource::Binary { data } => {
+                                FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
                                     serde_json::json!({
@@ -344,10 +397,16 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                         "data": encoded
                                     })
                                 }
-                                crate::types::chat::MediaSource::Url { url } => {
+                                FilePartSource::Media(MediaSource::Url { url }) => {
                                     serde_json::json!({
                                         "type": "url",
                                         "url": url
+                                    })
+                                }
+                                FilePartSource::ProviderReference { provider_reference } => {
+                                    serde_json::json!({
+                                        "type": "file",
+                                        "file_id": resolve_anthropic_provider_reference(provider_reference)?,
                                     })
                                 }
                             };
@@ -360,13 +419,13 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             content_parts.push(doc);
                         } else if media_type == "text/plain" {
                             let source_json = match source {
-                                crate::types::chat::MediaSource::Url { url } => {
+                                FilePartSource::Media(MediaSource::Url { url }) => {
                                     serde_json::json!({
                                         "type": "url",
                                         "url": url
                                     })
                                 }
-                                crate::types::chat::MediaSource::Binary { data } => {
+                                FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let text =
                                         String::from_utf8(data.clone()).unwrap_or_else(|_| {
                                             "[Invalid UTF-8 text/plain]".to_string()
@@ -377,7 +436,7 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                         "data": text
                                     })
                                 }
-                                crate::types::chat::MediaSource::Base64 { data } => {
+                                FilePartSource::Media(MediaSource::Base64 { data }) => {
                                     let decoded = base64::engine::general_purpose::STANDARD
                                         .decode(data.as_bytes())
                                         .ok()
@@ -389,6 +448,12 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                         "type": "text",
                                         "media_type": "text/plain",
                                         "data": decoded
+                                    })
+                                }
+                                FilePartSource::ProviderReference { provider_reference } => {
+                                    serde_json::json!({
+                                        "type": "file",
+                                        "file_id": resolve_anthropic_provider_reference(provider_reference)?,
                                     })
                                 }
                             };

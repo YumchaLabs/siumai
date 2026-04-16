@@ -39,6 +39,7 @@ fn make_transformer(model: &str) -> CompatResponseTransformer {
     CompatResponseTransformer {
         config: cfg,
         adapter,
+        provider_metadata_key: None,
     }
 }
 

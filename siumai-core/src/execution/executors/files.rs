@@ -633,6 +633,7 @@ mod tests {
             mime_type: Some("text/plain".into()),
             purpose: "assistants".into(),
             metadata: Default::default(),
+            provider_options: Default::default(),
             http_config: None,
         };
         let err = exec.upload(req).await.unwrap_err();
@@ -671,6 +672,7 @@ mod tests {
             mime_type: Some("text/plain".into()),
             purpose: "assistants".into(),
             metadata: Default::default(),
+            provider_options: Default::default(),
             http_config: Some(hc),
         };
 

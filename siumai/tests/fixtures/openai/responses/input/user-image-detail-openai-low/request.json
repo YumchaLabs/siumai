@@ -5,8 +5,7 @@
       "content": {
         "MultiModal": [
           {
-            "type": "file",
-            "media_type": "image/png",
+            "type": "image",
             "data": "AAECAw==",
             "providerOptions": { "openai": { "imageDetail": "low" } }
           }

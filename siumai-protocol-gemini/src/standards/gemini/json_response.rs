@@ -74,13 +74,11 @@ fn usage_json(usage: &Usage) -> UsageMetadata {
     metadata
 }
 
-fn google_response_metadata(
-    response: &ChatResponse,
-) -> Option<&std::collections::HashMap<String, Value>> {
+fn google_response_metadata(response: &ChatResponse) -> Option<&serde_json::Map<String, Value>> {
     let provider_metadata = response.provider_metadata.as_ref()?;
-    provider_metadata
-        .get("google")
-        .or_else(|| provider_metadata.get("vertex"))
+    crate::types::provider_metadata::provider_metadata_object(provider_metadata, "google").or_else(
+        || crate::types::provider_metadata::provider_metadata_object(provider_metadata, "vertex"),
+    )
 }
 
 fn google_response_metadata_raw_value(response: &ChatResponse, key: &str) -> Option<Value> {
@@ -193,7 +191,7 @@ fn response_content(response: &ChatResponse) -> Result<Content, LlmError> {
             role: Some("model".to_string()),
             parts: Vec::new(),
         }),
-        _ => convert_message_to_content(&assistant_message),
+        _ => convert_message_to_content(&assistant_message, None),
     }
 }
 

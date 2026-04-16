@@ -5,15 +5,26 @@ use crate::client::LlmClient;
 use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
+use crate::execution::executors::embedding::{EmbeddingExecutor, EmbeddingExecutorBuilder};
+use crate::execution::executors::image::{ImageExecutor, ImageExecutorBuilder};
 use crate::execution::executors::rerank::{RerankExecutor, RerankExecutorBuilder};
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 use crate::standards::bedrock::chat::BedrockChatStandard;
+use crate::standards::bedrock::embedding::BedrockEmbeddingStandard;
+use crate::standards::bedrock::image::{BedrockImageStandard, bedrock_image_max_images_per_call};
 use crate::standards::bedrock::rerank::BedrockRerankStandard;
 use crate::streaming::ChatStream;
-use crate::traits::{ChatCapability, ModelMetadata, ProviderCapabilities, RerankCapability};
-use crate::types::{ChatMessage, ChatRequest, ChatResponse, RerankRequest, RerankResponse, Tool};
+use crate::traits::{
+    ChatCapability, EmbeddingCapability, EmbeddingExtensions, ImageExtras,
+    ImageGenerationCapability, ModelMetadata, ProviderCapabilities, RerankCapability,
+};
+use crate::types::{
+    ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, ImageEditRequest,
+    ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest, RerankRequest,
+    RerankResponse, Tool,
+};
 use async_trait::async_trait;
 use secrecy::ExposeSecret;
 use std::borrow::Cow;
@@ -90,6 +101,14 @@ impl BedrockClient {
         Arc::new(BedrockChatStandard::new().create_spec("bedrock"))
     }
 
+    fn embedding_spec(&self) -> Arc<dyn ProviderSpec> {
+        Arc::new(BedrockEmbeddingStandard::new().create_spec("bedrock"))
+    }
+
+    fn image_spec(&self) -> Arc<dyn ProviderSpec> {
+        Arc::new(BedrockImageStandard::new().create_spec("bedrock"))
+    }
+
     fn rerank_spec(&self) -> Arc<dyn ProviderSpec> {
         Arc::new(BedrockRerankStandard::new().create_spec("bedrock"))
     }
@@ -103,6 +122,24 @@ impl BedrockClient {
     }
 
     fn build_chat_context(&self) -> ProviderContext {
+        ProviderContext::new(
+            "bedrock",
+            self.config.runtime_base_url.clone(),
+            self.api_key(),
+            self.config.http_config.headers.clone(),
+        )
+    }
+
+    fn build_embedding_context(&self) -> ProviderContext {
+        ProviderContext::new(
+            "bedrock",
+            self.config.runtime_base_url.clone(),
+            self.api_key(),
+            self.config.http_config.headers.clone(),
+        )
+    }
+
+    fn build_image_context(&self) -> ProviderContext {
         ProviderContext::new(
             "bedrock",
             self.config.runtime_base_url.clone(),
@@ -183,6 +220,29 @@ impl BedrockClient {
         Ok(request)
     }
 
+    fn prepare_embedding_request(
+        &self,
+        mut request: EmbeddingRequest,
+    ) -> Result<EmbeddingRequest, LlmError> {
+        if request.model.as_deref().unwrap_or("").trim().is_empty()
+            && !self.config.common_params.model.trim().is_empty()
+        {
+            request.model = Some(self.config.common_params.model.clone());
+        }
+        if request.model.as_deref().unwrap_or("").trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Bedrock embedding request requires a non-empty model id".to_string(),
+            ));
+        }
+        if request.input.len() != 1 {
+            return Err(LlmError::InvalidInput(format!(
+                "Amazon Bedrock embedding requests support exactly 1 input per call, got {}",
+                request.input.len()
+            )));
+        }
+        Ok(request)
+    }
+
     fn prepare_rerank_request(
         &self,
         mut request: RerankRequest,
@@ -228,6 +288,72 @@ impl BedrockClient {
         Ok(request)
     }
 
+    fn prepare_image_generation_request(
+        &self,
+        mut request: ImageGenerationRequest,
+    ) -> Result<ImageGenerationRequest, LlmError> {
+        if request.model.as_deref().unwrap_or("").trim().is_empty()
+            && !self.config.common_params.model.trim().is_empty()
+        {
+            request.model = Some(self.config.common_params.model.clone());
+        }
+        if request.model.as_deref().unwrap_or("").trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Bedrock image generation request requires a non-empty model id".to_string(),
+            ));
+        }
+        request.count = request.count.max(1);
+        Ok(request)
+    }
+
+    fn prepare_image_edit_request(
+        &self,
+        mut request: ImageEditRequest,
+    ) -> Result<ImageEditRequest, LlmError> {
+        if request.model.as_deref().unwrap_or("").trim().is_empty()
+            && !self.config.common_params.model.trim().is_empty()
+        {
+            request.model = Some(self.config.common_params.model.clone());
+        }
+        if request.model.as_deref().unwrap_or("").trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Bedrock image edit request requires a non-empty model id".to_string(),
+            ));
+        }
+        Ok(request)
+    }
+
+    fn prepare_image_variation_request(
+        &self,
+        mut request: ImageVariationRequest,
+    ) -> Result<ImageVariationRequest, LlmError> {
+        if request.model.as_deref().unwrap_or("").trim().is_empty()
+            && !self.config.common_params.model.trim().is_empty()
+        {
+            request.model = Some(self.config.common_params.model.clone());
+        }
+        if request.model.as_deref().unwrap_or("").trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Bedrock image variation request requires a non-empty model id".to_string(),
+            ));
+        }
+        Ok(request)
+    }
+
+    fn reject_url_backed_image_inputs<'a, I>(inputs: I, label: &str) -> Result<(), LlmError>
+    where
+        I: IntoIterator<Item = &'a crate::types::ImageEditInput>,
+    {
+        for input in inputs {
+            if input.is_url() {
+                return Err(LlmError::InvalidParameter(format!(
+                    "Amazon Bedrock image editing does not support URL-backed {label}; provide the image bytes directly"
+                )));
+            }
+        }
+        Ok(())
+    }
+
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
         let request = self.prepare_chat_request(request, false)?;
         let ctx = self.build_chat_context();
@@ -250,6 +376,93 @@ impl BedrockClient {
 
         let exec = builder.build();
         ChatExecutor::execute(&*exec, request).await
+    }
+
+    async fn embedding_request_via_spec(
+        &self,
+        request: EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, LlmError> {
+        let request = self.prepare_embedding_request(request)?;
+        let ctx = self.build_embedding_context();
+        let spec = self.embedding_spec();
+
+        let mut builder = EmbeddingExecutorBuilder::new("bedrock", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_interceptors(self.config.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+        if let Some(retry_options) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry_options);
+        }
+
+        let mut response =
+            EmbeddingExecutor::execute(&*builder.build_for_request(&request), request.clone())
+                .await?;
+        if response.model.trim().is_empty() {
+            response.model = request.model.unwrap_or_default();
+        }
+        Ok(response)
+    }
+
+    fn build_image_executor(&self, request: &ImageGenerationRequest) -> Arc<dyn ImageExecutor> {
+        let mut builder = ImageExecutorBuilder::new("bedrock", self.http_client.clone())
+            .with_spec(self.image_spec())
+            .with_context(self.build_image_context())
+            .with_interceptors(self.config.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+        if let Some(retry_options) = self.retry_options.clone() {
+            builder = builder.with_retry_options(retry_options);
+        }
+
+        builder.build_for_request(request)
+    }
+
+    async fn image_request_via_spec(
+        &self,
+        request: ImageGenerationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        let request = self.prepare_image_generation_request(request)?;
+        let exec = self.build_image_executor(&request);
+        ImageExecutor::execute(&*exec, request).await
+    }
+
+    async fn image_edit_request_via_spec(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        let request = self.prepare_image_edit_request(request)?;
+        Self::reject_url_backed_image_inputs(request.images.iter(), "image inputs")?;
+        if let Some(mask) = request.mask.as_ref() {
+            Self::reject_url_backed_image_inputs(std::iter::once(mask), "mask inputs")?;
+        }
+
+        let selector = ImageGenerationRequest {
+            model: request.model.clone(),
+            ..Default::default()
+        };
+        let exec = self.build_image_executor(&selector);
+        ImageExecutor::execute_edit(&*exec, request).await
+    }
+
+    async fn image_variation_request_via_spec(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        let request = self.prepare_image_variation_request(request)?;
+        Self::reject_url_backed_image_inputs(std::iter::once(&request.image), "variation inputs")?;
+
+        let selector = ImageGenerationRequest {
+            model: request.model.clone(),
+            ..Default::default()
+        };
+        let exec = self.build_image_executor(&selector);
+        ImageExecutor::execute_variation(&*exec, request).await
     }
 
     async fn chat_stream_request_via_spec(
@@ -331,6 +544,90 @@ impl ChatCapability for BedrockClient {
 }
 
 #[async_trait]
+impl EmbeddingCapability for BedrockClient {
+    async fn embed(&self, input: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
+        self.embedding_request_via_spec(EmbeddingRequest::new(input))
+            .await
+    }
+
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
+    fn embedding_dimension(&self) -> usize {
+        let model = self.config.common_params.model.trim();
+        if model.starts_with("cohere.embed-v4") {
+            1536
+        } else {
+            1024
+        }
+    }
+
+    fn supported_embedding_models(&self) -> Vec<String> {
+        if self.config.common_params.model.trim().is_empty() {
+            Vec::new()
+        } else {
+            vec![self.config.common_params.model.clone()]
+        }
+    }
+}
+
+#[async_trait]
+impl EmbeddingExtensions for BedrockClient {
+    async fn embed_with_config(
+        &self,
+        request: EmbeddingRequest,
+    ) -> Result<EmbeddingResponse, LlmError> {
+        self.embedding_request_via_spec(request).await
+    }
+}
+
+#[async_trait]
+impl ImageGenerationCapability for BedrockClient {
+    async fn generate_images(
+        &self,
+        request: ImageGenerationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.image_request_via_spec(request).await
+    }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        Some(bedrock_image_max_images_per_call(
+            self.config.common_params.model.as_str(),
+        ))
+    }
+}
+
+#[async_trait]
+impl ImageExtras for BedrockClient {
+    async fn edit_image(
+        &self,
+        request: ImageEditRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.image_edit_request_via_spec(request).await
+    }
+
+    async fn create_variation(
+        &self,
+        request: ImageVariationRequest,
+    ) -> Result<ImageGenerationResponse, LlmError> {
+        self.image_variation_request_via_spec(request).await
+    }
+
+    fn get_supported_formats(&self) -> Vec<String> {
+        vec!["b64_json".to_string()]
+    }
+
+    fn supports_image_editing(&self) -> bool {
+        true
+    }
+
+    fn supports_image_variations(&self) -> bool {
+        true
+    }
+}
+
+#[async_trait]
 impl RerankCapability for BedrockClient {
     async fn rerank(&self, request: RerankRequest) -> Result<RerankResponse, LlmError> {
         let request = self.prepare_rerank_request(request)?;
@@ -382,6 +679,8 @@ impl LlmClient for BedrockClient {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::new()
             .with_chat()
+            .with_embedding()
+            .with_image_generation()
             .with_streaming()
             .with_tools()
             .with_rerank()
@@ -399,6 +698,22 @@ impl LlmClient for BedrockClient {
         Some(self)
     }
 
+    fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
+        Some(self)
+    }
+
+    fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
+        Some(self)
+    }
+
+    fn as_image_generation_capability(&self) -> Option<&dyn ImageGenerationCapability> {
+        Some(self)
+    }
+
+    fn as_image_extras(&self) -> Option<&dyn ImageExtras> {
+        Some(self)
+    }
+
     fn as_rerank_capability(&self) -> Option<&dyn RerankCapability> {
         Some(self)
     }
@@ -409,7 +724,7 @@ mod tests {
     use super::*;
     use crate::providers::bedrock::BedrockConfig;
     use async_trait::async_trait;
-    use std::sync::Arc;
+    use std::{collections::HashMap, sync::Arc};
 
     #[derive(Clone, Default)]
     struct NoopInterceptor;
@@ -439,7 +754,7 @@ mod tests {
             .with_runtime_base_url("https://runtime.example.com")
             .with_agent_runtime_base_url("https://agent.example.com")
             .with_api_key("test-key")
-            .with_model("anthropic.claude-3-5-sonnet")
+            .with_model("amazon.nova-canvas-v1:0")
             .with_http_transport(transport.clone())
             .with_http_interceptors(vec![interceptor]);
         let mut client = BedrockClient::from_config(config).expect("client");
@@ -457,7 +772,45 @@ mod tests {
         assert!(client.retry_options().is_some());
         assert!(client.http_transport().is_some());
         assert_eq!(client.http_interceptors().len(), 1);
+        assert!(client.capabilities().supports("embedding"));
+        assert!(client.capabilities().supports("image_generation"));
+        assert!(client.as_embedding_capability().is_some());
+        assert!(client.as_image_generation_capability().is_some());
+        assert!(client.as_image_extras().is_some());
+        assert_eq!(client.max_images_per_call(), Some(5));
         let _http_client = client.http_client();
+    }
+
+    #[test]
+    fn image_edit_request_rejects_url_backed_inputs_before_transport() {
+        let config = BedrockConfig::new()
+            .with_api_key("test-key")
+            .with_model("amazon.nova-canvas-v1:0")
+            .with_http_transport(Arc::new(NoopTransport));
+        let client = BedrockClient::from_config(config).expect("client");
+
+        let request = ImageEditRequest {
+            images: vec![crate::types::ImageEditInput::url(
+                "https://example.com/source.png",
+            )],
+            mask: None,
+            prompt: "remove background".to_string(),
+            model: None,
+            count: Some(1),
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: None,
+            extra_params: HashMap::new(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        let err = futures::executor::block_on(client.edit_image(request))
+            .expect_err("url-backed inputs should be rejected");
+        assert!(
+            matches!(err, LlmError::InvalidParameter(message) if message.contains("URL-backed"))
+        );
     }
 
     #[test]

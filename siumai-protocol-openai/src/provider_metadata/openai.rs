@@ -160,11 +160,22 @@ impl crate::types::provider_metadata::FromMetadata for OpenAiMetadata {
 /// Typed helper for OpenAI metadata extraction from `ChatResponse`.
 pub trait OpenAiChatResponseExt {
     fn openai_metadata(&self) -> Option<OpenAiMetadata>;
+    fn openai_metadata_with_key(&self, key: &str) -> Option<OpenAiMetadata>;
 }
 
 impl OpenAiChatResponseExt for crate::types::ChatResponse {
     fn openai_metadata(&self) -> Option<OpenAiMetadata> {
-        let mut meta = self.provider_metadata.as_ref()?.get("openai")?.clone();
+        self.openai_metadata_with_key("openai")
+    }
+
+    fn openai_metadata_with_key(&self, key: &str) -> Option<OpenAiMetadata> {
+        let mut meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, key)
+            })?
+            .clone();
 
         if !meta.contains_key("responseId")
             && let Some(id) = self.id.clone()
@@ -192,19 +203,24 @@ impl OpenAiChatResponseExt for crate::types::ChatResponse {
             );
         }
 
-        serde_json::from_value(serde_json::to_value(meta).ok()?).ok()
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
     }
 }
 
 /// Typed helper for OpenAI metadata extraction from `OpenAiSource`.
 pub trait OpenAiSourceExt {
     fn openai_metadata(&self) -> Option<OpenAiSourceMetadata>;
+    fn openai_metadata_with_key(&self, key: &str) -> Option<OpenAiSourceMetadata>;
 }
 
 impl OpenAiSourceExt for OpenAiSource {
     fn openai_metadata(&self) -> Option<OpenAiSourceMetadata> {
+        self.openai_metadata_with_key("openai")
+    }
+
+    fn openai_metadata_with_key(&self, key: &str) -> Option<OpenAiSourceMetadata> {
         let metadata = self.provider_metadata.clone()?;
-        let inner = metadata.get("openai").cloned().unwrap_or(metadata);
+        let inner = metadata.get(key).cloned().unwrap_or(metadata);
         serde_json::from_value(inner).ok()
     }
 }
@@ -212,10 +228,15 @@ impl OpenAiSourceExt for OpenAiSource {
 /// Typed helper for OpenAI metadata extraction from `ContentPart`.
 pub trait OpenAiContentPartExt {
     fn openai_metadata(&self) -> Option<OpenAiContentPartMetadata>;
+    fn openai_metadata_with_key(&self, key: &str) -> Option<OpenAiContentPartMetadata>;
 }
 
 impl OpenAiContentPartExt for crate::types::ContentPart {
     fn openai_metadata(&self) -> Option<OpenAiContentPartMetadata> {
+        self.openai_metadata_with_key("openai")
+    }
+
+    fn openai_metadata_with_key(&self, key: &str) -> Option<OpenAiContentPartMetadata> {
         use crate::types::ContentPart;
 
         let provider_metadata = match self {
@@ -251,7 +272,7 @@ impl OpenAiContentPartExt for crate::types::ContentPart {
             | ContentPart::ToolApprovalRequest { .. } => return None,
         };
 
-        let meta = provider_metadata.get("openai")?;
+        let meta = provider_metadata.get(key)?;
         serde_json::from_value(meta.clone()).ok()
     }
 }
@@ -279,7 +300,10 @@ mod tests {
         inner.insert("rejectedPredictionTokens".to_string(), serde_json::json!(6));
 
         let mut outer = HashMap::new();
-        outer.insert("openai".to_string(), inner);
+        outer.insert(
+            "openai".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.openai_metadata().expect("openai metadata");
@@ -289,6 +313,40 @@ mod tests {
         assert_eq!(meta.rejected_prediction_tokens, Some(6));
         assert_eq!(meta.service_tier.as_deref(), Some("flex"));
         assert_eq!(meta.system_fingerprint.as_deref(), Some("fp_123"));
+    }
+
+    #[test]
+    fn openai_metadata_reads_default_and_custom_keys() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut default_inner = HashMap::new();
+        default_inner.insert("serviceTier".to_string(), serde_json::json!("default"));
+
+        let mut custom_inner = HashMap::new();
+        custom_inner.insert("serviceTier".to_string(), serde_json::json!("priority"));
+
+        let mut outer = HashMap::new();
+        outer.insert(
+            "openai".to_string(),
+            serde_json::Value::Object(default_inner.into_iter().collect()),
+        );
+        outer.insert(
+            "azure".to_string(),
+            serde_json::Value::Object(custom_inner.into_iter().collect()),
+        );
+        resp.provider_metadata = Some(outer);
+
+        assert_eq!(
+            resp.openai_metadata().and_then(|meta| meta.service_tier),
+            Some("default".to_string())
+        );
+        assert_eq!(
+            resp.openai_metadata_with_key("azure")
+                .and_then(|meta| meta.service_tier),
+            Some("priority".to_string())
+        );
     }
 
     #[test]
@@ -401,5 +459,27 @@ mod tests {
             custom_meta.encrypted_content.as_deref(),
             Some("enc_compaction")
         );
+    }
+
+    #[test]
+    fn openai_content_part_metadata_reads_custom_key() {
+        let part = crate::types::ContentPart::Reasoning {
+            text: "thinking".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "azure".to_string(),
+                serde_json::json!({
+                    "itemId": "rs_1",
+                    "reasoningEncryptedContent": "enc_123"
+                }),
+            )])),
+        };
+
+        assert!(part.openai_metadata().is_none());
+        let meta = part
+            .openai_metadata_with_key("azure")
+            .expect("openai content-part metadata");
+        assert_eq!(meta.item_id.as_deref(), Some("rs_1"));
+        assert_eq!(meta.reasoning_encrypted_content.as_deref(), Some("enc_123"));
     }
 }

@@ -110,24 +110,12 @@ impl OpenAiResponsesEventConverter {
         } else if let Some(tool_name) = self.custom_tool_name_by_item_id(item_id)
             && !tool_name.is_empty()
         {
-            out.push(crate::streaming::ChatStreamEvent::Custom {
-                event_type: "openai:tool-input-start".to_string(),
-                data: serde_json::json!({
-                    "type": "tool-input-start",
-                    "id": item_id,
-                    "toolName": tool_name,
-                }),
-            });
+            out.push(
+                self.openai_tool_input_start_event(item_id, &tool_name, None, None, None, None),
+            );
         }
 
-        out.push(crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:tool-input-delta".to_string(),
-            data: serde_json::json!({
-                "type": "tool-input-delta",
-                "id": item_id,
-                "delta": delta,
-            }),
-        });
+        out.push(self.openai_tool_input_delta_event(item_id, delta));
 
         Some(out)
     }
@@ -149,12 +137,6 @@ impl OpenAiResponsesEventConverter {
             return None;
         }
 
-        Some(vec![crate::streaming::ChatStreamEvent::Custom {
-            event_type: "openai:tool-input-end".to_string(),
-            data: serde_json::json!({
-                "type": "tool-input-end",
-                "id": item_id,
-            }),
-        }])
+        Some(vec![self.openai_tool_input_end_event(item_id, None)])
     }
 }

@@ -24,6 +24,10 @@ impl LlmClient for Siumai {
         self.client.as_embedding_capability()
     }
 
+    fn as_completion_capability(&self) -> Option<&dyn CompletionCapability> {
+        self.client.as_completion_capability()
+    }
+
     fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
         self.client.as_embedding_extensions()
     }
@@ -63,6 +67,10 @@ impl LlmClient for Siumai {
 
     fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {
         self.client.as_file_management_capability()
+    }
+
+    fn as_skills_capability(&self) -> Option<&dyn SkillsCapability> {
+        self.client.as_skills_capability()
     }
 
     fn as_moderation_capability(&self) -> Option<&dyn ModerationCapability> {

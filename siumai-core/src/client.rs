@@ -46,6 +46,14 @@ pub trait LlmClient: Send + Sync {
         None
     }
 
+    /// Get as completion capability if supported.
+    ///
+    /// Returns None by default. Providers that support completion endpoints should override this
+    /// method to return Some(self).
+    fn as_completion_capability(&self) -> Option<&dyn CompletionCapability> {
+        None
+    }
+
     /// Get as embedding extensions if supported
     ///
     /// Returns None by default. Providers that support request-aware embedding
@@ -127,6 +135,14 @@ pub trait LlmClient: Send + Sync {
     /// Returns None by default. Providers that support files
     /// should override this method to return Some(self).
     fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {
+        None
+    }
+
+    /// Get as skills capability if supported
+    ///
+    /// Returns None by default. Providers that support skill uploads
+    /// should override this method to return Some(self).
+    fn as_skills_capability(&self) -> Option<&dyn SkillsCapability> {
         None
     }
 
@@ -332,6 +348,27 @@ impl ChatCapability for ClientWrapper {
     }
 }
 
+#[async_trait::async_trait]
+impl CompletionCapability for ClientWrapper {
+    async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        let completion = self.client().as_completion_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation(
+                "Wrapped client does not support completion operations".to_string(),
+            )
+        })?;
+        completion.complete(request).await
+    }
+
+    async fn complete_stream(&self, request: CompletionRequest) -> Result<ChatStream, LlmError> {
+        let completion = self.client().as_completion_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation(
+                "Wrapped client does not support completion streaming".to_string(),
+            )
+        })?;
+        completion.complete_stream(request).await
+    }
+}
+
 impl dyn LlmClient {
     /// Convenience: execute a full chat request via the unified client.
     ///
@@ -393,6 +430,10 @@ impl LlmClient for ClientWrapper {
         self.client().as_embedding_capability()
     }
 
+    fn as_completion_capability(&self) -> Option<&dyn CompletionCapability> {
+        self.client().as_completion_capability()
+    }
+
     fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
         self.client().as_embedding_extensions()
     }
@@ -432,6 +473,10 @@ impl LlmClient for ClientWrapper {
 
     fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {
         self.client().as_file_management_capability()
+    }
+
+    fn as_skills_capability(&self) -> Option<&dyn SkillsCapability> {
+        self.client().as_skills_capability()
     }
 
     fn as_moderation_capability(&self) -> Option<&dyn ModerationCapability> {

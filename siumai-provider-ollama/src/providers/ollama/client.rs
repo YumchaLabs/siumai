@@ -25,7 +25,7 @@ use super::chat::OllamaChatCapability;
 use super::config::{OllamaConfig, OllamaParams};
 use super::embeddings::OllamaEmbeddings;
 use super::get_default_models;
-use super::models::OllamaModelsCapability;
+use super::model_listing::OllamaModelListingCapability;
 
 /// Ollama Client
 pub struct OllamaClient {
@@ -34,7 +34,7 @@ pub struct OllamaClient {
     /// Embedding capability implementation
     embedding_capability: OllamaEmbeddings,
     /// Models capability implementation
-    models_capability: OllamaModelsCapability,
+    models_capability: OllamaModelListingCapability,
     /// Common parameters
     common_params: CommonParams,
     /// Ollama-specific parameters
@@ -123,7 +123,7 @@ impl OllamaClient {
             http_transport.clone(),
         );
 
-        let models_capability = OllamaModelsCapability::new(
+        let models_capability = OllamaModelListingCapability::new(
             config.base_url.clone(),
             http_client.clone(),
             config.http_config.clone(),

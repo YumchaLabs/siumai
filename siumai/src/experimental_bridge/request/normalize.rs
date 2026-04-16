@@ -19,10 +19,12 @@ use siumai_core::LlmError;
 use siumai_core::bridge::{BridgeOptions, BridgeResult, BridgeTarget};
 #[cfg(feature = "anthropic")]
 use siumai_core::types::CacheControl;
-use siumai_core::types::chat::{ImageDetail, MediaSource, ResponseFormat};
+use siumai_core::types::chat::{
+    FilePartSource, ImageDetail, MediaSource, ProviderReference, ResponseFormat,
+};
 use siumai_core::types::{
     ChatMessage, ChatRequest, ContentPart, MessageContent, MessageMetadata, MessageRole,
-    ProviderOptionsMap, Tool, ToolChoice, ToolResultContentPart, ToolResultOutput,
+    ProviderOptionsMap, Tool, ToolChoice, ToolFunction, ToolResultContentPart, ToolResultOutput,
 };
 #[cfg(any(feature = "google", feature = "google-vertex"))]
 use siumai_protocol_gemini::standards::gemini::types::{
@@ -176,7 +178,29 @@ fn parse_anthropic_messages_json_to_chat_request(value: &Value) -> Result<ChatRe
     if let Some(thinking) = obj.get("thinking")
         && thinking.is_object()
     {
-        anthropic_options.insert("thinking".to_string(), thinking.clone());
+        anthropic_options.insert(
+            "thinking".to_string(),
+            map_anthropic_wire_json_to_sdk_shape(thinking),
+        );
+    }
+    if let Some(cache_control) = obj.get("cache_control")
+        && cache_control.is_object()
+    {
+        anthropic_options.insert(
+            "cacheControl".to_string(),
+            map_anthropic_wire_json_to_sdk_shape(cache_control),
+        );
+    }
+    if let Some(metadata) = obj.get("metadata")
+        && metadata.is_object()
+    {
+        let metadata = map_anthropic_wire_json_to_sdk_shape(metadata);
+        if metadata
+            .as_object()
+            .is_some_and(|metadata| !metadata.is_empty())
+        {
+            anthropic_options.insert("metadata".to_string(), metadata);
+        }
     }
     if let Some(output_config) = obj.get("output_config").and_then(Value::as_object)
         && let Some(effort) = output_config.get("effort").and_then(Value::as_str)
@@ -186,7 +210,28 @@ fn parse_anthropic_messages_json_to_chat_request(value: &Value) -> Result<ChatRe
     if let Some(mcp_servers) = obj.get("mcp_servers")
         && mcp_servers.is_array()
     {
-        anthropic_options.insert("mcpServers".to_string(), mcp_servers.clone());
+        anthropic_options.insert(
+            "mcpServers".to_string(),
+            map_anthropic_wire_json_to_sdk_shape(mcp_servers),
+        );
+    }
+    if let Some(container) = obj.get("container")
+        && let Some(mapped_container) = map_anthropic_wire_container_to_sdk_shape(container)
+    {
+        anthropic_options.insert("container".to_string(), mapped_container);
+    }
+    if let Some(context_management) = obj.get("context_management")
+        && context_management.is_object()
+    {
+        anthropic_options.insert(
+            "contextManagement".to_string(),
+            map_anthropic_wire_json_to_sdk_shape(context_management),
+        );
+    }
+    if let Some(speed) = obj.get("speed")
+        && !speed.is_null()
+    {
+        anthropic_options.insert("speed".to_string(), speed.clone());
     }
 
     if !anthropic_options.is_empty() {
@@ -196,6 +241,67 @@ fn parse_anthropic_messages_json_to_chat_request(value: &Value) -> Result<ChatRe
     }
 
     Ok(request)
+}
+
+#[cfg(feature = "anthropic")]
+fn map_anthropic_wire_json_to_sdk_shape(value: &Value) -> Value {
+    fn map_key(key: &str) -> &str {
+        match key {
+            "authorization_token" => "authorizationToken",
+            "allowed_domains" => "allowedDomains",
+            "allowed_tools" => "allowedTools",
+            "blocked_domains" => "blockedDomains",
+            "budget_tokens" => "budgetTokens",
+            "clear_at_least" => "clearAtLeast",
+            "clear_tool_inputs" => "clearToolInputs",
+            "display_height_px" => "displayHeightPx",
+            "display_width_px" => "displayWidthPx",
+            "exclude_tools" => "excludeTools",
+            "max_uses" => "maxUses",
+            "pause_after_compaction" => "pauseAfterCompaction",
+            "skill_id" => "skillId",
+            "tool_configuration" => "toolConfiguration",
+            "user_id" => "userId",
+            "user_location" => "userLocation",
+            _ => key,
+        }
+    }
+
+    match value {
+        Value::Object(obj) => Value::Object(
+            obj.iter()
+                .map(|(key, value)| {
+                    (
+                        map_key(key).to_string(),
+                        map_anthropic_wire_json_to_sdk_shape(value),
+                    )
+                })
+                .collect(),
+        ),
+        Value::Array(items) => Value::Array(
+            items
+                .iter()
+                .map(map_anthropic_wire_json_to_sdk_shape)
+                .collect(),
+        ),
+        _ => value.clone(),
+    }
+}
+
+#[cfg(feature = "anthropic")]
+fn map_anthropic_wire_container_to_sdk_shape(value: &Value) -> Option<Value> {
+    match value {
+        Value::String(id) => {
+            if id.trim().is_empty() {
+                None
+            } else {
+                Some(json!({ "id": id }))
+            }
+        }
+        Value::Object(obj) if obj.is_empty() => None,
+        Value::Object(_) => Some(map_anthropic_wire_json_to_sdk_shape(value)),
+        _ => None,
+    }
 }
 
 #[cfg(feature = "openai")]
@@ -219,7 +325,6 @@ fn parse_openai_responses_json_to_chat_request(value: &Value) -> Result<ChatRequ
     let obj = expect_object(value, "OpenAI Responses request")?;
     let mut request = ChatRequest::new(Vec::new());
     let mut openai_options = Map::new();
-    let mut file_id_prefixes = BTreeSet::new();
 
     request.common_params.model = required_string(obj, "model", "OpenAI Responses request")?;
     request.common_params.temperature = optional_f64(obj, "temperature");
@@ -297,12 +402,9 @@ fn parse_openai_responses_json_to_chat_request(value: &Value) -> Result<ChatRequ
                 index += 1;
                 continue;
             }
-            if let Some(message) = parse_openai_responses_input_item(
-                &items[index],
-                &tool_registry,
-                &mut call_names,
-                &mut file_id_prefixes,
-            )? {
+            if let Some(message) =
+                parse_openai_responses_input_item(&items[index], &tool_registry, &mut call_names)?
+            {
                 request.messages.push(message);
             }
             index += 1;
@@ -310,12 +412,6 @@ fn parse_openai_responses_json_to_chat_request(value: &Value) -> Result<ChatRequ
         request.messages = compact_adjacent_messages(std::mem::take(&mut request.messages));
     }
 
-    if !file_id_prefixes.is_empty() {
-        openai_options.insert(
-            "fileIdPrefixes".to_string(),
-            Value::Array(file_id_prefixes.into_iter().map(Value::String).collect()),
-        );
-    }
     if !openai_options.is_empty() {
         request
             .provider_options_map
@@ -644,6 +740,10 @@ fn parse_gemini_part(
                     .clone()
                     .unwrap_or_else(|| Value::Object(Map::new())),
                 provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
@@ -660,7 +760,11 @@ fn parse_gemini_part(
                 tool_call_id,
                 tool_name: function_response.name.clone(),
                 output: parse_gemini_function_response_output(&function_response.response),
+                input: None,
                 provider_executed: None,
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
@@ -687,6 +791,10 @@ fn parse_gemini_part(
                     "code": executable_code.code.clone(),
                 }),
                 provider_executed: Some(true),
+                dynamic: Some(true),
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
@@ -713,6 +821,10 @@ fn parse_gemini_part(
                     "output": code_execution_result.output.clone(),
                 })),
                 provider_executed: Some(true),
+                input: None,
+                dynamic: Some(true),
+                preliminary: None,
+                title: None,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: gemini_thought_signature_provider_metadata(
                     thought_signature.as_deref(),
@@ -731,9 +843,7 @@ fn parse_gemini_inline_data_part(
     let provider_metadata = gemini_thought_signature_provider_metadata(thought_signature);
     if mime_type.starts_with("image/") {
         ContentPart::Image {
-            source: MediaSource::Base64 {
-                data: data.to_string(),
-            },
+            source: FilePartSource::base64(data),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata,
@@ -749,9 +859,7 @@ fn parse_gemini_inline_data_part(
         }
     } else {
         ContentPart::File {
-            source: MediaSource::Base64 {
-                data: data.to_string(),
-            },
+            source: FilePartSource::base64(data),
             media_type: mime_type.to_string(),
             filename: None,
             provider_options: ProviderOptionsMap::default(),
@@ -769,9 +877,7 @@ fn parse_gemini_file_data_part(
     let provider_metadata = gemini_thought_signature_provider_metadata(thought_signature);
     match mime_type {
         Some(mime) if mime.starts_with("image/") => ContentPart::Image {
-            source: MediaSource::Url {
-                url: file_uri.to_string(),
-            },
+            source: FilePartSource::url(file_uri),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata,
@@ -785,18 +891,14 @@ fn parse_gemini_file_data_part(
             provider_metadata,
         },
         Some(mime) => ContentPart::File {
-            source: MediaSource::Url {
-                url: file_uri.to_string(),
-            },
+            source: FilePartSource::url(file_uri),
             media_type: mime.to_string(),
             filename: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata,
         },
         None => ContentPart::File {
-            source: MediaSource::Url {
-                url: file_uri.to_string(),
-            },
+            source: FilePartSource::url(file_uri),
             media_type: "application/octet-stream".to_string(),
             filename: None,
             provider_options: ProviderOptionsMap::default(),
@@ -1247,7 +1349,11 @@ fn parse_openai_chat_tool_message(
             tool_call_id,
             tool_name,
             output: parse_tool_result_output_from_string(&content, false),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }],
@@ -1322,7 +1428,7 @@ fn parse_openai_chat_content_part(value: &Value) -> Result<ContentPart, LlmError
 fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     match obj.get("image_url") {
         Some(Value::String(url)) => Ok(ContentPart::Image {
-            source: MediaSource::Url { url: url.clone() },
+            source: FilePartSource::url(url),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -1334,7 +1440,7 @@ fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, 
                 .and_then(Value::as_str)
                 .map(ImageDetail::from);
             Ok(ContentPart::Image {
-                source: MediaSource::Url { url },
+                source: FilePartSource::url(url),
                 detail,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,
@@ -1376,7 +1482,9 @@ fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmEr
 
     if let Some(file_id) = optional_string(file, "file_id") {
         return Ok(ContentPart::File {
-            source: MediaSource::Base64 { data: file_id },
+            source: FilePartSource::provider_reference(ProviderReference::single(
+                "openai", file_id,
+            )),
             media_type: "application/pdf".to_string(),
             filename: optional_string(file, "filename"),
             provider_options: ProviderOptionsMap::default(),
@@ -1385,9 +1493,7 @@ fn parse_openai_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmEr
     }
     if let Some(file_data) = optional_string(file, "file_data") {
         return Ok(ContentPart::File {
-            source: MediaSource::Base64 {
-                data: strip_data_url_prefix(&file_data),
-            },
+            source: FilePartSource::base64(strip_data_url_prefix(&file_data)),
             media_type: "application/pdf".to_string(),
             filename: optional_string(file, "filename"),
             provider_options: ProviderOptionsMap::default(),
@@ -1432,17 +1538,42 @@ fn parse_openai_chat_tool(value: &Value) -> Result<Tool, LlmError> {
 fn parse_openai_function_tool(function_obj: &Map<String, Value>) -> Tool {
     let name = optional_string(function_obj, "name").unwrap_or_default();
     let description = optional_string(function_obj, "description").unwrap_or_default();
-    let parameters = function_obj
-        .get("parameters")
-        .cloned()
-        .unwrap_or_else(|| Value::Object(Map::new()));
+    let parameters = openai_function_input_schema(function_obj);
     let mut tool = Tool::function(name, description, parameters);
 
     if let Tool::Function { function } = &mut tool {
-        function.strict = function_obj.get("strict").and_then(Value::as_bool);
+        populate_openai_function_tool_metadata(function, function_obj);
     }
 
     tool
+}
+
+fn openai_function_input_schema(function_obj: &Map<String, Value>) -> Value {
+    function_obj
+        .get("parameters")
+        .or_else(|| function_obj.get("inputSchema"))
+        .or_else(|| function_obj.get("input_schema"))
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()))
+}
+
+fn populate_openai_function_tool_metadata(
+    function: &mut ToolFunction,
+    function_obj: &Map<String, Value>,
+) {
+    function.strict = function_obj.get("strict").and_then(Value::as_bool);
+    function.output_schema = function_obj
+        .get("outputSchema")
+        .or_else(|| function_obj.get("output_schema"))
+        .cloned();
+
+    if let Some(input_examples) = function_obj
+        .get("inputExamples")
+        .or_else(|| function_obj.get("input_examples"))
+        .and_then(Value::as_array)
+    {
+        function.input_examples = Some(input_examples.clone());
+    }
 }
 
 fn parse_openai_chat_tool_choice(value: &Value) -> Option<ToolChoice> {
@@ -1485,13 +1616,10 @@ fn parse_openai_responses_tool(value: &Value) -> Result<Tool, LlmError> {
     if kind == "function" {
         let name = required_string(obj, "name", "OpenAI Responses function tool")?;
         let description = optional_string(obj, "description").unwrap_or_default();
-        let parameters = obj
-            .get("parameters")
-            .cloned()
-            .unwrap_or_else(|| Value::Object(Map::new()));
+        let parameters = openai_function_input_schema(obj);
         let mut tool = Tool::function(name, description, parameters);
         if let Tool::Function { function } = &mut tool {
-            function.strict = obj.get("strict").and_then(Value::as_bool);
+            populate_openai_function_tool_metadata(function, obj);
         }
         return Ok(tool);
     }
@@ -1580,15 +1708,11 @@ fn parse_openai_responses_input_item(
     value: &Value,
     registry: &ResponsesToolRegistry,
     call_names: &mut HashMap<String, String>,
-    file_id_prefixes: &mut BTreeSet<String>,
 ) -> Result<Option<ChatMessage>, LlmError> {
     let obj = expect_object(value, "OpenAI Responses input item")?;
 
     if obj.contains_key("role") || obj.get("type").and_then(Value::as_str) == Some("message") {
-        return Ok(Some(parse_openai_responses_message_item(
-            obj,
-            file_id_prefixes,
-        )?));
+        return Ok(Some(parse_openai_responses_message_item(obj)?));
     }
 
     let Some(kind) = obj.get("type").and_then(Value::as_str) else {
@@ -1644,10 +1768,7 @@ fn parse_openai_responses_input_item(
     }
 }
 
-fn parse_openai_responses_message_item(
-    obj: &Map<String, Value>,
-    file_id_prefixes: &mut BTreeSet<String>,
-) -> Result<ChatMessage, LlmError> {
+fn parse_openai_responses_message_item(obj: &Map<String, Value>) -> Result<ChatMessage, LlmError> {
     let raw_role = required_string(obj, "role", "OpenAI Responses message item")?;
     let role = match raw_role.as_str() {
         "system" => MessageRole::System,
@@ -1664,9 +1785,7 @@ fn parse_openai_responses_message_item(
 
     let parts = match obj.get("content") {
         Some(Value::String(text)) => parse_text_like_content_parts(text),
-        Some(Value::Array(parts)) => {
-            parse_openai_responses_message_content(parts, &role, file_id_prefixes)?
-        }
+        Some(Value::Array(parts)) => parse_openai_responses_message_content(parts, &role)?,
         Some(Value::Null) | None => Vec::new(),
         _ => {
             return Err(LlmError::ParseError(
@@ -1687,7 +1806,6 @@ fn parse_openai_responses_message_item(
 fn parse_openai_responses_message_content(
     parts: &[Value],
     role: &MessageRole,
-    file_id_prefixes: &mut BTreeSet<String>,
 ) -> Result<Vec<ContentPart>, LlmError> {
     let mut out = Vec::new();
     for value in parts {
@@ -1701,10 +1819,10 @@ fn parse_openai_responses_message_content(
                 ));
             }
             "input_image" | "output_image" => {
-                out.push(parse_openai_responses_image_part(obj, file_id_prefixes));
+                out.push(parse_openai_responses_image_part(obj));
             }
             "input_file" => {
-                out.push(parse_openai_responses_file_part(obj, file_id_prefixes)?);
+                out.push(parse_openai_responses_file_part(obj)?);
             }
             "tool_use" => {
                 let tool_call_id =
@@ -1749,18 +1867,15 @@ fn parse_openai_responses_message_content(
     Ok(out)
 }
 
-fn parse_openai_responses_image_part(
-    obj: &Map<String, Value>,
-    file_id_prefixes: &mut BTreeSet<String>,
-) -> ContentPart {
+fn parse_openai_responses_image_part(obj: &Map<String, Value>) -> ContentPart {
     let provider_options = openai_image_detail_provider_options(obj);
 
     if let Some(file_id) = optional_string(obj, "file_id") {
-        record_openai_file_id_prefix(file_id_prefixes, &file_id);
-        return ContentPart::File {
-            source: MediaSource::Base64 { data: file_id },
-            media_type: "image/*".to_string(),
-            filename: None,
+        return ContentPart::Image {
+            source: FilePartSource::provider_reference(ProviderReference::single(
+                "openai", file_id,
+            )),
+            detail: None,
             provider_options,
             provider_metadata: None,
         };
@@ -1768,30 +1883,25 @@ fn parse_openai_responses_image_part(
 
     let image_url = optional_string(obj, "image_url").unwrap_or_default();
     let source = if image_url.starts_with("data:") {
-        MediaSource::Base64 {
-            data: strip_data_url_prefix(&image_url),
-        }
+        FilePartSource::base64(strip_data_url_prefix(&image_url))
     } else {
-        MediaSource::Url { url: image_url }
+        FilePartSource::url(image_url)
     };
 
-    ContentPart::File {
+    ContentPart::Image {
         source,
-        media_type: infer_image_media_type(obj),
-        filename: None,
+        detail: None,
         provider_options,
         provider_metadata: None,
     }
 }
 
-fn parse_openai_responses_file_part(
-    obj: &Map<String, Value>,
-    file_id_prefixes: &mut BTreeSet<String>,
-) -> Result<ContentPart, LlmError> {
+fn parse_openai_responses_file_part(obj: &Map<String, Value>) -> Result<ContentPart, LlmError> {
     if let Some(file_id) = optional_string(obj, "file_id") {
-        record_openai_file_id_prefix(file_id_prefixes, &file_id);
         return Ok(ContentPart::File {
-            source: MediaSource::Base64 { data: file_id },
+            source: FilePartSource::provider_reference(ProviderReference::single(
+                "openai", file_id,
+            )),
             media_type: "application/pdf".to_string(),
             filename: optional_string(obj, "filename"),
             provider_options: ProviderOptionsMap::default(),
@@ -1800,7 +1910,7 @@ fn parse_openai_responses_file_part(
     }
     if let Some(file_url) = optional_string(obj, "file_url") {
         return Ok(ContentPart::File {
-            source: MediaSource::Url { url: file_url },
+            source: FilePartSource::url(file_url),
             media_type: infer_document_media_type(None, None),
             filename: optional_string(obj, "filename"),
             provider_options: ProviderOptionsMap::default(),
@@ -1809,9 +1919,7 @@ fn parse_openai_responses_file_part(
     }
     if let Some(file_data) = optional_string(obj, "file_data") {
         return Ok(ContentPart::File {
-            source: MediaSource::Base64 {
-                data: strip_data_url_prefix(&file_data),
-            },
+            source: FilePartSource::base64(strip_data_url_prefix(&file_data)),
             media_type: "application/pdf".to_string(),
             filename: optional_string(obj, "filename"),
             provider_options: ProviderOptionsMap::default(),
@@ -1876,6 +1984,10 @@ fn parse_openai_responses_function_call_item(
             tool_name,
             arguments,
             provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options,
             provider_metadata: None,
         }],
@@ -1907,6 +2019,10 @@ fn parse_openai_responses_provider_call_item(
             tool_name,
             arguments: Value::Object(arguments),
             provider_executed: None,
+            dynamic: Some(true),
+            invalid: None,
+            error: None,
+            title: None,
             provider_options,
             provider_metadata: None,
         }],
@@ -1931,7 +2047,11 @@ fn parse_openai_responses_function_call_output_item(
             tool_call_id,
             tool_name,
             output,
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }],
@@ -1976,7 +2096,11 @@ fn parse_openai_responses_provider_call_output_item(
             tool_call_id,
             tool_name,
             output,
+            input: None,
             provider_executed: None,
+            dynamic: Some(true),
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }],
@@ -2228,12 +2352,20 @@ fn parse_anthropic_image_part(obj: &Map<String, Value>) -> Result<ContentPart, L
     let source_type = required_string(source, "type", "Anthropic image block.source")?;
 
     let media_source = match source_type.as_str() {
-        "url" => MediaSource::Url {
-            url: required_string(source, "url", "Anthropic image block.source")?,
-        },
-        "base64" => MediaSource::Base64 {
-            data: required_string(source, "data", "Anthropic image block.source")?,
-        },
+        "url" => FilePartSource::url(required_string(
+            source,
+            "url",
+            "Anthropic image block.source",
+        )?),
+        "base64" => FilePartSource::base64(required_string(
+            source,
+            "data",
+            "Anthropic image block.source",
+        )?),
+        "file" => FilePartSource::provider_reference(ProviderReference::single(
+            "anthropic",
+            required_string(source, "file_id", "Anthropic image block.source")?,
+        )),
         other => {
             return Err(LlmError::ParseError(format!(
                 "unsupported Anthropic image source `{other}`"
@@ -2265,21 +2397,31 @@ fn parse_anthropic_document_part(obj: &Map<String, Value>) -> Result<ContentPart
         "url" => {
             let url = required_string(source, "url", "Anthropic document block.source")?;
             let media_type = infer_document_media_type(title.as_deref(), Some(url.as_str()));
-            (MediaSource::Url { url }, media_type)
+            (FilePartSource::url(url), media_type)
         }
         "base64" => (
-            MediaSource::Base64 {
-                data: required_string(source, "data", "Anthropic document block.source")?,
-            },
+            FilePartSource::base64(required_string(
+                source,
+                "data",
+                "Anthropic document block.source",
+            )?),
             optional_string(source, "media_type").unwrap_or_else(|| "application/pdf".to_string()),
         ),
         "text" => (
-            MediaSource::Binary {
-                data: optional_string(source, "data")
+            FilePartSource::binary(
+                optional_string(source, "data")
                     .unwrap_or_default()
                     .into_bytes(),
-            },
+            ),
             optional_string(source, "media_type").unwrap_or_else(|| "text/plain".to_string()),
+        ),
+        "file" => (
+            FilePartSource::provider_reference(ProviderReference::single(
+                "anthropic",
+                required_string(source, "file_id", "Anthropic document block.source")?,
+            )),
+            optional_string(source, "media_type")
+                .unwrap_or_else(|| infer_document_media_type(title.as_deref(), title.as_deref())),
         ),
         other => {
             return Err(LlmError::ParseError(format!(
@@ -2337,7 +2479,11 @@ fn parse_anthropic_tool_result_part(obj: &Map<String, Value>) -> Result<ContentP
         tool_call_id,
         tool_name: String::new(),
         output,
+        input: None,
         provider_executed: None,
+        dynamic: None,
+        preliminary: None,
+        title: None,
         provider_options: ProviderOptionsMap::default(),
         provider_metadata: None,
     })
@@ -2449,7 +2595,9 @@ fn parse_anthropic_tool(value: &Value) -> Result<Tool, LlmError> {
             {
                 provider_tool.name = name;
             }
-            provider_tool.args = collect_remaining_object_fields(obj, &["type", "name"]);
+            provider_tool.args = map_anthropic_wire_json_to_sdk_shape(
+                &collect_remaining_object_fields(obj, &["type", "name"]),
+            );
         }
         return Ok(tool);
     }
@@ -2471,6 +2619,9 @@ fn parse_anthropic_tool(value: &Value) -> Result<Tool, LlmError> {
         let mut anthropic = Map::new();
         if let Some(value) = obj.get("defer_loading").and_then(Value::as_bool) {
             anthropic.insert("deferLoading".to_string(), Value::Bool(value));
+        }
+        if let Some(value) = obj.get("eager_input_streaming").and_then(Value::as_bool) {
+            anthropic.insert("eagerInputStreaming".to_string(), Value::Bool(value));
         }
         if let Some(value) = obj.get("cache_control")
             && value.is_object()
@@ -2928,14 +3079,6 @@ fn default_provider_defined_tool(provider_id: &str) -> Option<Tool> {
     crate::tools::provider_defined_tool(provider_id)
 }
 
-fn record_openai_file_id_prefix(prefixes: &mut BTreeSet<String>, value: &str) {
-    for prefix in ["file_", "file-"] {
-        if value.starts_with(prefix) {
-            prefixes.insert(prefix.to_string());
-        }
-    }
-}
-
 fn openai_responses_wire_type_for_tool(tool: &Tool) -> Option<String> {
     let Tool::ProviderDefined(provider_tool) = tool else {
         return None;
@@ -3075,4 +3218,86 @@ fn infer_image_media_type(obj: &Map<String, Value>) -> String {
     }
 
     "image/*".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "openai")]
+    #[test]
+    fn openai_file_part_file_id_normalizes_to_provider_reference() {
+        let obj = serde_json::json!({
+            "file": {
+                "file_id": "file-123",
+                "filename": "doc.pdf"
+            }
+        });
+
+        let part = parse_openai_file_part(obj.as_object().expect("object")).expect("parse part");
+        let ContentPart::File {
+            source,
+            media_type,
+            filename,
+            ..
+        } = part
+        else {
+            panic!("expected file part");
+        };
+
+        assert_eq!(media_type, "application/pdf");
+        assert_eq!(filename.as_deref(), Some("doc.pdf"));
+        assert_eq!(
+            source
+                .as_provider_reference()
+                .and_then(|provider_reference| provider_reference.get("openai")),
+            Some("file-123")
+        );
+        assert!(source.as_media_source().is_none());
+    }
+
+    #[cfg(feature = "openai")]
+    #[test]
+    fn openai_responses_image_file_id_normalizes_to_image_provider_reference() {
+        let obj = serde_json::json!({
+            "type": "input_image",
+            "file_id": "file-456"
+        });
+        let part = parse_openai_responses_image_part(obj.as_object().expect("object"));
+        let ContentPart::Image { source, .. } = part else {
+            panic!("expected image part");
+        };
+
+        assert_eq!(
+            source
+                .as_provider_reference()
+                .and_then(|provider_reference| provider_reference.get("openai")),
+            Some("file-456")
+        );
+    }
+
+    #[cfg(feature = "anthropic")]
+    #[test]
+    fn anthropic_image_file_source_normalizes_to_provider_reference() {
+        let obj = serde_json::json!({
+            "type": "image",
+            "source": {
+                "type": "file",
+                "file_id": "file-anthropic"
+            }
+        });
+
+        let part =
+            parse_anthropic_image_part(obj.as_object().expect("object")).expect("parse image part");
+        let ContentPart::Image { source, .. } = part else {
+            panic!("expected image part");
+        };
+
+        assert_eq!(
+            source
+                .as_provider_reference()
+                .and_then(|provider_reference| provider_reference.get("anthropic")),
+            Some("file-anthropic")
+        );
+    }
 }

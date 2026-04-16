@@ -1,6 +1,9 @@
 //! `TogetherAI` builder.
 
-use super::{client::TogetherAiClient, config::TogetherAiConfig};
+use super::{
+    client::TogetherAiClient,
+    config::{TogetherAiConfig, resolve_api_key_from_env},
+};
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
@@ -113,7 +116,7 @@ impl TogetherAiBuilder {
 
     pub fn into_config(mut self) -> Result<TogetherAiConfig, LlmError> {
         if self.config.api_key.expose_secret().trim().is_empty()
-            && let Ok(api_key) = std::env::var("TOGETHER_API_KEY")
+            && let Ok(api_key) = resolve_api_key_from_env()
         {
             self.config = self.config.with_api_key(api_key);
         }
@@ -147,13 +150,57 @@ impl TogetherAiBuilder {
 
 #[cfg(test)]
 mod config_first_tests {
+    #![allow(unsafe_code)]
+
     use super::*;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, MutexGuard};
 
     #[derive(Clone, Default)]
     struct NoopInterceptor;
 
     impl crate::execution::http::interceptor::HttpInterceptor for NoopInterceptor {}
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     #[test]
     fn into_config_preserves_explicit_api_key_and_http_interceptors() {
@@ -242,5 +289,19 @@ mod config_first_tests {
             crate::client::LlmClient::supported_models(&built),
             crate::client::LlmClient::supported_models(&from_config)
         );
+    }
+
+    #[test]
+    fn into_config_accepts_deprecated_api_key_alias_when_primary_missing() {
+        let _lock = lock_env();
+        let _primary = EnvGuard::remove(TogetherAiConfig::PRIMARY_API_KEY_ENV);
+        let _legacy = EnvGuard::set(TogetherAiConfig::DEPRECATED_API_KEY_ENV, "legacy-key");
+
+        let cfg = TogetherAiBuilder::new(BuilderBase::default())
+            .model("Salesforce/Llama-Rank-v1")
+            .into_config()
+            .expect("builder should read deprecated env alias");
+
+        assert_eq!(cfg.api_key.expose_secret(), "legacy-key");
     }
 }

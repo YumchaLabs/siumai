@@ -46,6 +46,7 @@
   "additionalModelRequestFields": {
     "anthropic_beta": ["example-beta-flag-2025-01-01"],
     "thinking": { "type": "enabled", "budget_tokens": 1024 }
-  }
+  },
+  "additionalModelResponseFieldPaths": ["/delta/stop_sequence"]
 }
 

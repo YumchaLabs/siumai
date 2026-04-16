@@ -7,12 +7,14 @@
 //! Traits are organized in separate files under `traits/` and re-exported here for a stable API:
 //!
 //! - **`chat`** - Chat completion capabilities (`ChatCapability`, `ChatExtensions`)
+//! - **`completion`** - Completion capability (`CompletionCapability`)
 //! - **`embedding`** - Embedding generation capabilities (`EmbeddingCapability`, `EmbeddingExtensions`)
 //! - **`vision`** - Vision/image analysis capabilities (`VisionCapability`)
 //! - **`image`** - Image generation capabilities (`ImageGenerationCapability`, `ImageExtras`)
 //! - **`audio`** - Narrow audio family traits (`SpeechCapability`, `TranscriptionCapability`)
 //!   plus compatibility-only `AudioCapability`
 //! - **`files`** - File management capabilities (`FileManagementCapability`)
+//! - **`skills`** - Skill upload capabilities (`SkillsCapability`)
 //! - **`moderation`** - Content moderation capabilities (`ModerationCapability`)
 //! - **`rerank`** - Document reranking capabilities (`RerankCapability`)
 //!
@@ -83,6 +85,9 @@
 mod chat;
 pub use chat::{ChatCapability, ChatExtensions};
 
+mod completion;
+pub use completion::CompletionCapability;
+
 mod embedding;
 pub use embedding::{EmbeddingCapability, EmbeddingExtensions};
 
@@ -95,6 +100,9 @@ pub use vision::VisionCapability;
 
 mod files;
 pub use files::FileManagementCapability;
+
+mod skills;
+pub use skills::SkillsCapability;
 
 mod moderation;
 pub use moderation::ModerationCapability;
@@ -168,6 +176,7 @@ mod tests {
             let _: Option<Arc<dyn EmbeddingCapability>> = None;
             let _: Option<Arc<dyn ImageGenerationCapability>> = None;
             let _: Option<Arc<dyn FileManagementCapability>> = None;
+            let _: Option<Arc<dyn SkillsCapability>> = None;
             let _: Option<Arc<dyn ModerationCapability>> = None;
             let _: Option<Arc<dyn ModelListingCapability>> = None;
         }
@@ -197,6 +206,7 @@ mod tests {
                     model: Some("mock-model".to_string()),
                     usage: None,
                     finish_reason: Some(crate::types::FinishReason::Stop),
+                    raw_finish_reason: None,
                     system_fingerprint: None,
                     service_tier: None,
                     audio: None,

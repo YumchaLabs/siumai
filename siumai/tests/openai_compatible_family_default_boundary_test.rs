@@ -182,7 +182,7 @@ async fn compat_together_embedding_missing_request_model_uses_family_default_acr
 
     let siumai_client = Siumai::builder()
         .openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .fetch(Arc::new(siumai_transport.clone()))
         .build()
@@ -190,7 +190,7 @@ async fn compat_together_embedding_missing_request_model_uses_family_default_acr
         .expect("build siumai client");
 
     let provider_client = Provider::openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .fetch(Arc::new(provider_transport.clone()))
         .build()
@@ -198,8 +198,8 @@ async fn compat_together_embedding_missing_request_model_uses_family_default_acr
         .expect("build provider client");
 
     let config_client = make_config_client(
-        "together",
-        &builtin_primary_default_model("together"),
+        "togetherai",
+        &builtin_primary_default_model("togetherai"),
         Arc::new(config_transport.clone()),
     )
     .await;
@@ -244,7 +244,7 @@ async fn compat_together_embedding_missing_request_model_preserves_explicit_conf
 
     let siumai_client = Siumai::builder()
         .openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .model("custom-embedding-override")
         .fetch(Arc::new(siumai_transport.clone()))
@@ -253,7 +253,7 @@ async fn compat_together_embedding_missing_request_model_preserves_explicit_conf
         .expect("build siumai client");
 
     let provider_client = Provider::openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .model("custom-embedding-override")
         .fetch(Arc::new(provider_transport.clone()))
@@ -262,7 +262,7 @@ async fn compat_together_embedding_missing_request_model_preserves_explicit_conf
         .expect("build provider client");
 
     let config_client = make_config_client(
-        "together",
+        "togetherai",
         "custom-embedding-override",
         Arc::new(config_transport.clone()),
     )
@@ -297,7 +297,7 @@ async fn compat_together_tts_missing_request_model_uses_family_default_across_pu
 
     let siumai_client = Siumai::builder()
         .openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .fetch(Arc::new(siumai_transport.clone()))
         .build()
@@ -305,7 +305,7 @@ async fn compat_together_tts_missing_request_model_uses_family_default_across_pu
         .expect("build siumai client");
 
     let provider_client = Provider::openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .fetch(Arc::new(provider_transport.clone()))
         .build()
@@ -313,8 +313,8 @@ async fn compat_together_tts_missing_request_model_uses_family_default_across_pu
         .expect("build provider client");
 
     let config_client = make_config_client(
-        "together",
-        &builtin_primary_default_model("together"),
+        "togetherai",
+        &builtin_primary_default_model("togetherai"),
         Arc::new(config_transport.clone()),
     )
     .await;
@@ -436,7 +436,7 @@ async fn compat_together_image_missing_request_model_uses_family_default_across_
 
     let siumai_client = Siumai::builder()
         .openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .fetch(Arc::new(siumai_transport.clone()))
         .build()
@@ -444,7 +444,7 @@ async fn compat_together_image_missing_request_model_uses_family_default_across_
         .expect("build siumai client");
 
     let provider_client = Provider::openai()
-        .together()
+        .togetherai_openai_compatible()
         .api_key("test-key")
         .fetch(Arc::new(provider_transport.clone()))
         .build()
@@ -452,8 +452,8 @@ async fn compat_together_image_missing_request_model_uses_family_default_across_
         .expect("build provider client");
 
     let config_client = make_config_client(
-        "together",
-        &builtin_primary_default_model("together"),
+        "togetherai",
+        &builtin_primary_default_model("togetherai"),
         Arc::new(config_transport.clone()),
     )
     .await;

@@ -92,6 +92,9 @@ pub mod error;
 // Internal helpers for structured output (shared by highlevel + orchestrator).
 mod structured_output;
 
+// Internal helpers for tool-loop runtime state shared by orchestrator + server paths.
+mod tool_runtime;
+
 /// High-level structured object helpers (provider-agnostic).
 pub mod highlevel;
 

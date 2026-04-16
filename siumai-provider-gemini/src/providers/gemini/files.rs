@@ -45,6 +45,39 @@ pub struct GeminiFiles {
 }
 
 impl GeminiFiles {
+    fn file_provider_options(
+        request: &FileUploadRequest,
+    ) -> Option<&serde_json::Map<String, serde_json::Value>> {
+        request
+            .provider_options
+            .get_object("gemini")
+            .or_else(|| request.provider_options.get_object("google"))
+    }
+
+    fn poll_interval_ms(request: &FileUploadRequest) -> u64 {
+        Self::file_provider_options(request)
+            .and_then(|options| {
+                options
+                    .get("pollIntervalMs")
+                    .or_else(|| options.get("poll_interval_ms"))
+            })
+            .and_then(|value| value.as_u64())
+            .filter(|value| *value > 0)
+            .unwrap_or(2000)
+    }
+
+    fn poll_timeout_ms(request: &FileUploadRequest) -> u64 {
+        Self::file_provider_options(request)
+            .and_then(|options| {
+                options
+                    .get("pollTimeoutMs")
+                    .or_else(|| options.get("poll_timeout_ms"))
+            })
+            .and_then(|value| value.as_u64())
+            .filter(|value| *value > 0)
+            .unwrap_or(300_000)
+    }
+
     /// Create a new Gemini files capability
     pub fn new(
         config: GeminiConfig,
@@ -131,9 +164,27 @@ impl FileManagementCapability for GeminiFiles {
         // Validate request
         self.validate_upload_request(&request)?;
 
+        let poll_interval_ms = Self::poll_interval_ms(&request);
+        let poll_timeout_ms = Self::poll_timeout_ms(&request);
+
         use crate::execution::executors::files::FilesExecutor;
         let exec = self.build_files_executor().await;
-        FilesExecutor::upload(&*exec, request).await
+        let file = FilesExecutor::upload(&*exec, request).await?;
+
+        match file.status.as_str() {
+            "processing" => {
+                self.wait_for_file_processing_with_options(
+                    file.id.clone(),
+                    poll_timeout_ms,
+                    poll_interval_ms,
+                )
+                .await
+            }
+            "failed" => Err(LlmError::ProcessingError(
+                "File processing failed".to_string(),
+            )),
+            _ => Ok(file),
+        }
     }
 
     /// List files with optional filtering.
@@ -258,8 +309,23 @@ impl GeminiFiles {
         file_id: String,
         max_wait_seconds: u64,
     ) -> Result<FileObject, LlmError> {
+        self.wait_for_file_processing_with_options(
+            file_id,
+            max_wait_seconds.saturating_mul(1000),
+            2000,
+        )
+        .await
+    }
+
+    async fn wait_for_file_processing_with_options(
+        &self,
+        file_id: String,
+        poll_timeout_ms: u64,
+        poll_interval_ms: u64,
+    ) -> Result<FileObject, LlmError> {
         let start_time = std::time::Instant::now();
-        let max_duration = std::time::Duration::from_secs(max_wait_seconds);
+        let max_duration = std::time::Duration::from_millis(poll_timeout_ms);
+        let poll_duration = std::time::Duration::from_millis(std::cmp::max(poll_interval_ms, 1));
 
         loop {
             let file = self.retrieve_file(file_id.clone()).await?;
@@ -275,12 +341,12 @@ impl GeminiFiles {
                     // Continue waiting
                     if start_time.elapsed() >= max_duration {
                         return Err(LlmError::TimeoutError(format!(
-                            "File processing timeout after {max_wait_seconds} seconds"
+                            "File processing timeout after {poll_timeout_ms} ms"
                         )));
                     }
 
                     // Wait before next check
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    tokio::time::sleep(poll_duration).await;
                 }
                 _ => {
                     return Err(LlmError::ProcessingError(format!(

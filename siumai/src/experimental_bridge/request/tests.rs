@@ -12,8 +12,11 @@ use siumai_core::bridge::{
 };
 use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, ProviderOptionsMap};
 
+#[cfg(any(feature = "openai", feature = "anthropic"))]
+use siumai_core::types::Tool;
+
 #[cfg(all(feature = "anthropic", feature = "openai"))]
-use siumai_core::types::{ProviderDefinedTool, Tool};
+use siumai_core::types::ProviderDefinedTool;
 
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 use crate::experimental_bridge::{ProviderToolRewriteCustomization, ProviderToolRewriteRule};
@@ -1531,6 +1534,87 @@ fn openai_responses_request_normalization_with_options_applies_bridge_customizat
 
 #[cfg(feature = "openai")]
 #[test]
+fn openai_responses_request_normalization_accepts_ai_sdk_function_schema_fields() {
+    let value = json!({
+        "model": "gpt-5-mini",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "weather in tokyo" }
+                ]
+            }
+        ],
+        "tools": [
+            {
+                "type": "function",
+                "name": "weather",
+                "description": "Get weather",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "city": { "type": "string" }
+                    },
+                    "required": ["city"]
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "forecast": { "type": "string" }
+                    },
+                    "required": ["forecast"]
+                },
+                "inputExamples": [
+                    {
+                        "input": {
+                            "city": "Tokyo"
+                        }
+                    }
+                ],
+                "strict": true
+            }
+        ]
+    });
+
+    let normalized = bridge_openai_responses_json_to_chat_request(&value).expect("parse");
+    let tools = normalized.tools.expect("tools");
+    let Tool::Function { function } = &tools[0] else {
+        panic!("expected function tool");
+    };
+
+    assert_eq!(
+        function.input_schema(),
+        &json!({
+            "type": "object",
+            "properties": {
+                "city": { "type": "string" }
+            },
+            "required": ["city"]
+        })
+    );
+    assert_eq!(
+        function.output_schema(),
+        Some(&json!({
+            "type": "object",
+            "properties": {
+                "forecast": { "type": "string" }
+            },
+            "required": ["forecast"]
+        }))
+    );
+    assert_eq!(function.strict, Some(true));
+    assert_eq!(
+        function.input_examples,
+        Some(vec![json!({
+            "input": {
+                "city": "Tokyo"
+            }
+        })])
+    );
+}
+
+#[cfg(feature = "openai")]
+#[test]
 fn openai_responses_request_normalization_with_options_respects_loss_policy() {
     let value = json!({
         "model": "gpt-5-mini",
@@ -1825,7 +1909,9 @@ fn anthropic_messages_request_normalization_restores_system_thinking_and_provide
                     }
                 },
                 "strict": true,
-                "defer_loading": true
+                "defer_loading": true,
+                "eager_input_streaming": true,
+                "allowed_callers": ["direct", "code_execution_20260120"]
             },
             {
                 "type": "web_search_20250305",
@@ -1934,8 +2020,217 @@ fn anthropic_messages_request_normalization_restores_system_thinking_and_provide
             .and_then(|value| value.as_bool()),
         Some(true)
     );
+    assert_eq!(
+        function
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|value| value.get("eagerInputStreaming"))
+            .and_then(|value| value.as_bool()),
+        Some(true)
+    );
+    assert_eq!(
+        function
+            .provider_options_map
+            .get("anthropic")
+            .and_then(|value| value.get("allowedCallers")),
+        Some(&json!(["direct", "code_execution_20260120"]))
+    );
 
     assert!(normalized.response_format.is_some());
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn bridge_anthropic_messages_json_to_chat_request_restores_sdk_shaped_request_provider_options() {
+    let value = json!({
+        "model": "claude-3-haiku-20240307",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "Hello" }
+                ]
+            }
+        ],
+        "max_tokens": 4096,
+        "thinking": {
+            "type": "enabled",
+            "budget_tokens": 1000
+        },
+        "cache_control": {
+            "type": "ephemeral",
+            "ttl": "1h"
+        },
+        "metadata": {
+            "user_id": "user-1"
+        },
+        "mcp_servers": [
+            {
+                "type": "url",
+                "name": "echo",
+                "url": "https://echo.mcp.inevitable.fyi/mcp",
+                "authorization_token": "secret-token",
+                "tool_configuration": {
+                    "enabled": true,
+                    "allowed_tools": ["echo"]
+                }
+            }
+        ],
+        "container": "container-1",
+        "context_management": {
+            "edits": [
+                {
+                    "type": "compact_20260112",
+                    "pause_after_compaction": true
+                }
+            ]
+        },
+        "speed": "fast"
+    });
+
+    let normalized = bridge_anthropic_messages_json_to_chat_request(&value).expect("parse");
+
+    assert_eq!(
+        normalized.provider_option("anthropic"),
+        Some(&json!({
+            "thinking": {
+                "type": "enabled",
+                "budgetTokens": 1000
+            },
+            "cacheControl": {
+                "type": "ephemeral",
+                "ttl": "1h"
+            },
+            "metadata": {
+                "userId": "user-1"
+            },
+            "mcpServers": [
+                {
+                    "type": "url",
+                    "name": "echo",
+                    "url": "https://echo.mcp.inevitable.fyi/mcp",
+                    "authorizationToken": "secret-token",
+                    "toolConfiguration": {
+                        "enabled": true,
+                        "allowedTools": ["echo"]
+                    }
+                }
+            ],
+            "container": {
+                "id": "container-1"
+            },
+            "contextManagement": {
+                "edits": [
+                    {
+                        "type": "compact_20260112",
+                        "pauseAfterCompaction": true
+                    }
+                ]
+            },
+            "speed": "fast"
+        }))
+    );
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn bridge_anthropic_messages_json_to_chat_request_restores_latest_provider_defined_tool_shapes() {
+    let value = json!({
+        "model": "claude-3-haiku-20240307",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "Hello" }
+                ]
+            }
+        ],
+        "max_tokens": 4096,
+        "tools": [
+            {
+                "type": "web_search_20260209",
+                "name": "web_search",
+                "max_uses": 1,
+                "allowed_domains": ["example.com"],
+                "blocked_domains": ["blocked.example"],
+                "user_location": {
+                    "type": "approximate",
+                    "country": "US"
+                }
+            },
+            {
+                "type": "web_fetch_20260209",
+                "name": "web_fetch",
+                "max_uses": 2,
+                "allowed_domains": ["docs.example"]
+            },
+            {
+                "type": "computer_20251124",
+                "name": "computer",
+                "display_width_px": 1280,
+                "display_height_px": 720
+            },
+            {
+                "type": "code_execution_20260120",
+                "name": "code_execution"
+            }
+        ]
+    });
+
+    let normalized = bridge_anthropic_messages_json_to_chat_request(&value).expect("parse");
+    let tools = normalized.tools.expect("tools");
+    assert_eq!(tools.len(), 4);
+
+    let Tool::ProviderDefined(web_search) = &tools[0] else {
+        panic!("expected web search provider tool");
+    };
+    assert_eq!(web_search.id, "anthropic.web_search_20260209");
+    assert_eq!(web_search.name, "web_search");
+    assert_eq!(
+        web_search.args,
+        json!({
+            "maxUses": 1,
+            "allowedDomains": ["example.com"],
+            "blockedDomains": ["blocked.example"],
+            "userLocation": {
+                "type": "approximate",
+                "country": "US"
+            }
+        })
+    );
+
+    let Tool::ProviderDefined(web_fetch) = &tools[1] else {
+        panic!("expected web fetch provider tool");
+    };
+    assert_eq!(web_fetch.id, "anthropic.web_fetch_20260209");
+    assert_eq!(web_fetch.name, "web_fetch");
+    assert_eq!(
+        web_fetch.args,
+        json!({
+            "maxUses": 2,
+            "allowedDomains": ["docs.example"]
+        })
+    );
+
+    let Tool::ProviderDefined(computer) = &tools[2] else {
+        panic!("expected computer provider tool");
+    };
+    assert_eq!(computer.id, "anthropic.computer_20251124");
+    assert_eq!(computer.name, "computer");
+    assert_eq!(
+        computer.args,
+        json!({
+            "displayWidthPx": 1280,
+            "displayHeightPx": 720
+        })
+    );
+
+    let Tool::ProviderDefined(code_execution) = &tools[3] else {
+        panic!("expected code execution provider tool");
+    };
+    assert_eq!(code_execution.id, "anthropic.code_execution_20260120");
+    assert_eq!(code_execution.name, "code_execution");
+    assert_eq!(code_execution.args, json!({}));
 }
 
 #[cfg(feature = "google")]

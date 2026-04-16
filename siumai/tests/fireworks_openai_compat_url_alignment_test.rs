@@ -44,3 +44,14 @@ fn fireworks_embedding_url_matches_official_openai_compatible_endpoint() {
         "https://api.fireworks.ai/inference/v1/embeddings"
     );
 }
+
+#[test]
+fn fireworks_completion_url_matches_official_openai_compatible_endpoint() {
+    let (ctx, adapter) = make_ctx();
+    let spec = OpenAiCompatibleSpecWithAdapter::new(adapter);
+
+    assert_eq!(
+        spec.completion_url(&ctx),
+        "https://api.fireworks.ai/inference/v1/completions"
+    );
+}

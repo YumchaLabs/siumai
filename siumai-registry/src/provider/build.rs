@@ -12,6 +12,7 @@ use crate::registry::entry::ProviderFactory;
     feature = "google-vertex",
     feature = "cohere",
     feature = "togetherai",
+    feature = "deepinfra",
     feature = "ollama",
     feature = "deepseek",
     feature = "xai",
@@ -103,6 +104,22 @@ fn select_factory(
                 ))
             }
         }
+        Some(ids::BuiltinProviderId::VertexMaas) => {
+            #[cfg(feature = "google-vertex")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::VertexMaasProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "google-vertex"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Google Vertex MaaS provider requires the 'google-vertex' feature to be enabled"
+                        .to_string(),
+                ))
+            }
+        }
         Some(ids::BuiltinProviderId::Ollama) => {
             #[cfg(feature = "ollama")]
             {
@@ -128,6 +145,36 @@ fn select_factory(
             {
                 Err(LlmError::UnsupportedOperation(
                     "DeepSeek provider requires the 'deepseek' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        Some(ids::BuiltinProviderId::DeepInfra) => {
+            #[cfg(feature = "deepinfra")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::DeepInfraProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "deepinfra"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "DeepInfra provider requires the 'deepinfra' feature to be enabled".to_string(),
+                ))
+            }
+        }
+        Some(ids::BuiltinProviderId::Fireworks) => {
+            #[cfg(feature = "openai")]
+            {
+                Ok(
+                    Arc::new(crate::registry::factories::FireworksProviderFactory)
+                        as Arc<dyn ProviderFactory>,
+                )
+            }
+            #[cfg(not(feature = "openai"))]
+            {
+                Err(LlmError::UnsupportedOperation(
+                    "Fireworks provider requires the 'openai' feature to be enabled".to_string(),
                 ))
             }
         }
@@ -265,6 +312,7 @@ fn select_factory(
     feature = "google-vertex",
     feature = "cohere",
     feature = "togetherai",
+    feature = "deepinfra",
     feature = "ollama",
     feature = "deepseek",
     feature = "xai",
@@ -313,6 +361,7 @@ async fn build_default_client_with_capabilities(
     feature = "google-vertex",
     feature = "cohere",
     feature = "togetherai",
+    feature = "deepinfra",
     feature = "ollama",
     feature = "deepseek",
     feature = "xai",
@@ -450,14 +499,24 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             }
             #[cfg(feature = "google-vertex")]
             ids::ANTHROPIC_VERTEX => {
-                "claude-3-5-sonnet-20241022".to_string()
+                return Err(LlmError::ConfigurationError(
+                    "Anthropic on Vertex requires an explicit model id".to_string(),
+                ));
             }
             #[cfg(feature = "google-vertex")]
             ids::VERTEX => {
-                "imagen-3.0-generate-002".to_string()
+                return Err(LlmError::ConfigurationError(
+                    "Google Vertex requires an explicit model id".to_string(),
+                ));
+            }
+            #[cfg(feature = "google-vertex")]
+            ids::VERTEX_MAAS => {
+                return Err(LlmError::ConfigurationError(
+                    "Google Vertex MaaS requires an explicit model id".to_string(),
+                ));
             }
             #[cfg(not(feature = "google-vertex"))]
-            ids::ANTHROPIC_VERTEX | ids::VERTEX => {
+            ids::ANTHROPIC_VERTEX | ids::VERTEX | ids::VERTEX_MAAS => {
                 return Err(LlmError::UnsupportedOperation(
                     "Google Vertex feature not enabled".to_string(),
                 ));
@@ -476,6 +535,14 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
             ids::DEEPSEEK => {
                 return Err(LlmError::UnsupportedOperation(
                     "DeepSeek feature not enabled".to_string(),
+                ));
+            }
+            #[cfg(feature = "deepinfra")]
+            ids::DEEPINFRA => "meta-llama/Llama-3.3-70B-Instruct".to_string(),
+            #[cfg(not(feature = "deepinfra"))]
+            ids::DEEPINFRA => {
+                return Err(LlmError::UnsupportedOperation(
+                    "DeepInfra feature not enabled".to_string(),
                 ));
             }
             #[cfg(feature = "xai")]
@@ -503,7 +570,11 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 ));
             }
             #[cfg(feature = "cohere")]
-            ids::COHERE => "rerank-english-v3.0".to_string(),
+            ids::COHERE => {
+                return Err(LlmError::ConfigurationError(
+                    "Cohere requires an explicit model id".to_string(),
+                ));
+            }
             #[cfg(not(feature = "cohere"))]
             ids::COHERE => {
                 return Err(LlmError::UnsupportedOperation(
@@ -511,7 +582,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
                 ));
             }
             #[cfg(feature = "togetherai")]
-            ids::TOGETHERAI => "Salesforce/Llama-Rank-v1".to_string(),
+            ids::TOGETHERAI => "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo".to_string(),
             #[cfg(not(feature = "togetherai"))]
             ids::TOGETHERAI => {
                 return Err(LlmError::UnsupportedOperation(
@@ -535,7 +606,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
 
     // Normalize model ID for OpenAI-compatible providers (handle aliases)
     // This ensures that model aliases like "chat" -> "deepseek-chat" are properly resolved
-    #[cfg(any(feature = "openai", feature = "deepseek"))]
+    #[cfg(any(feature = "openai", feature = "deepseek", feature = "deepinfra"))]
     {
         if super::resolver::is_openai_compatible_provider_id(&effective_provider_id) {
             let normalized_model = crate::utils::builder_helpers::normalize_model_id(
@@ -576,6 +647,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
         base_url: effective_base_url,
         organization: builder.organization.clone(),
         project: builder.project.clone(),
+        location: builder.location.clone(),
         tracing_config: builder.tracing_config.clone(),
         http_interceptors: interceptors.clone(),
         model_middlewares: user_model_middlewares.clone(),
@@ -630,6 +702,7 @@ pub async fn build(mut builder: super::SiumaiBuilder) -> Result<super::Siumai, L
     feature = "google-vertex",
     feature = "cohere",
     feature = "togetherai",
+    feature = "deepinfra",
     feature = "ollama",
     feature = "deepseek",
     feature = "xai",

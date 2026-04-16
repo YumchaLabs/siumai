@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Provider Package Alignment
 
-Last updated: 2026-03-11
+Last updated: 2026-04-11
 
 ## Purpose
 
@@ -133,6 +133,10 @@ Public facade audit status:
 - `google_vertex` remains a focused wrapper rather than a full-spectrum native package, but its
   unique public helpers now include both Vertex-owned request/tool surfaces and a narrow typed
   metadata facade bound to the `vertex` namespace
+- `google_vertex` now also exposes AI SDK-style embedding/image typed option aliases on that same
+  public boundary (`GoogleVertexEmbeddingModelOptions`, `GoogleVertexImageModelOptions`, and the
+  deprecated `GoogleVertexImageProviderOptions`), while intentionally deferring AI SDK video names
+  until the native provider crate owns a real Vertex video runtime surface
 
 ## Native / wrapper providers already in good shape
 
@@ -146,6 +150,11 @@ These are the reference shape for a rich provider package:
 - tool surfaces
 - hosted tool builders
 - provider-specific resources
+- OpenAI now also exposes the audited AI SDK-style typed option names on that same public
+  boundary (`OpenAILanguageModel{Chat,Responses,Completion}Options`,
+  `OpenAIEmbeddingModelOptions`, `OpenAISpeechModelOptions`,
+  `OpenAITranscriptionModelOptions`, `OpenAIFilesOptions`) while keeping historical Rust-first
+  types such as `OpenAiOptions` and `ResponsesApiConfig` as the implementation anchor
 
 ### xAI / Groq / DeepSeek / Ollama / MiniMaxi
 
@@ -156,6 +165,16 @@ These providers already follow the intended V4 direction closely enough:
 - typed metadata exists
 - public-path parity exists
 - builders converge instead of forking behavior
+- DeepSeek now also exposes AI SDK-style `DeepSeekLanguageModelOptions` plus a curated
+  `provider_ext::deepseek::{chat, model_sets}` model surface, and provider catalog output reuses
+  the same `models::ALL_CHAT` source instead of restating the stable ids by hand
+- Ollama and MiniMaxi now also expose provider-owned curated `models` modules on the public
+  facade, and their provider catalogs/default helpers now reuse the same provider-owned model
+  sources instead of handwritten arrays
+- xAI and Groq now also expose AI SDK-style option alias names on the public facade
+  (`XaiLanguageModelChatOptions`, `XaiLanguageModelResponsesOptions`,
+  `GroqLanguageModelOptions`, plus the same deprecated migration aliases that upstream still
+  exports), reducing package-surface drift against `repo-ref/ai`
 
 The remaining work here is mostly **depth completion**, not **surface redesign**.
 
@@ -173,6 +192,9 @@ Audit result:
   `GoogleVertexClient` / `GoogleVertexConfig`, typed Imagen and embedding request helpers,
   Vertex-owned tool and hosted-tool entry points, plus provider-owned typed metadata helpers
   (`VertexMetadata`, `VertexChatResponseExt`, `VertexContentPartExt`)
+- the public facade now also exposes provider-owned curated model constants for the audited
+  Vertex and Anthropic-on-Vertex subsets, and registry catalog wiring reuses those same constant
+  sets instead of maintaining a second handwritten model list
 - public-path parity already covers chat, chat stream, embedding, image generation, and
   image edit construction paths
 - the visible response metadata now has a clearly separate Vertex-owned contract on the public
@@ -193,28 +215,34 @@ Recommendation:
 
 ### Cohere
 
-Current story is healthy as a rerank-focused package.
+The older rerank-focused package story is now superseded.
 
 Recommendation:
 
-- keep `provider_ext::cohere` narrow
-- do not inflate it into an artificial full-spectrum provider package
-- prioritize rerank examples, contract tests, and request helper polish over new namespaces
-- keep Cohere embedding on the shared OpenAI-compatible path for now; if users need Cohere embeddings, the public story should stay `Provider::openai().compatible("cohere")` or config-first `OpenAiCompatibleClient`, not a premature promotion of `provider_ext::cohere`
+- keep `provider_ext::cohere` as the provider-owned typed surface for the native unified `/v2`
+  runtime
+- keep the canonical public story on `Provider::cohere()` / `Siumai::builder().cohere()`
+- continue auditing typed option and metadata parity against `repo-ref/ai/packages/cohere/src/*`
+- do not reintroduce the older compat-only embedding story as the primary public contract
 
 ### TogetherAI
 
-Current provider-owned package is rerank-focused and should stay that way.
+The older rerank-focused package story is now superseded by the unified public wrapper.
 
 Important distinction:
 
-- `togetherai` native package is not the same thing as the OpenAI-compatible `together` preset
+- `togetherai` native package is not the same thing as the lower-level compat `togetherai` preset
 
 Recommendation:
 
-- keep `provider_ext::togetherai` as a focused native package
-- keep audio alignment for the OpenAI-compatible `together` preset under compat runtime rules
-- do not merge the two stories into one confusing surface
+- keep `provider_ext::togetherai` as the focused native typed rerank package plus the
+  TogetherAI-specific typed image-option/request helper surface
+- keep the canonical public story on unified `Provider::togetherai()` /
+  `Siumai::builder().togetherai()`, where chat/completion/embedding/speech/transcription stay on
+  the shared compat runtime and image/rerank stay provider-owned
+- if callers explicitly need the lower-level compat boundary, prefer
+  `Provider::openai().togetherai_openai_compatible()`
+  over preserving the older `together` alias as a second public identity
 
 ### Bedrock
 
@@ -226,6 +254,10 @@ Recommendation:
 - keep provider-owned config/client/builder
 - keep request helpers for the capabilities we actually support
 - avoid speculative metadata/resources until there is a stable public need
+- keep Bedrock's Rust-first `BedrockChatOptions` / `BedrockRerankOptions` implementation names,
+  but also expose AI SDK-style aliases (`AmazonBedrockLanguageModelOptions`,
+  `AmazonBedrockRerankingModelOptions`, and deprecated compatibility aliases) at the provider
+  boundary so the package surface remains easy to audit against `repo-ref/ai`
 
 ## Compat presets that should not be over-promoted yet
 

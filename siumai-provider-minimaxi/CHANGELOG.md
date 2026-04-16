@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- MiniMaxi now exposes a provider-owned curated model surface for the public families (`chat`,
+  `speech`, `video`, `music`, `image`) so facade/catalog/default-model consumers can reuse one
+  source instead of handwritten arrays.
+
+### Fixed
+
+- Stream metadata normalization now also reaches typed finish parts, so MiniMaxi streaming no
+  longer leaks `providerMetadata["anthropic"]` on the stable finish-part lane.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

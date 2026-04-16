@@ -10,17 +10,58 @@
 use std::sync::Arc;
 
 use siumai::prelude::unified::{
-    ChatCapability, ChatMessage, ChatResponse, ChatStreamEvent, CommonParams, LlmError, Tool,
+    ChatMessage, ChatResponse, ChatStreamEvent, CommonParams, LanguageModel, LlmError, Tool,
 };
 
 use super::prepare_step::{PrepareStepFn, PrepareStepResult, ToolChoice};
 use super::stop_condition::StopCondition;
-use super::types::{OrchestratorOptions, OrchestratorStreamOptions, StepResult};
+use super::types::{
+    OrchestratorContext, OrchestratorFinishEvent, OrchestratorOptions, OrchestratorStreamOptions,
+    StepResult,
+};
+
+fn compose_prepare_step_with_tool_choice(
+    existing: Option<PrepareStepFn>,
+    choice: ToolChoice,
+) -> PrepareStepFn {
+    Arc::new(move |ctx| {
+        let mut result = if let Some(ref f) = existing {
+            f(ctx)
+        } else {
+            PrepareStepResult::default()
+        };
+
+        if result.tool_choice.is_none() {
+            result.tool_choice = Some(choice.clone());
+        }
+
+        result
+    })
+}
+
+fn compose_prepare_step_with_active_tools(
+    existing: Option<PrepareStepFn>,
+    tools: Vec<String>,
+) -> PrepareStepFn {
+    Arc::new(move |ctx| {
+        let mut result = if let Some(ref f) = existing {
+            f(ctx)
+        } else {
+            PrepareStepResult::default()
+        };
+
+        if result.active_tools.is_none() {
+            result.active_tools = Some(tools.clone());
+        }
+
+        result
+    })
+}
 
 /// Builder for configuring and running the orchestrator.
 #[derive(Default)]
 pub struct OrchestratorBuilder {
-    stop_conditions: Vec<Box<dyn StopCondition>>,
+    stop_conditions: Vec<Arc<dyn StopCondition>>,
     options: OrchestratorOptions,
     stream_options: OrchestratorStreamOptions,
 }
@@ -42,31 +83,36 @@ impl OrchestratorBuilder {
 
     /// Add a stop condition.
     pub fn stop_when(mut self, cond: Box<dyn StopCondition>) -> Self {
-        self.stop_conditions.push(cond);
+        self.stop_conditions.push(cond.into());
         self
     }
 
     /// Add multiple stop conditions.
     pub fn stop_when_all(mut self, conds: Vec<Box<dyn StopCondition>>) -> Self {
-        self.stop_conditions.extend(conds);
+        self.stop_conditions
+            .extend(conds.into_iter().map(Arc::from));
         self
     }
 
-    /// On each step finish callback (non‑stream).
+    /// On each step finish callback (applies to both variants).
     pub fn on_step_finish<F>(mut self, cb: F) -> Self
     where
         F: Fn(&StepResult) + Send + Sync + 'static,
     {
-        self.options.on_step_finish = Some(Arc::new(cb));
+        let arc: Arc<dyn Fn(&StepResult) + Send + Sync> = Arc::new(cb);
+        self.options.on_step_finish = Some(arc.clone());
+        self.stream_options.on_step_finish = Some(arc);
         self
     }
 
-    /// Final finish callback with all steps (non‑stream).
+    /// Final finish callback with the final response, steps, and aggregated usage.
     pub fn on_finish<F>(mut self, cb: F) -> Self
     where
-        F: Fn(&[StepResult]) + Send + Sync + 'static,
+        F: Fn(&OrchestratorFinishEvent) + Send + Sync + 'static,
     {
-        self.options.on_finish = Some(Arc::new(cb));
+        let arc: Arc<dyn Fn(&OrchestratorFinishEvent) + Send + Sync> = Arc::new(cb);
+        self.options.on_finish = Some(arc.clone());
+        self.stream_options.on_finish = Some(arc);
         self
     }
 
@@ -95,55 +141,51 @@ impl OrchestratorBuilder {
         self
     }
 
-    /// Prepare‑step callback for dynamic tool/message selection (non‑stream).
+    /// Prepare-step callback for dynamic tool/message selection.
     pub fn prepare_step(mut self, f: PrepareStepFn) -> Self {
-        self.options.prepare_step = Some(f);
+        self.options.prepare_step = Some(f.clone());
+        self.stream_options.prepare_step = Some(f);
         self
     }
 
-    /// Set a default tool choice strategy for all steps (non‑stream).
+    /// Set the initial orchestration context for both non-stream and stream variants.
+    pub fn context(mut self, context: OrchestratorContext) -> Self {
+        self.options.context = context.clone();
+        self.stream_options.context = context;
+        self
+    }
+
+    /// Set a default tool choice strategy for all steps.
     ///
     /// This is syntactic sugar over `prepare_step` that:
     /// - Applies the given `ToolChoice` when no per‑step override is set
     /// - Composes with an existing `prepare_step` callback if present
     pub fn tool_choice(mut self, choice: ToolChoice) -> Self {
-        let existing: Option<PrepareStepFn> = self.options.prepare_step.take();
-        let choice_clone = choice.clone();
-        let prepare: PrepareStepFn = Arc::new(move |ctx| {
-            let mut result = if let Some(ref f) = existing {
-                f(ctx)
-            } else {
-                PrepareStepResult::default()
-            };
-            if result.tool_choice.is_none() {
-                result.tool_choice = Some(choice_clone.clone());
-            }
-            result
-        });
-        self.options.prepare_step = Some(prepare);
+        self.options.prepare_step = Some(compose_prepare_step_with_tool_choice(
+            self.options.prepare_step.take(),
+            choice.clone(),
+        ));
+        self.stream_options.prepare_step = Some(compose_prepare_step_with_tool_choice(
+            self.stream_options.prepare_step.take(),
+            choice,
+        ));
         self
     }
 
-    /// Restrict the active tools for all steps (non‑stream).
+    /// Restrict the active tools for all steps.
     ///
     /// This is syntactic sugar over `prepare_step` that:
     /// - Applies the given `active_tools` when no per‑step override is set
     /// - Composes with an existing `prepare_step` callback if present
     pub fn active_tools(mut self, tools: Vec<String>) -> Self {
-        let existing: Option<PrepareStepFn> = self.options.prepare_step.take();
-        let tools_clone = tools.clone();
-        let prepare: PrepareStepFn = Arc::new(move |ctx| {
-            let mut result = if let Some(ref f) = existing {
-                f(ctx)
-            } else {
-                PrepareStepResult::default()
-            };
-            if result.active_tools.is_none() {
-                result.active_tools = Some(tools_clone.clone());
-            }
-            result
-        });
-        self.options.prepare_step = Some(prepare);
+        self.options.prepare_step = Some(compose_prepare_step_with_active_tools(
+            self.options.prepare_step.take(),
+            tools.clone(),
+        ));
+        self.stream_options.prepare_step = Some(compose_prepare_step_with_active_tools(
+            self.stream_options.prepare_step.take(),
+            tools,
+        ));
         self
     }
 
@@ -187,7 +229,7 @@ impl OrchestratorBuilder {
     /// Run non‑stream orchestration.
     pub async fn run(
         &self,
-        model: &impl ChatCapability,
+        model: &impl LanguageModel,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
         resolver: Option<&dyn super::types::ToolResolver>,
@@ -195,7 +237,7 @@ impl OrchestratorBuilder {
         // Convert owned Box<dyn StopCondition> into a temporary Vec<&dyn StopCondition>
         let mut refs: Vec<&dyn StopCondition> = Vec::with_capacity(self.stop_conditions.len());
         for c in &self.stop_conditions {
-            refs.push(&**c);
+            refs.push(c.as_ref());
         }
         super::generate(
             model,
@@ -209,14 +251,18 @@ impl OrchestratorBuilder {
     }
 
     /// Run streaming orchestration (first step streaming, then follow‑ups).
-    pub async fn run_stream(
+    pub async fn run_stream<M>(
         &self,
-        model: &impl ChatCapability,
+        model: &M,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<Tool>>,
-    ) -> Result<super::stream::StreamOrchestration, LlmError> {
-        // Basic streaming path does not execute tools (matches current impl)
-        super::generate_stream(model, messages, tools, None, self.stream_options.clone()).await
+    ) -> Result<super::stream::StreamOrchestration, LlmError>
+    where
+        M: LanguageModel + Clone + Send + Sync + 'static,
+    {
+        let mut opts = self.stream_options.clone();
+        opts.stop_conditions = self.stop_conditions.clone();
+        super::generate_stream(model, messages, tools, None, opts).await
     }
 
     /// Run streaming orchestration (owned model + resolver, with tool execution).
@@ -228,16 +274,11 @@ impl OrchestratorBuilder {
         resolver: Option<R>,
     ) -> Result<super::stream::StreamOrchestration, LlmError>
     where
-        M: ChatCapability + Send + Sync + 'static,
+        M: LanguageModel + Send + Sync + 'static,
         R: super::types::ToolResolver + Send + Sync + 'static,
     {
-        super::generate_stream_owned(
-            model,
-            messages,
-            tools,
-            resolver,
-            self.stream_options.clone(),
-        )
-        .await
+        let mut opts = self.stream_options.clone();
+        opts.stop_conditions = self.stop_conditions.clone();
+        super::generate_stream_owned(model, messages, tools, resolver, opts).await
     }
 }

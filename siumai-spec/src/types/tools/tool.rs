@@ -79,14 +79,20 @@ impl Tool {
         parameters: serde_json::Value,
     ) -> Self {
         Self::Function {
-            function: ToolFunction {
-                name: name.into(),
-                description: description.into(),
-                parameters,
-                input_examples: None,
-                strict: None,
-                provider_options_map: crate::types::ProviderOptionsMap::default(),
-            },
+            function: ToolFunction::new(name, description, parameters),
+        }
+    }
+
+    /// Create a function tool with AI SDK-style output schema metadata.
+    pub fn function_with_output_schema(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: serde_json::Value,
+        output_schema: serde_json::Value,
+    ) -> Self {
+        Self::Function {
+            function: ToolFunction::new(name, description, input_schema)
+                .with_output_schema(output_schema),
         }
     }
 
@@ -127,6 +133,67 @@ impl Tool {
                 tool.args = args;
                 Self::ProviderDefined(tool)
             }
+            other => other,
+        }
+    }
+
+    /// Attach AI SDK-style deferred-result metadata when this is a provider-defined tool.
+    pub fn with_supports_deferred_results(self, supports_deferred_results: bool) -> Self {
+        match self {
+            Self::ProviderDefined(tool) => Self::ProviderDefined(
+                tool.with_supports_deferred_results(supports_deferred_results),
+            ),
+            other => other,
+        }
+    }
+
+    /// Return the inner function schema when this is a function tool.
+    pub const fn function_ref(&self) -> Option<&ToolFunction> {
+        match self {
+            Self::Function { function } => Some(function),
+            Self::ProviderDefined(_) => None,
+        }
+    }
+
+    /// Return the mutable inner function schema when this is a function tool.
+    pub fn function_mut(&mut self) -> Option<&mut ToolFunction> {
+        match self {
+            Self::Function { function } => Some(function),
+            Self::ProviderDefined(_) => None,
+        }
+    }
+
+    /// AI SDK-style view over the function input schema.
+    pub fn input_schema(&self) -> Option<&serde_json::Value> {
+        self.function_ref().map(ToolFunction::input_schema)
+    }
+
+    /// Mutable AI SDK-style view over the function input schema.
+    pub fn input_schema_mut(&mut self) -> Option<&mut serde_json::Value> {
+        self.function_mut().map(ToolFunction::input_schema_mut)
+    }
+
+    /// Replace the function input schema when this is a function tool.
+    pub fn with_input_schema(self, input_schema: serde_json::Value) -> Self {
+        match self {
+            Self::Function { function } => Self::Function {
+                function: function.with_input_schema(input_schema),
+            },
+            other => other,
+        }
+    }
+
+    /// Return the optional AI SDK-style function output schema.
+    pub fn output_schema(&self) -> Option<&serde_json::Value> {
+        self.function_ref().and_then(ToolFunction::output_schema)
+    }
+
+    /// Attach AI SDK-style function output schema metadata when this is a function tool.
+    pub fn with_output_schema(self, output_schema: serde_json::Value) -> Self {
+        match self {
+            Self::Function { function } => Self::Function {
+                function: function.with_output_schema(output_schema),
+            },
             other => other,
         }
     }

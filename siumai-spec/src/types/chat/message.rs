@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::types::ProviderOptionsMap;
 
-use super::content::{ContentPart, ImageDetail, MediaSource, MessageContent, ToolResultOutput};
+use super::content::{
+    ContentPart, FilePartSource, ImageDetail, MediaSource, MessageContent, ProviderReference,
+    ToolResultOutput,
+};
 use super::metadata::{CacheControl, MessageMetadata};
 
 /// Message role
@@ -293,9 +296,10 @@ impl ChatMessage {
                 .iter()
                 .map(|part| match part {
                     ContentPart::Text { text, .. } => text.len(),
-                    ContentPart::Image { source, .. }
-                    | ContentPart::Audio { source, .. }
-                    | ContentPart::File { source, .. }
+                    ContentPart::Image { source, .. } | ContentPart::File { source, .. } => {
+                        source.content_length()
+                    }
+                    ContentPart::Audio { source, .. }
                     | ContentPart::ReasoningFile { source, .. } => match source {
                         MediaSource::Url { url } => url.len(),
                         MediaSource::Base64 { data } => data.len(),
@@ -530,7 +534,11 @@ impl ChatMessageBuilder {
                 tool_call_id: tool_call_id.into(),
                 tool_name: String::new(), // Unknown in old API
                 output: ToolResultOutput::text(content),
+                input: None,
                 provider_executed: None,
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,
             }])),
@@ -719,7 +727,7 @@ impl ChatMessageBuilder {
     /// Adds image content
     pub fn with_image(mut self, image_url: String, detail: Option<String>) -> Self {
         let image_part = ContentPart::Image {
-            source: MediaSource::Url { url: image_url },
+            source: FilePartSource::url(image_url),
             detail: detail.map(|d| ImageDetail::from(d.as_str())),
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -754,7 +762,7 @@ impl ChatMessageBuilder {
     /// Adds file content (URL source).
     pub fn with_file_url(mut self, url: impl Into<String>, media_type: impl Into<String>) -> Self {
         let file_part = ContentPart::File {
-            source: MediaSource::Url { url: url.into() },
+            source: FilePartSource::url(url),
             media_type: media_type.into(),
             filename: None,
             provider_options: ProviderOptionsMap::default(),
@@ -795,7 +803,7 @@ impl ChatMessageBuilder {
         filename: Option<String>,
     ) -> Self {
         let file_part = ContentPart::File {
-            source: MediaSource::Base64 { data: data.into() },
+            source: FilePartSource::base64(data),
             media_type: media_type.into(),
             filename,
             provider_options: ProviderOptionsMap::default(),
@@ -836,7 +844,7 @@ impl ChatMessageBuilder {
         filename: Option<String>,
     ) -> Self {
         let file_part = ContentPart::File {
-            source: MediaSource::Binary { data },
+            source: FilePartSource::binary(data),
             media_type: media_type.into(),
             filename,
             provider_options: ProviderOptionsMap::default(),
@@ -895,11 +903,92 @@ impl ChatMessageBuilder {
             metadata: self.metadata,
         }
     }
+
+    /// Adds image content backed by provider-managed file references.
+    pub fn with_image_provider_reference(
+        mut self,
+        provider_reference: impl Into<ProviderReference>,
+        detail: Option<String>,
+    ) -> Self {
+        let image_part = ContentPart::Image {
+            source: FilePartSource::provider_reference(provider_reference),
+            detail: detail.map(|d| ImageDetail::from(d.as_str())),
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: None,
+        };
+
+        match self.content {
+            Some(MessageContent::Text(text)) => {
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    image_part,
+                ]));
+            }
+            Some(MessageContent::MultiModal(ref mut parts)) => {
+                parts.push(image_part);
+            }
+            #[cfg(feature = "structured-messages")]
+            Some(MessageContent::Json(v)) => {
+                let text = serde_json::to_string(&v).unwrap_or_default();
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    image_part,
+                ]));
+            }
+            None => {
+                self.content = Some(MessageContent::MultiModal(vec![image_part]));
+            }
+        }
+
+        self
+    }
+
+    /// Adds file content backed by provider-managed file references.
+    pub fn with_file_provider_reference(
+        mut self,
+        provider_reference: impl Into<ProviderReference>,
+        media_type: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        let file_part = ContentPart::File {
+            source: FilePartSource::provider_reference(provider_reference),
+            media_type: media_type.into(),
+            filename,
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: None,
+        };
+
+        match self.content {
+            Some(MessageContent::Text(text)) => {
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            Some(MessageContent::MultiModal(ref mut parts)) => {
+                parts.push(file_part);
+            }
+            #[cfg(feature = "structured-messages")]
+            Some(MessageContent::Json(v)) => {
+                let text = serde_json::to_string(&v).unwrap_or_default();
+                self.content = Some(MessageContent::MultiModal(vec![
+                    ContentPart::text(text),
+                    file_part,
+                ]));
+            }
+            None => {
+                self.content = Some(MessageContent::MultiModal(vec![file_part]));
+            }
+        }
+
+        self
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
 
     #[test]
     fn user_builder_with_file_promotes_text_to_multimodal() {
@@ -988,7 +1077,6 @@ mod tests {
         assert!(
             !msg.metadata
                 .custom
-    use std::collections::HashMap;
                 .contains_key("anthropic_content_cache_indices")
         );
 
@@ -1004,6 +1092,67 @@ mod tests {
             anthropic["cacheControl"],
             serde_json::json!({ "type": "ephemeral" })
         );
+    }
+
+    #[test]
+    fn user_builder_supports_file_provider_reference() {
+        let msg = ChatMessage::user("hello")
+            .with_file_provider_reference(
+                ProviderReference::from([("openai", "file-openai")]),
+                "application/pdf",
+                Some("doc.pdf".to_string()),
+            )
+            .build();
+
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+
+        let ContentPart::File {
+            source,
+            media_type,
+            filename,
+            ..
+        } = &parts[1]
+        else {
+            panic!("expected file part");
+        };
+
+        assert_eq!(media_type, "application/pdf");
+        assert_eq!(filename.as_deref(), Some("doc.pdf"));
+        assert_eq!(
+            source
+                .as_provider_reference()
+                .and_then(|provider_reference| provider_reference.get("openai")),
+            Some("file-openai")
+        );
+    }
+
+    #[test]
+    fn user_builder_supports_image_provider_reference() {
+        let msg = ChatMessage::user("hello")
+            .with_image_provider_reference(
+                ProviderReference::from([("anthropic", "file-anthropic")]),
+                Some("high".to_string()),
+            )
+            .build();
+
+        let MessageContent::MultiModal(parts) = msg.content else {
+            panic!("expected multimodal content");
+        };
+
+        let ContentPart::Image { source, detail, .. } = &parts[1] else {
+            panic!("expected image part");
+        };
+
+        assert_eq!(detail, &Some(ImageDetail::High));
+        assert_eq!(
+            source
+                .as_provider_reference()
+                .and_then(|provider_reference| provider_reference.get("anthropic")),
+            Some("file-anthropic")
+        );
+    }
 
     #[test]
     fn message_reasoning_ignores_empty_reasoning_parts() {

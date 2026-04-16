@@ -188,6 +188,41 @@ pub struct VertexImagenOptions {
     /// Negative prompt hint.
     #[serde(skip_serializing_if = "Option::is_none", rename = "negativePrompt")]
     pub negative_prompt: Option<String>,
+    /// Person-generation policy (`dont_allow`, `allow_adult`, `allow_all`).
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "personGeneration",
+        alias = "person_generation"
+    )]
+    pub person_generation: Option<String>,
+    /// Safety filter configuration (`block_low_and_above`, `block_medium_and_above`, etc.).
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "safetySetting",
+        alias = "safety_setting"
+    )]
+    pub safety_setting: Option<String>,
+    /// Whether to add a watermark to generated images.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "addWatermark",
+        alias = "add_watermark"
+    )]
+    pub add_watermark: Option<bool>,
+    /// Optional Cloud Storage output location.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "storageUri",
+        alias = "storage_uri"
+    )]
+    pub storage_uri: Option<String>,
+    /// Sample image size hint (`1K` or `2K`).
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "sampleImageSize",
+        alias = "sample_image_size"
+    )]
+    pub sample_image_size: Option<String>,
     /// Reference images for style/subject guidance.
     #[serde(skip_serializing_if = "Option::is_none", rename = "referenceImages")]
     pub reference_images: Option<Vec<VertexImagenReferenceImage>>,
@@ -205,6 +240,36 @@ impl VertexImagenOptions {
     /// Set negative prompt.
     pub fn with_negative_prompt(mut self, negative_prompt: impl Into<String>) -> Self {
         self.negative_prompt = Some(negative_prompt.into());
+        self
+    }
+
+    /// Set the person-generation policy.
+    pub fn with_person_generation(mut self, person_generation: impl Into<String>) -> Self {
+        self.person_generation = Some(person_generation.into());
+        self
+    }
+
+    /// Set the safety filter configuration.
+    pub fn with_safety_setting(mut self, safety_setting: impl Into<String>) -> Self {
+        self.safety_setting = Some(safety_setting.into());
+        self
+    }
+
+    /// Enable or disable watermarks in the generated image output.
+    pub fn with_add_watermark(mut self, add_watermark: bool) -> Self {
+        self.add_watermark = Some(add_watermark);
+        self
+    }
+
+    /// Set the Cloud Storage output location.
+    pub fn with_storage_uri(mut self, storage_uri: impl Into<String>) -> Self {
+        self.storage_uri = Some(storage_uri.into());
+        self
+    }
+
+    /// Set the sample image size hint.
+    pub fn with_sample_image_size(mut self, sample_image_size: impl Into<String>) -> Self {
+        self.sample_image_size = Some(sample_image_size.into());
         self
     }
 
@@ -283,5 +348,49 @@ mod tests {
               ]
             })
         );
+    }
+
+    #[test]
+    fn serde_generation_options_match_google_vertex_shape() {
+        let value = serde_json::to_value(
+            VertexImagenOptions::new()
+                .with_negative_prompt("blurry")
+                .with_person_generation("allow_adult")
+                .with_safety_setting("block_medium_and_above")
+                .with_add_watermark(false)
+                .with_storage_uri("gs://bucket/images/")
+                .with_sample_image_size("2K"),
+        )
+        .expect("serialize VertexImagenOptions");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+              "negativePrompt": "blurry",
+              "personGeneration": "allow_adult",
+              "safetySetting": "block_medium_and_above",
+              "addWatermark": false,
+              "storageUri": "gs://bucket/images/",
+              "sampleImageSize": "2K"
+            })
+        );
+    }
+
+    #[test]
+    fn serde_generation_options_accept_aliases() {
+        let options: VertexImagenOptions = serde_json::from_value(serde_json::json!({
+            "person_generation": "allow_all",
+            "safety_setting": "block_only_high",
+            "add_watermark": true,
+            "storage_uri": "gs://bucket/images/",
+            "sample_image_size": "1K"
+        }))
+        .expect("deserialize VertexImagenOptions");
+
+        assert_eq!(options.person_generation.as_deref(), Some("allow_all"));
+        assert_eq!(options.safety_setting.as_deref(), Some("block_only_high"));
+        assert_eq!(options.add_watermark, Some(true));
+        assert_eq!(options.storage_uri.as_deref(), Some("gs://bucket/images/"));
+        assert_eq!(options.sample_image_size.as_deref(), Some("1K"));
     }
 }

@@ -7,7 +7,8 @@ use super::generate::generate;
 use super::stop_condition::{StopCondition, step_count_is};
 use super::stream::{StreamOrchestration, generate_stream_owned};
 use super::types::{
-    AgentResult, OrchestratorOptions, OrchestratorStreamOptions, StepResult, ToolResolver,
+    AgentResult, OrchestratorContext, OrchestratorFinishEvent, OrchestratorOptions,
+    OrchestratorStreamOptions, StepResult, ToolResolver,
 };
 use crate::structured_output::{OutputDecodeConfig, decode_json_value};
 use siumai::prelude::unified::*;
@@ -48,14 +49,14 @@ use siumai::prelude::unified::*;
 /// ```
 pub struct ToolLoopAgent<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     /// The language model to use.
     model: M,
     /// Tools available to the agent.
     tools: Vec<Tool>,
     /// Stop conditions for the agent loop.
-    stop_conditions: Vec<Box<dyn StopCondition>>,
+    stop_conditions: Vec<Arc<dyn StopCondition>>,
     /// Optional system message.
     system: Option<String>,
     /// Optional agent ID for tracking.
@@ -90,9 +91,36 @@ where
     active_tools: Option<Vec<String>>,
 }
 
+fn compose_agent_prepare_step(
+    existing: Option<super::prepare_step::PrepareStepFn>,
+    agent_tool_choice: Option<super::prepare_step::ToolChoice>,
+    agent_active_tools: Option<Vec<String>>,
+) -> Option<super::prepare_step::PrepareStepFn> {
+    if agent_tool_choice.is_none() && agent_active_tools.is_none() {
+        return existing;
+    }
+
+    Some(Arc::new(move |ctx| {
+        let mut result = if let Some(ref prepare) = existing {
+            prepare(ctx)
+        } else {
+            super::prepare_step::PrepareStepResult::default()
+        };
+
+        if result.tool_choice.is_none() {
+            result.tool_choice = agent_tool_choice.clone();
+        }
+        if result.active_tools.is_none() {
+            result.active_tools = agent_active_tools.clone();
+        }
+
+        result
+    }))
+}
+
 impl<M> ToolLoopAgent<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     /// Create a new ToolLoopAgent.
     ///
@@ -115,7 +143,7 @@ where
         Self {
             model,
             tools,
-            stop_conditions,
+            stop_conditions: stop_conditions.into_iter().map(Arc::from).collect(),
             system: None,
             id: None,
             options: OrchestratorOptions::default(),
@@ -184,6 +212,12 @@ where
         self
     }
 
+    /// Set the initial runtime context for the agent.
+    pub fn with_context(mut self, context: OrchestratorContext) -> Self {
+        self.options.context = context;
+        self
+    }
+
     /// Set a callback to be called when each step finishes.
     ///
     /// # Example
@@ -203,11 +237,14 @@ where
     /// # Example
     ///
     /// ```rust,ignore
-    /// let agent = agent.on_finish(Arc::new(|steps| {
-    ///     println!("Completed in {} steps", steps.len());
+    /// let agent = agent.on_finish(Arc::new(|event| {
+    ///     println!("Completed in {} steps", event.steps.len());
     /// }));
     /// ```
-    pub fn on_finish(mut self, callback: Arc<dyn Fn(&[StepResult]) + Send + Sync>) -> Self {
+    pub fn on_finish(
+        mut self,
+        callback: Arc<dyn Fn(&OrchestratorFinishEvent) + Send + Sync>,
+    ) -> Self {
         self.options.on_finish = Some(callback);
         self
     }
@@ -375,6 +412,11 @@ where
         self.output_config.as_ref().and_then(|c| c.schema.as_ref())
     }
 
+    /// Get the initial runtime context configured on the agent.
+    pub fn context(&self) -> &OrchestratorContext {
+        &self.options.context
+    }
+
     /// Get the agent-level tool choice if set.
     pub fn tool_choice(&self) -> Option<&super::prepare_step::ToolChoice> {
         self.tool_choice.as_ref()
@@ -458,31 +500,11 @@ where
             opts.common_params = Some(common_params.clone());
         }
 
-        // Apply agent-level tool_choice and active_tools via prepare_step
-        if self.tool_choice.is_some() || self.active_tools.is_some() {
-            let agent_tool_choice = self.tool_choice.clone();
-            let agent_active_tools = self.active_tools.clone();
-            let existing_prepare_step = opts.prepare_step.clone();
-
-            opts.prepare_step = Some(Arc::new(move |ctx| {
-                // First call the existing prepare_step if any
-                let mut result = if let Some(ref prepare) = existing_prepare_step {
-                    prepare(ctx)
-                } else {
-                    super::prepare_step::PrepareStepResult::default()
-                };
-
-                // Apply agent-level settings if not overridden by prepare_step
-                if result.tool_choice.is_none() {
-                    result.tool_choice = agent_tool_choice.clone();
-                }
-                if result.active_tools.is_none() {
-                    result.active_tools = agent_active_tools.clone();
-                }
-
-                result
-            }));
-        }
+        opts.prepare_step = compose_agent_prepare_step(
+            opts.prepare_step.clone(),
+            self.tool_choice.clone(),
+            self.active_tools.clone(),
+        );
 
         let (response, steps) = generate(
             &self.model,
@@ -558,7 +580,8 @@ where
     ///
     /// # Returns
     ///
-    /// Returns a `StreamOrchestration` containing the stream, steps receiver, and cancel handle
+    /// Returns a `StreamOrchestration` containing the stream, step receiver, total-usage receiver,
+    /// and cancel handle
     ///
     /// # Example
     ///
@@ -589,17 +612,30 @@ where
             messages.insert(0, ChatMessage::system(system).build());
         }
 
-        let stream_options = OrchestratorStreamOptions {
+        let mut stream_options = OrchestratorStreamOptions {
             max_steps: self.options.max_steps,
             on_chunk: None,
             on_step_finish: self.options.on_step_finish.clone(),
             on_finish: self.options.on_finish.clone(),
             on_tool_approval: self.options.on_tool_approval.clone(),
             on_preliminary_tool_result: self.options.on_preliminary_tool_result.clone(),
+            prepare_step: self.options.prepare_step.clone(),
+            stop_conditions: self.stop_conditions.clone(),
             on_abort: None,
             telemetry: self.options.telemetry.clone(),
-            common_params: self.common_params.clone(),
+            context: self.options.context.clone(),
+            common_params: self.options.common_params.clone(),
         };
+
+        if let Some(ref common_params) = self.common_params {
+            stream_options.common_params = Some(common_params.clone());
+        }
+
+        stream_options.prepare_step = compose_agent_prepare_step(
+            stream_options.prepare_step.clone(),
+            self.tool_choice.clone(),
+            self.active_tools.clone(),
+        );
 
         generate_stream_owned(
             self.model,
@@ -614,13 +650,13 @@ where
 
 impl<M> Clone for ToolLoopAgent<M>
 where
-    M: ChatCapability + Send + Sync + Clone + 'static,
+    M: LanguageModel + Send + Sync + Clone + 'static,
 {
     fn clone(&self) -> Self {
         Self {
             model: self.model.clone(),
             tools: self.tools.clone(),
-            stop_conditions: vec![], // Note: StopCondition is not Clone, so we can't clone this
+            stop_conditions: self.stop_conditions.clone(),
             system: self.system.clone(),
             id: self.id.clone(),
             options: OrchestratorOptions {
@@ -631,6 +667,7 @@ where
                 on_preliminary_tool_result: self.options.on_preliminary_tool_result.clone(),
                 prepare_step: self.options.prepare_step.clone(),
                 telemetry: self.options.telemetry.clone(),
+                context: self.options.context.clone(),
                 common_params: self.options.common_params.clone(),
             },
             common_params: self.common_params.clone(),

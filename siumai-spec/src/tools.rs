@@ -26,9 +26,12 @@ pub fn provider_defined_tool(id: &str) -> Option<Tool> {
 
         // Anthropic
         anthropic::WEB_SEARCH_20250305_ID => Some(anthropic::web_search_20250305()),
+        anthropic::WEB_SEARCH_20260209_ID => Some(anthropic::web_search_20260209()),
         anthropic::WEB_FETCH_20250910_ID => Some(anthropic::web_fetch_20250910()),
+        anthropic::WEB_FETCH_20260209_ID => Some(anthropic::web_fetch_20260209()),
         anthropic::COMPUTER_20250124_ID => Some(anthropic::computer_20250124()),
         anthropic::COMPUTER_20241022_ID => Some(anthropic::computer_20241022()),
+        anthropic::COMPUTER_20251124_ID => Some(anthropic::computer_20251124()),
         anthropic::TEXT_EDITOR_20250124_ID => Some(anthropic::text_editor_20250124()),
         anthropic::TEXT_EDITOR_20241022_ID => Some(anthropic::text_editor_20241022()),
         anthropic::TEXT_EDITOR_20250429_ID => Some(anthropic::text_editor_20250429()),
@@ -39,6 +42,7 @@ pub fn provider_defined_tool(id: &str) -> Option<Tool> {
         anthropic::TOOL_SEARCH_BM25_20251119_ID => Some(anthropic::tool_search_bm25_20251119()),
         anthropic::CODE_EXECUTION_20250522_ID => Some(anthropic::code_execution_20250522()),
         anthropic::CODE_EXECUTION_20250825_ID => Some(anthropic::code_execution_20250825()),
+        anthropic::CODE_EXECUTION_20260120_ID => Some(anthropic::code_execution_20260120()),
         anthropic::MEMORY_20250818_ID => Some(anthropic::memory_20250818()),
 
         // Google (Gemini)
@@ -50,6 +54,9 @@ pub fn provider_defined_tool(id: &str) -> Option<Tool> {
         google::GOOGLE_MAPS_ID => Some(google::google_maps()),
         // `google.vertex_rag_store` and `google.file_search` require args, so `provider_defined_id(...)`
         // cannot build a valid default `Tool` value.
+
+        // Groq
+        groq::BROWSER_SEARCH_ID => Some(groq::browser_search()),
 
         // xAI
         xai::WEB_SEARCH_ID => Some(xai::web_search()),
@@ -242,9 +249,12 @@ pub mod anthropic {
     /// unversioned provider-native names (e.g. `web_search`) in request/response surfaces.
     pub const PROVIDER_TOOL_NAMES: &[(&str, &str)] = &[
         (WEB_SEARCH_20250305_ID, "web_search"),
+        (WEB_SEARCH_20260209_ID, "web_search"),
         (WEB_FETCH_20250910_ID, "web_fetch"),
+        (WEB_FETCH_20260209_ID, "web_fetch"),
         (COMPUTER_20250124_ID, "computer"),
         (COMPUTER_20241022_ID, "computer"),
+        (COMPUTER_20251124_ID, "computer"),
         (TEXT_EDITOR_20250124_ID, "str_replace_editor"),
         (TEXT_EDITOR_20241022_ID, "str_replace_editor"),
         (TEXT_EDITOR_20250429_ID, "str_replace_based_edit_tool"),
@@ -255,6 +265,7 @@ pub mod anthropic {
         (TOOL_SEARCH_BM25_20251119_ID, "tool_search_tool_bm25"),
         (CODE_EXECUTION_20250522_ID, "code_execution"),
         (CODE_EXECUTION_20250825_ID, "code_execution"),
+        (CODE_EXECUTION_20260120_ID, "code_execution"),
         (MEMORY_20250818_ID, "memory"),
     ];
 
@@ -277,8 +288,18 @@ pub mod anthropic {
             tool_name: "web_search",
         },
         ServerToolSpec {
+            id: WEB_SEARCH_20260209_ID,
+            tool_type: "web_search_20260209",
+            tool_name: "web_search",
+        },
+        ServerToolSpec {
             id: WEB_FETCH_20250910_ID,
             tool_type: "web_fetch_20250910",
+            tool_name: "web_fetch",
+        },
+        ServerToolSpec {
+            id: WEB_FETCH_20260209_ID,
+            tool_type: "web_fetch_20260209",
             tool_name: "web_fetch",
         },
         ServerToolSpec {
@@ -289,6 +310,11 @@ pub mod anthropic {
         ServerToolSpec {
             id: COMPUTER_20250124_ID,
             tool_type: "computer_20250124",
+            tool_name: "computer",
+        },
+        ServerToolSpec {
+            id: COMPUTER_20251124_ID,
+            tool_type: "computer_20251124",
             tool_name: "computer",
         },
         ServerToolSpec {
@@ -342,6 +368,11 @@ pub mod anthropic {
             tool_name: "code_execution",
         },
         ServerToolSpec {
+            id: CODE_EXECUTION_20260120_ID,
+            tool_type: "code_execution_20260120",
+            tool_name: "code_execution",
+        },
+        ServerToolSpec {
             id: MEMORY_20250818_ID,
             tool_type: "memory_20250818",
             tool_name: "memory",
@@ -353,9 +384,12 @@ pub mod anthropic {
     }
 
     pub const WEB_SEARCH_20250305_ID: &str = "anthropic.web_search_20250305";
+    pub const WEB_SEARCH_20260209_ID: &str = "anthropic.web_search_20260209";
     pub const WEB_FETCH_20250910_ID: &str = "anthropic.web_fetch_20250910";
+    pub const WEB_FETCH_20260209_ID: &str = "anthropic.web_fetch_20260209";
     pub const COMPUTER_20250124_ID: &str = "anthropic.computer_20250124";
     pub const COMPUTER_20241022_ID: &str = "anthropic.computer_20241022";
+    pub const COMPUTER_20251124_ID: &str = "anthropic.computer_20251124";
     pub const TEXT_EDITOR_20250124_ID: &str = "anthropic.text_editor_20250124";
     pub const TEXT_EDITOR_20241022_ID: &str = "anthropic.text_editor_20241022";
     pub const BASH_20241022_ID: &str = "anthropic.bash_20241022";
@@ -366,6 +400,7 @@ pub mod anthropic {
     pub const TOOL_SEARCH_BM25_20251119_ID: &str = "anthropic.tool_search_bm25_20251119";
     pub const CODE_EXECUTION_20250522_ID: &str = "anthropic.code_execution_20250522";
     pub const CODE_EXECUTION_20250825_ID: &str = "anthropic.code_execution_20250825";
+    pub const CODE_EXECUTION_20260120_ID: &str = "anthropic.code_execution_20260120";
     pub const MEMORY_20250818_ID: &str = "anthropic.memory_20250818";
 
     pub fn web_search_20250305() -> Tool {
@@ -373,11 +408,19 @@ pub mod anthropic {
     }
 
     pub fn web_search_20250305_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(WEB_SEARCH_20250305_ID, name)
+        Tool::provider_defined(WEB_SEARCH_20250305_ID, name).with_supports_deferred_results(true)
     }
 
     pub fn web_search() -> Tool {
         web_search_20250305()
+    }
+
+    pub fn web_search_20260209() -> Tool {
+        web_search_20260209_named("web_search")
+    }
+
+    pub fn web_search_20260209_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(WEB_SEARCH_20260209_ID, name).with_supports_deferred_results(true)
     }
 
     pub fn web_fetch_20250910() -> Tool {
@@ -385,7 +428,15 @@ pub mod anthropic {
     }
 
     pub fn web_fetch_20250910_named(name: impl Into<String>) -> Tool {
-        Tool::provider_defined(WEB_FETCH_20250910_ID, name)
+        Tool::provider_defined(WEB_FETCH_20250910_ID, name).with_supports_deferred_results(true)
+    }
+
+    pub fn web_fetch_20260209() -> Tool {
+        web_fetch_20260209_named("web_fetch")
+    }
+
+    pub fn web_fetch_20260209_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(WEB_FETCH_20260209_ID, name).with_supports_deferred_results(true)
     }
 
     pub fn computer_20250124() -> Tool {
@@ -402,6 +453,14 @@ pub mod anthropic {
 
     pub fn computer_20241022_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(COMPUTER_20241022_ID, name)
+    }
+
+    pub fn computer_20251124() -> Tool {
+        computer_20251124_named("computer")
+    }
+
+    pub fn computer_20251124_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(COMPUTER_20251124_ID, name)
     }
 
     pub fn text_editor_20250124() -> Tool {
@@ -458,6 +517,7 @@ pub mod anthropic {
 
     pub fn tool_search_regex_20251119_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(TOOL_SEARCH_REGEX_20251119_ID, name)
+            .with_supports_deferred_results(true)
     }
 
     pub fn tool_search_bm25_20251119() -> Tool {
@@ -466,6 +526,7 @@ pub mod anthropic {
 
     pub fn tool_search_bm25_20251119_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(TOOL_SEARCH_BM25_20251119_ID, name)
+            .with_supports_deferred_results(true)
     }
 
     pub fn code_execution_20250522() -> Tool {
@@ -482,6 +543,16 @@ pub mod anthropic {
 
     pub fn code_execution_20250825_named(name: impl Into<String>) -> Tool {
         Tool::provider_defined(CODE_EXECUTION_20250825_ID, name)
+            .with_supports_deferred_results(true)
+    }
+
+    pub fn code_execution_20260120() -> Tool {
+        code_execution_20260120_named("code_execution")
+    }
+
+    pub fn code_execution_20260120_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(CODE_EXECUTION_20260120_ID, name)
+            .with_supports_deferred_results(true)
     }
 
     pub fn memory_20250818() -> Tool {
@@ -587,6 +658,21 @@ pub mod google {
         Tool::provider_defined(FILE_SEARCH_ID, name).with_args(serde_json::json!({
             "fileSearchStoreNames": file_search_store_names,
         }))
+    }
+}
+
+/// Groq provider-defined tools.
+pub mod groq {
+    use super::Tool;
+
+    pub const BROWSER_SEARCH_ID: &str = "groq.browser_search";
+
+    pub fn browser_search() -> Tool {
+        browser_search_named("browser_search")
+    }
+
+    pub fn browser_search_named(name: impl Into<String>) -> Tool {
+        Tool::provider_defined(BROWSER_SEARCH_ID, name)
     }
 }
 
@@ -987,12 +1073,39 @@ mod tests {
 
     #[test]
     fn anthropic_web_fetch_tool_has_expected_id_and_name() {
-        let t = anthropic::web_fetch_20250910();
-        let crate::types::Tool::ProviderDefined(pd) = t else {
-            panic!("expected provider-defined tool");
-        };
-        assert_eq!(pd.id, anthropic::WEB_FETCH_20250910_ID);
-        assert_eq!(pd.name, "web_fetch");
+        for (tool, id, name) in [
+            (
+                anthropic::web_fetch_20250910(),
+                anthropic::WEB_FETCH_20250910_ID,
+                "web_fetch",
+            ),
+            (
+                anthropic::web_fetch_20260209(),
+                anthropic::WEB_FETCH_20260209_ID,
+                "web_fetch",
+            ),
+            (
+                anthropic::web_search_20260209(),
+                anthropic::WEB_SEARCH_20260209_ID,
+                "web_search",
+            ),
+            (
+                anthropic::computer_20251124(),
+                anthropic::COMPUTER_20251124_ID,
+                "computer",
+            ),
+            (
+                anthropic::code_execution_20260120(),
+                anthropic::CODE_EXECUTION_20260120_ID,
+                "code_execution",
+            ),
+        ] {
+            let crate::types::Tool::ProviderDefined(pd) = tool else {
+                panic!("expected provider-defined tool");
+            };
+            assert_eq!(pd.id, id);
+            assert_eq!(pd.name, name);
+        }
     }
 
     #[test]
@@ -1013,6 +1126,16 @@ mod tests {
         };
         assert_eq!(pd.id, google::GOOGLE_SEARCH_RETRIEVAL_ID);
         assert_eq!(pd.name, "google_search_retrieval");
+    }
+
+    #[test]
+    fn groq_browser_search_tool_has_expected_id_and_name() {
+        let t = groq::browser_search();
+        let crate::types::Tool::ProviderDefined(pd) = t else {
+            panic!("expected provider-defined tool");
+        };
+        assert_eq!(pd.id, groq::BROWSER_SEARCH_ID);
+        assert_eq!(pd.name, "browser_search");
     }
 
     #[test]
@@ -1170,5 +1293,26 @@ mod tests {
     #[test]
     fn provider_defined_tool_by_id_returns_none_for_unknown_id() {
         assert!(provider_defined_tool("openai.unknown_tool").is_none());
+    }
+
+    #[test]
+    fn anthropic_deferred_result_tools_are_flagged() {
+        let tools = [
+            anthropic::web_search_20250305(),
+            anthropic::web_search_20260209(),
+            anthropic::web_fetch_20250910(),
+            anthropic::web_fetch_20260209(),
+            anthropic::tool_search_regex_20251119(),
+            anthropic::tool_search_bm25_20251119(),
+            anthropic::code_execution_20250825(),
+            anthropic::code_execution_20260120(),
+        ];
+
+        for tool in tools {
+            let crate::types::Tool::ProviderDefined(pd) = tool else {
+                panic!("expected provider-defined tool");
+            };
+            assert_eq!(pd.supports_deferred_results, Some(true));
+        }
     }
 }

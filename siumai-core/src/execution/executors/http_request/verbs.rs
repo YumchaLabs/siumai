@@ -4,9 +4,10 @@ use super::{HttpBinaryResult, HttpExecutionConfig, HttpExecutionResult};
 use crate::error::LlmError;
 use crate::execution::executors::errors as exec_errors;
 use crate::execution::executors::helpers::{
-    apply_before_send_interceptors, rebuild_headers_and_retry_once,
+    apply_before_send_interceptors, headers_from_builder, rebuild_headers_and_retry_once,
 };
 use crate::execution::http::interceptor::HttpRequestContext;
+use crate::execution::http::transport::HttpTransportGetRequest;
 use reqwest::header::HeaderMap;
 
 /// GET request (JSON response). Temporarily delegates to `common` implementation.
@@ -63,6 +64,101 @@ pub async fn execute_get_request(
         &empty_json,
         &effective_headers,
     )?;
+
+    if let Some(transport) = &config.transport {
+        let should_retry_401 = config
+            .retry_options
+            .as_ref()
+            .map(|opts| opts.retry_401)
+            .unwrap_or(true);
+
+        let mut result = transport
+            .execute_get(HttpTransportGetRequest {
+                ctx: ctx.clone(),
+                url: url.to_string(),
+                headers: headers_from_builder(&rb, &effective_headers),
+            })
+            .await?;
+
+        if result.status == 401 && should_retry_401 {
+            for interceptor in &config.interceptors {
+                interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
+            }
+
+            let retry_headers = config
+                .provider_spec
+                .build_headers(&config.provider_context)?;
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, &req_http.headers)
+            } else {
+                retry_headers
+            };
+
+            let mut rb_retry = config
+                .http_client
+                .get(url)
+                .headers(retry_effective_headers.clone());
+            if let Some(req_http) = per_request_http_config
+                && let Some(timeout) = req_http.timeout
+            {
+                rb_retry = rb_retry.timeout(timeout);
+            }
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
+            rb_retry = apply_before_send_interceptors(
+                &config.interceptors,
+                &ctx,
+                rb_retry,
+                &empty_json,
+                &retry_effective_headers,
+            )?;
+
+            result = transport
+                .execute_get(HttpTransportGetRequest {
+                    ctx: ctx.clone(),
+                    url: url.to_string(),
+                    headers: headers_from_builder(&rb_retry, &retry_effective_headers),
+                })
+                .await?;
+        }
+
+        if !(200..300).contains(&result.status) {
+            let text = String::from_utf8_lossy(&result.body);
+            let fallback_message = reqwest::StatusCode::from_u16(result.status)
+                .ok()
+                .and_then(|s| s.canonical_reason());
+            let error = exec_errors::classify_http_error(
+                &config.provider_id,
+                Some(config.provider_spec.as_ref()),
+                result.status,
+                &text,
+                &result.headers,
+                fallback_message,
+            );
+            for interceptor in &config.interceptors {
+                interceptor.on_error(&ctx, &error);
+            }
+            return Err(error);
+        }
+
+        let text = String::from_utf8_lossy(&result.body);
+        let json: serde_json::Value = exec_errors::parse_json_text_with_ctx(
+            &config.provider_id,
+            &ctx,
+            &config.interceptors,
+            &text,
+        )?;
+
+        return Ok(HttpExecutionResult {
+            json,
+            status: result.status,
+            headers: result.headers,
+        });
+    }
 
     // 5. Send
     let mut resp = rb
@@ -628,6 +724,94 @@ pub async fn execute_get_binary(
         &empty_json,
         &effective_headers,
     )?;
+
+    if let Some(transport) = &config.transport {
+        let should_retry_401 = config
+            .retry_options
+            .as_ref()
+            .map(|opts| opts.retry_401)
+            .unwrap_or(true);
+
+        let mut result = transport
+            .execute_get(HttpTransportGetRequest {
+                ctx: ctx.clone(),
+                url: url.to_string(),
+                headers: headers_from_builder(&rb, &effective_headers),
+            })
+            .await?;
+
+        if result.status == 401 && should_retry_401 {
+            for interceptor in &config.interceptors {
+                interceptor.on_retry(&ctx, &LlmError::HttpError("401 Unauthorized".into()), 1);
+            }
+
+            let retry_headers = config
+                .provider_spec
+                .build_headers(&config.provider_context)?;
+            let retry_effective_headers = if let Some(req_http) = per_request_http_config {
+                config
+                    .provider_spec
+                    .merge_request_headers(retry_headers, &req_http.headers)
+            } else {
+                retry_headers
+            };
+
+            let mut rb_retry = config
+                .http_client
+                .get(url)
+                .headers(retry_effective_headers.clone());
+            if let Some(req_http) = per_request_http_config
+                && let Some(timeout) = req_http.timeout
+            {
+                rb_retry = rb_retry.timeout(timeout);
+            }
+            #[cfg(test)]
+            {
+                rb_retry = rb_retry.header("x-retry-attempt", "1");
+            }
+            rb_retry = apply_before_send_interceptors(
+                &config.interceptors,
+                &ctx,
+                rb_retry,
+                &empty_json,
+                &retry_effective_headers,
+            )?;
+
+            result = transport
+                .execute_get(HttpTransportGetRequest {
+                    ctx: ctx.clone(),
+                    url: url.to_string(),
+                    headers: headers_from_builder(&rb_retry, &retry_effective_headers),
+                })
+                .await?;
+        }
+
+        if !(200..300).contains(&result.status) {
+            let text = String::from_utf8_lossy(&result.body);
+            let fallback_message = reqwest::StatusCode::from_u16(result.status)
+                .ok()
+                .and_then(|s| s.canonical_reason());
+            let error = exec_errors::classify_http_error(
+                &config.provider_id,
+                Some(config.provider_spec.as_ref()),
+                result.status,
+                &text,
+                &result.headers,
+                fallback_message,
+            );
+            for interceptor in &config.interceptors {
+                interceptor.on_error(&ctx, &error);
+            }
+            return Err(error);
+        }
+
+        return Ok(HttpBinaryResult {
+            bytes: result.body,
+            status: result.status,
+            headers: result.headers,
+        });
+    }
+
     // 4. Send
     let mut resp = rb
         .send()

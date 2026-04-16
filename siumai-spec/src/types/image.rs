@@ -91,6 +91,244 @@ impl ImageGenerationRequest {
     }
 }
 
+/// AI SDK-style unified image request surface.
+///
+/// This request bridges generation, editing, and variation creation through one
+/// stable shape that mirrors the upstream `generateImage()` call options more
+/// closely than the older split request family.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateImageRequest {
+    /// Optional text prompt describing the target image.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// Input files/URLs for edit or variation-style requests.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub files: Vec<ImageEditInput>,
+    /// Optional mask image for inpainting-style requests.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mask: Option<ImageEditInput>,
+    /// Negative prompt (what to avoid).
+    pub negative_prompt: Option<String>,
+    /// Image size (e.g., `1024x1024`).
+    pub size: Option<String>,
+    /// Aspect ratio (e.g., `16:9`).
+    #[serde(
+        default,
+        rename = "aspectRatio",
+        alias = "aspect_ratio",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub aspect_ratio: Option<String>,
+    /// Number of images to generate.
+    pub count: u32,
+    /// Optional provider-specific per-request model override.
+    pub model: Option<String>,
+    /// Quality setting.
+    pub quality: Option<String>,
+    /// Style setting.
+    pub style: Option<String>,
+    /// Random seed for reproducibility.
+    pub seed: Option<u64>,
+    /// Number of inference steps.
+    pub steps: Option<u32>,
+    /// Guidance scale.
+    pub guidance_scale: Option<f32>,
+    /// Whether to enhance the prompt.
+    pub enhance_prompt: Option<bool>,
+    /// Response format (url or `b64_json`).
+    pub response_format: Option<String>,
+    /// Additional provider-specific parameters.
+    pub extra_params: HashMap<String, serde_json::Value>,
+    /// Open provider options map (Vercel-aligned).
+    #[serde(
+        default,
+        rename = "providerOptions",
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options_map: ProviderOptionsMap,
+    /// Per-request HTTP configuration (headers, timeout, etc.).
+    #[serde(skip)]
+    pub http_config: Option<HttpConfig>,
+}
+
+impl Default for GenerateImageRequest {
+    fn default() -> Self {
+        Self {
+            prompt: None,
+            files: Vec::new(),
+            mask: None,
+            negative_prompt: None,
+            size: None,
+            aspect_ratio: None,
+            count: 1,
+            model: None,
+            quality: None,
+            style: None,
+            seed: None,
+            steps: None,
+            guidance_scale: None,
+            enhance_prompt: None,
+            response_format: None,
+            extra_params: HashMap::new(),
+            provider_options_map: ProviderOptionsMap::default(),
+            http_config: None,
+        }
+    }
+}
+
+impl GenerateImageRequest {
+    /// Create a new unified image request with a text prompt.
+    pub fn new(prompt: impl Into<String>) -> Self {
+        Self::default().with_prompt(prompt)
+    }
+
+    /// Set or replace the prompt.
+    pub fn with_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.prompt = Some(prompt.into());
+        self
+    }
+
+    /// Replace the full input-file list.
+    pub fn with_files<I>(mut self, files: I) -> Self
+    where
+        I: IntoIterator<Item = ImageEditInput>,
+    {
+        self.files = files.into_iter().collect();
+        self
+    }
+
+    /// Replace the full input-file list with a single file.
+    pub fn with_file(mut self, file: ImageEditInput) -> Self {
+        self.files = vec![file];
+        self
+    }
+
+    /// Append one input file.
+    pub fn push_file(mut self, file: ImageEditInput) -> Self {
+        self.files.push(file);
+        self
+    }
+
+    /// Set the optional mask input.
+    pub fn with_mask(mut self, mask: ImageEditInput) -> Self {
+        self.mask = Some(mask);
+        self
+    }
+
+    /// Set the aspect ratio for the request.
+    pub fn with_aspect_ratio(mut self, aspect_ratio: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(aspect_ratio.into());
+        self
+    }
+
+    /// Set the random seed for the request.
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    /// Replace the full provider options map (open JSON map).
+    pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
+        self.provider_options_map = map;
+        self
+    }
+
+    /// Set provider options for a provider id (open JSON map).
+    pub fn with_provider_option(
+        mut self,
+        provider_id: impl AsRef<str>,
+        options: serde_json::Value,
+    ) -> Self {
+        self.provider_options_map.insert(provider_id, options);
+        self
+    }
+
+    /// Set per-request HTTP config (headers, proxy, timeout, etc.).
+    pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
+        self.http_config = Some(http_config);
+        self
+    }
+}
+
+fn normalized_generate_image_prompt(prompt: String) -> Option<String> {
+    (!prompt.trim().is_empty()).then_some(prompt)
+}
+
+impl From<ImageGenerationRequest> for GenerateImageRequest {
+    fn from(request: ImageGenerationRequest) -> Self {
+        Self {
+            prompt: normalized_generate_image_prompt(request.prompt),
+            files: Vec::new(),
+            mask: None,
+            negative_prompt: request.negative_prompt,
+            size: request.size,
+            aspect_ratio: request.aspect_ratio,
+            count: request.count.max(1),
+            model: request.model,
+            quality: request.quality,
+            style: request.style,
+            seed: request.seed,
+            steps: request.steps,
+            guidance_scale: request.guidance_scale,
+            enhance_prompt: request.enhance_prompt,
+            response_format: request.response_format,
+            extra_params: request.extra_params,
+            provider_options_map: request.provider_options_map,
+            http_config: request.http_config,
+        }
+    }
+}
+
+impl From<ImageEditRequest> for GenerateImageRequest {
+    fn from(request: ImageEditRequest) -> Self {
+        Self {
+            prompt: normalized_generate_image_prompt(request.prompt),
+            files: request.images,
+            mask: request.mask,
+            negative_prompt: None,
+            size: request.size,
+            aspect_ratio: request.aspect_ratio,
+            count: request.count.unwrap_or(1).max(1),
+            model: request.model,
+            quality: None,
+            style: None,
+            seed: request.seed,
+            steps: None,
+            guidance_scale: None,
+            enhance_prompt: None,
+            response_format: request.response_format,
+            extra_params: request.extra_params,
+            provider_options_map: request.provider_options_map,
+            http_config: request.http_config,
+        }
+    }
+}
+
+impl From<ImageVariationRequest> for GenerateImageRequest {
+    fn from(request: ImageVariationRequest) -> Self {
+        Self {
+            prompt: None,
+            files: vec![request.image],
+            mask: None,
+            negative_prompt: None,
+            size: request.size,
+            aspect_ratio: request.aspect_ratio,
+            count: request.count.unwrap_or(1).max(1),
+            model: request.model,
+            quality: None,
+            style: None,
+            seed: request.seed,
+            steps: None,
+            guidance_scale: None,
+            enhance_prompt: None,
+            response_format: request.response_format,
+            extra_params: request.extra_params,
+            provider_options_map: request.provider_options_map,
+            http_config: request.http_config,
+        }
+    }
+}
+
 /// Image edit request
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]

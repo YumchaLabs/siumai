@@ -39,6 +39,7 @@ impl ResponseTransformer for OpenAiResponseTransformer {
         let compat = crate::standards::openai::compat::transformers::CompatResponseTransformer {
             config: cfg,
             adapter,
+            provider_metadata_key: None,
         };
         compat.transform_chat_response(raw)
     }

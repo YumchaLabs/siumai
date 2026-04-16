@@ -1,3 +1,40 @@
+pub fn map_usage_iterations_provider_metadata(usage: &serde_json::Value) -> serde_json::Value {
+    let Some(iterations) = usage.get("iterations").and_then(|value| value.as_array()) else {
+        return serde_json::Value::Null;
+    };
+
+    serde_json::Value::Array(
+        iterations
+            .iter()
+            .map(|iteration| {
+                let Some(iteration) = iteration.as_object() else {
+                    return iteration.clone();
+                };
+
+                let mut mapped = serde_json::Map::new();
+                if let Some(kind) = iteration.get("type") {
+                    mapped.insert("type".to_string(), kind.clone());
+                }
+                mapped.insert(
+                    "inputTokens".to_string(),
+                    iteration
+                        .get("input_tokens")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                mapped.insert(
+                    "outputTokens".to_string(),
+                    iteration
+                        .get("output_tokens")
+                        .cloned()
+                        .unwrap_or(serde_json::Value::Null),
+                );
+                serde_json::Value::Object(mapped)
+            })
+            .collect(),
+    )
+}
+
 pub fn map_container_provider_metadata(v: &serde_json::Value) -> Option<serde_json::Value> {
     let obj = v.as_object()?;
     let mut out = serde_json::Map::new();
@@ -110,6 +147,14 @@ pub fn map_context_management_provider_metadata(
                 );
                 out_edits.push(serde_json::Value::Object(mapped));
             }
+            "compact_20260112" => {
+                let mut mapped = serde_json::Map::new();
+                mapped.insert(
+                    "type".to_string(),
+                    serde_json::Value::String(ty.to_string()),
+                );
+                out_edits.push(serde_json::Value::Object(mapped));
+            }
             _ => {}
         }
     }
@@ -212,4 +257,49 @@ pub fn raw_context_management_from_provider_metadata(
     }
 
     Some(serde_json::json!({ "applied_edits": out_edits }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        map_context_management_provider_metadata, raw_context_management_from_provider_metadata,
+    };
+
+    #[test]
+    fn context_management_provider_metadata_preserves_compact_edit() {
+        let mapped = map_context_management_provider_metadata(&serde_json::json!({
+            "applied_edits": [
+                { "type": "compact_20260112" }
+            ]
+        }))
+        .expect("mapped context management");
+
+        assert_eq!(
+            mapped,
+            serde_json::json!({
+                "appliedEdits": [
+                    { "type": "compact_20260112" }
+                ]
+            })
+        );
+    }
+
+    #[test]
+    fn raw_context_management_roundtrip_preserves_compact_edit() {
+        let raw = raw_context_management_from_provider_metadata(&serde_json::json!({
+            "appliedEdits": [
+                { "type": "compact_20260112" }
+            ]
+        }))
+        .expect("raw context management");
+
+        assert_eq!(
+            raw,
+            serde_json::json!({
+                "applied_edits": [
+                    { "type": "compact_20260112" }
+                ]
+            })
+        );
+    }
 }

@@ -5,12 +5,13 @@
 use super::adapter::{
     MetadataExtractingAdapter, ProviderAdapter, RequestBodyTransformer, ResponseMetadataExtractor,
 };
+use crate::auth::TokenProvider;
 use crate::error::LlmError;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::types::{CommonParams, HttpConfig};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 /// Configuration for OpenAI-compatible providers
@@ -30,6 +31,9 @@ pub struct OpenAiCompatibleConfig {
     pub http_config: HttpConfig,
     /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
     pub http_transport: Option<Arc<dyn HttpTransport>>,
+    /// Optional Bearer token provider for providers that authenticate with
+    /// `Authorization: Bearer <token>` rather than a static API key.
+    pub token_provider: Option<Arc<dyn TokenProvider>>,
     /// Custom headers for requests
     pub custom_headers: reqwest::header::HeaderMap,
     /// Provider adapter for handling specifics
@@ -50,6 +54,11 @@ pub struct OpenAiCompatibleConfig {
     ///
     /// When unset, Siumai keeps the existing permissive behavior for backward compatibility.
     pub supports_structured_outputs: Option<bool>,
+    /// Provider-defined tool ids that should not emit the generic compat unsupported warning.
+    ///
+    /// This is used by providers that tunnel special server-side tools through the shared
+    /// OpenAI-compatible runtime but handle warning semantics in provider-owned middleware.
+    pub provider_defined_tool_warning_allowlist: BTreeSet<String>,
     /// Optional public request-body transformer, mirroring AI SDK's `transformRequestBody`.
     pub request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
 }
@@ -63,7 +72,11 @@ impl std::fmt::Debug for OpenAiCompatibleConfig {
             .field("common_params", &self.common_params)
             .field("http_config", &self.http_config)
             .field("query_params_len", &self.query_params.len())
-            .field("include_usage", &self.include_usage);
+            .field("include_usage", &self.include_usage)
+            .field(
+                "provider_defined_tool_warning_allowlist_len",
+                &self.provider_defined_tool_warning_allowlist.len(),
+            );
         ds.field(
             "supports_structured_outputs",
             &self.supports_structured_outputs,
@@ -74,6 +87,9 @@ impl std::fmt::Debug for OpenAiCompatibleConfig {
         }
         if self.http_transport.is_some() {
             ds.field("has_http_transport", &true);
+        }
+        if self.token_provider.is_some() {
+            ds.field("has_token_provider", &true);
         }
         if self.request_body_transformer.is_some() {
             ds.field("has_request_body_transformer", &true);
@@ -88,7 +104,7 @@ impl OpenAiCompatibleConfig {
         match provider_id {
             // These built-in compat presets are expected to preserve JSON Schema outputs on the
             // public path by default rather than falling back to generic `json_object`.
-            "openrouter" | "perplexity" => Some(true),
+            "openrouter" | "perplexity" | "mistral" => Some(true),
             _ => None,
         }
     }
@@ -108,6 +124,7 @@ impl OpenAiCompatibleConfig {
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
             http_transport: None,
+            token_provider: None,
             custom_headers: reqwest::header::HeaderMap::new(),
             adapter,
             http_interceptors: Vec::new(),
@@ -115,6 +132,7 @@ impl OpenAiCompatibleConfig {
             query_params: BTreeMap::new(),
             include_usage: None,
             supports_structured_outputs: Self::default_supports_structured_outputs(provider_id),
+            provider_defined_tool_warning_allowlist: BTreeSet::new(),
             request_body_transformer: None,
         }
     }
@@ -183,6 +201,12 @@ impl OpenAiCompatibleConfig {
     /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    /// Set an async Bearer token provider.
+    pub fn with_token_provider(mut self, token_provider: Arc<dyn TokenProvider>) -> Self {
+        self.token_provider = Some(token_provider);
         self
     }
 
@@ -465,15 +489,32 @@ impl OpenAiCompatibleConfig {
 
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), LlmError> {
+        fn header_map_has_authorization(headers: &reqwest::header::HeaderMap) -> bool {
+            headers.contains_key(reqwest::header::AUTHORIZATION)
+        }
+
+        fn string_map_has_authorization(
+            headers: &std::collections::HashMap<String, String>,
+        ) -> bool {
+            headers
+                .keys()
+                .any(|key| key.eq_ignore_ascii_case("authorization"))
+        }
+
         if self.provider_id.is_empty() {
             return Err(LlmError::ConfigurationError(
                 "Provider ID cannot be empty".to_string(),
             ));
         }
 
-        if self.api_key.is_empty() {
+        if self.api_key.is_empty()
+            && self.token_provider.is_none()
+            && !header_map_has_authorization(&self.custom_headers)
+            && !string_map_has_authorization(&self.http_config.headers)
+        {
             return Err(LlmError::ConfigurationError(
-                "API key cannot be empty".to_string(),
+                "API key cannot be empty when no Authorization header or token provider is configured"
+                    .to_string(),
             ));
         }
 
@@ -1007,7 +1048,10 @@ mod tests {
             raw.get("test_field").map(|value| {
                 HashMap::from([(
                     "test-provider".to_string(),
-                    HashMap::from([("value".to_string(), value.clone())]),
+                    serde_json::Value::Object(serde_json::Map::from_iter([(
+                        "value".to_string(),
+                        value.clone(),
+                    )])),
                 )])
             })
         });
@@ -1217,6 +1261,12 @@ mod tests {
             "https://api.perplexity.ai",
             Arc::new(DummyAdapter("perplexity")),
         );
+        let mistral = OpenAiCompatibleConfig::new(
+            "mistral",
+            "test-key",
+            "https://api.mistral.ai/v1",
+            Arc::new(DummyAdapter("mistral")),
+        );
         let generic = OpenAiCompatibleConfig::new(
             "generic",
             "test-key",
@@ -1226,6 +1276,7 @@ mod tests {
 
         assert_eq!(openrouter.supports_structured_outputs, Some(true));
         assert_eq!(perplexity.supports_structured_outputs, Some(true));
+        assert_eq!(mistral.supports_structured_outputs, Some(true));
         assert_eq!(generic.supports_structured_outputs, None);
     }
 

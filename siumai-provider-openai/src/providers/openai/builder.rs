@@ -553,8 +553,10 @@ impl OpenAiBuilder {
         self.vendor(OpenAiVendorId::OPENROUTER)
     }
 
-    pub fn together(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
-        self.vendor(OpenAiVendorId::TOGETHER)
+    pub fn togetherai_openai_compatible(
+        self,
+    ) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
+        self.vendor(OpenAiVendorId::TOGETHERAI)
     }
 
     pub fn fireworks(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
@@ -571,6 +573,10 @@ impl OpenAiBuilder {
 
     pub fn mistral(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
         self.vendor(OpenAiVendorId::MISTRAL)
+    }
+
+    pub fn moonshotai(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {
+        self.vendor(OpenAiVendorId::MOONSHOTAI)
     }
 
     pub fn jina(self) -> crate::providers::openai_compatible::OpenAiCompatibleBuilder {

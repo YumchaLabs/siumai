@@ -8,7 +8,7 @@ use crate::error::LlmError;
 use crate::streaming::SseEventConverter;
 use crate::streaming::{
     ChatStreamEvent, LanguageModelV3Source, LanguageModelV3StreamPart, SharedV3ProviderMetadata,
-    StreamPartNamespace, StreamStateTracker, V3UnsupportedPartBehavior,
+    StreamStateTracker, V3UnsupportedPartBehavior,
 };
 use crate::types::Usage;
 use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
@@ -178,15 +178,15 @@ pub struct GeminiEventConverter {
     state_tracker: StreamStateTracker,
     /// Deduplicate sources across stream chunks
     seen_source_keys: Arc<Mutex<std::collections::HashSet<String>>>,
-    /// Monotonic id counter for emitted `gemini:source` events
+    /// Monotonic id counter for emitted stable source parts
     next_source_id: Arc<AtomicU64>,
-    /// Monotonic id counter for emitted text/reasoning blocks (Vercel-aligned custom events)
+    /// Monotonic id counter for emitted stable text/reasoning blocks
     next_block_id: Arc<AtomicU64>,
     /// Monotonic id counter for emitted tool calls (client-executed functionCall parts)
     next_tool_call_id: Arc<AtomicU64>,
     /// Pair executableCode -> codeExecutionResult across chunks
     pending_code_execution_id: Arc<Mutex<Option<String>>>,
-    /// Track the active reasoning block id (for Vercel-aligned custom reasoning events)
+    /// Track the active reasoning block id for stable reasoning parts
     current_reasoning_block_id: Arc<Mutex<Option<String>>>,
 
     serialize_state: Arc<Mutex<GeminiSerializeState>>,
@@ -294,12 +294,12 @@ impl GeminiEventConverter {
         lock.take()
     }
 
-    fn add_gemini_custom_stream_part(
+    fn add_gemini_stream_part(
         &self,
         builder: crate::streaming::EventBuilder,
         part: LanguageModelV3StreamPart,
     ) -> crate::streaming::EventBuilder {
-        let builder = match part.to_part_event() {
+        match part.to_part_event() {
             ChatStreamEvent::Part { part } => builder.add_part(part),
             other => {
                 debug_assert!(
@@ -308,13 +308,6 @@ impl GeminiEventConverter {
                 );
                 builder
             }
-        };
-
-        match part.to_custom_event(StreamPartNamespace::Gemini) {
-            Some(ChatStreamEvent::Custom { event_type, data }) => {
-                builder.add_custom_event(event_type, data)
-            }
-            _ => builder,
         }
     }
 
@@ -360,7 +353,7 @@ impl GeminiEventConverter {
                     let next = self.next_block_id.fetch_add(1, Ordering::Relaxed);
                     let id = next.to_string();
                     *lock = Some(id.clone());
-                    builder = self.add_gemini_custom_stream_part(
+                    builder = self.add_gemini_stream_part(
                         builder,
                         LanguageModelV3StreamPart::ReasoningStart {
                             id: id.clone(),
@@ -372,7 +365,7 @@ impl GeminiEventConverter {
             };
 
             // reasoning-delta
-            builder = self.add_gemini_custom_stream_part(
+            builder = self.add_gemini_stream_part(
                 builder,
                 LanguageModelV3StreamPart::ReasoningDelta {
                     id,
@@ -448,7 +441,7 @@ impl GeminiEventConverter {
         // Handle completion/finish reason
         if let Some(end_response) = self.extract_completion(&response) {
             if let Some(id) = self.take_reasoning_block_id() {
-                builder = self.add_gemini_custom_stream_part(
+                builder = self.add_gemini_stream_part(
                     builder,
                     LanguageModelV3StreamPart::ReasoningEnd {
                         id,

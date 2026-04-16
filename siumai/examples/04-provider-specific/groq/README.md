@@ -20,4 +20,12 @@ This directory contains Groq-specific examples for the provider-owned wrapper pa
 
 ## Notes
 
-Groq is not just a compat preset in the public story; it is a provider-owned wrapper surface with typed extension points.
+Groq is not just a compat preset in the public story; it is a provider-owned wrapper surface with
+typed extension points.
+
+Keep the package boundary in mind when choosing those extension points:
+
+- use `provider_ext::groq::{GroqConfig, GroqClient, GroqLanguageModelOptions,
+  GroqTranscriptionModelOptions}` for the AI SDK-aligned wrapper surface
+- use `provider_ext::groq::ext::audio_options::*` only for Groq-specific audio escape hatches that
+  are not part of the audited `@ai-sdk/groq` package exports

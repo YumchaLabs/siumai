@@ -6,7 +6,8 @@
 use crate::error::LlmError;
 use crate::types::{
     ChatResponse, ChatStreamEvent, ChatStreamFileData, ChatStreamPart, ContentPart, FinishReason,
-    MessageContent, ResponseMetadata, Usage, Warning,
+    MessageContent, ProviderMetadataMap, ResponseMetadata, Usage, Warning, merge_provider_metadata,
+    provider_metadata_from_object,
 };
 use std::collections::HashMap;
 
@@ -79,7 +80,8 @@ pub struct StreamProcessor {
     terminal_response: Option<ChatResponse>,
     current_usage: Option<Usage>,
     stream_finish_reason: Option<FinishReason>,
-    final_provider_metadata: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
+    stream_raw_finish_reason: Option<String>,
+    final_provider_metadata: Option<ProviderMetadataMap>,
     config: StreamProcessorConfig,
 }
 
@@ -109,6 +111,7 @@ impl StreamProcessor {
             terminal_response: None,
             current_usage: None,
             stream_finish_reason: None,
+            stream_raw_finish_reason: None,
             final_provider_metadata: None,
             config,
         }
@@ -144,7 +147,7 @@ impl StreamProcessor {
                 }
                 if let Some(provider_metadata) = response.provider_metadata.clone() {
                     if let Some(current) = self.final_provider_metadata.as_mut() {
-                        merge_nested_provider_metadata(current, provider_metadata);
+                        merge_provider_metadata(current, provider_metadata);
                     } else {
                         self.final_provider_metadata = Some(provider_metadata);
                     }
@@ -175,13 +178,37 @@ impl StreamProcessor {
                 return self.process_thinking_delta(delta.clone());
             }
             ChatStreamPart::ToolInputStart { id, tool_name, .. } => {
-                return self.process_tool_call_delta(
+                let mut event = self.process_tool_call_delta(
                     id.clone(),
                     Some(tool_name.clone()),
                     None,
                     None,
                     ToolCallStreamSource::StablePart,
                 );
+
+                if let ChatStreamPart::ToolInputStart {
+                    provider_metadata,
+                    provider_executed,
+                    dynamic,
+                    title,
+                    ..
+                } = &part
+                {
+                    let tool_id = match &event {
+                        ProcessedEvent::ToolCallUpdate { id, .. } => id.as_str(),
+                        _ => id.as_str(),
+                    };
+                    self.merge_tool_call_builder_metadata(
+                        tool_id,
+                        *provider_executed,
+                        *dynamic,
+                        title.clone(),
+                        provider_metadata.clone(),
+                    );
+                    self.refresh_tool_call_update(&mut event);
+                }
+
+                return event;
             }
             ChatStreamPart::ToolInputDelta { id, delta, .. } => {
                 return self.process_tool_call_delta(
@@ -205,6 +232,7 @@ impl StreamProcessor {
             } => {
                 let _ = self.process_usage_update(usage.clone());
                 self.stream_finish_reason = Some(finish_reason.unified.clone());
+                self.stream_raw_finish_reason = finish_reason.raw.clone();
                 if let Some(provider_metadata) = provider_metadata.clone() {
                     self.merge_shared_provider_metadata(provider_metadata);
                 }
@@ -218,17 +246,30 @@ impl StreamProcessor {
                     ));
             }
             ChatStreamPart::ToolCall(call) => {
+                let builder = self.tool_calls.get(&call.tool_call_id);
                 self.stream_parts.push(ContentPart::ToolCall {
                     tool_call_id: call.tool_call_id.clone(),
                     tool_name: call.tool_name.clone(),
                     arguments: serde_json::from_str(&call.input)
                         .unwrap_or_else(|_| serde_json::Value::String(call.input.clone())),
-                    provider_executed: call.provider_executed,
+                    provider_executed: call
+                        .provider_executed
+                        .or_else(|| builder.and_then(|builder| builder.provider_executed)),
+                    dynamic: call
+                        .dynamic
+                        .or_else(|| builder.and_then(|builder| builder.dynamic)),
+                    invalid: None,
+                    error: None,
+                    title: builder.and_then(|builder| builder.title.clone()),
                     provider_options: crate::types::ProviderOptionsMap::default(),
-                    provider_metadata: call.provider_metadata.clone(),
+                    provider_metadata: call
+                        .provider_metadata
+                        .clone()
+                        .or_else(|| builder.and_then(|builder| builder.provider_metadata.clone())),
                 });
             }
             ChatStreamPart::ToolResult(result) => {
+                let builder = self.tool_calls.get(&result.tool_call_id);
                 self.stream_parts.push(ContentPart::ToolResult {
                     tool_call_id: result.tool_call_id.clone(),
                     tool_name: result.tool_name.clone(),
@@ -237,7 +278,13 @@ impl StreamProcessor {
                     } else {
                         crate::types::ToolResultOutput::json(result.result.clone())
                     },
-                    provider_executed: None,
+                    input: builder.map(tool_input_from_builder),
+                    provider_executed: builder.and_then(|builder| builder.provider_executed),
+                    dynamic: result
+                        .dynamic
+                        .or_else(|| builder.and_then(|builder| builder.dynamic)),
+                    preliminary: result.preliminary,
+                    title: builder.and_then(|builder| builder.title.clone()),
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: result.provider_metadata.clone(),
                 });
@@ -475,20 +522,51 @@ impl StreamProcessor {
         }
     }
 
-    fn merge_shared_provider_metadata(&mut self, source: HashMap<String, serde_json::Value>) {
-        let mut nested = HashMap::new();
-        for (provider, value) in source {
-            let metadata = match value {
-                serde_json::Value::Object(obj) => obj.into_iter().collect(),
-                other => HashMap::from([("value".to_string(), other)]),
-            };
-            nested.insert(provider, metadata);
-        }
+    fn merge_tool_call_builder_metadata(
+        &mut self,
+        tool_id: &str,
+        provider_executed: Option<bool>,
+        dynamic: Option<bool>,
+        title: Option<String>,
+        provider_metadata: Option<ProviderMetadataMap>,
+    ) {
+        let Some(builder) = self.tool_calls.get_mut(tool_id) else {
+            return;
+        };
 
+        if provider_executed.is_some() {
+            builder.provider_executed = provider_executed;
+        }
+        if dynamic.is_some() {
+            builder.dynamic = dynamic;
+        }
+        if title.is_some() {
+            builder.title = title;
+        }
+        if let Some(provider_metadata) = provider_metadata {
+            if let Some(current) = builder.provider_metadata.as_mut() {
+                merge_provider_metadata(current, provider_metadata);
+            } else {
+                builder.provider_metadata = Some(provider_metadata);
+            }
+        }
+    }
+
+    fn refresh_tool_call_update(&self, event: &mut ProcessedEvent) {
+        if let ProcessedEvent::ToolCallUpdate {
+            id, current_state, ..
+        } = event
+            && let Some(builder) = self.tool_calls.get(id)
+        {
+            *current_state = builder.clone();
+        }
+    }
+
+    fn merge_shared_provider_metadata(&mut self, source: ProviderMetadataMap) {
         if let Some(current) = self.final_provider_metadata.as_mut() {
-            merge_nested_provider_metadata(current, nested);
+            merge_provider_metadata(current, source);
         } else {
-            self.final_provider_metadata = Some(nested);
+            self.final_provider_metadata = Some(source);
         }
     }
 
@@ -517,7 +595,10 @@ impl StreamProcessor {
         // Convert to nested provider_metadata structure
         let mut provider_metadata = self.final_provider_metadata.clone().unwrap_or_default();
         if !stream_metadata.is_empty() {
-            provider_metadata.insert("stream".to_string(), stream_metadata);
+            merge_provider_metadata(
+                &mut provider_metadata,
+                provider_metadata_from_object("stream", stream_metadata),
+            );
         }
         let provider_metadata = if provider_metadata.is_empty() {
             None
@@ -548,6 +629,9 @@ impl StreamProcessor {
             finish_reason: finish_reason
                 .or_else(|| self.stream_finish_reason.clone())
                 .or_else(|| terminal_response.and_then(|response| response.finish_reason.clone())),
+            raw_finish_reason: terminal_response
+                .and_then(|response| response.raw_finish_reason.clone())
+                .or_else(|| self.stream_raw_finish_reason.clone()),
             audio: terminal_response.and_then(|response| response.audio.clone()),
             system_fingerprint: terminal_response
                 .and_then(|response| response.system_fingerprint.clone()),
@@ -653,15 +737,6 @@ impl StreamProcessor {
     }
 }
 
-fn merge_nested_provider_metadata(
-    target: &mut HashMap<String, HashMap<String, serde_json::Value>>,
-    source: HashMap<String, HashMap<String, serde_json::Value>>,
-) {
-    for (provider, metadata) in source {
-        target.entry(provider).or_default().extend(metadata);
-    }
-}
-
 fn stream_file_part_to_content_part(
     file: &crate::types::ChatStreamFilePart,
     reasoning: bool,
@@ -680,7 +755,7 @@ fn stream_file_part_to_content_part(
         }
     } else {
         ContentPart::File {
-            source,
+            source: crate::types::FilePartSource::from(source),
             media_type: file.media_type.clone(),
             filename: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
@@ -716,23 +791,39 @@ fn build_tool_call_part(
     arguments: serde_json::Value,
     terminal_part: Option<&ContentPart>,
 ) -> ContentPart {
-    let (provider_executed, provider_metadata) = match terminal_part {
+    let (provider_executed, dynamic, title, provider_metadata) = match terminal_part {
         Some(ContentPart::ToolCall {
             provider_executed,
+            dynamic,
+            title,
             provider_metadata,
             ..
-        }) => (*provider_executed, provider_metadata.clone()),
-        _ => (None, None),
+        }) => (
+            *provider_executed,
+            *dynamic,
+            title.clone(),
+            provider_metadata.clone(),
+        ),
+        _ => (None, None, None, None),
     };
 
     ContentPart::ToolCall {
         tool_call_id: builder.id.clone(),
         tool_name: builder.name.clone(),
         arguments,
-        provider_executed,
+        provider_executed: builder.provider_executed.or(provider_executed),
+        dynamic: builder.dynamic.or(dynamic),
+        invalid: None,
+        error: None,
+        title: builder.title.clone().or(title),
         provider_options: crate::types::ProviderOptionsMap::default(),
-        provider_metadata,
+        provider_metadata: builder.provider_metadata.clone().or(provider_metadata),
     }
+}
+
+fn tool_input_from_builder(builder: &ToolCallBuilder) -> serde_json::Value {
+    serde_json::from_str(&builder.arguments)
+        .unwrap_or_else(|_| serde_json::Value::String(builder.arguments.clone()))
 }
 
 fn find_terminal_tool_call_part<'a>(
@@ -756,9 +847,7 @@ fn find_terminal_tool_call_part<'a>(
         })
 }
 
-fn first_terminal_text_metadata(
-    content: &MessageContent,
-) -> Option<HashMap<String, serde_json::Value>> {
+fn first_terminal_text_metadata(content: &MessageContent) -> Option<ProviderMetadataMap> {
     match content {
         MessageContent::MultiModal(parts) => parts.iter().find_map(|part| match part {
             ContentPart::Text {
@@ -770,9 +859,7 @@ fn first_terminal_text_metadata(
     }
 }
 
-fn first_terminal_reasoning_metadata(
-    content: &MessageContent,
-) -> Option<HashMap<String, serde_json::Value>> {
+fn first_terminal_reasoning_metadata(content: &MessageContent) -> Option<ProviderMetadataMap> {
     match content {
         MessageContent::MultiModal(parts) => parts.iter().find_map(|part| match part {
             ContentPart::Reasoning {
@@ -920,6 +1007,14 @@ pub struct ToolCallBuilder {
     pub name: String,
     /// Function arguments (JSON string)
     pub arguments: String,
+    /// Whether the provider executes the tool directly.
+    pub provider_executed: Option<bool>,
+    /// Whether the tool call is dynamic/runtime-defined.
+    pub dynamic: Option<bool>,
+    /// Optional human-readable tool title.
+    pub title: Option<String>,
+    /// Provider metadata carried by stable tool-input parts.
+    pub provider_metadata: Option<ProviderMetadataMap>,
 }
 
 impl Default for ToolCallBuilder {
@@ -936,6 +1031,10 @@ impl ToolCallBuilder {
             r#type: None,
             name: String::new(),
             arguments: String::new(),
+            provider_executed: None,
+            dynamic: None,
+            title: None,
+            provider_metadata: None,
         }
     }
 }
@@ -1065,16 +1164,16 @@ mod tests {
             model: None,
             usage: Some(Usage::new(3, 5)),
             finish_reason: Some(FinishReason::Stop),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
             warnings: None,
             provider_metadata: Some(HashMap::from([(
                 "perplexity".to_string(),
-                HashMap::from([(
-                    "usage".to_string(),
-                    serde_json::json!({ "citation_tokens": 1 }),
-                )]),
+                serde_json::json!({
+                    "usage": { "citation_tokens": 1 }
+                }),
             )])),
         };
 
@@ -1123,6 +1222,7 @@ mod tests {
             model: Some("claude-3-7-sonnet".to_string()),
             usage: Some(Usage::new(11, 7)),
             finish_reason: Some(FinishReason::Stop),
+            raw_finish_reason: Some("end_turn".to_string()),
             audio: Some(AudioOutput {
                 id: "aud_123".to_string(),
                 expires_at: 1_744_000_000,
@@ -1148,6 +1248,7 @@ mod tests {
             Some(18)
         );
         assert_eq!(final_resp.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(final_resp.raw_finish_reason.as_deref(), Some("end_turn"));
         assert_eq!(
             final_resp.system_fingerprint.as_deref(),
             Some("fp_terminal")
@@ -1219,6 +1320,7 @@ mod tests {
             model: Some("gpt-4.1".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Stop),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -1269,6 +1371,10 @@ mod tests {
                 tool_name: "search".to_string(),
                 arguments: serde_json::json!({ "query": "rust" }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
@@ -1278,6 +1384,7 @@ mod tests {
             model: Some("claude-3-7-sonnet".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::ToolCalls),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -1298,6 +1405,10 @@ mod tests {
                         tool_name: "search".to_string(),
                         arguments: serde_json::json!({ "query": "rust" }),
                         provider_executed: Some(true),
+                        dynamic: None,
+                        invalid: None,
+                        error: None,
+                        title: None,
                         provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata: Some(HashMap::from([(
                             "anthropic".to_string(),
@@ -1308,5 +1419,80 @@ mod tests {
             }
             other => panic!("expected multimodal content, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn stable_tool_input_start_metadata_flows_to_stable_parts() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputStart {
+                id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({ "itemId": "item_1" }),
+                )])),
+                provider_executed: Some(true),
+                dynamic: Some(true),
+                title: Some("Web Search".to_string()),
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputDelta {
+                id: "call_1".to_string(),
+                delta: "{\"query\":\"rust\"}".to_string(),
+                provider_metadata: None,
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                input: "{\"query\":\"rust\"}".to_string(),
+                provider_executed: None,
+                dynamic: None,
+                provider_metadata: None,
+            }),
+        });
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolResult(crate::types::ChatStreamToolResult {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                result: serde_json::json!({ "hits": 3 }),
+                is_error: None,
+                preliminary: Some(true),
+                dynamic: None,
+                provider_metadata: None,
+            }),
+        });
+
+        let final_resp = sp.build_final_response_with_finish_reason(Some(FinishReason::ToolCalls));
+        let parts = final_resp
+            .content
+            .as_multimodal()
+            .expect("expected multimodal");
+
+        let tool_call = parts
+            .iter()
+            .find_map(|part| part.as_tool_call())
+            .expect("tool call");
+        assert_eq!(tool_call.input, &serde_json::json!({ "query": "rust" }));
+        assert_eq!(tool_call.provider_executed.copied(), Some(true));
+        assert_eq!(tool_call.dynamic.copied(), Some(true));
+        assert_eq!(tool_call.title, Some("Web Search"));
+
+        let tool_result = parts
+            .iter()
+            .find_map(|part| part.as_tool_result())
+            .expect("tool result");
+        assert_eq!(
+            tool_result.input,
+            Some(&serde_json::json!({ "query": "rust" }))
+        );
+        assert_eq!(tool_result.provider_executed.copied(), Some(true));
+        assert_eq!(tool_result.dynamic.copied(), Some(true));
+        assert_eq!(tool_result.preliminary.copied(), Some(true));
+        assert_eq!(tool_result.title, Some("Web Search"));
     }
 }

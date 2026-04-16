@@ -51,9 +51,56 @@ impl BedrockBuilder {
         self
     }
 
+    /// Alias for `model(...)` when using Bedrock language models.
+    pub fn language_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `model(...)` when using Bedrock embedding models.
+    pub fn embedding_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `embedding_model(...)` aligned with the upstream Bedrock provider surface.
+    pub fn embedding<S: Into<String>>(self, model: S) -> Self {
+        self.embedding_model(model)
+    }
+
+    /// Deprecated alias kept for AI SDK migration parity.
+    #[deprecated(note = "Use `embedding(...)` instead.")]
+    pub fn text_embedding<S: Into<String>>(self, model: S) -> Self {
+        self.embedding(model)
+    }
+
+    /// Deprecated alias kept for AI SDK migration parity.
+    #[deprecated(note = "Use `embedding_model(...)` instead.")]
+    pub fn text_embedding_model<S: Into<String>>(self, model: S) -> Self {
+        self.embedding_model(model)
+    }
+
+    /// Alias for `model(...)` when using Bedrock image models.
+    pub fn image_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `image_model(...)` aligned with the upstream Bedrock provider surface.
+    pub fn image<S: Into<String>>(self, model: S) -> Self {
+        self.image_model(model)
+    }
+
     pub fn rerank_model<S: Into<String>>(mut self, model: S) -> Self {
         self.config = self.config.with_rerank_model(model);
         self
+    }
+
+    /// Alias for `rerank_model(...)` when using Bedrock reranking models.
+    pub fn reranking_model<S: Into<String>>(self, model: S) -> Self {
+        self.rerank_model(model)
+    }
+
+    /// Alias for `reranking_model(...)` aligned with the upstream Bedrock provider surface.
+    pub fn reranking<S: Into<String>>(self, model: S) -> Self {
+        self.reranking_model(model)
     }
 
     pub fn timeout(mut self, timeout: std::time::Duration) -> Self {
@@ -235,6 +282,65 @@ mod config_first_tests {
         assert_eq!(
             crate::client::LlmClient::supported_models(&built),
             crate::client::LlmClient::supported_models(&from_config)
+        );
+    }
+
+    #[test]
+    fn image_model_alias_sets_the_default_model() {
+        let cfg = BedrockBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://bedrock-runtime.us-east-1.amazonaws.com")
+            .image_model("amazon.nova-canvas-v1:0")
+            .into_config()
+            .expect("into_config");
+
+        assert_eq!(cfg.common_params.model, "amazon.nova-canvas-v1:0");
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn ai_sdk_style_aliases_set_expected_models() {
+        let cfg = BedrockBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://bedrock-runtime.us-east-1.amazonaws.com")
+            .embedding("amazon.titan-embed-text-v2:0")
+            .into_config()
+            .expect("embedding into_config");
+        assert_eq!(cfg.common_params.model, "amazon.titan-embed-text-v2:0");
+
+        let cfg = BedrockBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://bedrock-runtime.us-east-1.amazonaws.com")
+            .text_embedding("amazon.titan-embed-text-v2:0")
+            .into_config()
+            .expect("text_embedding into_config");
+        assert_eq!(cfg.common_params.model, "amazon.titan-embed-text-v2:0");
+
+        let cfg = BedrockBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://bedrock-runtime.us-east-1.amazonaws.com")
+            .text_embedding_model("amazon.titan-embed-text-v2:0")
+            .into_config()
+            .expect("text_embedding_model into_config");
+        assert_eq!(cfg.common_params.model, "amazon.titan-embed-text-v2:0");
+
+        let cfg = BedrockBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://bedrock-runtime.us-east-1.amazonaws.com")
+            .image("amazon.nova-canvas-v1:0")
+            .into_config()
+            .expect("image into_config");
+        assert_eq!(cfg.common_params.model, "amazon.nova-canvas-v1:0");
+
+        let cfg = BedrockBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://bedrock-runtime.us-east-1.amazonaws.com")
+            .reranking("amazon.rerank-v1:0")
+            .into_config()
+            .expect("reranking into_config");
+        assert_eq!(
+            cfg.default_rerank_model.as_deref(),
+            Some("amazon.rerank-v1:0")
         );
     }
 }

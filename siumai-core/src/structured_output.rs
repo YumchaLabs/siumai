@@ -218,6 +218,7 @@ fn merge_stream_end_response_with_accumulated(
         model,
         usage,
         finish_reason,
+        raw_finish_reason,
         audio,
         system_fingerprint,
         service_tier,
@@ -237,6 +238,7 @@ fn merge_stream_end_response_with_accumulated(
         model: model.or(accumulated.model),
         usage: accumulated.usage.or(usage),
         finish_reason: finish_reason.or(accumulated.finish_reason),
+        raw_finish_reason: raw_finish_reason.or(accumulated.raw_finish_reason),
         audio: audio.or(accumulated.audio),
         system_fingerprint: system_fingerprint.or(accumulated.system_fingerprint),
         service_tier: service_tier.or(accumulated.service_tier),
@@ -365,7 +367,7 @@ pub fn extract_json_from_response<T: serde::de::DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ChatResponse, MessageContent};
+    use crate::types::{ChatResponse, MessageContent, Usage};
     use serde::Deserialize;
 
     #[test]
@@ -431,6 +433,58 @@ mod tests {
             Ok(ChatStreamEvent::StreamEnd {
                 response: ChatResponse::empty_with_finish_reason(FinishReason::Unknown),
             }),
+        ];
+        let stream = Box::pin(futures::stream::iter(events));
+
+        let v = extract_json_value_from_stream(stream).await.expect("parse");
+        assert_eq!(v["value"], "ok");
+    }
+
+    #[tokio::test]
+    async fn extracts_json_from_unknown_stream_end_when_stream_end_response_has_json_text() {
+        let response = ChatResponse {
+            id: None,
+            content: MessageContent::MultiModal(vec![ContentPart::text("{\"value\":\"ok\"}")]),
+            model: Some("anthropic.claude-3-haiku-20240307-v1:0".to_string()),
+            usage: Some(Usage::new(15, 42)),
+            finish_reason: Some(FinishReason::Unknown),
+            raw_finish_reason: None,
+            audio: None,
+            system_fingerprint: None,
+            service_tier: None,
+            warnings: None,
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "bedrock".to_string(),
+                serde_json::json!({ "isJsonResponseFromTool": true }),
+            )])),
+        };
+
+        let events = vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "{\"value\":\"ok\"}".to_string(),
+                index: Some(0),
+            }),
+            Ok(ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::TextDelta {
+                    id: "0".to_string(),
+                    delta: "{\"value\":\"ok\"}".to_string(),
+                    provider_metadata: None,
+                },
+            }),
+            Ok(ChatStreamEvent::Part {
+                part: crate::types::ChatStreamPart::Finish {
+                    usage: Usage::new(15, 42),
+                    finish_reason: crate::types::ChatStreamFinishInfo {
+                        unified: FinishReason::Unknown,
+                        raw: None,
+                    },
+                    provider_metadata: Some(std::collections::HashMap::from([(
+                        "bedrock".to_string(),
+                        serde_json::json!({ "isJsonResponseFromTool": true }),
+                    )])),
+                },
+            }),
+            Ok(ChatStreamEvent::StreamEnd { response }),
         ];
         let stream = Box::pin(futures::stream::iter(events));
 

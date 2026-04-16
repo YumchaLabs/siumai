@@ -707,7 +707,7 @@ mod document_citations_tests {
     #[test]
     fn legacy_message_custom_document_settings_are_ignored() {
         let part = ContentPart::File {
-            source: crate::types::chat::MediaSource::url("https://example.com/a.txt"),
+            source: crate::types::chat::FilePartSource::url("https://example.com/a.txt"),
             media_type: "text/plain".to_string(),
             filename: Some("fallback.txt".to_string()),
             provider_options: crate::types::ProviderOptionsMap::default(),

@@ -69,9 +69,14 @@ pub trait VertexChatResponseExt {
 
 impl VertexChatResponseExt for crate::types::ChatResponse {
     fn vertex_metadata(&self) -> Option<VertexMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("vertex")?;
-        VertexMetadata::from_metadata(meta)
+        let meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, "vertex")
+            })?
+            .clone();
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
     }
 }
 
@@ -159,8 +164,14 @@ mod tests {
         );
 
         let mut outer = HashMap::new();
-        outer.insert("google".to_string(), google_inner);
-        outer.insert("vertex".to_string(), vertex_inner);
+        outer.insert(
+            "google".to_string(),
+            serde_json::Value::Object(google_inner.into_iter().collect()),
+        );
+        outer.insert(
+            "vertex".to_string(),
+            serde_json::Value::Object(vertex_inner.into_iter().collect()),
+        );
         response.provider_metadata = Some(outer);
 
         let parsed = response.vertex_metadata().expect("vertex metadata");
@@ -196,7 +207,10 @@ mod tests {
             serde_json::json!("google-sig"),
         );
         let mut outer = HashMap::new();
-        outer.insert("google".to_string(), google_inner);
+        outer.insert(
+            "google".to_string(),
+            serde_json::Value::Object(google_inner.into_iter().collect()),
+        );
         response.provider_metadata = Some(outer);
 
         assert!(response.vertex_metadata().is_none());

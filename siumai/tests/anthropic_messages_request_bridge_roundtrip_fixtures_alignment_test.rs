@@ -93,6 +93,7 @@ fn expected_body_json(case: &str) -> Value {
 fn anthropic_messages_request_bridge_roundtrip_fixture_exact_cases_match() {
     let exact_cases = [
         "anthropic-settings.1",
+        "anthropic-message-and-part-provider-options.1",
         "anthropic-tool-choice-tool.1",
         "anthropic-web-search-tool.1",
         "anthropic-json-output-format.1",

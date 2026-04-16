@@ -125,7 +125,9 @@ impl WebSearch20250305Config {
         }
 
         Tool::ProviderDefined(
-            ProviderDefinedTool::new("anthropic.web_search_20250305", "web_search").with_args(args),
+            ProviderDefinedTool::new("anthropic.web_search_20250305", "web_search")
+                .with_args(args)
+                .with_supports_deferred_results(true),
         )
     }
 }
@@ -213,7 +215,9 @@ impl WebFetch20250910Config {
         }
 
         Tool::ProviderDefined(
-            ProviderDefinedTool::new("anthropic.web_fetch_20250910", "web_fetch").with_args(args),
+            ProviderDefinedTool::new("anthropic.web_fetch_20250910", "web_fetch")
+                .with_args(args)
+                .with_supports_deferred_results(true),
         )
     }
 }
@@ -228,20 +232,20 @@ pub fn web_fetch_20250910() -> WebFetch20250910Config {
 /// This is a provider-hosted tool that allows Claude to discover available tools on demand.
 /// Requires the `advanced-tool-use-2025-11-20` beta header.
 pub fn tool_search_regex_20251119() -> Tool {
-    Tool::ProviderDefined(ProviderDefinedTool::new(
-        "anthropic.tool_search_regex_20251119",
-        "tool_search",
-    ))
+    Tool::ProviderDefined(
+        ProviderDefinedTool::new("anthropic.tool_search_regex_20251119", "tool_search")
+            .with_supports_deferred_results(true),
+    )
 }
 
 /// Create a tool search tool (BM25 variant, 2025-11-19 version).
 ///
 /// Requires the `advanced-tool-use-2025-11-20` beta header.
 pub fn tool_search_bm25_20251119() -> Tool {
-    Tool::ProviderDefined(ProviderDefinedTool::new(
-        "anthropic.tool_search_bm25_20251119",
-        "tool_search",
-    ))
+    Tool::ProviderDefined(
+        ProviderDefinedTool::new("anthropic.tool_search_bm25_20251119", "tool_search")
+            .with_supports_deferred_results(true),
+    )
 }
 
 /// Create a code execution tool (2025-05-22 version).
@@ -258,10 +262,10 @@ pub fn code_execution_20250522() -> Tool {
 ///
 /// Requires the `code-execution-2025-08-25` beta header.
 pub fn code_execution_20250825() -> Tool {
-    Tool::ProviderDefined(ProviderDefinedTool::new(
-        "anthropic.code_execution_20250825",
-        "code_execution",
-    ))
+    Tool::ProviderDefined(
+        ProviderDefinedTool::new("anthropic.code_execution_20250825", "code_execution")
+            .with_supports_deferred_results(true),
+    )
 }
 
 /// Create a memory tool (2025-08-18 version).

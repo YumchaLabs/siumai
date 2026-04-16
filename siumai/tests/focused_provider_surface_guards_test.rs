@@ -12,7 +12,10 @@ fn gemini_metadata_helpers_accept_vertex_and_google_namespaces() {
         serde_json::Value::String("google-sig".to_string()),
     );
     let mut google_outer = HashMap::new();
-    google_outer.insert("google".to_string(), google_inner);
+    google_outer.insert(
+        "google".to_string(),
+        serde_json::Value::Object(google_inner.into_iter().collect()),
+    );
     google_response.provider_metadata = Some(google_outer);
 
     let google_meta = google_response.gemini_metadata().expect("google metadata");
@@ -25,7 +28,10 @@ fn gemini_metadata_helpers_accept_vertex_and_google_namespaces() {
         serde_json::Value::String("vertex-sig".to_string()),
     );
     let mut vertex_outer = HashMap::new();
-    vertex_outer.insert("vertex".to_string(), vertex_inner);
+    vertex_outer.insert(
+        "vertex".to_string(),
+        serde_json::Value::Object(vertex_inner.into_iter().collect()),
+    );
     vertex_response.provider_metadata = Some(vertex_outer);
 
     let vertex_meta = vertex_response.gemini_metadata().expect("vertex metadata");
@@ -55,15 +61,26 @@ fn google_vertex_request_helpers_remain_vertex_options_led() {
 #[cfg(feature = "bedrock")]
 #[test]
 fn bedrock_request_helpers_remain_bedrock_request_helper_led() {
-    use siumai::prelude::unified::{ChatRequest, RerankRequest};
+    use siumai::prelude::unified::{ChatMessage, ChatRequest, ContentPart, RerankRequest};
     use siumai::provider_ext::bedrock::{
-        BedrockChatOptions, BedrockChatRequestExt, BedrockRerankOptions, BedrockRerankRequestExt,
+        BedrockCachePoint, BedrockCacheTtl, BedrockChatOptions, BedrockChatRequestExt,
+        BedrockMessageExt, BedrockReasoningConfig, BedrockReasoningEffort, BedrockReasoningType,
+        BedrockRequestContentPartExt, BedrockRerankOptions, BedrockRerankRequestExt,
+        BedrockServiceTier,
     };
 
     let chat_request = ChatRequest::new(vec![siumai::user!("hello bedrock")])
         .with_bedrock_chat_options(
             BedrockChatOptions::new()
-                .with_additional_model_request_fields(serde_json::json!({ "topK": 16 })),
+                .with_additional_model_request_fields(serde_json::json!({ "topK": 16 }))
+                .with_reasoning_config(
+                    BedrockReasoningConfig::new()
+                        .with_type(BedrockReasoningType::Enabled)
+                        .with_budget_tokens(2048)
+                        .with_max_reasoning_effort(BedrockReasoningEffort::High),
+                )
+                .with_anthropic_beta(["context-1m-2025-08-07"])
+                .with_service_tier(BedrockServiceTier::Priority),
         );
     let rerank_request = RerankRequest::new(
         "amazon.rerank-v1:0".to_string(),
@@ -80,7 +97,14 @@ fn bedrock_request_helpers_remain_bedrock_request_helper_led() {
     assert_eq!(
         chat_request.provider_options_map.get("bedrock"),
         Some(&serde_json::json!({
-            "additionalModelRequestFields": { "topK": 16 }
+            "additionalModelRequestFields": { "topK": 16 },
+            "reasoningConfig": {
+                "type": "enabled",
+                "budgetTokens": 2048,
+                "maxReasoningEffort": "high"
+            },
+            "anthropicBeta": ["context-1m-2025-08-07"],
+            "serviceTier": "priority"
         }))
     );
     assert_eq!(
@@ -91,13 +115,38 @@ fn bedrock_request_helpers_remain_bedrock_request_helper_led() {
             "additionalModelRequestFields": { "topK": 4 }
         }))
     );
+
+    let message = ChatMessage::user("cached")
+        .with_bedrock_cache_point(BedrockCachePoint::new().with_ttl(BedrockCacheTtl::FiveMinutes))
+        .build();
+    assert_eq!(
+        message.provider_options().get("bedrock"),
+        Some(&serde_json::json!({
+            "cachePoint": {
+                "type": "default",
+                "ttl": "5m"
+            }
+        }))
+    );
+
+    let part = ContentPart::file_base64("AAECAw==", "application/pdf", None)
+        .with_bedrock_document_citations(true);
+    assert_eq!(
+        part.provider_options()
+            .and_then(|provider_options| provider_options.get("bedrock")),
+        Some(&serde_json::json!({
+            "citations": { "enabled": true }
+        }))
+    );
 }
 
 #[cfg(feature = "bedrock")]
 #[test]
 fn bedrock_metadata_helpers_remain_bedrock_namespace_led() {
-    use siumai::prelude::unified::{ChatResponse, MessageContent};
-    use siumai::provider_ext::bedrock::BedrockChatResponseExt;
+    use siumai::prelude::unified::{ChatResponse, ContentPart, MessageContent, ProviderOptionsMap};
+    use siumai::provider_ext::bedrock::{
+        BedrockChatResponseExt, BedrockContentPartExt, assistant_message_with_reasoning_metadata,
+    };
     use std::collections::HashMap;
 
     let mut response = ChatResponse::new(MessageContent::Text("ok".to_string()));
@@ -107,9 +156,47 @@ fn bedrock_metadata_helpers_remain_bedrock_namespace_led() {
         serde_json::Value::Bool(true),
     );
     let mut metadata = HashMap::new();
-    metadata.insert("bedrock".to_string(), bedrock);
+    metadata.insert(
+        "bedrock".to_string(),
+        serde_json::Value::Object(bedrock.into_iter().collect()),
+    );
     response.provider_metadata = Some(metadata);
 
     let parsed = response.bedrock_metadata().expect("bedrock metadata");
     assert_eq!(parsed.is_json_response_from_tool, Some(true));
+
+    let reasoning_part = ContentPart::Reasoning {
+        text: "internal".to_string(),
+        provider_options: ProviderOptionsMap::default(),
+        provider_metadata: Some(HashMap::from([(
+            "bedrock".to_string(),
+            serde_json::json!({
+                "signature": "sig-1",
+                "redactedData": "blob"
+            }),
+        )])),
+    };
+    let reasoning_metadata = reasoning_part
+        .bedrock_reasoning_metadata()
+        .expect("bedrock reasoning metadata");
+    assert_eq!(reasoning_metadata.signature.as_deref(), Some("sig-1"));
+    assert_eq!(reasoning_metadata.redacted_data.as_deref(), Some("blob"));
+
+    let replay_response = ChatResponse::new(MessageContent::MultiModal(vec![reasoning_part]));
+    let replay_message = assistant_message_with_reasoning_metadata(&replay_response);
+    let MessageContent::MultiModal(parts) = replay_message.content else {
+        panic!("expected multimodal replay content");
+    };
+    let bedrock_options = parts[0]
+        .provider_options()
+        .and_then(|provider_options| provider_options.get_object("bedrock"))
+        .expect("bedrock provider options");
+    assert_eq!(
+        bedrock_options.get("signature"),
+        Some(&serde_json::json!("sig-1"))
+    );
+    assert_eq!(
+        bedrock_options.get("redactedData"),
+        Some(&serde_json::json!("blob"))
+    );
 }

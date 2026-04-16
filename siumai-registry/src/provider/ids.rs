@@ -21,9 +21,12 @@ pub(crate) const ANTHROPIC_VERTEX: &str = "anthropic-vertex";
 
 pub(crate) const GEMINI: &str = "gemini";
 pub(crate) const VERTEX: &str = "vertex";
+pub(crate) const VERTEX_MAAS: &str = "vertex-maas";
 
 pub(crate) const OLLAMA: &str = "ollama";
 pub(crate) const DEEPSEEK: &str = "deepseek";
+pub(crate) const DEEPINFRA: &str = "deepinfra";
+pub(crate) const FIREWORKS: &str = "fireworks";
 pub(crate) const XAI: &str = "xai";
 pub(crate) const GROQ: &str = "groq";
 pub(crate) const MINIMAXI: &str = "minimaxi";
@@ -36,6 +39,9 @@ pub(crate) const BEDROCK: &str = "bedrock";
 
 /// Alias id for registry convenience (canonical id is `vertex`).
 pub(crate) const GOOGLE_VERTEX_ALIAS: &str = "google-vertex";
+/// Alias ids for the Vertex MaaS surface.
+pub(crate) const GOOGLE_VERTEX_MAAS_ALIAS: &str = "google-vertex-maas";
+pub(crate) const GOOGLE_VERTEX_MAAS_DOTTED_ALIAS: &str = "vertex.maas";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinProviderId {
@@ -48,8 +54,11 @@ pub(crate) enum BuiltinProviderId {
     AnthropicVertex,
     Gemini,
     Vertex,
+    VertexMaas,
     Ollama,
     DeepSeek,
+    DeepInfra,
+    Fireworks,
     Xai,
     Groq,
     MiniMaxi,
@@ -70,8 +79,11 @@ impl BuiltinProviderId {
             ANTHROPIC_VERTEX => Some(Self::AnthropicVertex),
             GEMINI => Some(Self::Gemini),
             VERTEX => Some(Self::Vertex),
+            VERTEX_MAAS => Some(Self::VertexMaas),
             OLLAMA => Some(Self::Ollama),
             DEEPSEEK => Some(Self::DeepSeek),
+            DEEPINFRA => Some(Self::DeepInfra),
+            FIREWORKS => Some(Self::Fireworks),
             XAI => Some(Self::Xai),
             GROQ => Some(Self::Groq),
             MINIMAXI => Some(Self::MiniMaxi),

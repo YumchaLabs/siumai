@@ -125,12 +125,15 @@ impl OpenAiChatStandard {
             adapter: self.adapter.clone(),
             provider_adapter: provider_adapter.clone(),
             fallback_model: model.map(|m| m.to_string()),
+            provider_metadata_key: None,
         });
 
         let inner = build_openai_compatible_stream_converter(
             provider_id,
             model,
             None,
+            None,
+            false,
             None,
             provider_adapter.clone(),
         );
@@ -263,12 +266,25 @@ impl ProviderSpec for OpenAiChatSpec {
             adapter: self.adapter.clone(),
             provider_adapter: provider_adapter.clone(),
             fallback_model: Some(req.common_params.model.clone()),
+            provider_metadata_key: Some(
+                siumai_core::standards::openai::compat::metadata::resolve_provider_metadata_key(
+                    &ctx.provider_id,
+                    Some(&req.provider_options_map),
+                ),
+            ),
         });
         let inner = build_openai_compatible_stream_converter(
             &ctx.provider_id,
             Some(&req.common_params.model),
             ctx.api_key.as_deref(),
             Some(&ctx.base_url),
+            req.stream_options.include_raw_chunks,
+            Some(
+                siumai_core::standards::openai::compat::metadata::resolve_provider_metadata_key(
+                    &ctx.provider_id,
+                    Some(&req.provider_options_map),
+                ),
+            ),
             provider_adapter.clone(),
         );
         let stream_tx = Arc::new(OpenAiChatStreamTransformer {
@@ -524,6 +540,7 @@ struct OpenAiChatResponseTransformer {
     adapter: Option<Arc<dyn OpenAiChatAdapter>>,
     provider_adapter: Arc<dyn crate::standards::openai::compat::adapter::ProviderAdapter>,
     fallback_model: Option<String>,
+    provider_metadata_key: Option<String>,
 }
 
 impl ResponseTransformer for OpenAiChatResponseTransformer {
@@ -562,6 +579,7 @@ impl ResponseTransformer for OpenAiChatResponseTransformer {
         let compat = crate::standards::openai::compat::transformers::CompatResponseTransformer {
             config: cfg,
             adapter: self.provider_adapter.clone(),
+            provider_metadata_key: self.provider_metadata_key.clone(),
         };
         let mut response = compat.transform_chat_response(&raw)?;
 
@@ -577,8 +595,14 @@ impl ResponseTransformer for OpenAiChatResponseTransformer {
         {
             let provider_key = self.provider_id.clone();
             let mut provider_metadata = response.provider_metadata.take().unwrap_or_default();
-            let entry = provider_metadata.entry(provider_key).or_default();
-            entry.insert("logprobs".to_string(), logprobs.clone());
+            let entry = provider_metadata
+                .entry(provider_key)
+                .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+            if let Some(entry) = entry.as_object_mut() {
+                entry.insert("logprobs".to_string(), logprobs.clone());
+            } else {
+                *entry = serde_json::json!({ "logprobs": logprobs.clone() });
+            }
             response.provider_metadata = Some(provider_metadata);
         }
 
@@ -658,6 +682,11 @@ impl StreamChunkTransformer for OpenAiChatStreamTransformer {
         use crate::streaming::SseEventConverter;
         self.inner.handle_stream_end()
     }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<crate::streaming::ChatStreamEvent, LlmError>> {
+        use crate::streaming::SseEventConverter;
+        self.inner.handle_stream_end_events()
+    }
 }
 
 fn build_openai_compatible_stream_converter(
@@ -665,6 +694,8 @@ fn build_openai_compatible_stream_converter(
     model: Option<&str>,
     api_key: Option<&str>,
     base_url: Option<&str>,
+    include_raw_chunks: bool,
+    provider_metadata_key: Option<String>,
     provider_adapter: Arc<dyn crate::standards::openai::compat::adapter::ProviderAdapter>,
 ) -> crate::standards::openai::compat::streaming::OpenAiCompatibleEventConverter {
     let mut cfg = crate::standards::openai::compat::openai_config::OpenAiCompatibleConfig::new(
@@ -679,8 +710,16 @@ fn build_openai_compatible_stream_converter(
         cfg = cfg.with_model(m);
     }
 
-    crate::standards::openai::compat::streaming::OpenAiCompatibleEventConverter::new(
-        cfg,
-        provider_adapter,
-    )
+    let mut converter =
+        crate::standards::openai::compat::streaming::OpenAiCompatibleEventConverter::new(
+            cfg,
+            provider_adapter,
+        )
+        .with_include_raw_chunks(include_raw_chunks);
+
+    if let Some(provider_metadata_key) = provider_metadata_key {
+        converter = converter.with_provider_metadata_key(provider_metadata_key);
+    }
+
+    converter
 }

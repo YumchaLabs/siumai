@@ -6,6 +6,10 @@ pub mod request_options;
 pub use metadata::{
     OpenRouterChatResponseExt, OpenRouterContentPartExt, OpenRouterContentPartMetadata,
     OpenRouterMetadata, OpenRouterSource, OpenRouterSourceExt, OpenRouterSourceMetadata,
-    PerplexityChatResponseExt, PerplexityImage, PerplexityMetadata, PerplexityUsage,
+    PerplexityChatResponseExt, PerplexityCost, PerplexityImage, PerplexityMetadata,
+    PerplexityUsage,
 };
-pub use request_options::{OpenRouterChatRequestExt, PerplexityChatRequestExt};
+pub use request_options::{
+    FireworksChatRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
+    OpenRouterChatRequestExt, PerplexityChatRequestExt,
+};

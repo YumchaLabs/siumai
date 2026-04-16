@@ -113,6 +113,16 @@ pub fn provider_config_declares_chat_surface(config: &ProviderConfig) -> bool {
     provider_capabilities_declare_chat_surface(&config.capabilities)
 }
 
+pub fn provider_config_declares_completion_surface(config: &ProviderConfig) -> bool {
+    if !provider_config_declares_chat_surface(config) {
+        return false;
+    }
+
+    // Some AI SDK-packaged compat providers intentionally expose only chat/language models
+    // even though they reuse OpenAI-style chat-completions transport underneath.
+    !matches!(config.id.as_str(), "mistral" | "perplexity" | "moonshotai")
+}
+
 impl ProviderAdapter for ConfigurableAdapter {
     fn provider_id(&self) -> std::borrow::Cow<'static, str> {
         std::borrow::Cow::Owned(self.config.id.clone())
@@ -177,6 +187,14 @@ impl ProviderAdapter for ConfigurableAdapter {
             }
         }
 
+        fn normalize_moonshot_thinking(v: &mut serde_json::Value) {
+            let Some(obj) = v.as_object_mut() else {
+                return;
+            };
+
+            rename_field(obj, "budgetTokens", "budget_tokens");
+        }
+
         // Most OpenAI-compatible providers don't need parameter transformation.
         //
         // For a small set of vendors, we centralize well-known OpenAI-compat quirks here
@@ -218,6 +236,20 @@ impl ProviderAdapter for ConfigurableAdapter {
                     if let Some(mut v) = take_any(obj, &["searchParameters", "search_parameters"]) {
                         normalize_xai_search_parameters(&mut v);
                         obj.entry("search_parameters".to_string()).or_insert(v);
+                    }
+                }
+            }
+            // MoonshotAI uses AI SDK camelCase request options on the public surface but expects
+            // snake_case on the wire for `reasoning_history` and `thinking.budget_tokens`.
+            "moonshot" | "moonshotai" => {
+                if let Some(obj) = params.as_object_mut() {
+                    if let Some(v) = take_any(obj, &["reasoningHistory", "reasoning_history"]) {
+                        obj.entry("reasoning_history".to_string()).or_insert(v);
+                    }
+
+                    if let Some(mut thinking) = take_any(obj, &["thinking"]) {
+                        normalize_moonshot_thinking(&mut thinking);
+                        obj.entry("thinking".to_string()).or_insert(thinking);
                     }
                 }
             }
@@ -268,6 +300,9 @@ impl ProviderAdapter for ConfigurableAdapter {
 
         if provider_config_declares_chat_surface(&self.config) {
             caps = caps.with_chat().with_streaming();
+        }
+        if provider_config_declares_completion_surface(&self.config) {
+            caps = caps.with_completion();
         }
 
         if self.config.capabilities.contains(&"tools".to_string()) {
@@ -477,7 +512,58 @@ mod tests {
 
         assert!(caps.supports("chat"));
         assert!(caps.supports("streaming"));
+        assert!(caps.supports("completion"));
         assert!(caps.supports("embedding"));
+    }
+
+    #[test]
+    fn configurable_adapter_mistral_keeps_chat_surface_but_not_completion_surface() {
+        let cfg = ProviderConfig {
+            id: "mistral".to_string(),
+            name: "Mistral AI".to_string(),
+            base_url: "https://api.mistral.ai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "tools".to_string(),
+                "vision".to_string(),
+                "embedding".to_string(),
+            ],
+            default_model: Some("mistral-large-latest".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = ConfigurableAdapter::new(cfg);
+        let caps = adapter.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(!caps.supports("completion"));
+        assert!(caps.supports("embedding"));
+    }
+
+    #[test]
+    fn configurable_adapter_perplexity_keeps_chat_surface_but_not_completion_surface() {
+        let cfg = ProviderConfig {
+            id: "perplexity".to_string(),
+            name: "Perplexity".to_string(),
+            base_url: "https://api.perplexity.ai".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["tools".to_string()],
+            default_model: Some("sonar".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = ConfigurableAdapter::new(cfg);
+        let caps = adapter.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(!caps.supports("completion"));
+        assert!(caps.supports("tools"));
     }
 
     #[test]

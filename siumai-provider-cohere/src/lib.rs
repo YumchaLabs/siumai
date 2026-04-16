@@ -2,8 +2,10 @@
 //!
 //! Cohere provider implementation for siumai.
 //!
-//! Currently, this crate focuses on Cohere's reranking endpoint (`/v2/rerank`) to align
-//! with the Vercel AI SDK `@ai-sdk/cohere` behavior.
+//! This crate exposes Cohere's native unified provider surface:
+//! - chat (`/v2/chat`)
+//! - embedding (`/v2/embed`)
+//! - rerank (`/v2/rerank`)
 #![deny(unsafe_code)]
 
 // Re-export the provider-agnostic core modules required by the provider implementation.

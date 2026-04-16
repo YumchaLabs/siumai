@@ -24,6 +24,9 @@
 //!
 //! ## Get API Key
 //! Visit https://platform.moonshot.cn/ to get your API key
+//!
+//! Canonical built-in compat id: `moonshotai`
+//! Legacy compat alias: `moonshot` (hidden migration bridge only)
 
 use siumai::models;
 use siumai::prelude::*;
@@ -33,9 +36,10 @@ use siumai::provider_ext::openai_compatible::OpenAiCompatibleClient;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build Moonshot client using the latest Kimi K2 model (config-first).
     // Note: API key is automatically read from `MOONSHOT_API_KEY`.
+    // Canonical built-in compat id is `moonshotai`.
     let client = OpenAiCompatibleClient::from_builtin_env(
-        "moonshot",
-        Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+        "moonshotai",
+        Some(models::openai_compatible::moonshotai::KIMI_K2_0905),
     )
     .await?;
 
@@ -72,8 +76,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // For short conversations, use 8K model (more cost-effective)
     let client_8k = OpenAiCompatibleClient::from_builtin_env(
-        "moonshot",
-        Some(models::openai_compatible::moonshot::MOONSHOT_V1_8K),
+        "moonshotai",
+        Some(models::openai_compatible::moonshotai::MOONSHOT_V1_8K),
     )
     .await?;
 
@@ -91,8 +95,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // For long documents, use 128K model
     let client_128k = OpenAiCompatibleClient::from_builtin_env(
-        "moonshot",
-        Some(models::openai_compatible::moonshot::MOONSHOT_V1_128K),
+        "moonshotai",
+        Some(models::openai_compatible::moonshotai::MOONSHOT_V1_128K),
     )
     .await?;
 
@@ -110,10 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         response.content_text().unwrap_or_default()
     );
     println!("Notes:");
-    println!("- Use `KIMI_K2_0905_PREVIEW` for the broadest feature set");
+    println!("- Use `KIMI_K2_0905` for the broadest feature set");
     println!("- Use `MOONSHOT_V1_8K` for short, cost-sensitive chats");
     println!("- Use `MOONSHOT_V1_128K` for longer documents");
-    println!("- Moonshot is strong in bilingual Chinese/English workflows");
+    println!("- MoonshotAI is strong in bilingual Chinese/English workflows");
 
     Ok(())
 }

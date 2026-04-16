@@ -15,6 +15,8 @@ use crate::test_support::{ENV_LOCK, EnvGuard};
 use crate::types::{ChatMessage, ChatRequest, HttpConfig, RerankRequest};
 use async_trait::async_trait;
 use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+#[cfg(feature = "openai")]
+use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[allow(dead_code)]
@@ -22,6 +24,176 @@ use std::sync::{Arc, Mutex, MutexGuard};
 struct CaptureTransport {
     last: Arc<Mutex<Option<HttpTransportRequest>>>,
     last_stream: Arc<Mutex<Option<HttpTransportRequest>>>,
+}
+
+#[cfg(feature = "google-vertex")]
+mod vertex_maas_contract {
+    use super::*;
+    use crate::auth::StaticTokenProvider;
+    use crate::registry::factories::VertexMaasProviderFactory;
+
+    fn auth_http_config(token: &str) -> HttpConfig {
+        let mut http_config = HttpConfig::default();
+        http_config
+            .headers
+            .insert("Authorization".to_string(), format!("Bearer {token}"));
+        http_config
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_factory_uses_ctx_project_location_before_env() {
+        let _lock = lock_env();
+
+        let _p = EnvGuard::set("GOOGLE_VERTEX_PROJECT", "env-project");
+        let _l = EnvGuard::set("GOOGLE_VERTEX_LOCATION", "env-location");
+
+        let factory = VertexMaasProviderFactory;
+        let transport = CaptureTransport::default();
+        let ctx = BuildContext {
+            provider_id: Some("vertex-maas".to_string()),
+            project: Some("ctx-project".to_string()),
+            location: Some("us-central1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            http_config: Some(auth_http_config("ctx-header")),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
+            .await
+            .expect("build vertex-maas client");
+
+        let chat = client
+            .as_chat_capability()
+            .expect("vertex-maas chat capability");
+        let err = chat
+            .chat_request(make_chat_request_with_model(
+                "deepseek-ai/deepseek-v3.2-maas",
+            ))
+            .await
+            .expect_err("capture transport should return an auth error after sending");
+        let req = transport
+            .take()
+            .unwrap_or_else(|| panic!("captured request missing; actual error: {err:?}"));
+        assert_eq!(
+            req.url,
+            "https://aiplatform.googleapis.com/v1/projects/ctx-project/locations/us-central1/endpoints/openapi/chat/completions"
+        );
+        assert_eq!(
+            header_value(&req, "authorization"),
+            Some("Bearer ctx-header".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_factory_defaults_location_to_global() {
+        let _lock = lock_env();
+
+        let _l = EnvGuard::remove("GOOGLE_VERTEX_LOCATION");
+
+        let factory = VertexMaasProviderFactory;
+        let transport = CaptureTransport::default();
+        let ctx = BuildContext {
+            provider_id: Some("vertex-maas".to_string()),
+            project: Some("ctx-project".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            http_config: Some(auth_http_config("ctx-header")),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
+            .await
+            .expect("build vertex-maas client");
+
+        let chat = client
+            .as_chat_capability()
+            .expect("vertex-maas chat capability");
+        let _err = chat
+            .chat_request(make_chat_request_with_model(
+                "deepseek-ai/deepseek-v3.2-maas",
+            ))
+            .await
+            .expect_err("capture transport should return an auth error after sending");
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(
+            req.url,
+            "https://aiplatform.googleapis.com/v1/projects/ctx-project/locations/global/endpoints/openapi/chat/completions"
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_factory_injects_google_bearer_token() {
+        let _lock = lock_env();
+
+        let factory = VertexMaasProviderFactory;
+        let transport = CaptureTransport::default();
+        let ctx = BuildContext {
+            provider_id: Some("vertex-maas".to_string()),
+            project: Some("ctx-project".to_string()),
+            location: Some("us-central1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            google_token_provider: Some(Arc::new(StaticTokenProvider::new("google-token"))),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
+            .await
+            .expect("build vertex-maas client");
+
+        let chat = client
+            .as_chat_capability()
+            .expect("vertex-maas chat capability");
+        let _err = chat
+            .chat_request(make_chat_request_with_model(
+                "deepseek-ai/deepseek-v3.2-maas",
+            ))
+            .await
+            .expect_err("capture transport should return an auth error after sending");
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(
+            header_value(&req, "authorization"),
+            Some("Bearer google-token".to_string())
+        );
+        assert_eq!(
+            req.url,
+            "https://aiplatform.googleapis.com/v1/projects/ctx-project/locations/us-central1/endpoints/openapi/chat/completions"
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_maas_factory_supports_completion_and_embedding_family_paths() {
+        let _lock = lock_env();
+
+        let factory = VertexMaasProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("vertex-maas".to_string()),
+            project: Some("ctx-project".to_string()),
+            http_config: Some(auth_http_config("ctx-header")),
+            ..Default::default()
+        };
+
+        let completion = factory
+            .completion_model_family_with_ctx("deepseek-ai/deepseek-v3.2-maas", &ctx)
+            .await
+            .expect("build completion-family model");
+        let embedding = factory
+            .embedding_model_family_with_ctx("text-embedding-005", &ctx)
+            .await
+            .expect("build embedding-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(completion.as_ref()),
+            "vertex-maas"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(embedding.as_ref()),
+            "vertex-maas"
+        );
+    }
 }
 
 impl CaptureTransport {
@@ -195,6 +367,92 @@ impl HttpTransport for BytesSuccessTransport {
             headers,
             body: self.response_body.as_ref().clone(),
         })
+    }
+}
+
+#[cfg(feature = "openai")]
+#[derive(Clone)]
+enum FireworksMockResponse {
+    Json(serde_json::Value),
+    Bytes(Vec<u8>, &'static str),
+}
+
+#[cfg(feature = "openai")]
+#[derive(Clone, Default)]
+struct FireworksSequenceTransport {
+    requests: Arc<Mutex<Vec<HttpTransportRequest>>>,
+    responses: Arc<Mutex<std::collections::HashMap<String, VecDeque<FireworksMockResponse>>>>,
+}
+
+#[cfg(feature = "openai")]
+impl FireworksSequenceTransport {
+    fn push_json(&self, url: impl Into<String>, value: serde_json::Value) {
+        self.responses
+            .lock()
+            .expect("lock fireworks responses")
+            .entry(url.into())
+            .or_default()
+            .push_back(FireworksMockResponse::Json(value));
+    }
+
+    fn push_bytes(&self, url: impl Into<String>, bytes: Vec<u8>, content_type: &'static str) {
+        self.responses
+            .lock()
+            .expect("lock fireworks responses")
+            .entry(url.into())
+            .or_default()
+            .push_back(FireworksMockResponse::Bytes(bytes, content_type));
+    }
+
+    fn take_requests(&self) -> Vec<HttpTransportRequest> {
+        std::mem::take(&mut *self.requests.lock().expect("lock fireworks requests"))
+    }
+}
+
+#[cfg(feature = "openai")]
+#[async_trait]
+impl HttpTransport for FireworksSequenceTransport {
+    async fn execute_json(
+        &self,
+        request: HttpTransportRequest,
+    ) -> Result<HttpTransportResponse, LlmError> {
+        self.requests
+            .lock()
+            .expect("lock fireworks requests")
+            .push(request.clone());
+
+        let response = self
+            .responses
+            .lock()
+            .expect("lock fireworks responses")
+            .get_mut(&request.url)
+            .and_then(VecDeque::pop_front)
+            .ok_or_else(|| {
+                LlmError::InternalError(format!(
+                    "Missing mocked Fireworks response for {}",
+                    request.url
+                ))
+            })?;
+
+        let mut headers = HeaderMap::new();
+        match response {
+            FireworksMockResponse::Json(value) => {
+                headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+                Ok(HttpTransportResponse {
+                    status: 200,
+                    headers,
+                    body: serde_json::to_vec(&value).expect("serialize fireworks json"),
+                })
+            }
+            FireworksMockResponse::Bytes(bytes, content_type) => {
+                headers.insert(CONTENT_TYPE, HeaderValue::from_static(content_type));
+                Ok(HttpTransportResponse {
+                    status: 200,
+                    headers,
+                    body: bytes,
+                })
+            }
+        }
     }
 }
 
@@ -502,6 +760,23 @@ mod azure_contract {
     }
 
     #[tokio::test]
+    async fn azure_factory_declares_native_completion_capability() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("completion"));
+        assert!(caps.supports("streaming"));
+        assert!(caps.supports("tools"));
+        assert!(caps.supports("embedding"));
+        assert!(caps.supports("image_generation"));
+        assert!(caps.supports("audio"));
+        assert!(caps.supports("file_management"));
+    }
+
+    #[tokio::test]
     async fn azure_factory_supports_native_text_family_path() {
         let _lock = lock_env();
 
@@ -525,6 +800,37 @@ mod azure_contract {
         assert_eq!(
             crate::traits::ModelMetadata::model_id(model.as_ref()),
             "gpt-4o"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
+    async fn azure_factory_supports_native_completion_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::AzureOpenAiProviderFactory::default();
+        let ctx = BuildContext {
+            provider_id: Some("azure".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/custom/openai".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .completion_model_family_with_ctx("gpt-3.5-turbo-instruct", &ctx)
+            .await
+            .expect("build native completion-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "azure"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "gpt-3.5-turbo-instruct"
         );
         assert_eq!(
             crate::traits::ModelMetadata::specification_version(model.as_ref()),
@@ -660,6 +966,7 @@ mod azure_contract {
     fn azure_factory_source_declares_native_audio_family_overrides() {
         let source = include_str!("azure.rs");
 
+        assert!(source.contains("async fn completion_model_with_ctx("));
         assert!(source.contains("async fn speech_model_family_with_ctx("));
         assert!(source.contains("async fn transcription_model_family_with_ctx("));
     }
@@ -1084,21 +1391,34 @@ mod azure_contract {
 #[cfg(feature = "cohere")]
 mod cohere_contract {
     use super::*;
-    use crate::traits::RerankCapability;
+    use crate::traits::{
+        ChatCapability, EmbeddingExtensions, ImageGenerationCapability, RerankCapability,
+    };
     use reqwest::header::AUTHORIZATION;
-    use siumai_provider_cohere::provider_options::CohereRerankOptions;
-    use siumai_provider_cohere::providers::cohere::CohereRerankRequestExt;
+    use siumai_provider_cohere::provider_options::{
+        CohereChatOptions, CohereEmbeddingInputType, CohereEmbeddingOptions,
+        CohereEmbeddingTruncate, CohereRerankOptions, CohereThinkingConfig, CohereThinkingType,
+    };
+    use siumai_provider_cohere::providers::cohere::CohereBuilder;
+    use siumai_provider_cohere::providers::cohere::{
+        CohereChatRequestExt, CohereEmbeddingRequestExt, CohereRerankRequestExt,
+    };
+    use siumai_provider_cohere::providers::cohere::{CohereClient, CohereConfig};
+    use siumai_provider_cohere::types::{EmbeddingRequest, ResponseFormat, Tool, ToolChoice};
 
     #[tokio::test]
-    async fn cohere_factory_keeps_non_rerank_capabilities_deferred() {
+    async fn cohere_factory_exposes_unified_capabilities() {
         let _lock = lock_env();
 
         let factory = crate::registry::factories::CohereProviderFactory;
         let caps = factory.capabilities();
 
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(caps.supports("tools"));
+        assert!(caps.supports("embedding"));
         assert!(caps.supports("rerank"));
-        assert!(!caps.supports("chat"));
-        assert!(!caps.supports("embedding"));
+        assert!(!caps.supports("completion"));
         assert!(!caps.supports("image_generation"));
         assert!(!caps.supports("speech"));
         assert!(!caps.supports("transcription"));
@@ -1123,13 +1443,13 @@ mod cohere_contract {
         };
 
         factory
-            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .language_model_with_ctx("command-a-03-2025", &ctx)
             .await
             .expect("factory should prefer ctx.http_client over invalid http_config");
     }
 
     #[tokio::test]
-    async fn cohere_factory_uses_env_api_key_when_ctx_missing() {
+    async fn cohere_factory_uses_env_api_key_when_ctx_missing_for_chat() {
         let _lock = lock_env();
 
         let _k = EnvGuard::set("COHERE_API_KEY", "env-key");
@@ -1144,24 +1464,24 @@ mod cohere_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .language_model_with_ctx("command-a-03-2025", &ctx)
             .await
             .expect("build client via env api key");
 
-        let rerank = client
-            .as_rerank_capability()
-            .expect("cohere client should expose rerank capability");
-        let _ = rerank
-            .rerank(make_rerank_request("rerank-english-v3.0"))
+        let chat = client
+            .as_chat_capability()
+            .expect("cohere client should expose chat capability");
+        let _ = chat
+            .chat_request(make_chat_request_with_model("command-a-03-2025"))
             .await;
 
         let req = transport.take().expect("captured request");
         assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer env-key");
-        assert_eq!(req.url, "https://api.cohere.com/v2/rerank");
+        assert_eq!(req.url, "https://api.cohere.com/v2/chat");
     }
 
     #[tokio::test]
-    async fn cohere_factory_prefers_ctx_api_key_over_env() {
+    async fn cohere_factory_prefers_ctx_api_key_over_env_for_embedding() {
         let _lock = lock_env();
 
         let _k = EnvGuard::set("COHERE_API_KEY", "env-key");
@@ -1177,15 +1497,15 @@ mod cohere_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .embedding_model_with_ctx("embed-v4.0", &ctx)
             .await
             .expect("build client via ctx api key");
 
-        let rerank = client
-            .as_rerank_capability()
-            .expect("cohere client should expose rerank capability");
-        let _ = rerank
-            .rerank(make_rerank_request("rerank-english-v3.0"))
+        let embedding = client
+            .as_embedding_extensions()
+            .expect("cohere client should expose embedding capability");
+        let _ = embedding
+            .embed_with_config(EmbeddingRequest::single("hello embedding").with_model("embed-v4.0"))
             .await;
 
         let req = transport.take().expect("captured request");
@@ -1193,7 +1513,7 @@ mod cohere_contract {
     }
 
     #[tokio::test]
-    async fn cohere_factory_prefers_ctx_base_url_over_default() {
+    async fn cohere_factory_prefers_ctx_base_url_over_default_for_embedding() {
         let _lock = lock_env();
 
         let _k = EnvGuard::set("COHERE_API_KEY", "env-key");
@@ -1209,20 +1529,20 @@ mod cohere_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .embedding_model_with_ctx("embed-v4.0", &ctx)
             .await
             .expect("build client via base_url override");
 
-        let rerank = client
-            .as_rerank_capability()
-            .expect("cohere client should expose rerank capability");
-        let _ = rerank
-            .rerank(make_rerank_request("rerank-english-v3.0"))
+        let embedding = client
+            .as_embedding_extensions()
+            .expect("cohere client should expose embedding capability");
+        let _ = embedding
+            .embed_with_config(EmbeddingRequest::single("hello embedding").with_model("embed-v4.0"))
             .await;
 
         let req = transport.take().expect("captured request");
         assert!(req.url.starts_with("https://example.com/cohere/"));
-        assert!(req.url.ends_with("/rerank"));
+        assert!(req.url.ends_with("/embed"));
     }
 
     #[tokio::test]
@@ -1237,7 +1557,7 @@ mod cohere_contract {
         };
 
         let client = factory
-            .reranking_model_with_ctx("rerank-english-v3.0", &ctx)
+            .language_model_with_ctx("command-a-03-2025", &ctx)
             .await
             .expect("build cohere typed client");
 
@@ -1250,26 +1570,7 @@ mod cohere_contract {
     }
 
     #[tokio::test]
-    async fn cohere_factory_rejects_language_model_path_without_chat() {
-        let _lock = lock_env();
-
-        let factory = crate::registry::factories::CohereProviderFactory;
-        let ctx = BuildContext {
-            provider_id: Some("cohere".to_string()),
-            api_key: Some("ctx-key".to_string()),
-            ..Default::default()
-        };
-
-        assert_unsupported_operation_contains(
-            factory
-                .language_model_with_ctx("rerank-english-v3.0", &ctx)
-                .await,
-            "language_model/chat family path",
-        );
-    }
-
-    #[tokio::test]
-    async fn cohere_registry_rejects_language_model_handle_without_chat() {
+    async fn cohere_registry_builds_language_embedding_and_rerank_handles() {
         let _lock = lock_env();
 
         let transport = CaptureTransport::default();
@@ -1287,43 +1588,75 @@ mod cohere_contract {
             .build()
             .expect("build registry");
 
-        assert_unsupported_operation_contains(
-            registry.language_model("cohere:rerank-english-v3.0"),
-            "family-specific entries",
+        let language = registry
+            .language_model("cohere:command-a-03-2025")
+            .expect("build cohere language model");
+        let embedding = registry
+            .embedding_model("cohere:embed-v4.0")
+            .expect("build cohere embedding model");
+        let rerank = registry
+            .reranking_model("cohere:rerank-v3.5")
+            .expect("build cohere rerank model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(&language),
+            "cohere"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(&embedding),
+            "cohere"
+        );
+        assert_eq!(crate::traits::ModelMetadata::provider_id(&rerank), "cohere");
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(&language),
+            "command-a-03-2025"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(&embedding),
+            "embed-v4.0"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(&rerank),
+            "rerank-v3.5"
         );
         assert_capture_transport_unused(&transport);
     }
 
     #[tokio::test]
-    async fn cohere_builder_config_registry_rerank_request_are_equivalent() {
+    async fn cohere_builder_config_registry_chat_request_are_equivalent() {
         let _lock = lock_env();
 
         let builder_transport = CaptureTransport::default();
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
 
-        let builder_client = siumai_provider_cohere::providers::cohere::CohereBuilder::new(
-            siumai_provider_cohere::builder::BuilderBase::default(),
-        )
-        .api_key("ctx-key")
-        .base_url("https://example.com/cohere")
-        .reranking_model("rerank-english-v3.0")
-        .fetch(Arc::new(builder_transport.clone()))
-        .build()
-        .expect("build builder client");
+        let builder_client =
+            CohereBuilder::new(siumai_provider_cohere::builder::BuilderBase::default())
+                .api_key("ctx-key")
+                .base_url("https://example.com/cohere")
+                .language_model("command-a-03-2025")
+                .fetch(Arc::new(builder_transport.clone()))
+                .build()
+                .expect("build builder client");
 
-        let config_client = siumai_provider_cohere::providers::cohere::CohereClient::from_config(
-            siumai_provider_cohere::providers::cohere::CohereConfig::new("ctx-key")
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("ctx-key")
                 .with_base_url("https://example.com/cohere")
-                .with_model("rerank-english-v3.0")
+                .with_model("command-a-03-2025")
                 .with_http_transport(Arc::new(config_transport.clone())),
         )
         .expect("build config client");
 
         let factory = crate::registry::factories::CohereProviderFactory;
         let registry_client = factory
-            .reranking_model_with_ctx(
-                "rerank-english-v3.0",
+            .language_model_with_ctx(
+                "command-a-03-2025",
                 &BuildContext {
                     provider_id: Some("cohere".to_string()),
                     api_key: Some("ctx-key".to_string()),
@@ -1335,7 +1668,209 @@ mod cohere_contract {
             .await
             .expect("build registry client");
 
-        let request = make_rerank_request("rerank-english-v3.0")
+        let request = make_chat_request_with_model("command-a-03-2025")
+            .with_tools(vec![Tool::function(
+                "lookup_weather",
+                "Look up the weather",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "location": { "type": "string" } },
+                    "required": ["location"],
+                    "additionalProperties": false
+                }),
+            )])
+            .with_tool_choice(ToolChoice::None)
+            .with_response_format(ResponseFormat::json_schema(schema.clone()))
+            .with_cohere_options(
+                CohereChatOptions::new().with_thinking(
+                    CohereThinkingConfig::new()
+                        .with_type(CohereThinkingType::Enabled)
+                        .with_token_budget(2048),
+                ),
+            );
+
+        let _ = builder_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_client
+            .as_chat_capability()
+            .expect("registry chat capability")
+            .chat_request(request)
+            .await;
+
+        let builder_req = builder_transport.take().expect("builder request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&builder_req, &config_req);
+        assert_requests_equivalent(&builder_req, &registry_req);
+        assert_eq!(
+            builder_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer ctx-key"
+        );
+        assert_eq!(builder_req.url, "https://example.com/cohere/chat");
+        assert_eq!(
+            builder_req.body["model"],
+            serde_json::json!("command-a-03-2025")
+        );
+        assert_eq!(
+            builder_req.body["messages"][0]["role"],
+            serde_json::json!("user")
+        );
+        assert_eq!(
+            builder_req.body["messages"][0]["content"],
+            serde_json::json!("hi")
+        );
+        assert_eq!(builder_req.body["tool_choice"], serde_json::json!("NONE"));
+        assert_eq!(
+            builder_req.body["response_format"],
+            serde_json::json!({
+                "type": "json_object",
+                "json_schema": schema
+            })
+        );
+        assert_eq!(
+            builder_req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "token_budget": 2048
+            })
+        );
+        assert_eq!(
+            builder_req.body["tools"][0]["function"]["name"],
+            serde_json::json!("lookup_weather")
+        );
+    }
+
+    #[tokio::test]
+    async fn cohere_builder_config_registry_embedding_request_are_equivalent() {
+        let _lock = lock_env();
+
+        let builder_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let builder_client =
+            CohereBuilder::new(siumai_provider_cohere::builder::BuilderBase::default())
+                .api_key("ctx-key")
+                .base_url("https://example.com/cohere")
+                .embedding_model("embed-v4.0")
+                .fetch(Arc::new(builder_transport.clone()))
+                .build()
+                .expect("build builder client");
+
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("ctx-key")
+                .with_base_url("https://example.com/cohere")
+                .with_model("embed-v4.0")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let factory = crate::registry::factories::CohereProviderFactory;
+        let registry_client = factory
+            .embedding_model_with_ctx(
+                "embed-v4.0",
+                &BuildContext {
+                    provider_id: Some("cohere".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some("https://example.com/cohere".to_string()),
+                    http_transport: Some(Arc::new(registry_transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build registry client");
+
+        let request = EmbeddingRequest::new(vec!["text-1".to_string(), "text-2".to_string()])
+            .with_model("embed-v4.0")
+            .with_dimensions(512)
+            .with_cohere_options(
+                CohereEmbeddingOptions::new()
+                    .with_input_type(CohereEmbeddingInputType::SearchDocument)
+                    .with_truncate(CohereEmbeddingTruncate::End)
+                    .with_output_dimension(1024),
+            );
+
+        let _ = builder_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request.clone()).await;
+        let _ = registry_client
+            .as_embedding_extensions()
+            .expect("registry embedding extensions")
+            .embed_with_config(request)
+            .await;
+
+        let builder_req = builder_transport.take().expect("builder request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&builder_req, &config_req);
+        assert_requests_equivalent(&builder_req, &registry_req);
+        assert_eq!(
+            builder_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer ctx-key"
+        );
+        assert_eq!(builder_req.url, "https://example.com/cohere/embed");
+        assert_eq!(builder_req.body["model"], serde_json::json!("embed-v4.0"));
+        assert_eq!(
+            builder_req.body["embedding_types"],
+            serde_json::json!(["float"])
+        );
+        assert_eq!(
+            builder_req.body["texts"],
+            serde_json::json!(["text-1", "text-2"])
+        );
+        assert_eq!(
+            builder_req.body["input_type"],
+            serde_json::json!("search_document")
+        );
+        assert_eq!(builder_req.body["truncate"], serde_json::json!("END"));
+        assert_eq!(
+            builder_req.body["output_dimension"],
+            serde_json::json!(1024)
+        );
+    }
+
+    #[tokio::test]
+    async fn cohere_builder_config_registry_rerank_request_are_equivalent() {
+        let _lock = lock_env();
+
+        let builder_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let builder_client =
+            CohereBuilder::new(siumai_provider_cohere::builder::BuilderBase::default())
+                .api_key("ctx-key")
+                .base_url("https://example.com/cohere")
+                .reranking_model("rerank-v3.5")
+                .fetch(Arc::new(builder_transport.clone()))
+                .build()
+                .expect("build builder client");
+
+        let config_client = CohereClient::from_config(
+            CohereConfig::new("ctx-key")
+                .with_base_url("https://example.com/cohere")
+                .with_model("rerank-v3.5")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let factory = crate::registry::factories::CohereProviderFactory;
+        let registry_client = factory
+            .reranking_model_with_ctx(
+                "rerank-v3.5",
+                &BuildContext {
+                    provider_id: Some("cohere".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some("https://example.com/cohere".to_string()),
+                    http_transport: Some(Arc::new(registry_transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build registry client");
+
+        let request = make_rerank_request("rerank-v3.5")
             .with_top_n(1)
             .with_cohere_options(
                 CohereRerankOptions::new()
@@ -1362,10 +1897,7 @@ mod cohere_contract {
             "Bearer ctx-key"
         );
         assert_eq!(builder_req.url, "https://example.com/cohere/rerank");
-        assert_eq!(
-            builder_req.body["model"],
-            serde_json::json!("rerank-english-v3.0")
-        );
+        assert_eq!(builder_req.body["model"], serde_json::json!("rerank-v3.5"));
         assert_eq!(builder_req.body["query"], serde_json::json!("query"));
         assert_eq!(
             builder_req.body["documents"],
@@ -1377,6 +1909,88 @@ mod cohere_contract {
             serde_json::json!(1000)
         );
         assert_eq!(builder_req.body["priority"], serde_json::json!(1));
+    }
+
+    #[tokio::test]
+    async fn cohere_registry_language_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let global_transport = CaptureTransport::default();
+        let cohere_transport = CaptureTransport::default();
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "cohere".to_string(),
+            Arc::new(crate::registry::factories::CohereProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "cohere",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/cohere")
+                    .fetch(Arc::new(cohere_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .language_model("cohere:command-a-03-2025")
+            .expect("build cohere language handle");
+
+        let _ = handle
+            .chat_request(make_chat_request_with_model("command-a-03-2025"))
+            .await;
+
+        let req = cohere_transport.take().expect("captured cohere request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert_eq!(req.url, "https://example.com/cohere/chat");
+    }
+
+    #[tokio::test]
+    async fn cohere_registry_embedding_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let global_transport = CaptureTransport::default();
+        let cohere_transport = CaptureTransport::default();
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "cohere".to_string(),
+            Arc::new(crate::registry::factories::CohereProviderFactory) as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "cohere",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/cohere")
+                    .fetch(Arc::new(cohere_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .embedding_model("cohere:embed-v4.0")
+            .expect("build cohere embedding handle");
+
+        let _ = handle
+            .embed_with_config(EmbeddingRequest::single("hello embedding").with_model("embed-v4.0"))
+            .await;
+
+        let req = cohere_transport.take().expect("captured cohere request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert_eq!(req.url, "https://example.com/cohere/embed");
     }
 
     #[tokio::test]
@@ -1407,12 +2021,12 @@ mod cohere_contract {
             .expect("build registry");
 
         let handle = registry
-            .reranking_model("cohere:rerank-english-v3.0")
+            .reranking_model("cohere:rerank-v3.5")
             .expect("build cohere rerank handle");
 
         let _ = handle
             .rerank(
-                make_rerank_request("rerank-english-v3.0")
+                make_rerank_request("rerank-v3.5")
                     .with_top_n(1)
                     .with_cohere_options(
                         CohereRerankOptions::new()
@@ -1435,25 +2049,27 @@ mod cohere_contract {
 #[cfg(feature = "togetherai")]
 mod togetherai_contract {
     use super::*;
-    use crate::traits::RerankCapability;
+    use crate::traits::{ChatCapability, RerankCapability};
     use reqwest::header::AUTHORIZATION;
     use siumai_provider_togetherai::provider_options::TogetherAiRerankOptions;
     use siumai_provider_togetherai::providers::togetherai::TogetherAiRerankRequestExt;
 
     #[tokio::test]
-    async fn togetherai_factory_keeps_non_rerank_capabilities_deferred() {
+    async fn togetherai_factory_exposes_unified_provider_capabilities() {
         let _lock = lock_env();
 
         let factory = crate::registry::factories::TogetherAiProviderFactory;
         let caps = factory.capabilities();
 
         assert!(caps.supports("rerank"));
-        assert!(!caps.supports("chat"));
-        assert!(!caps.supports("embedding"));
-        assert!(!caps.supports("image_generation"));
-        assert!(!caps.supports("speech"));
-        assert!(!caps.supports("transcription"));
-        assert!(!caps.supports("audio"));
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("completion"));
+        assert!(caps.supports("streaming"));
+        assert!(caps.supports("embedding"));
+        assert!(caps.supports("image_generation"));
+        assert!(caps.supports("speech"));
+        assert!(caps.supports("transcription"));
+        assert!(caps.supports("audio"));
     }
 
     #[tokio::test]
@@ -1508,6 +2124,42 @@ mod togetherai_contract {
 
         let req = transport.take().expect("captured request");
         assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer env-key");
+        assert_eq!(req.url, "https://api.together.xyz/v1/rerank");
+    }
+
+    #[tokio::test]
+    async fn togetherai_factory_accepts_deprecated_env_api_key_alias_when_primary_missing() {
+        let _lock = lock_env();
+
+        let _k = EnvGuard::remove("TOGETHER_API_KEY");
+        let _legacy = EnvGuard::set("TOGETHER_AI_API_KEY", "legacy-env-key");
+
+        let factory = crate::registry::factories::TogetherAiProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("togetherai".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .reranking_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
+            .await
+            .expect("build client via deprecated env api key alias");
+
+        let rerank = client
+            .as_rerank_capability()
+            .expect("togetherai client should expose rerank capability");
+        let _ = rerank
+            .rerank(make_rerank_request("Salesforce/Llama-Rank-v1"))
+            .await;
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(
+            req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer legacy-env-key"
+        );
         assert_eq!(req.url, "https://api.together.xyz/v1/rerank");
     }
 
@@ -1601,7 +2253,7 @@ mod togetherai_contract {
     }
 
     #[tokio::test]
-    async fn togetherai_factory_rejects_language_model_path_without_chat() {
+    async fn togetherai_factory_materializes_unified_language_client() {
         let _lock = lock_env();
 
         let factory = crate::registry::factories::TogetherAiProviderFactory;
@@ -1611,19 +2263,54 @@ mod togetherai_contract {
             ..Default::default()
         };
 
-        assert_unsupported_operation_contains(
-            factory
-                .language_model_with_ctx("Salesforce/Llama-Rank-v1", &ctx)
-                .await,
-            "language_model/chat family path",
+        let client = factory
+            .language_model_with_ctx("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", &ctx)
+            .await
+            .expect("build togetherai unified client");
+
+        assert_eq!(client.provider_id().as_ref(), "togetherai");
+        assert!(client.as_chat_capability().is_some());
+        assert!(client.as_completion_capability().is_some());
+        assert!(client.as_rerank_capability().is_some());
+    }
+
+    #[tokio::test]
+    async fn togetherai_factory_supports_native_completion_family_path() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::TogetherAiProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("togetherai".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/together".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .completion_model_family_with_ctx("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", &ctx)
+            .await
+            .expect("build togetherai completion-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "togetherai"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
         );
     }
 
     #[tokio::test]
-    async fn togetherai_registry_rejects_language_model_handle_without_chat() {
+    async fn togetherai_registry_language_model_handle_prefers_provider_specific_build_overrides() {
         let _lock = lock_env();
 
-        let transport = CaptureTransport::default();
+        let global_transport = CaptureTransport::default();
+        let together_transport = CaptureTransport::default();
         let mut providers = std::collections::HashMap::new();
         providers.insert(
             "togetherai".to_string(),
@@ -1632,18 +2319,40 @@ mod togetherai_contract {
         );
 
         let registry = crate::registry::builder::RegistryBuilder::new(providers)
-            .with_api_key("ctx-key")
-            .with_base_url("https://example.com/together")
-            .fetch(Arc::new(transport.clone()))
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "togetherai",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/together")
+                    .fetch(Arc::new(together_transport.clone())),
+            )
             .auto_middleware(false)
             .build()
             .expect("build registry");
 
-        assert_unsupported_operation_contains(
-            registry.language_model("togetherai:Salesforce/Llama-Rank-v1"),
-            "family-specific entries",
+        let handle = registry
+            .language_model("togetherai:meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+            .expect("build togetherai language-model handle");
+
+        let _ = ChatCapability::chat_request(
+            &handle,
+            make_chat_request_with_model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
+        )
+        .await;
+
+        let req = together_transport
+            .take()
+            .expect("captured togetherai chat request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert_eq!(req.url, "https://example.com/together/chat/completions");
+        assert_eq!(
+            req.body["model"],
+            serde_json::json!("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
         );
-        assert_capture_transport_unused(&transport);
     }
 
     #[tokio::test]
@@ -1792,25 +2501,296 @@ mod togetherai_contract {
     }
 }
 
+#[cfg(feature = "deepinfra")]
+mod deepinfra_contract {
+    use super::*;
+    use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
+
+    fn normalize_multipart_body(req: &HttpTransportMultipartRequest) -> String {
+        let boundary = req
+            .headers
+            .get(CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split("boundary=").nth(1))
+            .expect("multipart boundary");
+        String::from_utf8_lossy(&req.body).replace(boundary, "<boundary>")
+    }
+
+    #[tokio::test]
+    async fn deepinfra_factory_exposes_unified_provider_capabilities() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::DeepInfraProviderFactory;
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("completion"));
+        assert!(caps.supports("streaming"));
+        assert!(caps.supports("tools"));
+        assert!(caps.supports("vision"));
+        assert!(caps.supports("embedding"));
+        assert!(caps.supports("image_generation"));
+        assert!(!caps.supports("speech"));
+        assert!(!caps.supports("transcription"));
+        assert!(!caps.supports("rerank"));
+    }
+
+    #[tokio::test]
+    async fn deepinfra_factory_uses_env_api_key_when_ctx_missing() {
+        let _lock = lock_env();
+
+        let _g = EnvGuard::set("DEEPINFRA_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::DeepInfraProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("deepinfra".to_string()),
+            base_url: Some("https://example.com/deepinfra/v1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
+            .await
+            .expect("build client via env api key");
+
+        let _ = client
+            .chat_request(make_chat_request_with_model(
+                "meta-llama/Llama-3.3-70B-Instruct",
+            ))
+            .await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer env-key");
+        assert_eq!(
+            req.url,
+            "https://example.com/deepinfra/v1/openai/chat/completions"
+        );
+    }
+
+    #[tokio::test]
+    async fn deepinfra_factory_prefers_ctx_api_key_over_env() {
+        let _lock = lock_env();
+
+        let _g = EnvGuard::set("DEEPINFRA_API_KEY", "env-key");
+
+        let factory = crate::registry::factories::DeepInfraProviderFactory;
+        let transport = CaptureTransport::default();
+
+        let ctx = BuildContext {
+            provider_id: Some("deepinfra".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/deepinfra/v1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
+            .await
+            .expect("build client via ctx api key");
+
+        let _ = client
+            .chat_request(make_chat_request_with_model(
+                "meta-llama/Llama-3.3-70B-Instruct",
+            ))
+            .await;
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+    }
+
+    #[tokio::test]
+    async fn deepinfra_factory_materializes_unified_language_client() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::DeepInfraProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("deepinfra".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/deepinfra/v1".to_string()),
+            ..Default::default()
+        };
+
+        let client = factory
+            .language_model_with_ctx("meta-llama/Llama-3.3-70B-Instruct", &ctx)
+            .await
+            .expect("build deepinfra unified client");
+
+        assert_eq!(client.provider_id().as_ref(), "deepinfra");
+        assert!(client.as_chat_capability().is_some());
+        assert!(client.as_completion_capability().is_some());
+        assert!(client.as_embedding_capability().is_some());
+        assert!(client.as_image_generation_capability().is_some());
+        assert!(client.as_image_extras().is_some());
+        assert!(client.as_rerank_capability().is_none());
+    }
+
+    #[tokio::test]
+    async fn deepinfra_factory_image_generation_routes_to_inference_url() {
+        let _lock = lock_env();
+
+        let transport = JsonSuccessTransport::new(serde_json::json!({
+            "images": ["data:image/png;base64,aGVsbG8="]
+        }));
+        let factory = crate::registry::factories::DeepInfraProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("deepinfra".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/deepinfra/v1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .image_model_with_ctx("black-forest-labs/FLUX-1-schnell", &ctx)
+            .await
+            .expect("build deepinfra image client");
+
+        let response = client
+            .as_image_generation_capability()
+            .expect("image generation capability")
+            .generate_images(crate::types::ImageGenerationRequest {
+                prompt: "a tiny purple robot".to_string(),
+                negative_prompt: Some("blurry".to_string()),
+                size: Some("1024x1024".to_string()),
+                aspect_ratio: None,
+                count: 1,
+                model: Some("black-forest-labs/FLUX-1-schnell".to_string()),
+                quality: None,
+                style: None,
+                seed: None,
+                steps: None,
+                guidance_scale: None,
+                enhance_prompt: None,
+                response_format: Some("url".to_string()),
+                extra_params: Default::default(),
+                provider_options_map: Default::default(),
+                http_config: None,
+            })
+            .await
+            .expect("deepinfra image generation response");
+
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(response.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+
+        let req = transport.take().expect("captured request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert_eq!(
+            req.url,
+            "https://example.com/deepinfra/v1/inference/black-forest-labs/FLUX-1-schnell"
+        );
+        assert_eq!(req.body["prompt"], serde_json::json!("a tiny purple robot"));
+        assert_eq!(req.body["num_images"], serde_json::json!(1));
+        assert_eq!(req.body["width"], serde_json::json!("1024"));
+        assert_eq!(req.body["height"], serde_json::json!("1024"));
+        assert!(req.body.get("negative_prompt").is_none());
+        assert!(req.body.get("response_format").is_none());
+    }
+
+    #[tokio::test]
+    async fn deepinfra_factory_image_edit_routes_to_openai_edits_url() {
+        let _lock = lock_env();
+
+        let transport = MultipartJsonSuccessTransport::new(serde_json::json!({
+            "data": [{ "b64_json": "aGVsbG8=" }]
+        }));
+        let factory = crate::registry::factories::DeepInfraProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("deepinfra".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/deepinfra/v1".to_string()),
+            http_transport: Some(Arc::new(transport.clone())),
+            ..Default::default()
+        };
+
+        let client = factory
+            .image_model_with_ctx("black-forest-labs/FLUX-1-schnell", &ctx)
+            .await
+            .expect("build deepinfra image client");
+
+        let mut extra_params = std::collections::HashMap::new();
+        extra_params.insert("strength".to_string(), serde_json::json!(0.35));
+
+        let mut provider_options_map = crate::types::ProviderOptionsMap::default();
+        provider_options_map.insert(
+            "deepinfra",
+            serde_json::json!({
+                "guidance_scale": 6.5
+            }),
+        );
+
+        let response = client
+            .as_image_extras()
+            .expect("image extras")
+            .edit_image(crate::types::ImageEditRequest {
+                images: vec![crate::types::ImageEditInput::file(b"image-one".to_vec())],
+                mask: Some(crate::types::ImageEditInput::file(b"mask-one".to_vec())),
+                prompt: "replace the background with a neon skyline".to_string(),
+                model: Some("black-forest-labs/FLUX-1-schnell".to_string()),
+                count: Some(1),
+                size: Some("1024x1024".to_string()),
+                aspect_ratio: Some("1:1".to_string()),
+                seed: Some(7),
+                response_format: Some("b64_json".to_string()),
+                extra_params,
+                provider_options_map,
+                http_config: None,
+            })
+            .await
+            .expect("deepinfra image edit response");
+
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(response.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+
+        let req = transport
+            .take_multipart()
+            .expect("captured multipart request");
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert_eq!(
+            req.url,
+            "https://example.com/deepinfra/v1/openai/images/edits"
+        );
+        assert!(
+            req.headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with("multipart/form-data; boundary="))
+        );
+
+        let body_text = normalize_multipart_body(&req);
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("black-forest-labs/FLUX-1-schnell"));
+        assert!(body_text.contains("name=\"image\"; filename=\"image-0.png\""));
+        assert!(body_text.contains("name=\"mask\"; filename=\"mask-0.png\""));
+        assert!(body_text.contains("name=\"strength\""));
+        assert!(body_text.contains("0.35"));
+        assert!(body_text.contains("name=\"guidance_scale\""));
+        assert!(body_text.contains("6.5"));
+    }
+}
+
 #[cfg(feature = "bedrock")]
 mod bedrock_contract {
     use super::*;
-    use crate::traits::{ChatCapability, RerankCapability};
+    use crate::traits::{
+        ChatCapability, EmbeddingExtensions, ImageGenerationCapability, RerankCapability,
+    };
     use reqwest::header::AUTHORIZATION;
 
     #[tokio::test]
-    async fn bedrock_factory_keeps_non_chat_rerank_capabilities_deferred() {
+    async fn bedrock_factory_exposes_image_generation_alongside_text_capabilities() {
         let _lock = lock_env();
 
         let factory = crate::registry::factories::BedrockProviderFactory;
         let caps = factory.capabilities();
 
         assert!(caps.supports("chat"));
+        assert!(caps.supports("embedding"));
+        assert!(caps.supports("image_generation"));
         assert!(caps.supports("streaming"));
         assert!(caps.supports("tools"));
         assert!(caps.supports("rerank"));
-        assert!(!caps.supports("embedding"));
-        assert!(!caps.supports("image_generation"));
         assert!(!caps.supports("speech"));
         assert!(!caps.supports("transcription"));
         assert!(!caps.supports("audio"));
@@ -2055,6 +3035,221 @@ mod bedrock_contract {
         assert_eq!(
             builder_req.body["additionalModelRequestFields"]["topK"],
             serde_json::json!(42)
+        );
+    }
+
+    #[tokio::test]
+    async fn bedrock_builder_config_registry_embedding_request_are_equivalent() {
+        let _lock = lock_env();
+
+        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
+        let model = "amazon.titan-embed-text-v2:0";
+
+        let builder_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let builder_client =
+            siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
+                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+            )
+            .api_key("ctx-key")
+            .base_url(runtime_base_url)
+            .model(model)
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
+
+        let config_client =
+            siumai_provider_amazon_bedrock::providers::bedrock::BedrockClient::from_config(
+                siumai_provider_amazon_bedrock::providers::bedrock::BedrockConfig::new()
+                    .with_api_key("ctx-key")
+                    .with_base_url(runtime_base_url)
+                    .with_model(model)
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let factory = crate::registry::factories::BedrockProviderFactory;
+        let registry_client = factory
+            .embedding_model_with_ctx(
+                model,
+                &BuildContext {
+                    provider_id: Some("bedrock".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some(runtime_base_url.to_string()),
+                    http_transport: Some(Arc::new(registry_transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build registry client");
+
+        let request = crate::types::EmbeddingRequest::single("bedrock embedding boundary")
+            .with_model(model)
+            .with_provider_option(
+                "bedrock",
+                serde_json::json!({
+                    "dimensions": 512,
+                    "normalize": true
+                }),
+            );
+
+        let _ = builder_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request.clone()).await;
+        let _ = registry_client
+            .as_embedding_extensions()
+            .expect("registry embedding extensions")
+            .embed_with_config(request)
+            .await;
+
+        let builder_req = builder_transport.take().expect("builder request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&builder_req, &config_req);
+        assert_requests_equivalent(&builder_req, &registry_req);
+        assert_eq!(
+            builder_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer ctx-key"
+        );
+        assert_eq!(
+            builder_req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.titan-embed-text-v2%3A0/invoke"
+        );
+        assert_eq!(
+            builder_req.body,
+            serde_json::json!({
+                "inputText": "bedrock embedding boundary",
+                "dimensions": 512,
+                "normalize": true
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn bedrock_builder_config_registry_image_request_are_equivalent() {
+        let _lock = lock_env();
+
+        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
+        let model = "amazon.nova-canvas-v1:0";
+        let response = serde_json::json!({
+            "images": ["aGVsbG8="]
+        });
+
+        let builder_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let builder_client =
+            siumai_provider_amazon_bedrock::providers::bedrock::BedrockBuilder::new(
+                siumai_provider_amazon_bedrock::builder::BuilderBase::default(),
+            )
+            .api_key("ctx-key")
+            .base_url(runtime_base_url)
+            .image_model(model)
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
+
+        let config_client =
+            siumai_provider_amazon_bedrock::providers::bedrock::BedrockClient::from_config(
+                siumai_provider_amazon_bedrock::providers::bedrock::BedrockConfig::new()
+                    .with_api_key("ctx-key")
+                    .with_base_url(runtime_base_url)
+                    .with_model(model)
+                    .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let factory = crate::registry::factories::BedrockProviderFactory;
+        let registry_client = factory
+            .image_model_with_ctx(
+                model,
+                &BuildContext {
+                    provider_id: Some("bedrock".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some(runtime_base_url.to_string()),
+                    http_transport: Some(Arc::new(registry_transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build registry client");
+
+        let request = crate::types::ImageGenerationRequest {
+            prompt: "a tiny silver robot".to_string(),
+            negative_prompt: Some("blurry".to_string()),
+            size: Some("1024x1024".to_string()),
+            count: 2,
+            model: Some(model.to_string()),
+            quality: Some("premium".to_string()),
+            style: Some("photographic".to_string()),
+            seed: Some(7),
+            guidance_scale: Some(6.5),
+            response_format: Some("b64_json".to_string()),
+            ..Default::default()
+        };
+
+        let builder_resp = builder_client.generate_images(request.clone()).await;
+        let config_resp = config_client.generate_images(request.clone()).await;
+        let registry_resp = registry_client
+            .as_image_generation_capability()
+            .expect("registry image capability")
+            .generate_images(request)
+            .await;
+
+        assert_eq!(
+            builder_resp.expect("builder image ok").images[0]
+                .b64_json
+                .as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(
+            config_resp.expect("config image ok").images[0]
+                .b64_json
+                .as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(
+            registry_resp.expect("registry image ok").images[0]
+                .b64_json
+                .as_deref(),
+            Some("aGVsbG8=")
+        );
+
+        let builder_req = builder_transport.take().expect("builder request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&builder_req, &config_req);
+        assert_requests_equivalent(&builder_req, &registry_req);
+        assert_eq!(
+            builder_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer ctx-key"
+        );
+        assert_eq!(
+            builder_req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-canvas-v1%3A0/invoke"
+        );
+        assert_eq!(
+            builder_req.body,
+            serde_json::json!({
+                "taskType": "TEXT_IMAGE",
+                "textToImageParams": {
+                    "text": "a tiny silver robot",
+                    "negativeText": "blurry",
+                    "style": "photographic"
+                },
+                "imageGenerationConfig": {
+                    "width": 1024,
+                    "height": 1024,
+                    "seed": 7,
+                    "numberOfImages": 2,
+                    "quality": "premium",
+                    "cfgScale": 6.5
+                }
+            })
         );
     }
 
@@ -2404,6 +3599,135 @@ mod bedrock_contract {
     }
 
     #[tokio::test]
+    async fn bedrock_registry_embedding_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let model = "amazon.titan-embed-text-v2:0";
+        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
+        let global_transport = CaptureTransport::default();
+        let bedrock_transport = CaptureTransport::default();
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "bedrock".to_string(),
+            Arc::new(crate::registry::factories::BedrockProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/not-bedrock")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "bedrock",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url(runtime_base_url)
+                    .fetch(Arc::new(bedrock_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .embedding_model(&format!("bedrock:{model}"))
+            .expect("build bedrock embedding handle");
+
+        let _ = handle
+            .embed_with_config(
+                crate::types::EmbeddingRequest::single("bedrock embedding boundary")
+                    .with_model(model)
+                    .with_provider_option(
+                        "bedrock",
+                        serde_json::json!({
+                            "dimensions": 512,
+                            "normalize": true
+                        }),
+                    ),
+            )
+            .await;
+
+        let req = bedrock_transport.take().expect("captured bedrock request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert_eq!(
+            req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.titan-embed-text-v2%3A0/invoke"
+        );
+        assert_eq!(
+            req.body,
+            serde_json::json!({
+                "inputText": "bedrock embedding boundary",
+                "dimensions": 512,
+                "normalize": true
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn bedrock_registry_image_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let model = "amazon.nova-canvas-v1:0";
+        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
+        let global_transport = JsonSuccessTransport::new(serde_json::json!({
+            "images": ["Z2xvYmFs"]
+        }));
+        let bedrock_transport = JsonSuccessTransport::new(serde_json::json!({
+            "images": ["aGVsbG8="]
+        }));
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "bedrock".to_string(),
+            Arc::new(crate::registry::factories::BedrockProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/not-bedrock")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "bedrock",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url(runtime_base_url)
+                    .fetch(Arc::new(bedrock_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .image_model(&format!("bedrock:{model}"))
+            .expect("build bedrock image handle");
+
+        let response = handle
+            .generate_images(crate::types::ImageGenerationRequest {
+                prompt: "a tiny silver robot".to_string(),
+                size: Some("1024x1024".to_string()),
+                count: 1,
+                model: Some(model.to_string()),
+                response_format: Some("b64_json".to_string()),
+                ..Default::default()
+            })
+            .await
+            .expect("image generation succeeds");
+
+        assert_eq!(response.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+
+        let req = bedrock_transport.take().expect("captured bedrock request");
+        assert!(global_transport.take().is_none());
+        assert_eq!(req.headers.get(AUTHORIZATION).unwrap(), "Bearer ctx-key");
+        assert_eq!(
+            req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-canvas-v1%3A0/invoke"
+        );
+        assert_eq!(req.body["taskType"], serde_json::json!("TEXT_IMAGE"));
+    }
+
+    #[tokio::test]
     async fn bedrock_registry_chat_handle_prefers_provider_specific_build_overrides() {
         let _lock = lock_env();
 
@@ -2570,6 +3894,7 @@ mod openai_contract {
         let caps = factory.capabilities();
 
         assert!(caps.supports("chat"));
+        assert!(caps.supports("completion"));
         assert!(caps.supports("streaming"));
         assert!(caps.supports("tools"));
         assert!(caps.supports("embedding"));
@@ -2712,6 +4037,37 @@ mod openai_contract {
     }
 
     #[tokio::test]
+    async fn openai_factory_supports_native_completion_family_path() {
+        let _lock = lock_env();
+
+        let factory = OpenAIProviderFactory;
+        let ctx = BuildContext {
+            provider_id: Some("openai".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/custom/v1/".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .completion_model_family_with_ctx("gpt-3.5-turbo-instruct", &ctx)
+            .await
+            .expect("build native completion-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "openai"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "gpt-3.5-turbo-instruct"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
     async fn openai_factory_supports_native_image_family_path() {
         let _lock = lock_env();
 
@@ -2804,6 +4160,7 @@ mod openai_contract {
     fn openai_factory_source_declares_native_audio_family_overrides() {
         let source = include_str!("openai.rs");
 
+        assert!(source.contains("async fn completion_model_with_ctx("));
         assert!(source.contains("async fn speech_model_family_with_ctx("));
         assert!(source.contains("async fn transcription_model_family_with_ctx("));
     }
@@ -4224,12 +5581,68 @@ mod openai_contract {
         let factory = OpenAICompatibleProviderFactory::new("perplexity".to_string());
         let caps = factory.capabilities();
 
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(!caps.supports("completion"));
         assert!(!caps.supports("embedding"));
         assert!(!caps.supports("image_generation"));
         assert!(!caps.supports("rerank"));
         assert!(!caps.supports("speech"));
         assert!(!caps.supports("transcription"));
         assert!(!caps.supports("audio"));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_factory_mistral_does_not_declare_completion_capability() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("mistral".to_string());
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("streaming"));
+        assert!(!caps.supports("completion"));
+        assert!(caps.supports("embedding"));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_factory_mistral_rejects_native_completion_family_path() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("mistral".to_string());
+        let ctx = BuildContext {
+            provider_id: Some("mistral".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/mistral/v1".to_string()),
+            ..Default::default()
+        };
+
+        assert_unsupported_operation_contains(
+            factory
+                .completion_model_family_with_ctx("mistral-large-latest", &ctx)
+                .await,
+            "'completion' family path",
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_factory_perplexity_rejects_native_completion_family_path() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("perplexity".to_string());
+        let ctx = BuildContext {
+            provider_id: Some("perplexity".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/perplexity".to_string()),
+            ..Default::default()
+        };
+
+        assert_unsupported_operation_contains(
+            factory
+                .completion_model_family_with_ctx("sonar", &ctx)
+                .await,
+            "'completion' family path",
+        );
     }
 
     #[tokio::test]
@@ -5433,6 +6846,95 @@ data: [DONE]
     }
 
     #[tokio::test]
+    async fn openai_compatible_factory_together_declares_completion_capability() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("together".to_string());
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("completion"));
+        assert!(caps.supports("streaming"));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_factory_together_supports_native_completion_family_path() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("together".to_string());
+        let ctx = BuildContext {
+            provider_id: Some("together".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/v1/".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .completion_model_family_with_ctx("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo", &ctx)
+            .await
+            .expect("build together completion-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "together"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_factory_fireworks_declares_completion_capability() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("fireworks".to_string());
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("completion"));
+        assert!(caps.supports("streaming"));
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_factory_fireworks_supports_native_completion_family_path() {
+        let _lock = lock_env();
+
+        let factory = OpenAICompatibleProviderFactory::new("fireworks".to_string());
+        let ctx = BuildContext {
+            provider_id: Some("fireworks".to_string()),
+            api_key: Some("ctx-key".to_string()),
+            base_url: Some("https://example.com/v1/".to_string()),
+            ..Default::default()
+        };
+
+        let model = factory
+            .completion_model_family_with_ctx(
+                "accounts/fireworks/models/llama-v3p1-8b-instruct",
+                &ctx,
+            )
+            .await
+            .expect("build fireworks completion-family model");
+
+        assert_eq!(
+            crate::traits::ModelMetadata::provider_id(model.as_ref()),
+            "fireworks"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::model_id(model.as_ref()),
+            "accounts/fireworks/models/llama-v3p1-8b-instruct"
+        );
+        assert_eq!(
+            crate::traits::ModelMetadata::specification_version(model.as_ref()),
+            crate::traits::ModelSpecVersion::V1
+        );
+    }
+
+    #[tokio::test]
     async fn openai_compatible_factory_fireworks_supports_native_transcription_family_path() {
         let _lock = lock_env();
 
@@ -5484,6 +6986,267 @@ data: [DONE]
             Err(other) => panic!("expected UnsupportedOperation, got: {other:?}"),
             Ok(_) => panic!("fireworks should not expose speech family path"),
         }
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn fireworks_provider_factory_declares_unified_capabilities() {
+        let _lock = lock_env();
+
+        let factory = crate::registry::factories::FireworksProviderFactory;
+        let caps = factory.capabilities();
+
+        assert!(caps.supports("chat"));
+        assert!(caps.supports("completion"));
+        assert!(caps.supports("embedding"));
+        assert!(caps.supports("image_generation"));
+        assert!(caps.supports("transcription"));
+        assert!(caps.supports("audio"));
+        assert!(!caps.supports("speech"));
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn fireworks_provider_factory_image_model_uses_provider_owned_sync_workflow_route() {
+        let _lock = lock_env();
+
+        let base_url = "https://example.com/fireworks/inference/v1";
+        let image_url =
+            format!("{base_url}/workflows/accounts/fireworks/models/flux-1-dev-fp8/text_to_image");
+        let transport = FireworksSequenceTransport::default();
+        transport.push_bytes(&image_url, b"fireworks-image".to_vec(), "image/png");
+
+        let factory = crate::registry::factories::FireworksProviderFactory;
+        let client = factory
+            .image_model_with_ctx(
+                "accounts/fireworks/models/flux-1-dev-fp8",
+                &BuildContext {
+                    provider_id: Some("fireworks".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some(base_url.to_string()),
+                    http_transport: Some(Arc::new(transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build fireworks image client");
+
+        let response = client
+            .as_image_generation_capability()
+            .expect("image capability")
+            .generate_images(crate::types::ImageGenerationRequest {
+                prompt: "a tiny robot".to_string(),
+                aspect_ratio: Some("16:9".to_string()),
+                count: 1,
+                ..Default::default()
+            })
+            .await
+            .expect("fireworks image generation ok");
+
+        let requests = transport.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].url, image_url);
+        assert_eq!(
+            header_value(&requests[0], "authorization"),
+            Some("Bearer ctx-key".to_string())
+        );
+        assert_eq!(
+            requests[0].body["prompt"],
+            serde_json::json!("a tiny robot")
+        );
+        assert_eq!(requests[0].body["aspect_ratio"], serde_json::json!("16:9"));
+        assert_eq!(requests[0].body["samples"], serde_json::json!(1));
+        assert_eq!(
+            response
+                .response
+                .as_ref()
+                .and_then(|response| response.model_id.as_deref()),
+            Some("accounts/fireworks/models/flux-1-dev-fp8")
+        );
+        assert_eq!(response.images.len(), 1);
+        assert!(response.images[0].b64_json.is_some());
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn fireworks_provider_factory_uses_image_default_when_client_model_is_text_default() {
+        let _lock = lock_env();
+
+        let base_url = "https://example.com/fireworks/inference/v1";
+        let image_url =
+            format!("{base_url}/workflows/accounts/fireworks/models/flux-1-dev-fp8/text_to_image");
+        let transport = FireworksSequenceTransport::default();
+        transport.push_bytes(&image_url, b"fireworks-default-image".to_vec(), "image/png");
+
+        let factory = crate::registry::factories::FireworksProviderFactory;
+        let client = factory
+            .language_model_with_ctx(
+                "accounts/fireworks/models/llama-v3p1-8b-instruct",
+                &BuildContext {
+                    provider_id: Some("fireworks".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some(base_url.to_string()),
+                    http_transport: Some(Arc::new(transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build fireworks unified client");
+
+        let _response = client
+            .as_image_generation_capability()
+            .expect("image capability")
+            .generate_images(crate::types::ImageGenerationRequest {
+                prompt: "a tiny orange robot".to_string(),
+                count: 1,
+                ..Default::default()
+            })
+            .await
+            .expect("fireworks default image generation ok");
+
+        let requests = transport.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].url, image_url);
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn fireworks_provider_factory_image_edit_uses_async_kontext_route() {
+        let _lock = lock_env();
+
+        let base_url = "https://example.com/fireworks/inference/v1";
+        let submit_url = format!("{base_url}/workflows/accounts/fireworks/models/flux-kontext-pro");
+        let poll_url = format!("{submit_url}/get_result");
+        let transport = FireworksSequenceTransport::default();
+        transport.push_json(&submit_url, serde_json::json!({ "request_id": "req-123" }));
+        transport.push_json(
+            &poll_url,
+            serde_json::json!({
+                "status": "Ready",
+                "result": {
+                    "sample": "data:image/png;base64,aGVsbG8="
+                }
+            }),
+        );
+
+        let factory = crate::registry::factories::FireworksProviderFactory;
+        let client = factory
+            .language_model_with_ctx(
+                "accounts/fireworks/models/llama-v3p1-8b-instruct",
+                &BuildContext {
+                    provider_id: Some("fireworks".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some(base_url.to_string()),
+                    http_transport: Some(Arc::new(transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build fireworks unified client");
+
+        let mut provider_options = crate::types::ProviderOptionsMap::default();
+        provider_options.insert(
+            "fireworks",
+            serde_json::json!({
+                "output_format": "jpeg"
+            }),
+        );
+
+        let response = client
+            .as_image_extras()
+            .expect("image extras")
+            .edit_image(crate::types::ImageEditRequest {
+                images: vec![crate::types::ImageEditInput::file_with_media_type(
+                    vec![137, 80, 78, 71],
+                    "image/png",
+                )],
+                prompt: "edit this image".to_string(),
+                model: Some("accounts/fireworks/models/flux-kontext-pro".to_string()),
+                count: Some(1),
+                aspect_ratio: Some("16:9".to_string()),
+                provider_options_map: provider_options,
+                ..Default::default()
+            })
+            .await
+            .expect("fireworks image edit ok");
+
+        let requests = transport.take_requests();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].url, submit_url);
+        assert_eq!(
+            requests[0].body["prompt"],
+            serde_json::json!("edit this image")
+        );
+        assert_eq!(requests[0].body["aspect_ratio"], serde_json::json!("16:9"));
+        assert_eq!(requests[0].body["samples"], serde_json::json!(1));
+        assert_eq!(requests[0].body["output_format"], serde_json::json!("jpeg"));
+        assert_eq!(
+            requests[0].body["input_image"],
+            serde_json::json!("data:image/png;base64,iVBORw==")
+        );
+        assert_eq!(requests[1].url, poll_url);
+        assert_eq!(requests[1].body["id"], serde_json::json!("req-123"));
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(response.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+    }
+
+    #[tokio::test]
+    #[cfg(feature = "openai")]
+    async fn fireworks_registry_image_handle_prefers_provider_specific_build_overrides() {
+        let _lock = lock_env();
+
+        let global_transport = FireworksSequenceTransport::default();
+        let fireworks_transport = FireworksSequenceTransport::default();
+        let global_url = "https://example.com/global/v1/workflows/accounts/fireworks/models/flux-1-dev-fp8/text_to_image";
+        let fireworks_url = "https://example.com/fireworks/inference/v1/workflows/accounts/fireworks/models/flux-1-dev-fp8/text_to_image";
+        global_transport.push_bytes(global_url, b"global-image".to_vec(), "image/png");
+        fireworks_transport.push_bytes(fireworks_url, b"fireworks-image".to_vec(), "image/png");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "fireworks".to_string(),
+            Arc::new(crate::registry::factories::FireworksProviderFactory)
+                as Arc<dyn ProviderFactory>,
+        );
+
+        let registry = crate::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("global-key")
+            .with_base_url("https://example.com/global/v1")
+            .fetch(Arc::new(global_transport.clone()))
+            .with_provider_build_overrides(
+                "fireworks",
+                crate::registry::ProviderBuildOverrides::default()
+                    .with_api_key("ctx-key")
+                    .with_base_url("https://example.com/fireworks/inference/v1")
+                    .fetch(Arc::new(fireworks_transport.clone())),
+            )
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+
+        let handle = registry
+            .image_model("fireworks:accounts/fireworks/models/flux-1-dev-fp8")
+            .expect("build fireworks image handle");
+
+        let _response = crate::traits::ImageGenerationCapability::generate_images(
+            &handle,
+            crate::types::ImageGenerationRequest {
+                prompt: "a tiny blue robot".to_string(),
+                count: 1,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("fireworks image handle ok");
+
+        assert!(global_transport.take_requests().is_empty());
+        let requests = fireworks_transport.take_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].url, fireworks_url);
+        assert_eq!(
+            header_value(&requests[0], "authorization"),
+            Some("Bearer ctx-key".to_string())
+        );
     }
 
     #[tokio::test]
@@ -5582,6 +7345,14 @@ data: [DONE]
         let source = include_str!("openai_compatible.rs");
 
         assert!(source.contains("async fn image_model_family_with_ctx("));
+    }
+
+    #[test]
+    fn openai_compatible_factory_source_declares_native_completion_family_overrides() {
+        let source = include_str!("openai_compatible.rs");
+
+        assert!(source.contains("async fn completion_model_with_ctx("));
+        assert!(source.contains("async fn completion_model_family_with_ctx("));
     }
 
     #[test]
@@ -7853,8 +9624,9 @@ mod anthropic_contract {
     use super::*;
     use crate::traits::ChatCapability;
     use siumai_provider_anthropic::provider_options::anthropic::{
-        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicEffort, AnthropicOptions,
-        ThinkingModeConfig,
+        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicContextManagementConfig,
+        AnthropicContextManagementEdit, AnthropicContextManagementInputTokensValue,
+        AnthropicEffort, AnthropicOptions, ThinkingModeConfig,
     };
     use siumai_provider_anthropic::providers::anthropic::ext::request_options::AnthropicChatRequestExt;
 
@@ -8299,18 +10071,23 @@ mod anthropic_contract {
                     thinking_budget: Some(1000),
                 })
                 .with_json_object()
-                .with_context_management(serde_json::json!({
-                    "clear_at_least": 1,
-                    "exclude_tools": ["editor"]
-                }))
+                .with_context_management(AnthropicContextManagementConfig::new().with_edit(
+                    AnthropicContextManagementEdit::ClearToolUses20250919 {
+                        trigger: None,
+                        keep: None,
+                        clear_at_least: Some(
+                            AnthropicContextManagementInputTokensValue::input_tokens(1),
+                        ),
+                        clear_tool_inputs: None,
+                        exclude_tools: Some(vec!["editor".to_string()]),
+                    },
+                ))
                 .with_effort(AnthropicEffort::High)
                 .with_container(AnthropicContainerConfig {
                     id: Some("container-1".to_string()),
-                    skills: Some(vec![AnthropicContainerSkill {
-                        skill_type: "anthropic".to_string(),
-                        skill_id: "pptx".to_string(),
-                        version: "latest".to_string(),
-                    }]),
+                    skills: Some(vec![
+                        AnthropicContainerSkill::anthropic("pptx").with_version("latest"),
+                    ]),
                 }),
         );
         request.common_params.max_tokens = Some(2000);
@@ -12366,6 +14143,7 @@ mod minimaxi_contract {
                 mime_type: Some("text/plain".to_string()),
                 purpose: "t2a_async_input".to_string(),
                 metadata: std::collections::HashMap::new(),
+                provider_options: Default::default(),
                 http_config: None,
             })
             .await
@@ -12963,6 +14741,7 @@ mod minimaxi_contract {
                 prompt: "a tiny green robot".to_string(),
                 negative_prompt: Some("blurry".to_string()),
                 size: Some("1024x1024".to_string()),
+                aspect_ratio: None,
                 count: 1,
                 model: Some("image-01".to_string()),
                 quality: None,
@@ -13510,6 +15289,7 @@ mod minimaxi_contract {
             prompt: "a tiny green robot".to_string(),
             negative_prompt: Some("blurry".to_string()),
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
             count: 1,
             model: Some("image-01".to_string()),
             quality: None,
@@ -13936,6 +15716,7 @@ mod minimaxi_contract {
             mime_type: Some("text/plain".to_string()),
             purpose: "t2a_async_input".to_string(),
             metadata: std::collections::HashMap::new(),
+            provider_options: Default::default(),
             http_config: None,
         };
 
@@ -15687,7 +17468,7 @@ mod vertex_contract {
     use super::*;
     use crate::registry::factories::GoogleVertexProviderFactory;
     use crate::traits::ChatCapability;
-    use crate::types::{EmbeddingRequest, ImageGenerationRequest};
+    use crate::types::{EmbeddingRequest, ImageGenerationRequest, ImageVariationRequest};
     use siumai_provider_google_vertex::provider_options::vertex::{
         VertexEmbeddingOptions, VertexImagenOptions,
     };
@@ -15700,6 +17481,24 @@ mod vertex_contract {
             prompt: "hi".to_string(),
             count: 1,
             ..Default::default()
+        }
+    }
+
+    fn make_image_variation_request() -> ImageVariationRequest {
+        ImageVariationRequest {
+            image: crate::types::ImageEditInput::url("data:image/png;base64,aW1hZ2Utb25l"),
+            model: Some("imagen-3.0-generate-001".to_string()),
+            count: Some(2),
+            size: None,
+            aspect_ratio: Some("16:9".to_string()),
+            seed: Some(7),
+            response_format: Some("b64_json".to_string()),
+            extra_params: std::collections::HashMap::from([(
+                "prompt".to_string(),
+                serde_json::json!("keep the subject and explore new backgrounds"),
+            )]),
+            provider_options_map: Default::default(),
+            http_config: None,
         }
     }
 
@@ -15998,6 +17797,7 @@ mod vertex_contract {
             prompt: "a tiny orange robot".to_string(),
             negative_prompt: None,
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
             count: 1,
             model: Some("imagen-4.0-generate-001".to_string()),
             quality: None,
@@ -16055,6 +17855,127 @@ mod vertex_contract {
             builder_req.body["parameters"]["negativePrompt"],
             serde_json::json!("blurry")
         );
+    }
+
+    #[tokio::test]
+    async fn vertex_builder_config_registry_image_variation_request_are_equivalent() {
+        let _lock = lock_env();
+
+        let response = serde_json::json!({
+            "predictions": [
+                {
+                    "bytesBase64Encoded": "aGVsbG8=",
+                    "mimeType": "image/png"
+                }
+            ]
+        });
+        let builder_transport = JsonSuccessTransport::new(response.clone());
+        let config_transport = JsonSuccessTransport::new(response.clone());
+        let registry_transport = JsonSuccessTransport::new(response);
+
+        let builder_client =
+            siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
+                siumai_provider_google_vertex::builder::BuilderBase::default(),
+            )
+            .api_key("ctx-key")
+            .base_url("https://example.com/custom")
+            .model("imagen-3.0-generate-001")
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
+
+        let config_client =
+            siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::from_config(
+                siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig::new(
+                    "https://example.com/custom",
+                    "imagen-3.0-generate-001",
+                )
+                .with_api_key("ctx-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let factory = GoogleVertexProviderFactory;
+        let registry_client = factory
+            .image_model_with_ctx(
+                "imagen-3.0-generate-001",
+                &BuildContext {
+                    provider_id: Some("vertex".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some("https://example.com/custom".to_string()),
+                    http_transport: Some(Arc::new(registry_transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build registry client");
+
+        let request = make_image_variation_request()
+            .with_vertex_imagen_options(VertexImagenOptions::new().with_negative_prompt("blurry"));
+
+        let builder_response =
+            crate::traits::ImageExtras::create_variation(&builder_client, request.clone())
+                .await
+                .expect("builder image variation");
+        let config_response =
+            crate::traits::ImageExtras::create_variation(&config_client, request.clone())
+                .await
+                .expect("config image variation");
+        let registry_response = registry_client
+            .as_image_extras()
+            .expect("registry image extras")
+            .create_variation(request)
+            .await
+            .expect("registry image variation");
+
+        assert_eq!(
+            builder_response.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(
+            config_response.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(
+            registry_response.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+
+        let builder_req = builder_transport.take().expect("builder request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&builder_req, &config_req);
+        assert_requests_equivalent(&builder_req, &registry_req);
+        assert!(
+            builder_req
+                .url
+                .contains("/models/imagen-3.0-generate-001:predict?key=ctx-key"),
+            "unexpected url: {}",
+            builder_req.url
+        );
+        assert_eq!(
+            builder_req.body["instances"][0]["prompt"],
+            serde_json::json!("keep the subject and explore new backgrounds")
+        );
+        assert_eq!(
+            builder_req.body["instances"][0]["referenceImages"][0]["referenceImage"]["bytesBase64Encoded"],
+            serde_json::json!("aW1hZ2Utb25l")
+        );
+        assert_eq!(
+            builder_req.body["parameters"]["sampleCount"],
+            serde_json::json!(2)
+        );
+        assert_eq!(
+            builder_req.body["parameters"]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(builder_req.body["parameters"]["seed"], serde_json::json!(7));
+        assert_eq!(
+            builder_req.body["parameters"]["negativePrompt"],
+            serde_json::json!("blurry")
+        );
+        assert!(builder_req.body["parameters"].get("editMode").is_none());
     }
 
     #[tokio::test]

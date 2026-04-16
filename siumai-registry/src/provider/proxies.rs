@@ -201,6 +201,7 @@ mod tests {
                 model: Some("mock-model".to_string()),
                 usage: None,
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 system_fingerprint: None,
                 service_tier: None,
                 audio: None,

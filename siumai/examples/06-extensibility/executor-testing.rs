@@ -146,6 +146,7 @@ impl ResponseTransformer for MockResponseTransformer {
             ),
             model: Some("mock-model".to_string()),
             finish_reason: Some(FinishReason::Stop),
+            raw_finish_reason: None,
             usage: Some(Usage::new(10, 20)),
             provider_metadata: None,
             audio: None,

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use super::HttpConfig;
+use super::{HttpConfig, ProviderOptionsMap};
 
 /// File upload request
 #[derive(Debug, Clone)]
@@ -17,6 +17,8 @@ pub struct FileUploadRequest {
     pub purpose: String,
     /// Additional metadata
     pub metadata: HashMap<String, String>,
+    /// Optional provider-specific options (`providerOptions`)
+    pub provider_options: ProviderOptionsMap,
     /// Per-request HTTP configuration (headers, timeout, etc.)
     pub http_config: Option<HttpConfig>,
 }

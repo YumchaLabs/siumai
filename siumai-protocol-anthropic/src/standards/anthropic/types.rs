@@ -56,21 +56,37 @@ pub struct AnthropicContentBlock {
 }
 
 /// Anthropic Usage
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicUsage {
     pub input_tokens: u32,
     pub output_tokens: u32,
+    #[serde(default)]
     pub cache_creation_input_tokens: Option<u32>,
+    #[serde(default)]
     pub cache_read_input_tokens: Option<u32>,
+    #[serde(default)]
     pub service_tier: Option<String>,
+    #[serde(default)]
     pub server_tool_use: Option<AnthropicServerToolUseUsage>,
+    #[serde(default)]
+    pub iterations: Option<Vec<AnthropicUsageIteration>>,
+    #[serde(flatten, default)]
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Provider-hosted tools usage counters.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicServerToolUseUsage {
     pub web_search_requests: Option<u32>,
     pub web_fetch_requests: Option<u32>,
+}
+
+/// Anthropic usage breakdown entry for a single sampling iteration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnthropicUsageIteration {
+    pub r#type: String,
+    pub input_tokens: u32,
+    pub output_tokens: u32,
 }
 
 /// Anthropic-specific parameters

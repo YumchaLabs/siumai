@@ -17,7 +17,8 @@
         "toolCallId": "ig_0a33d15155cb126d0068c96c59bc14819599154c9988b82996",
         "toolName": "generateImage",
         "input": "{}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -29,7 +30,9 @@
             "result": "UklGRoitEQBXRUJQVlA4TEGzEAAv/8P/AM1AbNtGkITZhU4fH9J/wTOT+xIi+j8BuT4kABkCibNAZrlwIPyQ7W/bH5L2RHMzMBKgXmfZeYi9tLtrrQkZvN1yXHLLgG71gPkpDxmI/gc03YFulQR...AA9lhA0Y9rVdqQs/W4w/MOxeRW5+R1/UXmmNVi9yQ7x/vG0q2VRk01seZIuj5OmRYhD+yY82dZqMH1BCueTeOcNfGKxQ=="
           }
         },
-        "providerExecuted": true
+        "input": "{}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "reasoning",

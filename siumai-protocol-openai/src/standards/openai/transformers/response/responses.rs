@@ -286,12 +286,15 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     let tool_call_id = mcp_approval_tool_call_id(approval_id);
                     let tool_name = format!("mcp.{name}");
 
-                    content_parts.push(ContentPart::tool_call(
-                        tool_call_id.clone(),
-                        tool_name,
-                        serde_json::Value::String(args_str.to_string()),
-                        Some(true),
-                    ));
+                    content_parts.push(
+                        ContentPart::tool_call(
+                            tool_call_id.clone(),
+                            tool_name,
+                            serde_json::Value::String(args_str.to_string()),
+                            Some(true),
+                        )
+                        .with_tool_dynamic(true),
+                    );
                     content_parts.push(ContentPart::tool_approval_request(
                         approval_id.to_string(),
                         tool_call_id,
@@ -359,12 +362,16 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         result_obj.insert("error".to_string(), error.clone());
                     }
 
-                    content_parts.push(ContentPart::tool_call(
-                        tool_call_id.clone(),
-                        tool_name.clone(),
-                        serde_json::Value::String(args_str.to_string()),
-                        Some(true),
-                    ));
+                    let input = serde_json::Value::String(args_str.to_string());
+                    content_parts.push(
+                        ContentPart::tool_call(
+                            tool_call_id.clone(),
+                            tool_name.clone(),
+                            input.clone(),
+                            Some(true),
+                        )
+                        .with_tool_dynamic(true),
+                    );
 
                     let provider_metadata = if item_id.is_empty() {
                         None
@@ -380,7 +387,11 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                         output: crate::types::ToolResultOutput::json(serde_json::Value::Object(
                             result_obj,
                         )),
+                        input: Some(input),
                         provider_executed: Some(true),
+                        dynamic: Some(true),
+                        preliminary: None,
+                        title: None,
                         provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata,
                     });
@@ -513,8 +524,12 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     content_parts.push(ContentPart::ToolCall {
                         tool_call_id: tool_call_id.clone(),
                         tool_name: tool_name.clone(),
-                        arguments,
+                        arguments: arguments.clone(),
                         provider_executed: Some(true),
+                        dynamic: Some(true),
+                        invalid: None,
+                        error: None,
+                        title: None,
                         provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata: provider_metadata.clone(),
                     });
@@ -529,7 +544,11 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_call_id,
                             tool_name,
                             output: custom_tool_output_to_result_output(output, is_error),
+                            input: Some(arguments.clone()),
                             provider_executed: Some(true),
+                            dynamic: Some(true),
+                            preliminary: None,
+                            title: None,
                             provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
@@ -824,6 +843,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: "shell".to_string(),
                             arguments: serde_json::Value::String(input_str),
                             provider_executed: None,
+                            dynamic: Some(true),
+                            invalid: None,
+                            error: None,
+                            title: None,
                             provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
@@ -853,6 +876,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: "shell".to_string(),
                             arguments: serde_json::Value::String(input_str),
                             provider_executed: None,
+                            dynamic: Some(true),
+                            invalid: None,
+                            error: None,
+                            title: None,
                             provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
@@ -894,6 +921,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: "apply_patch".to_string(),
                             arguments: serde_json::Value::String(input_str),
                             provider_executed: None,
+                            dynamic: Some(true),
+                            invalid: None,
+                            error: None,
+                            title: None,
                             provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
@@ -935,6 +966,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                             tool_name: name.to_string(),
                             arguments: serde_json::Value::String(args_str.to_string()),
                             provider_executed: None,
+                            dynamic: None,
+                            invalid: None,
+                            error: None,
+                            title: None,
                             provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
                         });
@@ -949,19 +984,22 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                     continue;
                 }
 
-                content_parts.push(ContentPart::tool_call(
-                    tool_call_id.clone(),
-                    tool_name,
-                    args,
-                    Some(true),
-                ));
+                let result_input = args.clone();
+                content_parts.push(
+                    ContentPart::tool_call(tool_call_id.clone(), tool_name, args, Some(true))
+                        .with_tool_dynamic(true),
+                );
 
                 if emit_tool_result {
                     content_parts.push(ContentPart::ToolResult {
                         tool_call_id,
                         tool_name: tool_name.to_string(),
                         output: crate::types::ToolResultOutput::json(result),
+                        input: Some(result_input),
                         provider_executed: Some(true),
+                        dynamic: Some(true),
+                        preliminary: None,
+                        title: None,
                         provider_options: crate::types::ProviderOptionsMap::default(),
                         provider_metadata: None,
                     });
@@ -1179,6 +1217,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
         };
 
         let finish_reason = explicit_finish_reason.or(inferred_finish_reason);
+        let raw_finish_reason = incomplete_reason.map(ToString::to_string);
 
         // Determine final content
         let content = if content_parts.is_empty() {
@@ -1575,7 +1614,10 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 None
             } else {
                 let mut all = std::collections::HashMap::new();
-                all.insert(self.provider_metadata_key.clone(), openai_meta);
+                all.insert(
+                    self.provider_metadata_key.clone(),
+                    serde_json::Value::Object(openai_meta.into_iter().collect()),
+                );
                 Some(all)
             }
         };
@@ -1593,6 +1635,7 @@ impl ResponseTransformer for OpenAiResponsesResponseTransformer {
                 .map(|s| s.to_string()),
             usage,
             finish_reason,
+            raw_finish_reason,
             audio: None, // Responses API doesn't support audio output yet
             system_fingerprint: root
                 .get("system_fingerprint")
@@ -2124,6 +2167,10 @@ mod tests {
                     tool_name: "fileSearch".to_string(),
                     arguments: serde_json::json!({ "query": "bridge design" }),
                     provider_executed: Some(true),
+                    dynamic: Some(true),
+                    invalid: None,
+                    error: None,
+                    title: None,
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: Some(std::collections::HashMap::from([(
                         "openai".to_string(),
@@ -2136,7 +2183,11 @@ mod tests {
                     output: crate::types::ToolResultOutput::json(serde_json::json!({
                         "queries": ["bridge design"]
                     })),
+                    input: Some(serde_json::json!({ "query": "bridge design" })),
                     provider_executed: Some(true),
+                    dynamic: Some(true),
+                    preliminary: None,
+                    title: None,
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,
                 },
@@ -2145,6 +2196,10 @@ mod tests {
                     tool_name: "fileSearch".to_string(),
                     arguments: serde_json::json!({ "query": "bridge design" }),
                     provider_executed: Some(true),
+                    dynamic: Some(true),
+                    invalid: None,
+                    error: None,
+                    title: None,
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: Some(std::collections::HashMap::from([(
                         "openai".to_string(),
@@ -2157,7 +2212,11 @@ mod tests {
                     output: crate::types::ToolResultOutput::json(serde_json::json!({
                         "queries": ["bridge design"]
                     })),
+                    input: Some(serde_json::json!({ "query": "bridge design" })),
                     provider_executed: Some(true),
+                    dynamic: Some(true),
+                    preliminary: None,
+                    title: None,
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,
                 },
@@ -2166,9 +2225,8 @@ mod tests {
         response.model = Some("gpt-5-mini".to_string());
         response.provider_metadata = Some(std::collections::HashMap::from([(
             "openai".to_string(),
-            std::collections::HashMap::from([(
-                "sources".to_string(),
-                serde_json::json!([
+            serde_json::json!({
+                "sources": [
                     {
                         "id": "src_fs_1",
                         "source_type": "document",
@@ -2203,8 +2261,8 @@ mod tests {
                             }
                         }
                     }
-                ]),
-            )]),
+                ]
+            }),
         )]));
 
         let mut out = Vec::new();

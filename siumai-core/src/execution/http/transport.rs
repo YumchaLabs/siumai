@@ -29,6 +29,14 @@ pub struct HttpTransportMultipartRequest {
     pub body: Vec<u8>,
 }
 
+/// Transport-level request data for GET requests.
+#[derive(Debug, Clone)]
+pub struct HttpTransportGetRequest {
+    pub ctx: HttpRequestContext,
+    pub url: String,
+    pub headers: HeaderMap,
+}
+
 /// Transport-level response data.
 #[derive(Debug, Clone)]
 pub struct HttpTransportResponse {
@@ -85,7 +93,8 @@ pub struct HttpTransportStreamResponse {
 ///
 /// Notes:
 /// - This abstraction is currently scoped to non-streaming JSON/multipart POST
-///   requests plus streaming JSON/multipart POST requests.
+///   requests, non-streaming GET requests, plus streaming JSON/multipart POST
+///   requests.
 /// - Interceptor `on_response` hooks are skipped for custom transports to keep
 ///   transport execution semantics stable and independent from synthesized
 ///   response wrappers.
@@ -108,6 +117,19 @@ pub trait HttpTransport: Send + Sync {
     ) -> Result<HttpTransportResponse, LlmError> {
         Err(LlmError::UnsupportedOperation(
             "Custom transport does not support multipart requests".to_string(),
+        ))
+    }
+
+    /// Execute a non-streaming GET request.
+    ///
+    /// This is used by provider-owned resource helpers such as file metadata
+    /// fetches, binary downloads, and Anthropic skills version lookups.
+    async fn execute_get(
+        &self,
+        _request: HttpTransportGetRequest,
+    ) -> Result<HttpTransportResponse, LlmError> {
+        Err(LlmError::UnsupportedOperation(
+            "Custom transport does not support GET requests".to_string(),
         ))
     }
 

@@ -4,8 +4,9 @@
 
 use std::sync::Arc;
 
-use super::types::StepResult;
+use super::types::{OrchestratorContext, StepLanguageModel, StepResult};
 use siumai::prelude::unified::{ChatMessage, ProviderOptionsMap, Tool};
+use siumai::text::LanguageModel;
 
 /// Context provided to the prepare step callback.
 pub struct PrepareStepContext<'a> {
@@ -13,8 +14,12 @@ pub struct PrepareStepContext<'a> {
     pub step_number: usize,
     /// All steps executed so far.
     pub steps: &'a [StepResult],
+    /// The base language model configured for the orchestration.
+    pub model: &'a dyn LanguageModel,
     /// The current message history that will be sent to the model.
     pub messages: &'a [ChatMessage],
+    /// The current user-defined orchestration context.
+    pub context: &'a OrchestratorContext,
 }
 
 /// Result returned from the prepare step callback.
@@ -23,6 +28,8 @@ pub struct PrepareStepContext<'a> {
 /// Fields set to `None` will use the default value from the orchestrator options.
 #[derive(Default)]
 pub struct PrepareStepResult {
+    /// Override which language model is used for this step.
+    pub model: Option<StepLanguageModel>,
     /// Override the tool choice for this step.
     pub tool_choice: Option<ToolChoice>,
     /// Limit which tools are available for this step.
@@ -31,6 +38,8 @@ pub struct PrepareStepResult {
     pub system: Option<String>,
     /// Override the message history for this step.
     pub messages: Option<Vec<ChatMessage>>,
+    /// Override the runtime context for this step and all subsequent steps.
+    pub context: Option<OrchestratorContext>,
     /// Provider options overrides for this step (Vercel-aligned `providerOptions`).
     ///
     /// Merged into the outgoing `ChatRequest.provider_options_map` using
@@ -44,6 +53,12 @@ impl PrepareStepResult {
     /// Create a new empty PrepareStepResult.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Set the language model for this step only.
+    pub fn with_model(mut self, model: StepLanguageModel) -> Self {
+        self.model = Some(model);
+        self
     }
 
     /// Set the tool choice for this step.
@@ -67,6 +82,12 @@ impl PrepareStepResult {
     /// Set the message history for this step.
     pub fn with_messages(mut self, messages: Vec<ChatMessage>) -> Self {
         self.messages = Some(messages);
+        self
+    }
+
+    /// Set the runtime context for this step and all subsequent steps.
+    pub fn with_context(mut self, context: OrchestratorContext) -> Self {
+        self.context = Some(context);
         self
     }
 
@@ -114,6 +135,7 @@ pub enum ToolChoice {
 /// - Limit which tools are available
 /// - Modify the message history (e.g., to compress context)
 /// - Change the system message
+/// - Swap the model for one step
 ///
 /// # Example
 ///
@@ -212,6 +234,15 @@ pub(crate) fn filter_active_tools(tools: &[Tool], active_tools: &Option<Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::orchestrator::StepModelInfo;
+    use siumai::prelude::unified::{ChatRequest, ChatResponse, MessageContent};
+
+    fn test_step_model() -> StepModelInfo {
+        StepModelInfo {
+            provider: "anthropic".to_string(),
+            model_id: "claude-test".to_string(),
+        }
+    }
 
     #[test]
     fn test_prepare_step_result_builder() {
@@ -234,6 +265,16 @@ mod tests {
         use std::collections::HashMap;
 
         let step = StepResult {
+            call_id: "call-test".to_string(),
+            step_number: 0,
+            model: test_step_model(),
+            request: ChatRequest::default(),
+            response: ChatResponse::new(MessageContent::Text(String::new())),
+            raw_finish_reason: None,
+            function_id: None,
+            metadata: None,
+            context: OrchestratorContext::default(),
+            content: vec![],
             messages: vec![],
             finish_reason: None,
             usage: None,
@@ -242,10 +283,9 @@ mod tests {
             warnings: None,
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
-                HashMap::from([(
-                    "container".to_string(),
-                    serde_json::json!({ "id": "container_123", "expiresAt": "2025-01-01T00:00:00Z" }),
-                )]),
+                serde_json::json!({
+                    "container": { "id": "container_123", "expiresAt": "2025-01-01T00:00:00Z" }
+                }),
             )])),
         };
 
@@ -309,7 +349,9 @@ mod tests {
         let ctx = PrepareStepContext {
             step_number: 0,
             steps: &[],
+            model: &MockPrepareStepModel,
             messages: &[],
+            context: &OrchestratorContext::default(),
         };
 
         let result = prepare_fn(ctx);
@@ -318,10 +360,56 @@ mod tests {
         let ctx = PrepareStepContext {
             step_number: 1,
             steps: &[],
+            model: &MockPrepareStepModel,
             messages: &[],
+            context: &OrchestratorContext::default(),
         };
 
         let result = prepare_fn(ctx);
         assert!(result.tool_choice.is_none());
+    }
+}
+
+#[cfg(test)]
+struct MockPrepareStepModel;
+
+#[cfg(test)]
+impl siumai::prelude::unified::ModelMetadata for MockPrepareStepModel {
+    fn provider_id(&self) -> &str {
+        "mock-provider"
+    }
+
+    fn model_id(&self) -> &str {
+        "mock-model"
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl siumai::text::TextModelV3 for MockPrepareStepModel {
+    async fn generate(
+        &self,
+        _request: siumai::text::TextRequest,
+    ) -> Result<siumai::text::TextResponse, siumai::prelude::unified::LlmError> {
+        Ok(siumai::prelude::unified::ChatResponse::new(
+            siumai::prelude::unified::MessageContent::Text(String::new()),
+        ))
+    }
+
+    async fn stream(
+        &self,
+        _request: siumai::text::TextRequest,
+    ) -> Result<siumai::text::TextStream, siumai::prelude::unified::LlmError> {
+        Ok(Box::pin(futures::stream::empty()))
+    }
+
+    async fn stream_with_cancel(
+        &self,
+        _request: siumai::text::TextRequest,
+    ) -> Result<siumai::text::TextStreamHandle, siumai::prelude::unified::LlmError> {
+        Ok(siumai::text::TextStreamHandle {
+            stream: Box::pin(futures::stream::empty()),
+            cancel: siumai::experimental::utils::cancel::new_cancel_handle(),
+        })
     }
 }

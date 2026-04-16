@@ -28,7 +28,7 @@ use super::convert;
 use super::streaming;
 use super::types;
 
-use options::gemini_options_from_request;
+use options::{gemini_options_from_request, gemini_provider_options_value};
 
 mod files;
 mod options;

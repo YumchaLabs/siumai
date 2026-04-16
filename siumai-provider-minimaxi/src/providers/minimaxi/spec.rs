@@ -44,20 +44,42 @@ const MINIMAXI_METADATA_KEY: &str = "minimaxi";
 const MINIMAXI_OPTIONS_KEY: &str = "minimaxi";
 const LEGACY_ANTHROPIC_OPTIONS_KEY: &str = "anthropic";
 
-fn normalize_response_provider_metadata(response: &mut crate::types::ChatResponse) {
-    let Some(provider_metadata) = response.provider_metadata.as_mut() else {
-        return;
-    };
-
+fn normalize_provider_metadata_map(provider_metadata: &mut crate::types::ProviderMetadataMap) {
     if provider_metadata.contains_key(MINIMAXI_METADATA_KEY) {
         provider_metadata.remove(ANTHROPIC_METADATA_KEY);
     } else if let Some(anthropic) = provider_metadata.remove(ANTHROPIC_METADATA_KEY) {
         provider_metadata.insert(MINIMAXI_METADATA_KEY.to_string(), anthropic);
     }
+}
 
-    if provider_metadata.is_empty() {
-        response.provider_metadata = None;
+fn normalize_provider_metadata_object(
+    provider_metadata: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    if provider_metadata.contains_key(MINIMAXI_METADATA_KEY) {
+        provider_metadata.remove(ANTHROPIC_METADATA_KEY);
+    } else if let Some(anthropic) = provider_metadata.remove(ANTHROPIC_METADATA_KEY) {
+        provider_metadata.insert(MINIMAXI_METADATA_KEY.to_string(), anthropic);
     }
+}
+
+fn normalize_optional_provider_metadata(
+    provider_metadata: &mut Option<crate::types::ProviderMetadataMap>,
+) {
+    let should_clear = match provider_metadata.as_mut() {
+        Some(provider_metadata) => {
+            normalize_provider_metadata_map(provider_metadata);
+            provider_metadata.is_empty()
+        }
+        None => return,
+    };
+
+    if should_clear {
+        *provider_metadata = None;
+    }
+}
+
+fn normalize_response_provider_metadata(response: &mut crate::types::ChatResponse) {
+    normalize_optional_provider_metadata(&mut response.provider_metadata);
 }
 
 fn normalize_custom_provider_metadata(data: &mut serde_json::Value) {
@@ -68,10 +90,65 @@ fn normalize_custom_provider_metadata(data: &mut serde_json::Value) {
         return;
     };
 
-    if provider_metadata.contains_key(MINIMAXI_METADATA_KEY) {
-        provider_metadata.remove(ANTHROPIC_METADATA_KEY);
-    } else if let Some(anthropic) = provider_metadata.remove(ANTHROPIC_METADATA_KEY) {
-        provider_metadata.insert(MINIMAXI_METADATA_KEY.to_string(), anthropic);
+    normalize_provider_metadata_object(provider_metadata);
+}
+
+fn normalize_stream_part_provider_metadata(part: &mut crate::types::ChatStreamPart) {
+    use crate::types::ChatStreamPart;
+
+    match part {
+        ChatStreamPart::TextStart {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::TextDelta {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::TextEnd {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::ReasoningStart {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::ReasoningDelta {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::ReasoningEnd {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::ToolInputStart {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::ToolInputDelta {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::ToolInputEnd {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::Source {
+            provider_metadata, ..
+        }
+        | ChatStreamPart::Finish {
+            provider_metadata, ..
+        } => normalize_optional_provider_metadata(provider_metadata),
+        ChatStreamPart::ToolApprovalRequest(request) => {
+            normalize_optional_provider_metadata(&mut request.provider_metadata)
+        }
+        ChatStreamPart::ToolCall(call) => {
+            normalize_optional_provider_metadata(&mut call.provider_metadata)
+        }
+        ChatStreamPart::ToolResult(result) => {
+            normalize_optional_provider_metadata(&mut result.provider_metadata)
+        }
+        ChatStreamPart::Custom(content) => {
+            normalize_optional_provider_metadata(&mut content.provider_metadata)
+        }
+        ChatStreamPart::File(file) | ChatStreamPart::ReasoningFile(file) => {
+            normalize_optional_provider_metadata(&mut file.provider_metadata)
+        }
+        ChatStreamPart::StreamStart { .. }
+        | ChatStreamPart::ResponseMetadata(..)
+        | ChatStreamPart::Raw { .. }
+        | ChatStreamPart::Error { .. } => {}
     }
 }
 
@@ -85,6 +162,10 @@ fn normalize_stream_event(
         } => {
             normalize_custom_provider_metadata(&mut data);
             crate::streaming::ChatStreamEvent::Custom { event_type, data }
+        }
+        crate::streaming::ChatStreamEvent::Part { mut part } => {
+            normalize_stream_part_provider_metadata(&mut part);
+            crate::streaming::ChatStreamEvent::Part { part }
         }
         crate::streaming::ChatStreamEvent::StreamEnd { mut response } => {
             normalize_response_provider_metadata(&mut response);
@@ -720,19 +801,21 @@ mod tests {
             })
             .await;
 
-        let finish = out
+        let finish_provider_metadata = out
             .iter()
             .find_map(|event| match event.as_ref().ok() {
-                Some(ChatStreamEvent::Custom { data, .. })
-                    if data.get("type") == Some(&serde_json::json!("finish")) =>
-                {
-                    Some(data.clone())
-                }
+                Some(ChatStreamEvent::Part {
+                    part:
+                        crate::types::ChatStreamPart::Finish {
+                            provider_metadata: Some(provider_metadata),
+                            ..
+                        },
+                }) => Some(provider_metadata.clone()),
                 _ => None,
             })
-            .expect("finish event");
-        assert!(finish["providerMetadata"].get("minimaxi").is_some());
-        assert!(finish["providerMetadata"].get("anthropic").is_none());
+            .expect("finish part");
+        assert!(finish_provider_metadata.get("minimaxi").is_some());
+        assert!(finish_provider_metadata.get("anthropic").is_none());
 
         let end = out
             .iter()

@@ -53,7 +53,7 @@ mod tests {
 
                 // Check image part
                 if let ContentPart::Image { source, detail, .. } = &parts[1] {
-                    if let MediaSource::Url { url } = source {
+                    if let Some(url) = source.as_url() {
                         assert_eq!(url, "https://example.com/image.jpg");
                     } else {
                         panic!("Expected URL source");
@@ -305,7 +305,6 @@ mod tests {
 #[cfg(all(test, feature = "openai"))]
 mod builder_tests {
     use super::*;
-    use siumai::experimental::client::LlmClient;
     use siumai::provider::Siumai;
 
     #[test]
@@ -363,7 +362,10 @@ mod builder_tests {
         match result {
             Ok(client) => {
                 println!("    [ok] SiliconFlow client created with HTTP config");
-                assert_eq!(client.provider_id().as_ref(), "siliconflow");
+                assert_eq!(
+                    siumai::experimental::client::LlmClient::provider_id(&client).as_ref(),
+                    "siliconflow"
+                );
             }
             Err(e) => {
                 // Expected to fail with invalid API key, but should not fail due to HTTP config
@@ -394,7 +396,10 @@ mod builder_tests {
             match result {
                 Ok(client) => {
                     println!("    [ok] DeepSeek client created with HTTP config");
-                    assert_eq!(client.provider_id().as_ref(), "deepseek");
+                    assert_eq!(
+                        siumai::experimental::client::LlmClient::provider_id(&client).as_ref(),
+                        "deepseek"
+                    );
                 }
                 Err(e) => {
                     println!(
@@ -421,5 +426,9 @@ mod builder_tests {
         let openrouter_default = siumai_provider_openai::providers::openai_compatible::default_models::get_default_chat_model("openrouter")
             .expect("openrouter should have a default chat model");
         assert_eq!(openrouter_default, siumai_provider_openai::providers::openai_compatible::providers::models::openrouter::openai::GPT_4O);
+
+        let fireworks_default = siumai_provider_openai::providers::openai_compatible::default_models::get_default_chat_model("fireworks")
+            .expect("fireworks should have a default chat model");
+        assert_eq!(fireworks_default, siumai_provider_openai::providers::openai_compatible::providers::models::fireworks::CHAT);
     }
 }

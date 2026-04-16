@@ -44,7 +44,7 @@ This document tracks how `siumai` aligns (conceptually and structurally) with th
 - Streaming converters support bidirectional mapping (parse + serialize) for selected providers (Anthropic SSE, Ollama JSONL) to enable cross-provider stream proxying (Vercel-aligned `parseStreamPart`/`formatStreamPart` concept).
 - Typed stream parts (Vercel AI SDK aligned) are available for advanced gateway/proxy integrations:
   - `siumai_core::streaming::LanguageModelV3StreamPart` + `to_data_sse_bytes()`
-  - `LanguageModelV3StreamPart::try_from_chat_event(...)` and `to_custom_event(...)` for best-effort interop with `ChatStreamEvent::Custom`
+  - `LanguageModelV3StreamPart::try_from_chat_event(...)` and `to_protocol_custom_event(...)` for best-effort protocol serializer interop with `ChatStreamEvent::Custom`
   - `siumai_core::streaming::V3UnsupportedPartBehavior` can be used to control how unsupported v3 parts are handled during protocol re-serialization (drop vs lossy text fallback)
 
 ## Streaming wire format alignment

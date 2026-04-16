@@ -3,13 +3,13 @@ name = "siumai-provider-cohere"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
-description = "Cohere provider implementation for siumai (reranking)"
+description = "Cohere provider implementation for siumai (chat, embedding, rerank)"
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 documentation = "https://docs.rs/siumai-provider-cohere"
 readme = "../README.md"
-keywords = ["llm", "ai", "cohere", "rerank"]
+keywords = ["llm", "ai", "cohere", "embedding"]
 categories = ["api-bindings"]
 
 [lib]

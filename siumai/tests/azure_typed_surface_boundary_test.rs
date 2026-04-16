@@ -81,6 +81,36 @@ fn make_request() -> ChatRequest {
         )
 }
 
+fn make_openai_alias_request() -> ChatRequest {
+    let options: OpenAILanguageModelResponsesOptions = serde_json::from_value(serde_json::json!({
+        "reasoningEffort": "high",
+        "reasoningSummary": "detailed",
+        "strictJsonSchema": false
+    }))
+    .expect("deserialize azure alias options");
+
+    ChatRequest::new(vec![ChatMessage::user("hi").build()])
+        .with_response_format(ResponseFormat::json_schema(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "answer": { "type": "string" }
+            },
+            "required": ["answer"],
+            "additionalProperties": false
+        })))
+        .with_provider_option(
+            "azure",
+            serde_json::json!({
+                "existing": true,
+                "force_reasoning": true,
+                "responses_api": {
+                    "custom_nested": true
+                }
+            }),
+        )
+        .with_azure_options(options)
+}
+
 fn assert_request_has_typed_azure_options(request: &HttpTransportRequest) {
     assert_eq!(
         request.url,
@@ -106,6 +136,25 @@ fn assert_request_has_typed_azure_options(request: &HttpTransportRequest) {
     assert_eq!(
         request.body["text"]["format"]["name"],
         serde_json::json!("response")
+    );
+}
+
+fn assert_request_keeps_merged_alias_options(request: &ChatRequest) {
+    let value = request
+        .provider_options_map
+        .get("azure")
+        .expect("azure options present");
+    assert_eq!(value["existing"], serde_json::json!(true));
+    assert_eq!(value["force_reasoning"], serde_json::json!(true));
+    assert_eq!(value["reasoning_effort"], serde_json::json!("high"));
+    assert_eq!(
+        value["responses_api"]["custom_nested"],
+        serde_json::json!(true)
+    );
+    assert_eq!(value["responses_api"]["enabled"], serde_json::json!(true));
+    assert_eq!(
+        value["responses_api"]["reasoning_summary"],
+        serde_json::json!("detailed")
     );
 }
 
@@ -153,6 +202,72 @@ async fn azure_request_ext_shapes_final_responses_body_across_public_paths() {
         .expect("provider chat");
     let _ = config_client
         .chat_request(make_request())
+        .await
+        .expect("config chat");
+
+    let siumai_request = siumai_transport.take().expect("siumai request");
+    let provider_request = provider_transport.take().expect("provider request");
+    let config_request = config_transport.take().expect("config request");
+
+    assert_request_has_typed_azure_options(&siumai_request);
+    assert_eq!(provider_request.url, siumai_request.url);
+    assert_eq!(provider_request.body, siumai_request.body);
+    assert_eq!(config_request.url, siumai_request.url);
+    assert_eq!(config_request.body, siumai_request.body);
+}
+
+#[tokio::test]
+async fn azure_openai_alias_options_shape_final_responses_body_across_public_paths() {
+    let response_json = fixture_response("azure-web-search-preview-tool.1");
+    let siumai_transport = JsonCaptureTransport::new(response_json.clone());
+    let provider_transport = JsonCaptureTransport::new(response_json.clone());
+    let config_transport = JsonCaptureTransport::new(response_json);
+
+    let siumai_client = Siumai::builder()
+        .azure()
+        .api_key("test-key")
+        .base_url("https://example.invalid/openai")
+        .model("deployment-id")
+        .fetch(Arc::new(siumai_transport.clone()))
+        .build()
+        .await
+        .expect("build siumai client");
+
+    let provider_client = siumai::Provider::azure()
+        .api_key("test-key")
+        .base_url("https://example.invalid/openai")
+        .model("deployment-id")
+        .fetch(Arc::new(provider_transport.clone()))
+        .build()
+        .await
+        .expect("build provider client");
+
+    let config_client = AzureOpenAiClient::from_config(
+        AzureOpenAiConfig::new("test-key")
+            .with_base_url("https://example.invalid/openai")
+            .with_model("deployment-id")
+            .with_http_transport(Arc::new(config_transport.clone())),
+    )
+    .expect("build config client");
+
+    let siumai_request_input = make_openai_alias_request();
+    let provider_request_input = make_openai_alias_request();
+    let config_request_input = make_openai_alias_request();
+
+    assert_request_keeps_merged_alias_options(&siumai_request_input);
+    assert_request_keeps_merged_alias_options(&provider_request_input);
+    assert_request_keeps_merged_alias_options(&config_request_input);
+
+    let _ = siumai_client
+        .chat_request(siumai_request_input)
+        .await
+        .expect("siumai chat");
+    let _ = provider_client
+        .chat_request(provider_request_input)
+        .await
+        .expect("provider chat");
+    let _ = config_client
+        .chat_request(config_request_input)
         .await
         .expect("config chat");
 

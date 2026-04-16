@@ -9,8 +9,8 @@ use siumai_core::bridge::{
 };
 use siumai_core::streaming::ChatStreamEvent;
 use siumai_core::types::{
-    ChatMessage, ChatRequest, ChatResponse, ContentPart, MessageContent, ProviderDefinedTool, Tool,
-    ToolChoice,
+    ChatMessage, ChatRequest, ChatResponse, ChatStreamPart, ChatStreamReplay, ContentPart,
+    MessageContent, ProviderDefinedTool, Tool, ToolChoice,
 };
 
 type ProviderToolArgsMapper = dyn Fn(&RequestBridgeContext, &ProviderDefinedTool, &mut BridgeReport) -> serde_json::Value
@@ -162,20 +162,24 @@ fn remap_tool_name(
     remapper: &dyn BridgePrimitiveRemapper,
     ctx: BridgePrimitiveContext,
     value: &mut String,
-) {
+) -> bool {
+    let original = value.clone();
     if let Some(mapped) = remapper.remap_tool_name(&ctx, value) {
         *value = mapped;
     }
+    *value != original
 }
 
 fn remap_tool_call_id(
     remapper: &dyn BridgePrimitiveRemapper,
     ctx: BridgePrimitiveContext,
     value: &mut String,
-) {
+) -> bool {
+    let original = value.clone();
     if let Some(mapped) = remapper.remap_tool_call_id(&ctx, value) {
         *value = mapped;
     }
+    *value != original
 }
 
 fn remap_message_content(
@@ -292,6 +296,133 @@ fn remap_message(
     );
 }
 
+fn remap_stream_part(
+    part: &mut ChatStreamPart,
+    source: Option<BridgeTarget>,
+    target: BridgeTarget,
+    mode: BridgeMode,
+    route_label: Option<&String>,
+    path_label: Option<&String>,
+    remapper: &dyn BridgePrimitiveRemapper,
+) -> bool {
+    match part {
+        ChatStreamPart::ToolInputStart { id, tool_name, .. } => {
+            let mut changed = remap_tool_call_id(
+                remapper,
+                primitive_context(
+                    source,
+                    target,
+                    mode,
+                    route_label,
+                    path_label,
+                    BridgePrimitiveKind::ToolCall,
+                ),
+                id,
+            );
+            changed |= remap_tool_name(
+                remapper,
+                primitive_context(
+                    source,
+                    target,
+                    mode,
+                    route_label,
+                    path_label,
+                    BridgePrimitiveKind::ToolCall,
+                ),
+                tool_name,
+            );
+            changed
+        }
+        ChatStreamPart::ToolInputDelta { id, .. } | ChatStreamPart::ToolInputEnd { id, .. } => {
+            remap_tool_call_id(
+                remapper,
+                primitive_context(
+                    source,
+                    target,
+                    mode,
+                    route_label,
+                    path_label,
+                    BridgePrimitiveKind::ToolCall,
+                ),
+                id,
+            )
+        }
+        ChatStreamPart::ToolApprovalRequest(request) => remap_tool_call_id(
+            remapper,
+            primitive_context(
+                source,
+                target,
+                mode,
+                route_label,
+                path_label,
+                BridgePrimitiveKind::ToolCall,
+            ),
+            &mut request.tool_call_id,
+        ),
+        ChatStreamPart::ToolCall(call) => {
+            let mut changed = remap_tool_call_id(
+                remapper,
+                primitive_context(
+                    source,
+                    target,
+                    mode,
+                    route_label,
+                    path_label,
+                    BridgePrimitiveKind::ToolCall,
+                ),
+                &mut call.tool_call_id,
+            );
+            changed |= remap_tool_name(
+                remapper,
+                primitive_context(
+                    source,
+                    target,
+                    mode,
+                    route_label,
+                    path_label,
+                    BridgePrimitiveKind::ToolCall,
+                ),
+                &mut call.tool_name,
+            );
+            changed
+        }
+        ChatStreamPart::ToolResult(result) => {
+            let mut changed = remap_tool_call_id(
+                remapper,
+                primitive_context(
+                    source,
+                    target,
+                    mode,
+                    route_label,
+                    path_label,
+                    BridgePrimitiveKind::ToolResult,
+                ),
+                &mut result.tool_call_id,
+            );
+            changed |= remap_tool_name(
+                remapper,
+                primitive_context(
+                    source,
+                    target,
+                    mode,
+                    route_label,
+                    path_label,
+                    BridgePrimitiveKind::ToolResult,
+                ),
+                &mut result.tool_name,
+            );
+            changed
+        }
+        _ => false,
+    }
+}
+
+fn drop_openai_responses_raw_item(replay: &mut ChatStreamReplay) {
+    if let Some(openai_responses) = replay.openai_responses.as_mut() {
+        openai_responses.raw_item = None;
+    }
+}
+
 pub(crate) fn apply_request_remapper(
     request: &mut ChatRequest,
     ctx: &RequestBridgeContext,
@@ -300,30 +431,34 @@ pub(crate) fn apply_request_remapper(
     if let Some(tools) = request.tools.as_mut() {
         for tool in tools {
             match tool {
-                Tool::Function { function } => remap_tool_name(
-                    remapper,
-                    primitive_context(
-                        ctx.source,
-                        ctx.target,
-                        ctx.mode,
-                        ctx.route_label.as_ref(),
-                        ctx.path_label.as_ref(),
-                        BridgePrimitiveKind::ToolDefinition,
-                    ),
-                    &mut function.name,
-                ),
-                Tool::ProviderDefined(tool) => remap_tool_name(
-                    remapper,
-                    primitive_context(
-                        ctx.source,
-                        ctx.target,
-                        ctx.mode,
-                        ctx.route_label.as_ref(),
-                        ctx.path_label.as_ref(),
-                        BridgePrimitiveKind::ToolDefinition,
-                    ),
-                    &mut tool.name,
-                ),
+                Tool::Function { function } => {
+                    remap_tool_name(
+                        remapper,
+                        primitive_context(
+                            ctx.source,
+                            ctx.target,
+                            ctx.mode,
+                            ctx.route_label.as_ref(),
+                            ctx.path_label.as_ref(),
+                            BridgePrimitiveKind::ToolDefinition,
+                        ),
+                        &mut function.name,
+                    );
+                }
+                Tool::ProviderDefined(tool) => {
+                    remap_tool_name(
+                        remapper,
+                        primitive_context(
+                            ctx.source,
+                            ctx.target,
+                            ctx.mode,
+                            ctx.route_label.as_ref(),
+                            ctx.path_label.as_ref(),
+                            BridgePrimitiveKind::ToolDefinition,
+                        ),
+                        &mut tool.name,
+                    );
+                }
             }
         }
     }
@@ -416,6 +551,36 @@ pub(crate) fn remap_stream_event(
                 arguments_delta,
                 index,
             }
+        }
+        ChatStreamEvent::Part { mut part } => {
+            remap_stream_part(
+                &mut part,
+                ctx.source,
+                ctx.target,
+                ctx.mode,
+                ctx.route_label.as_ref(),
+                ctx.path_label.as_ref(),
+                remapper,
+            );
+            ChatStreamEvent::Part { part }
+        }
+        ChatStreamEvent::PartWithReplay {
+            mut part,
+            mut replay,
+        } => {
+            let changed = remap_stream_part(
+                &mut part,
+                ctx.source,
+                ctx.target,
+                ctx.mode,
+                ctx.route_label.as_ref(),
+                ctx.path_label.as_ref(),
+                remapper,
+            );
+            if changed {
+                drop_openai_responses_raw_item(&mut replay);
+            }
+            ChatStreamEvent::PartWithReplay { part, replay }
         }
         ChatStreamEvent::StreamEnd { mut response } => {
             let response_ctx = ResponseBridgeContext::new(

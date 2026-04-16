@@ -15,7 +15,7 @@ fn normalize_tool_input_value(value: serde_json::Value) -> String {
 
 fn into_provider_metadata(value: Option<serde_json::Value>) -> Option<SharedV3ProviderMetadata> {
     match value {
-        Some(serde_json::Value::Object(map)) => Some(map),
+        Some(serde_json::Value::Object(map)) => Some(map.into_iter().collect()),
         _ => None,
     }
 }

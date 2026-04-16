@@ -1,12 +1,13 @@
 //! Chat response types
 
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashMap;
 
 use super::content::{ContentPart, MessageContent};
 use super::message::{ChatMessage, MessageRole};
 use super::metadata::MessageMetadata;
-use crate::types::{FinishReason, Usage, Warning};
+use crate::types::{FinishReason, ProviderMetadataMap, Usage, Warning};
 
 /// Audio output from the model
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -56,6 +57,9 @@ pub struct ChatResponse {
     pub usage: Option<Usage>,
     /// Finish reason
     pub finish_reason: Option<FinishReason>,
+    /// Raw provider finish reason when available
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_finish_reason: Option<String>,
     /// Audio output (if audio modality was requested)
     pub audio: Option<AudioOutput>,
     /// System fingerprint (backend configuration identifier)
@@ -102,7 +106,7 @@ pub struct ChatResponse {
     /// }
     /// ```
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub provider_metadata: Option<HashMap<String, HashMap<String, serde_json::Value>>>,
+    pub provider_metadata: Option<ProviderMetadataMap>,
 }
 
 impl ChatResponse {
@@ -114,6 +118,7 @@ impl ChatResponse {
             model: None,
             usage: None,
             finish_reason: None,
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -130,6 +135,7 @@ impl ChatResponse {
             model: None,
             usage: None,
             finish_reason: None,
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -146,6 +152,7 @@ impl ChatResponse {
             model: None,
             usage: None,
             finish_reason: Some(reason),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -192,6 +199,21 @@ impl ChatResponse {
     /// Check if the response has tool calls
     pub fn has_tool_calls(&self) -> bool {
         !self.tool_calls().is_empty()
+    }
+
+    /// Extract all tool results from response content.
+    pub fn tool_results(&self) -> Vec<&ContentPart> {
+        match &self.content {
+            MessageContent::MultiModal(parts) => {
+                parts.iter().filter(|p| p.is_tool_result()).collect()
+            }
+            _ => vec![],
+        }
+    }
+
+    /// Check if the response has tool results.
+    pub fn has_tool_results(&self) -> bool {
+        !self.tool_results().is_empty()
     }
 
     /// Get tool calls (deprecated - use tool_calls() instead)
@@ -396,9 +418,9 @@ impl ChatResponse {
 }
 
 #[cfg(test)]
-    use crate::types::ProviderOptionsMap;
 mod tests {
     use super::*;
+    use crate::types::ProviderOptionsMap;
 
     #[test]
     fn test_chat_response_helper_methods() {
@@ -414,12 +436,14 @@ mod tests {
         assert_eq!(response.get_metadata("openai", "key1"), None);
 
         // Create nested metadata structure
-        let mut openai_meta = HashMap::new();
-        openai_meta.insert("key1".to_string(), serde_json::json!("value1"));
-        openai_meta.insert("key2".to_string(), serde_json::json!(42));
-
         let mut provider_metadata = HashMap::new();
-        provider_metadata.insert("openai".to_string(), openai_meta);
+        provider_metadata.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "key1": "value1",
+                "key2": 42
+            }),
+        );
         response.provider_metadata = Some(provider_metadata);
 
         assert!(response.has_metadata());
@@ -432,6 +456,8 @@ mod tests {
             Some(&serde_json::json!(42))
         );
         assert_eq!(response.get_metadata("openai", "nonexistent"), None);
+        assert_eq!(response.get_metadata("anthropic", "key1"), None);
+    }
 
     #[test]
     fn reasoning_ignores_empty_reasoning_parts() {
@@ -449,6 +475,32 @@ mod tests {
 
         assert_eq!(response.reasoning(), vec!["useful"]);
     }
-        assert_eq!(response.get_metadata("anthropic", "key1"), None);
+
+    #[test]
+    fn tool_results_are_extracted_from_multimodal_content() {
+        let response = ChatResponse::new(MessageContent::MultiModal(vec![
+            ContentPart::tool_call("call_1", "search", serde_json::json!({"q":"rust"}), None),
+            ContentPart::ToolResult {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "search".to_string(),
+                output: crate::types::ToolResultOutput::json(serde_json::json!({"ok": true})),
+                input: Some(serde_json::json!({"q":"rust"})),
+                provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            },
+        ]));
+
+        assert!(response.has_tool_results());
+        assert_eq!(response.tool_results().len(), 1);
+        assert_eq!(
+            response.tool_results()[0]
+                .as_tool_result()
+                .map(|result| result.tool_call_id),
+            Some("call_1")
+        );
     }
 }

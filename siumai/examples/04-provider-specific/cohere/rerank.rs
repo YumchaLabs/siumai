@@ -29,8 +29,8 @@ fn read_non_empty_env(name: &str) -> Option<String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let model = read_non_empty_env("COHERE_RERANK_MODEL")
-        .unwrap_or_else(|| CohereConfig::DEFAULT_MODEL.to_string());
+    let model =
+        read_non_empty_env("COHERE_RERANK_MODEL").unwrap_or_else(|| "rerank-v3.5".to_string());
     let query = read_non_empty_env("COHERE_RERANK_QUERY")
         .unwrap_or_else(|| "Which document best explains Rust SDK design?".to_string());
 

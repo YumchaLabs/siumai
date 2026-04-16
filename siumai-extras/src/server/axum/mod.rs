@@ -5,6 +5,8 @@
 //! ## Features
 //!
 //! - **SSE Response**: `to_sse_response()` converts `ChatStream` to `Sse<impl Stream>`
+//!   and exports the stable semantic lane as `event: part` frames with a
+//!   `{ part, replay }` JSON envelope (`replay` is `null` when absent)
 //! - **Text Response**: `to_text_stream()` converts `ChatStream` to plain text stream
 //! - **Gateway Helpers**: provider-native request normalization and SSE/JSON transcoding helpers
 //! - **Runtime Helpers**: policy-aware request/upstream body reads

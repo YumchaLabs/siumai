@@ -66,6 +66,8 @@ impl ProviderFactory for BedrockProviderFactory {
             .unwrap_or_else(|| {
                 ProviderCapabilities::new()
                     .with_chat()
+                    .with_embedding()
+                    .with_image_generation()
                     .with_streaming()
                     .with_tools()
                     .with_rerank()
@@ -86,6 +88,22 @@ impl ProviderFactory for BedrockProviderFactory {
     }
 
     async fn reranking_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+    }
+
+    async fn embedding_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+    }
+
+    async fn image_model_with_ctx(
         &self,
         model_id: &str,
         ctx: &BuildContext,

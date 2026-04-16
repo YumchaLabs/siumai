@@ -7,7 +7,7 @@ use crate::types::{CommonParams, HttpConfig};
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
 
-/// Provider-owned config-first surface for Cohere reranking.
+/// Provider-owned config-first surface for Cohere.
 #[derive(Clone)]
 pub struct CohereConfig {
     /// API key (securely stored).
@@ -48,8 +48,6 @@ impl std::fmt::Debug for CohereConfig {
 impl CohereConfig {
     /// Default Cohere API base URL.
     pub const DEFAULT_BASE_URL: &'static str = "https://api.cohere.com/v2";
-    /// Default Cohere rerank model.
-    pub const DEFAULT_MODEL: &'static str = "rerank-english-v3.0";
 
     /// Create a new config with the given API key.
     pub fn new<S: Into<String>>(api_key: S) -> Self {
@@ -57,7 +55,7 @@ impl CohereConfig {
             api_key: SecretString::from(api_key.into()),
             base_url: Self::DEFAULT_BASE_URL.to_string(),
             common_params: CommonParams {
-                model: Self::DEFAULT_MODEL.to_string(),
+                model: String::new(),
                 ..Default::default()
             },
             http_config: HttpConfig::default(),
@@ -127,11 +125,6 @@ impl CohereConfig {
         if self.base_url.trim().is_empty() {
             return Err(LlmError::ConfigurationError(
                 "Cohere base_url cannot be empty".to_string(),
-            ));
-        }
-        if self.common_params.model.trim().is_empty() {
-            return Err(LlmError::ConfigurationError(
-                "Cohere requires a non-empty rerank model id".to_string(),
             ));
         }
         Ok(())

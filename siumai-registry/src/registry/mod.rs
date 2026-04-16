@@ -31,15 +31,30 @@ mod builtins {
     use std::collections::HashMap;
     use std::sync::{OnceLock, RwLock};
 
-    #[cfg(feature = "openai")]
+    #[cfg(any(
+        feature = "openai",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "google-vertex"
+    ))]
     use std::sync::Arc;
 
     use crate::traits::ProviderCapabilities;
 
-    #[cfg(feature = "openai")]
+    #[cfg(any(
+        feature = "openai",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "google-vertex"
+    ))]
     use crate::error::LlmError;
 
-    #[cfg(feature = "openai")]
+    #[cfg(any(
+        feature = "openai",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "google-vertex"
+    ))]
     use siumai_provider_openai_compatible::providers::openai_compatible::{
         ConfigurableAdapter, ProviderAdapter, ProviderConfig,
     };
@@ -51,7 +66,12 @@ mod builtins {
         pub name: String,
         pub base_url: Option<String>,
         pub capabilities: ProviderCapabilities,
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         pub adapter: Option<Arc<dyn ProviderAdapter>>, // for OpenAI-compatible
         pub aliases: Vec<String>,
         /// Optional model id prefixes that hint routing for this provider.
@@ -106,7 +126,12 @@ mod builtins {
             self.register_native_providers();
 
             // Register OpenAI-compatible providers.
-            #[cfg(feature = "openai")]
+            #[cfg(any(
+                feature = "openai",
+                feature = "togetherai",
+                feature = "deepinfra",
+                feature = "google-vertex"
+            ))]
             self.register_openai_compatible_providers();
         }
 
@@ -124,17 +149,18 @@ mod builtins {
                 );
             }
 
-            // Default models for rerank-only providers (improves catalog output).
-            #[cfg(feature = "cohere")]
-            {
-                if let Some(rec) = self.resolve(crate::provider::ids::COHERE).cloned() {
-                    self.register(rec.with_default_model("rerank-english-v3.0"));
-                }
-            }
             #[cfg(feature = "togetherai")]
             {
                 if let Some(rec) = self.resolve(crate::provider::ids::TOGETHERAI).cloned() {
-                    self.register(rec.with_default_model("Salesforce/Llama-Rank-v1"));
+                    self.register(
+                        rec.with_default_model("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"),
+                    );
+                }
+            }
+            #[cfg(feature = "deepinfra")]
+            {
+                if let Some(rec) = self.resolve(crate::provider::ids::DEEPINFRA).cloned() {
+                    self.register(rec.with_default_model("meta-llama/Llama-3.3-70B-Instruct"));
                 }
             }
 
@@ -172,19 +198,29 @@ mod builtins {
                     crate::provider::ids::VERTEX,
                     crate::provider::ids::GOOGLE_VERTEX_ALIAS,
                 );
+                self.add_alias(
+                    crate::provider::ids::VERTEX_MAAS,
+                    crate::provider::ids::GOOGLE_VERTEX_MAAS_ALIAS,
+                );
+                self.add_alias(
+                    crate::provider::ids::VERTEX_MAAS,
+                    crate::provider::ids::GOOGLE_VERTEX_MAAS_DOTTED_ALIAS,
+                );
             }
         }
 
         /// Register all OpenAI-compatible providers from config.
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         fn register_openai_compatible_providers(&mut self) {
             let builtin_providers =
                 siumai_provider_openai_compatible::providers::openai_compatible::get_builtin_providers();
 
             for (_id, config) in builtin_providers {
-                if self.by_id.contains_key(&config.id) {
-                    continue;
-                }
                 let _ = self.register_openai_compatible_from_config(config);
             }
         }
@@ -200,12 +236,30 @@ mod builtins {
             }
         }
 
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         pub fn register_openai_compatible_from_config(
             &mut self,
             config: ProviderConfig,
         ) -> Result<(), LlmError> {
             let adapter = Arc::new(ConfigurableAdapter::new(config.clone()));
+            if let Some(existing) = self.by_id.get(&config.id).cloned() {
+                let mut merged = existing;
+                merged.adapter = Some(adapter);
+                if merged.default_model.is_none() {
+                    merged.default_model = config.default_model;
+                }
+                if merged.base_url.is_none() {
+                    merged.base_url = Some(config.base_url);
+                }
+                self.register(merged);
+                return Ok(());
+            }
+
             let capabilities = adapter.capabilities();
 
             let record = ProviderRecord {
@@ -223,7 +277,12 @@ mod builtins {
             Ok(())
         }
 
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         pub fn register_openai_compatible(&mut self, provider_id: &str) -> Result<(), LlmError> {
             let config =
                 siumai_provider_openai_compatible::providers::openai_compatible::get_provider_config(
@@ -243,13 +302,23 @@ mod builtins {
         ///
         /// This is an alias of `register_openai_compatible`, provided to keep the mental model:
         /// "OpenAI is the protocol family, vendors are presets/config."
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         pub fn register_openai_vendor(&mut self, vendor_id: &str) -> Result<(), LlmError> {
             self.register_openai_compatible(vendor_id)
         }
 
         /// Register an OpenAI-compatible vendor preset from config (OpenAI-like provider).
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         pub fn register_openai_vendor_from_config(
             &mut self,
             config: ProviderConfig,
@@ -269,7 +338,12 @@ mod builtins {
                 name: name.to_string(),
                 base_url,
                 capabilities,
-                #[cfg(feature = "openai")]
+                #[cfg(any(
+                    feature = "openai",
+                    feature = "togetherai",
+                    feature = "deepinfra",
+                    feature = "google-vertex"
+                ))]
                 adapter: None,
                 aliases: vec![],
                 model_prefixes: vec![],
@@ -285,7 +359,12 @@ mod builtins {
             }
         }
 
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         pub fn register_custom_provider(&mut self, config: ProviderConfig) {
             let _ = self.register_openai_compatible_from_config(config);
         }
@@ -303,7 +382,12 @@ mod builtins {
                 .find(|rec| rec.model_prefixes.iter().any(|p| model_id.starts_with(p)))
         }
 
-        #[cfg(feature = "openai")]
+        #[cfg(any(
+            feature = "openai",
+            feature = "togetherai",
+            feature = "deepinfra",
+            feature = "google-vertex"
+        ))]
         pub fn get_adapter(&self, provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
             let record = self.resolve(provider_id).ok_or_else(|| {
                 LlmError::ConfigurationError(format!("Unknown provider: {}", provider_id))
@@ -355,7 +439,12 @@ mod builtins {
     }
 
     /// Convenience function to get an adapter for an OpenAI-compatible provider.
-    #[cfg(feature = "openai")]
+    #[cfg(any(
+        feature = "openai",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "google-vertex"
+    ))]
     pub fn get_provider_adapter(provider_id: &str) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
         global_registry()
             .read()
@@ -366,7 +455,12 @@ mod builtins {
     }
 
     /// Convenience function to get an adapter for an OpenAI vendor preset (OpenAI-like provider).
-    #[cfg(feature = "openai")]
+    #[cfg(any(
+        feature = "openai",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "google-vertex"
+    ))]
     pub fn get_openai_vendor_adapter(
         provider_id: &str,
     ) -> Result<Arc<dyn ProviderAdapter>, LlmError> {
@@ -413,13 +507,10 @@ mod builtins {
         }
 
         #[test]
-        #[cfg(feature = "cohere")]
-        fn test_registry_sets_cohere_default_model() {
+        #[cfg(feature = "deepinfra")]
+        fn test_registry_registers_deepinfra() {
             let registry = ProviderRegistry::with_builtin_providers();
-            let rec = registry
-                .resolve(crate::provider::ids::COHERE)
-                .expect("cohere should be registered");
-            assert_eq!(rec.default_model.as_deref(), Some("rerank-english-v3.0"));
+            assert!(registry.resolve(crate::provider::ids::DEEPINFRA).is_some());
         }
 
         #[test]
@@ -431,7 +522,7 @@ mod builtins {
                 .expect("togetherai should be registered");
             assert_eq!(
                 rec.default_model.as_deref(),
-                Some("Salesforce/Llama-Rank-v1")
+                Some("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
             );
         }
 
@@ -443,6 +534,104 @@ mod builtins {
                 .resolve(crate::provider::ids::DEEPSEEK)
                 .expect("deepseek should be registered");
             assert_eq!(rec.default_model.as_deref(), Some("deepseek-chat"));
+        }
+
+        #[test]
+        #[cfg(feature = "deepinfra")]
+        fn test_registry_sets_deepinfra_default_model() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            let rec = registry
+                .resolve(crate::provider::ids::DEEPINFRA)
+                .expect("deepinfra should be registered");
+            assert_eq!(
+                rec.default_model.as_deref(),
+                Some("meta-llama/Llama-3.3-70B-Instruct")
+            );
+        }
+
+        #[test]
+        #[cfg(feature = "openai")]
+        fn test_registry_sets_fireworks_default_model() {
+            let registry = ProviderRegistry::with_builtin_providers();
+            let rec = registry
+                .resolve(crate::provider::ids::FIREWORKS)
+                .expect("fireworks should be registered");
+            assert_eq!(
+                rec.default_model.as_deref(),
+                Some("accounts/fireworks/models/llama-v3p1-8b-instruct")
+            );
+        }
+
+        #[test]
+        #[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
+        fn test_registry_openai_compatible_registration_preserves_native_metadata() {
+            let mut registry = ProviderRegistry::with_builtin_providers();
+
+            #[cfg(feature = "togetherai")]
+            {
+                let before = registry
+                    .resolve(crate::provider::ids::TOGETHERAI)
+                    .expect("togetherai before registration")
+                    .clone();
+                assert!(before.capabilities.supports("rerank"));
+                assert!(before.adapter.is_some());
+                registry
+                    .register_openai_compatible(crate::provider::ids::TOGETHERAI)
+                    .expect("register togetherai compat");
+                let after = registry
+                    .resolve(crate::provider::ids::TOGETHERAI)
+                    .expect("togetherai after registration");
+                assert!(after.capabilities.supports("rerank"));
+                assert_eq!(
+                    after.base_url.as_deref(),
+                    Some("https://api.together.xyz/v1")
+                );
+                assert!(after.adapter.is_some());
+            }
+
+            #[cfg(feature = "deepinfra")]
+            {
+                let before = registry
+                    .resolve(crate::provider::ids::DEEPINFRA)
+                    .expect("deepinfra before registration")
+                    .clone();
+                assert!(before.capabilities.supports("image_generation"));
+                assert!(before.adapter.is_some());
+                registry
+                    .register_openai_compatible(crate::provider::ids::DEEPINFRA)
+                    .expect("register deepinfra compat");
+                let after = registry
+                    .resolve(crate::provider::ids::DEEPINFRA)
+                    .expect("deepinfra after registration");
+                assert!(after.capabilities.supports("image_generation"));
+                assert_eq!(
+                    after.base_url.as_deref(),
+                    Some("https://api.deepinfra.com/v1")
+                );
+                assert!(after.adapter.is_some());
+            }
+
+            #[cfg(feature = "openai")]
+            {
+                let before = registry
+                    .resolve(crate::provider::ids::FIREWORKS)
+                    .expect("fireworks before registration")
+                    .clone();
+                assert!(before.capabilities.supports("image_generation"));
+                assert!(before.adapter.is_some());
+                registry
+                    .register_openai_compatible(crate::provider::ids::FIREWORKS)
+                    .expect("register fireworks compat");
+                let after = registry
+                    .resolve(crate::provider::ids::FIREWORKS)
+                    .expect("fireworks after registration");
+                assert!(after.capabilities.supports("image_generation"));
+                assert_eq!(
+                    after.base_url.as_deref(),
+                    Some("https://api.fireworks.ai/inference/v1")
+                );
+                assert!(after.adapter.is_some());
+            }
         }
 
         #[test]
@@ -471,10 +660,26 @@ mod builtins {
 #[cfg(feature = "builtins")]
 pub use builtins::{ProviderRecord, ProviderRegistry, global, global_registry};
 
-#[cfg(all(feature = "builtins", feature = "openai"))]
+#[cfg(all(
+    feature = "builtins",
+    any(
+        feature = "openai",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "google-vertex"
+    )
+))]
 pub use builtins::get_provider_adapter;
 
-#[cfg(all(feature = "builtins", feature = "openai"))]
+#[cfg(all(
+    feature = "builtins",
+    any(
+        feature = "openai",
+        feature = "togetherai",
+        feature = "deepinfra",
+        feature = "google-vertex"
+    )
+))]
 pub use builtins::get_openai_vendor_adapter;
 
 // -----------------------------------------------------------------------------
@@ -482,9 +687,10 @@ pub use builtins::get_openai_vendor_adapter;
 // -----------------------------------------------------------------------------
 
 pub use entry::{
-    BuildContext, EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle,
-    ProviderBuildOverrides, ProviderFactory, ProviderRegistryHandle, RegistryOptions,
-    RerankingModelHandle, SpeechModelHandle, TranscriptionModelHandle, create_provider_registry,
+    BuildContext, CompletionModelHandle, EmbeddingModelHandle, ImageModelHandle,
+    LanguageModelHandle, ProviderBuildOverrides, ProviderFactory, ProviderRegistryHandle,
+    RegistryOptions, RerankingModelHandle, SpeechModelHandle, TranscriptionModelHandle,
+    create_provider_registry,
 };
 
 pub use helpers::{create_bare_registry, create_empty_registry};

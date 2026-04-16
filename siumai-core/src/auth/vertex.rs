@@ -69,6 +69,17 @@ pub fn google_vertex_base_url(project: &str, location: &str) -> String {
 pub const GOOGLE_VERTEX_EXPRESS_BASE_URL: &str =
     "https://aiplatform.googleapis.com/v1/publishers/google";
 
+/// Build a Google Vertex MaaS provider base URL (AI SDK aligned).
+///
+/// This uses the OpenAI-compatible MaaS endpoint shape:
+/// `https://aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi`
+pub fn google_vertex_maas_base_url(project: &str, location: &str) -> String {
+    format!(
+        "https://aiplatform.googleapis.com/v1/projects/{}/locations/{}/endpoints/openapi",
+        project, location
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -99,6 +110,21 @@ mod tests {
         assert_eq!(
             url2,
             "https://aiplatform.googleapis.com/v1beta1/projects/test-project/locations/global/publishers/google"
+        );
+    }
+
+    #[test]
+    fn test_google_vertex_maas_base_url() {
+        let url = google_vertex_maas_base_url("test-project", "us-central1");
+        assert_eq!(
+            url,
+            "https://aiplatform.googleapis.com/v1/projects/test-project/locations/us-central1/endpoints/openapi"
+        );
+
+        let url2 = google_vertex_maas_base_url("test-project", "global");
+        assert_eq!(
+            url2,
+            "https://aiplatform.googleapis.com/v1/projects/test-project/locations/global/endpoints/openapi"
         );
     }
 }

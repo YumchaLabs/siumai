@@ -11388,6 +11388,10 @@ mod deepseek_public_path {
         assert_deepseek_default_options_request(req, base_url, model);
         assert_eq!(req.body["stream"], serde_json::json!(true));
         assert_eq!(
+            req.body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
+        assert_eq!(
             header_value(req, "accept"),
             Some("text/event-stream".to_string())
         );
@@ -13775,6 +13779,23 @@ data: [DONE]
         assert_eq!(siumai_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(provider_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(config_meta.logprobs, Some(expected_logprobs));
+        assert_eq!(siumai_meta.id.as_deref(), Some("chatcmpl-groq-test"));
+        assert_eq!(provider_meta.id.as_deref(), Some("chatcmpl-groq-test"));
+        assert_eq!(config_meta.id.as_deref(), Some("chatcmpl-groq-test"));
+        assert_eq!(
+            siumai_meta.timestamp.map(|timestamp| timestamp.timestamp()),
+            Some(1_741_392_000)
+        );
+        assert_eq!(
+            provider_meta
+                .timestamp
+                .map(|timestamp| timestamp.timestamp()),
+            Some(1_741_392_000)
+        );
+        assert_eq!(
+            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
+            Some(1_741_392_000)
+        );
 
         let siumai_req = siumai_transport.take().expect("siumai request");
         let provider_req = provider_transport.take().expect("provider request");
@@ -13925,6 +13946,23 @@ data: [DONE]
         assert_eq!(siumai_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(provider_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(config_meta.logprobs, Some(expected_logprobs));
+        assert_eq!(siumai_meta.id.as_deref(), Some("1"));
+        assert_eq!(provider_meta.id.as_deref(), Some("1"));
+        assert_eq!(config_meta.id.as_deref(), Some("1"));
+        assert_eq!(
+            siumai_meta.timestamp.map(|timestamp| timestamp.timestamp()),
+            Some(1_718_345_013)
+        );
+        assert_eq!(
+            provider_meta
+                .timestamp
+                .map(|timestamp| timestamp.timestamp()),
+            Some(1_718_345_013)
+        );
+        assert_eq!(
+            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
+            Some(1_718_345_013)
+        );
 
         let siumai_req = siumai_transport
             .take_stream()
@@ -14052,6 +14090,18 @@ data: [DONE]
         ]);
         assert_eq!(config_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(registry_meta.logprobs, Some(expected_logprobs));
+        assert_eq!(config_meta.id.as_deref(), Some("chatcmpl-groq-test"));
+        assert_eq!(registry_meta.id.as_deref(), Some("chatcmpl-groq-test"));
+        assert_eq!(
+            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
+            Some(1_741_392_000)
+        );
+        assert_eq!(
+            registry_meta
+                .timestamp
+                .map(|timestamp| timestamp.timestamp()),
+            Some(1_741_392_000)
+        );
 
         let config_req = config_transport.take().expect("config request");
         let registry_req = registry_transport.take().expect("registry request");
@@ -14164,6 +14214,18 @@ data: [DONE]
         ]);
         assert_eq!(config_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(registry_meta.logprobs, Some(expected_logprobs));
+        assert_eq!(config_meta.id.as_deref(), Some("1"));
+        assert_eq!(registry_meta.id.as_deref(), Some("1"));
+        assert_eq!(
+            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
+            Some(1_718_345_013)
+        );
+        assert_eq!(
+            registry_meta
+                .timestamp
+                .map(|timestamp| timestamp.timestamp()),
+            Some(1_718_345_013)
+        );
 
         let config_req = config_transport
             .take_stream()
@@ -14444,8 +14506,8 @@ data: [DONE]
         assert_unsupported_operation(&config_err);
         assert!(provider_client.as_embedding_capability().is_none());
         assert!(config_client.as_embedding_capability().is_none());
-        assert!(provider_client.as_image_generation_capability().is_some());
-        assert!(config_client.as_image_generation_capability().is_some());
+        assert!(provider_client.as_image_generation_capability().is_none());
+        assert!(config_client.as_image_generation_capability().is_none());
         assert!(provider_client.as_rerank_capability().is_none());
         assert!(config_client.as_rerank_capability().is_none());
         assert_capture_transports_unused(&[
@@ -14511,8 +14573,8 @@ data: [DONE]
         assert_unsupported_operation(&config_err);
         assert!(provider_client.as_embedding_capability().is_none());
         assert!(config_client.as_embedding_capability().is_none());
-        assert!(provider_client.as_image_generation_capability().is_some());
-        assert!(config_client.as_image_generation_capability().is_some());
+        assert!(provider_client.as_image_generation_capability().is_none());
+        assert!(config_client.as_image_generation_capability().is_none());
         assert!(provider_client.as_rerank_capability().is_none());
         assert!(config_client.as_rerank_capability().is_none());
         assert_capture_transports_unused(&[
@@ -14578,8 +14640,8 @@ data: [DONE]
         assert_unsupported_operation(&config_err);
         assert!(provider_client.as_embedding_capability().is_none());
         assert!(config_client.as_embedding_capability().is_none());
-        assert!(provider_client.as_image_generation_capability().is_some());
-        assert!(config_client.as_image_generation_capability().is_some());
+        assert!(provider_client.as_image_generation_capability().is_none());
+        assert!(config_client.as_image_generation_capability().is_none());
         assert!(provider_client.as_rerank_capability().is_none());
         assert!(config_client.as_rerank_capability().is_none());
         assert_capture_transports_unused(&[
@@ -14629,6 +14691,10 @@ mod openai_compatible_audio_public_path {
     };
     use siumai::provider_ext::mistral::{
         MistralChatOptions, MistralChatRequestExt, MistralReasoningEffort,
+    };
+    use siumai::provider_ext::moonshotai::{
+        MoonshotAIChatOptions, MoonshotAIChatRequestExt, MoonshotAIReasoningHistory,
+        MoonshotAIThinkingConfig, MoonshotAIThinkingType,
     };
     use siumai::provider_ext::openrouter::{
         OpenRouterChatRequestExt, OpenRouterChatResponseExt, OpenRouterOptions,
@@ -17428,6 +17494,233 @@ mod openai_compatible_audio_public_path {
     }
 
     #[tokio::test]
+    async fn fireworks_completion_siumai_provider_config_registry_request_are_equivalent() {
+        let response_json = serde_json::json!({
+            "id": "cmpl-fireworks-test",
+            "object": "text_completion",
+            "created": 1_718_345_013u64,
+            "model": "accounts/fireworks/models/llama-v3-8b-instruct",
+            "choices": [
+                {
+                    "text": "done",
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "accounts/fireworks/models/llama-v3-8b-instruct";
+        let base_url = "https://api.fireworks.ai/inference/v1";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .fireworks()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .fireworks()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client =
+            make_config_client("fireworks", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("fireworks", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .completion_model(&format!("fireworks:{model}"))
+            .expect("build registry fireworks completion model");
+
+        let request = CompletionRequest::from_prompt(vec![
+            ChatMessage::system("Be terse.").build(),
+            ChatMessage::user("Hello").build(),
+            ChatMessage::assistant("Hi").build(),
+            ChatMessage::user("Continue").build(),
+        ])
+        .with_model(model)
+        .with_provider_option("fireworks", serde_json::json!({ "suffix": "!" }));
+
+        let siumai_resp = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete(request.clone())
+            .await
+            .expect("siumai completion ok");
+        let provider_resp = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete(request.clone())
+            .await
+            .expect("provider completion ok");
+        let config_resp = config_client
+            .as_completion_capability()
+            .expect("config completion capability")
+            .complete(request.clone())
+            .await
+            .expect("config completion ok");
+        let registry_resp = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete(request)
+            .await
+            .expect("registry completion ok");
+
+        assert_eq!(siumai_resp.text(), "done");
+        assert_eq!(provider_resp.text(), "done");
+        assert_eq!(config_resp.text(), "done");
+        assert_eq!(registry_resp.text(), "done");
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://api.fireworks.ai/inference/v1/completions"
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["suffix"], serde_json::json!("!"));
+        assert_eq!(
+            siumai_req.body["prompt"],
+            serde_json::json!(
+                "Be terse.\n\nuser:\nHello\n\nassistant:\nHi\n\nuser:\nContinue\n\nassistant:\n"
+            )
+        );
+        assert_eq!(siumai_req.body["stop"], serde_json::json!(["\nuser:"]));
+    }
+
+    #[tokio::test]
+    async fn fireworks_completion_stream_public_paths_keep_raw_chunks_runtime_only() {
+        use futures_util::StreamExt;
+
+        let model = "accounts/fireworks/models/llama-v3-8b-instruct";
+        let stream_body = concat!(
+            "data: {\"id\":\"cmpl-fireworks-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"accounts/fireworks/models/llama-v3-8b-instruct\",\"choices\":[{\"text\":\"hello\",\"index\":0,\"finish_reason\":null}]}\n\n",
+            "data: {\"id\":\"cmpl-fireworks-stream\",\"object\":\"text_completion\",\"created\":1718345013,\"model\":\"accounts/fireworks/models/llama-v3-8b-instruct\",\"choices\":[{\"text\":\" world\",\"index\":0,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4,\"completion_tokens\":2,\"total_tokens\":6}}\n\n",
+            "data: [DONE]\n\n"
+        )
+        .as_bytes()
+        .to_vec();
+
+        let siumai_transport = SseSuccessTransport::new(stream_body.clone());
+        let provider_transport = SseSuccessTransport::new(stream_body.clone());
+        let config_transport = SseSuccessTransport::new(stream_body.clone());
+        let registry_transport = SseSuccessTransport::new(stream_body);
+
+        let base_url = "https://api.fireworks.ai/inference/v1";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .fireworks()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .fireworks()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client =
+            make_config_client("fireworks", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("fireworks", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .completion_model(&format!("fireworks:{model}"))
+            .expect("build registry fireworks completion model");
+
+        let request = make_completion_request_with_model(model).with_include_raw_chunks(true);
+
+        let mut siumai_stream = siumai_client
+            .as_completion_capability()
+            .expect("siumai completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("siumai stream ok");
+        let mut provider_stream = provider_client
+            .as_completion_capability()
+            .expect("provider completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("provider stream ok");
+        let mut config_stream = config_client
+            .as_completion_capability()
+            .expect("config completion capability")
+            .complete_stream(request.clone())
+            .await
+            .expect("config stream ok");
+        let mut registry_stream = registry_model
+            .as_completion_capability()
+            .expect("registry completion capability")
+            .complete_stream(request)
+            .await
+            .expect("registry stream ok");
+
+        while siumai_stream.next().await.is_some() {}
+        while provider_stream.next().await.is_some() {}
+        while config_stream.next().await.is_some() {}
+        while registry_stream.next().await.is_some() {}
+
+        let siumai_req = siumai_transport
+            .take_stream()
+            .expect("siumai stream request");
+        let provider_req = provider_transport
+            .take_stream()
+            .expect("provider stream request");
+        let config_req = config_transport
+            .take_stream()
+            .expect("config stream request");
+        let registry_req = registry_transport
+            .take_stream()
+            .expect("registry stream request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://api.fireworks.ai/inference/v1/completions"
+        );
+        assert_eq!(
+            header_value(&siumai_req, "accept"),
+            Some("text/event-stream".to_string())
+        );
+        assert_eq!(siumai_req.body["stream"], serde_json::json!(true));
+        assert!(siumai_req.body.get("stream_options").is_none());
+        assert!(siumai_req.body.get("includeRawChunks").is_none());
+    }
+
+    #[tokio::test]
     async fn fireworks_siumai_provider_config_embedding_request_options_are_equivalent() {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -18205,6 +18498,172 @@ mod openai_compatible_audio_public_path {
         }
 
         assert_mixed_capture_transports_unused(&[&registry_transport]);
+    }
+
+    #[tokio::test]
+    async fn moonshotai_registry_non_text_family_requests_are_intentionally_unsupported() {
+        let registry_transport = MixedCaptureTransport::default();
+        let registry = make_registry("moonshotai", Arc::new(registry_transport.clone()));
+
+        let embedding_err = match registry.embedding_model("moonshotai:kimi-k2.5") {
+            Ok(_) => panic!("moonshotai registry embedding handle should be unsupported"),
+            Err(err) => err,
+        };
+        let image_err = match registry.image_model("moonshotai:kimi-k2.5") {
+            Ok(_) => panic!("moonshotai registry image handle should be unsupported"),
+            Err(err) => err,
+        };
+        let rerank_err = match registry.reranking_model("moonshotai:kimi-k2.5") {
+            Ok(_) => panic!("moonshotai registry rerank handle should be unsupported"),
+            Err(err) => err,
+        };
+        let speech_err = match registry.speech_model("moonshotai:kimi-k2.5") {
+            Ok(_) => panic!("moonshotai registry speech handle should be unsupported"),
+            Err(err) => err,
+        };
+        let transcription_err = match registry.transcription_model("moonshotai:kimi-k2.5") {
+            Ok(_) => panic!("moonshotai registry transcription handle should be unsupported"),
+            Err(err) => err,
+        };
+
+        for err in [
+            embedding_err,
+            image_err,
+            rerank_err,
+            speech_err,
+            transcription_err,
+        ] {
+            assert_unsupported_operation(&err);
+        }
+
+        assert_mixed_capture_transports_unused(&[&registry_transport]);
+    }
+
+    #[tokio::test]
+    async fn moonshotai_public_completion_family_is_intentionally_unsupported() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "kimi-k2.5";
+
+        let siumai_client = Siumai::builder()
+            .moonshotai()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai moonshotai client");
+
+        let provider_client = Provider::moonshotai()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider moonshotai client");
+
+        let config_client =
+            make_config_client("moonshotai", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("moonshotai", Arc::new(registry_transport.clone()));
+
+        assert!(!siumai_client.capabilities().supports("completion"));
+        assert!(!provider_client.capabilities().supports("completion"));
+        assert!(!config_client.capabilities().supports("completion"));
+        assert!(siumai_client.as_completion_capability().is_none());
+        assert!(provider_client.as_completion_capability().is_none());
+        assert!(config_client.as_completion_capability().is_none());
+
+        let completion_err = match registry.completion_model(&format!("moonshotai:{model}")) {
+            Ok(_) => panic!("moonshotai registry completion handle should be unsupported"),
+            Err(err) => err,
+        };
+
+        assert_unsupported_operation(&completion_err);
+        assert_capture_transports_unused(&[
+            &siumai_transport,
+            &provider_transport,
+            &config_transport,
+            &registry_transport,
+        ]);
+    }
+
+    #[tokio::test]
+    async fn moonshotai_top_level_builder_chat_request_matches_config_registry_path() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "kimi-k2-thinking";
+
+        let siumai_client = Siumai::builder()
+            .moonshotai()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai moonshotai client");
+
+        let provider_client = Provider::moonshotai()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider moonshotai client");
+
+        let config_client =
+            make_config_client("moonshotai", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("moonshotai", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model(&format!("moonshotai:{model}"))
+            .expect("build registry moonshotai model");
+
+        let request = make_chat_request_with_model(model).with_moonshotai_options(
+            MoonshotAIChatOptions::new()
+                .with_thinking(
+                    MoonshotAIThinkingConfig::new()
+                        .with_type(MoonshotAIThinkingType::Enabled)
+                        .with_budget_tokens(2048),
+                )
+                .with_reasoning_history(MoonshotAIReasoningHistory::Interleaved),
+        );
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://api.moonshot.ai/v1/chat/completions"
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["reasoning_history"],
+            serde_json::json!("interleaved")
+        );
+        assert_eq!(
+            siumai_req.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+        assert!(siumai_req.body.get("reasoningHistory").is_none());
+        assert!(siumai_req.body["thinking"].get("budgetTokens").is_none());
     }
 
     #[tokio::test]
@@ -22388,6 +22847,149 @@ data: [DONE]
         );
         assert_eq!(siumai_req.body["enable_reasoning"], serde_json::json!(true));
         assert_eq!(siumai_req.body["reasoning_budget"], serde_json::json!(1536));
+    }
+
+    #[tokio::test]
+    async fn openrouter_tool_call_thought_signature_response_is_equivalent_across_public_paths() {
+        let model = "google/gemini-2.0-flash-001";
+        let response_json = serde_json::json!({
+            "id": "chatcmpl-openrouter-thought-signature",
+            "object": "chat.completion",
+            "created": 1_741_392_000,
+            "model": model,
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {
+                                "id": "call_weather",
+                                "type": "function",
+                                "function": {
+                                    "name": "get_weather",
+                                    "arguments": "{\"city\":\"Tokyo\"}"
+                                },
+                                "extra_content": {
+                                    "google": {
+                                        "thought_signature": "<Signature A>"
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                    "finish_reason": "tool_calls"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 8,
+                "completion_tokens": 4,
+                "total_tokens": 12
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .openrouter()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .openrouter()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client =
+            make_config_client("openrouter", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("openrouter", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model(&format!("openrouter:{model}"))
+            .expect("build registry language model");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_openrouter_options(
+                OpenRouterOptions::new().with_transform(OpenRouterTransform::MiddleOut),
+            );
+
+        let siumai_resp = siumai_client
+            .chat_request(request.clone())
+            .await
+            .expect("siumai response ok");
+        let provider_resp = provider_client
+            .chat_request(request.clone())
+            .await
+            .expect("provider response ok");
+        let config_resp = config_client
+            .chat_request(request.clone())
+            .await
+            .expect("config response ok");
+        let registry_resp = registry_model
+            .chat_request(request)
+            .await
+            .expect("registry response ok");
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_eq!(
+                response.finish_reason,
+                Some(siumai::prelude::unified::FinishReason::ToolCalls)
+            );
+            assert_eq!(response.tool_calls().len(), 1);
+
+            let response_root = response
+                .provider_metadata
+                .as_ref()
+                .expect("response provider metadata");
+            assert!(response_root.get("openrouter").is_some());
+            assert!(response_root.get("openai_compatible").is_none());
+
+            let tool_call = serde_json::to_value(response.tool_calls()[0]).expect("tool call json");
+            assert_eq!(tool_call["toolCallId"], serde_json::json!("call_weather"));
+            assert_eq!(tool_call["toolName"], serde_json::json!("get_weather"));
+            assert_eq!(tool_call["input"], serde_json::json!({ "city": "Tokyo" }));
+            assert_eq!(
+                tool_call["providerMetadata"]["openrouter"]["thoughtSignature"],
+                serde_json::json!("<Signature A>")
+            );
+            assert!(
+                tool_call["providerMetadata"]
+                    .get("openai_compatible")
+                    .is_none()
+            );
+        }
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(
+            siumai_req.body["transforms"],
+            serde_json::json!(["middle-out"])
+        );
     }
 
     #[tokio::test]
@@ -30657,6 +31259,7 @@ mod minimaxi_public_path {
             prompt: "a tiny green robot".to_string(),
             negative_prompt: Some("blurry".to_string()),
             size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
             count: 1,
             model: Some("image-01".to_string()),
             quality: None,
@@ -32449,6 +33052,7 @@ mod minimaxi_public_path {
                 prompt: "a tiny green robot".to_string(),
                 negative_prompt: Some("blurry".to_string()),
                 size: Some("1024x1024".to_string()),
+                aspect_ratio: None,
                 count: 1,
                 model: Some("image-01".to_string()),
                 quality: None,
@@ -32672,15 +33276,17 @@ mod minimaxi_public_path {
 #[cfg(feature = "bedrock")]
 mod bedrock_public_path {
     use super::*;
+    use futures_util::StreamExt;
     use reqwest::header::AUTHORIZATION;
     use siumai::experimental::client::LlmClient;
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
-        EmbeddingExtensions, EmbeddingRequest, FinishReason, ResponseFormat, Tool, ToolChoice,
+        ChatStreamEvent, EmbeddingExtensions, EmbeddingRequest, FinishReason, ResponseFormat, Tool,
+        ToolChoice,
     };
     use siumai::provider_ext::bedrock::{
-        BedrockChatOptions, BedrockChatRequestExt, BedrockChatResponseExt, BedrockRerankOptions,
-        BedrockRerankRequestExt,
+        BedrockChatOptions, BedrockChatRequestExt, BedrockChatResponseExt, BedrockEmbeddingOptions,
+        BedrockEmbeddingRequestExt, BedrockRerankOptions, BedrockRerankRequestExt,
     };
     use siumai::registry::ProviderBuildOverrides;
 
@@ -33763,6 +34369,102 @@ mod bedrock_public_path {
     }
 
     #[tokio::test]
+    async fn bedrock_clean_eof_stream_end_keeps_reserved_json_text_on_public_path() {
+        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
+        let model = "anthropic.claude-3-haiku-20240307-v1:0";
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "value": { "type": "string" }
+            },
+            "required": ["value"],
+            "additionalProperties": false
+        });
+
+        let stream_body = concat!(
+            "{\"contentBlockStart\":{\"contentBlockIndex\":0,\"start\":{\"toolUse\":{\"toolUseId\":\"json-tool-id\",\"name\":\"json\"}}}}\n",
+            "{\"contentBlockDelta\":{\"contentBlockIndex\":0,\"delta\":{\"toolUse\":{\"input\":\"{\\\"value\\\":\\\"test\\\"}\"}}}}\n",
+            "{\"contentBlockStop\":{\"contentBlockIndex\":0}}\n",
+            "{\"metadata\":{\"usage\":{\"inputTokens\":15,\"outputTokens\":42,\"totalTokens\":57}}}\n"
+        )
+        .as_bytes()
+        .to_vec();
+
+        let transport = JsonStreamSuccessTransport::new(stream_body);
+        let client = Siumai::builder()
+            .bedrock()
+            .api_key("test-key")
+            .base_url(runtime_base_url)
+            .model(model)
+            .fetch(Arc::new(transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let request = make_chat_request_with_model(model)
+            .with_response_format(ResponseFormat::json_schema(schema));
+
+        let mut stream = client
+            .chat_stream_request(request)
+            .await
+            .expect("siumai stream ok");
+
+        let mut stream_end = None;
+        let mut saw_text_delta = false;
+        let mut saw_json_tool_call = false;
+        while let Some(event) = stream.next().await {
+            if let Ok(event) = event {
+                match event {
+                    ChatStreamEvent::Part {
+                        part: siumai::prelude::unified::ChatStreamPart::TextDelta { delta, .. },
+                    } => {
+                        if delta == "{\"value\":\"test\"}" {
+                            saw_text_delta = true;
+                        }
+                    }
+                    ChatStreamEvent::Part {
+                        part: siumai::prelude::unified::ChatStreamPart::ToolCall(tool_call),
+                    } => {
+                        if tool_call.tool_name == "json" {
+                            saw_json_tool_call = true;
+                        }
+                    }
+                    ChatStreamEvent::StreamEnd { response } => {
+                        stream_end = Some(response);
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        let response = stream_end.expect("stream end response");
+        assert_eq!(response.finish_reason, Some(FinishReason::Unknown));
+        assert_eq!(
+            response.text().as_deref(),
+            Some("{\"value\":\"test\"}"),
+            "unexpected bedrock stream-end content: {:?}, saw_text_delta={}, saw_json_tool_call={}",
+            response.content,
+            saw_text_delta,
+            saw_json_tool_call
+        );
+        assert!(
+            saw_text_delta,
+            "expected clean EOF stream to emit text delta"
+        );
+        assert!(
+            !saw_json_tool_call,
+            "reserved JSON output should not surface as a public tool call"
+        );
+        assert_eq!(
+            response
+                .bedrock_metadata()
+                .and_then(|metadata| metadata.is_json_response_from_tool),
+            Some(true)
+        );
+    }
+
+    #[tokio::test]
     async fn bedrock_structured_output_reserved_json_stream_fails_consistently_across_public_paths()
     {
         let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
@@ -34249,9 +34951,9 @@ mod bedrock_public_path {
     #[cfg(feature = "bedrock")]
     #[cfg(feature = "bedrock")]
     #[tokio::test]
-    async fn bedrock_siumai_provider_config_embedding_request_is_intentionally_unsupported() {
+    async fn bedrock_siumai_provider_config_embedding_request_are_equivalent() {
         let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
-        let model = "anthropic.claude-3-haiku-20240307-v1:0";
+        let model = "amazon.titan-embed-text-v2:0";
 
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -34284,45 +34986,109 @@ mod bedrock_public_path {
         )
         .expect("build config client");
 
-        let request = EmbeddingRequest::single("bedrock embedding boundary").with_model(model);
+        let request = EmbeddingRequest::single("bedrock embedding boundary")
+            .with_model(model)
+            .with_bedrock_embedding_options(
+                BedrockEmbeddingOptions::new()
+                    .with_dimensions(512)
+                    .with_normalize(true),
+            );
 
-        let siumai_err = siumai_client
-            .embed_with_config(request)
-            .await
-            .expect_err("bedrock embedding should be unsupported");
+        let _ = siumai_client.embed_with_config(request.clone()).await;
+        let _ = provider_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request).await;
 
-        assert!(matches!(siumai_err, LlmError::UnsupportedOperation(_)));
-        assert!(provider_client.as_embedding_capability().is_none());
-        assert!(config_client.as_embedding_capability().is_none());
-        assert!(siumai_transport.take().is_none());
-        assert!(provider_transport.take().is_none());
-        assert!(config_transport.take().is_none());
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert!(provider_client.as_embedding_capability().is_some());
+        assert!(config_client.as_embedding_capability().is_some());
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.titan-embed-text-v2%3A0/invoke"
+        );
+        assert_eq!(
+            siumai_req.body,
+            serde_json::json!({
+                "inputText": "bedrock embedding boundary",
+                "dimensions": 512,
+                "normalize": true
+            })
+        );
     }
 
     #[tokio::test]
-    async fn bedrock_registry_embedding_request_is_intentionally_unsupported() {
+    async fn bedrock_registry_embedding_request_matches_config_path() {
         let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
-        let registry_transport = CaptureTransport::default();
-        let registry = make_registry(Arc::new(registry_transport.clone()), runtime_base_url);
-        let err = match registry.embedding_model("bedrock:anthropic.claude-3-haiku-20240307-v1:0") {
-            Ok(_) => panic!("bedrock registry embedding handle should be unsupported"),
-            Err(err) => err,
-        };
-
-        assert_unsupported_operation(&err);
-        assert!(registry_transport.take().is_none());
-    }
-
-    #[cfg(feature = "bedrock")]
-    #[cfg(feature = "bedrock")]
-    #[tokio::test]
-    async fn bedrock_siumai_provider_config_image_request_is_intentionally_unsupported() {
-        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
-        let model = "anthropic.claude-3-haiku-20240307-v1:0";
-
-        let siumai_transport = CaptureTransport::default();
-        let provider_transport = CaptureTransport::default();
+        let model = "amazon.titan-embed-text-v2:0";
         let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let config_client = siumai::provider_ext::bedrock::BedrockClient::from_config(
+            siumai::provider_ext::bedrock::BedrockConfig::new()
+                .with_api_key("test-key")
+                .with_base_url(runtime_base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), runtime_base_url);
+        let registry_model = registry
+            .embedding_model("bedrock:amazon.titan-embed-text-v2:0")
+            .expect("build registry embedding handle");
+
+        let request = EmbeddingRequest::single("bedrock embedding boundary")
+            .with_model(model)
+            .with_bedrock_embedding_options(
+                BedrockEmbeddingOptions::new()
+                    .with_dimensions(512)
+                    .with_normalize(true),
+            );
+
+        let _ = config_client.embed_with_config(request.clone()).await;
+        let _ = registry_model.embed_with_config(request).await;
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_eq!(
+            registry_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            registry_req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.titan-embed-text-v2%3A0/invoke"
+        );
+        assert_eq!(
+            registry_req.body,
+            serde_json::json!({
+                "inputText": "bedrock embedding boundary",
+                "dimensions": 512,
+                "normalize": true
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn bedrock_siumai_provider_config_image_request_are_equivalent() {
+        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
+        let model = "amazon.nova-canvas-v1:0";
+        let response_json = serde_json::json!({
+            "images": ["aGVsbG8="]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json);
 
         let siumai_client = Siumai::builder()
             .bedrock()
@@ -34337,7 +35103,7 @@ mod bedrock_public_path {
         let provider_client = Provider::bedrock()
             .api_key("test-key")
             .base_url(runtime_base_url)
-            .model(model)
+            .image_model(model)
             .fetch(Arc::new(provider_transport.clone()))
             .build()
             .expect("build provider client");
@@ -34353,48 +35119,155 @@ mod bedrock_public_path {
 
         let request = ImageGenerationRequest {
             prompt: "a tiny silver robot".to_string(),
-            negative_prompt: None,
+            negative_prompt: Some("blurry".to_string()),
             size: Some("1024x1024".to_string()),
             aspect_ratio: None,
-            count: 1,
+            count: 2,
             model: Some(model.to_string()),
-            quality: None,
-            style: None,
-            seed: None,
+            quality: Some("premium".to_string()),
+            style: Some("photographic".to_string()),
+            seed: Some(7),
             steps: None,
-            guidance_scale: None,
+            guidance_scale: Some(6.5),
             enhance_prompt: None,
-            response_format: Some("url".to_string()),
+            response_format: Some("b64_json".to_string()),
             extra_params: Default::default(),
             provider_options_map: Default::default(),
             http_config: None,
         };
 
-        let siumai_err = siumai_client
+        let siumai_resp = siumai_client
+            .generate_images(request.clone())
+            .await
+            .expect("siumai image generation ok");
+        let provider_resp = provider_client
+            .generate_images(request.clone())
+            .await
+            .expect("provider image generation ok");
+        let config_resp = config_client
             .generate_images(request)
             .await
-            .expect_err("bedrock image generation should be unsupported");
+            .expect("config image generation ok");
 
-        assert!(matches!(siumai_err, LlmError::UnsupportedOperation(_)));
-        assert!(provider_client.as_image_generation_capability().is_none());
-        assert!(config_client.as_image_generation_capability().is_none());
-        assert!(siumai_transport.take().is_none());
-        assert!(provider_transport.take().is_none());
-        assert!(config_transport.take().is_none());
+        assert!(provider_client.as_image_generation_capability().is_some());
+        assert!(config_client.as_image_generation_capability().is_some());
+        assert_eq!(siumai_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            provider_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(config_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-canvas-v1%3A0/invoke"
+        );
+        assert_eq!(
+            siumai_req.body,
+            serde_json::json!({
+                "taskType": "TEXT_IMAGE",
+                "textToImageParams": {
+                    "text": "a tiny silver robot",
+                    "negativeText": "blurry",
+                    "style": "photographic"
+                },
+                "imageGenerationConfig": {
+                    "width": 1024,
+                    "height": 1024,
+                    "seed": 7,
+                    "numberOfImages": 2,
+                    "quality": "premium",
+                    "cfgScale": 6.5
+                }
+            })
+        );
     }
 
     #[tokio::test]
-    async fn bedrock_registry_image_request_is_intentionally_unsupported() {
+    async fn bedrock_registry_image_request_matches_config_path() {
         let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
-        let registry_transport = CaptureTransport::default();
+        let model = "amazon.nova-canvas-v1:0";
+        let response_json = serde_json::json!({
+            "images": ["aGVsbG8="]
+        });
+
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let config_client = siumai::provider_ext::bedrock::BedrockClient::from_config(
+            siumai::provider_ext::bedrock::BedrockConfig::new()
+                .with_api_key("test-key")
+                .with_base_url(runtime_base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
         let registry = make_registry(Arc::new(registry_transport.clone()), runtime_base_url);
-        let err = match registry.image_model("bedrock:anthropic.claude-3-haiku-20240307-v1:0") {
-            Ok(_) => panic!("bedrock registry image handle should be unsupported"),
-            Err(err) => err,
+        let registry_model = registry
+            .image_model("bedrock:amazon.nova-canvas-v1:0")
+            .expect("build registry image model");
+
+        let request = ImageGenerationRequest {
+            prompt: "a tiny silver robot".to_string(),
+            negative_prompt: Some("blurry".to_string()),
+            size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
+            count: 2,
+            model: Some(model.to_string()),
+            quality: Some("premium".to_string()),
+            style: Some("photographic".to_string()),
+            seed: Some(7),
+            steps: None,
+            guidance_scale: Some(6.5),
+            enhance_prompt: None,
+            response_format: Some("b64_json".to_string()),
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
         };
 
-        assert_unsupported_operation(&err);
-        assert!(registry_transport.take().is_none());
+        let config_resp = config_client
+            .generate_images(request.clone())
+            .await
+            .expect("config image generation ok");
+        let registry_resp = registry_model
+            .generate_images(request)
+            .await
+            .expect("registry image generation ok");
+
+        assert_eq!(config_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            registry_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&config_req, &registry_req);
+        assert_eq!(
+            registry_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            registry_req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.nova-canvas-v1%3A0/invoke"
+        );
+        assert_eq!(
+            registry_req.body["taskType"],
+            serde_json::json!("TEXT_IMAGE")
+        );
     }
 }
 
@@ -37709,9 +38582,9 @@ mod vertex_public_path {
 
     #[cfg(feature = "bedrock")]
     #[tokio::test]
-    async fn bedrock_siumai_provider_config_embedding_request_is_intentionally_unsupported() {
+    async fn bedrock_siumai_provider_config_embedding_request_are_equivalent() {
         let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
-        let model = "anthropic.claude-3-haiku-20240307-v1:0";
+        let model = "amazon.titan-embed-text-v2:0";
 
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
@@ -37744,87 +38617,42 @@ mod vertex_public_path {
         )
         .expect("build config client");
 
-        let request = EmbeddingRequest::single("bedrock embedding boundary").with_model(model);
+        let request = EmbeddingRequest::single("bedrock embedding boundary")
+            .with_model(model)
+            .with_bedrock_embedding_options(
+                BedrockEmbeddingOptions::new()
+                    .with_dimensions(512)
+                    .with_normalize(true),
+            );
 
-        let siumai_err = siumai_client
-            .embed_with_config(request)
-            .await
-            .expect_err("bedrock embedding should be unsupported");
+        let _ = siumai_client.embed_with_config(request.clone()).await;
+        let _ = provider_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request).await;
 
-        assert!(matches!(siumai_err, LlmError::UnsupportedOperation(_)));
-        assert!(provider_client.as_embedding_capability().is_none());
-        assert!(config_client.as_embedding_capability().is_none());
-        assert!(siumai_transport.take().is_none());
-        assert!(provider_transport.take().is_none());
-        assert!(config_transport.take().is_none());
-    }
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
 
-    #[cfg(feature = "bedrock")]
-    #[tokio::test]
-    async fn bedrock_siumai_provider_config_image_request_is_intentionally_unsupported() {
-        let runtime_base_url = "https://bedrock-runtime.us-east-1.amazonaws.com";
-        let model = "anthropic.claude-3-haiku-20240307-v1:0";
-
-        let siumai_transport = CaptureTransport::default();
-        let provider_transport = CaptureTransport::default();
-        let config_transport = CaptureTransport::default();
-
-        let siumai_client = Siumai::builder()
-            .bedrock()
-            .api_key("test-key")
-            .base_url(runtime_base_url)
-            .model(model)
-            .fetch(Arc::new(siumai_transport.clone()))
-            .build()
-            .await
-            .expect("build siumai client");
-
-        let provider_client = Provider::bedrock()
-            .api_key("test-key")
-            .base_url(runtime_base_url)
-            .model(model)
-            .fetch(Arc::new(provider_transport.clone()))
-            .build()
-            .expect("build provider client");
-
-        let config_client = siumai::provider_ext::bedrock::BedrockClient::from_config(
-            siumai::provider_ext::bedrock::BedrockConfig::new()
-                .with_api_key("test-key")
-                .with_base_url(runtime_base_url)
-                .with_model(model)
-                .with_http_transport(Arc::new(config_transport.clone())),
-        )
-        .expect("build config client");
-
-        let request = ImageGenerationRequest {
-            prompt: "a tiny silver robot".to_string(),
-            negative_prompt: None,
-            size: Some("1024x1024".to_string()),
-            count: 1,
-            model: Some(model.to_string()),
-            quality: None,
-            style: None,
-            seed: None,
-            steps: None,
-            guidance_scale: None,
-            enhance_prompt: None,
-            response_format: Some("url".to_string()),
-            extra_params: Default::default(),
-            provider_options_map: Default::default(),
-            http_config: None,
-        };
-
-        let siumai_err = siumai_client
-            .generate_images(request)
-            .await
-            .expect_err("bedrock image generation should be unsupported");
-
-        assert!(matches!(siumai_err, LlmError::UnsupportedOperation(_)));
-        assert!(provider_client.as_image_generation_capability().is_none());
-        assert!(config_client.as_image_generation_capability().is_none());
-        assert!(siumai_transport.take().is_none());
-        assert!(provider_transport.take().is_none());
-        assert!(config_transport.take().is_none());
+        assert!(provider_client.as_embedding_capability().is_some());
+        assert!(config_client.as_embedding_capability().is_some());
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_eq!(
+            siumai_req.headers.get(AUTHORIZATION).unwrap(),
+            "Bearer test-key"
+        );
+        assert_eq!(
+            siumai_req.url,
+            "https://bedrock-runtime.us-east-1.amazonaws.com/model/amazon.titan-embed-text-v2%3A0/invoke"
+        );
+        assert_eq!(
+            siumai_req.body,
+            serde_json::json!({
+                "inputText": "bedrock embedding boundary",
+                "dimensions": 512,
+                "normalize": true
+            })
+        );
     }
 
     #[tokio::test]
@@ -40618,7 +41446,15 @@ mod vertex_public_path {
             provider_options_map: Default::default(),
             http_config: None,
         }
-        .with_vertex_imagen_options(VertexImagenOptions::new().with_negative_prompt("blurry"));
+        .with_vertex_imagen_options(
+            VertexImagenOptions::new()
+                .with_negative_prompt("blurry")
+                .with_person_generation("allow_adult")
+                .with_safety_setting("block_medium_and_above")
+                .with_add_watermark(false)
+                .with_storage_uri("gs://bucket/images/")
+                .with_sample_image_size("2K"),
+        );
 
         let _ = siumai_client.generate_images(request.clone()).await;
         let _ = provider_client.generate_images(request.clone()).await;
@@ -40799,6 +41635,26 @@ mod vertex_public_path {
         assert_eq!(
             req.body["parameters"]["negativePrompt"],
             serde_json::json!("blurry")
+        );
+        assert_eq!(
+            req.body["parameters"]["personGeneration"],
+            serde_json::json!("allow_adult")
+        );
+        assert_eq!(
+            req.body["parameters"]["safetySetting"],
+            serde_json::json!("block_medium_and_above")
+        );
+        assert_eq!(
+            req.body["parameters"]["addWatermark"],
+            serde_json::json!(false)
+        );
+        assert_eq!(
+            req.body["parameters"]["storageUri"],
+            serde_json::json!("gs://bucket/images/")
+        );
+        assert_eq!(
+            req.body["parameters"]["sampleImageSize"],
+            serde_json::json!("2K")
         );
     }
 
@@ -41051,7 +41907,15 @@ mod vertex_public_path {
             .expect("build registry image model");
 
         let request = make_data_url_image_variation_request_with_model(model)
-            .with_vertex_imagen_options(VertexImagenOptions::new().with_negative_prompt("blurry"));
+            .with_vertex_imagen_options(
+                VertexImagenOptions::new()
+                    .with_negative_prompt("blurry")
+                    .with_person_generation("allow_adult")
+                    .with_safety_setting("block_medium_and_above")
+                    .with_add_watermark(false)
+                    .with_storage_uri("gs://bucket/images/")
+                    .with_sample_image_size("2K"),
+            );
 
         let siumai_resp = siumai_client
             .create_variation(request.clone())

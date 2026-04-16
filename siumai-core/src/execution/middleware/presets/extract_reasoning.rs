@@ -291,6 +291,7 @@ mod tests {
             model: Some("test-model".to_string()),
             usage: Some(Usage::new(10, 20)),
             finish_reason: Some(FinishReason::Stop),
+            raw_finish_reason: None,
             system_fingerprint: None,
             service_tier: None,
             audio: None,

@@ -7,8 +7,15 @@ use std::pin::Pin;
 
 use axum::response::sse::{Event, Sse};
 use futures::{Stream, StreamExt};
+use serde::Serialize;
 
 use siumai::prelude::unified::{ChatStream, ChatStreamEvent, LlmError};
+
+#[derive(Serialize)]
+struct SsePartEnvelope<'a> {
+    part: &'a siumai::prelude::unified::ChatStreamPart,
+    replay: Option<&'a siumai::prelude::unified::ChatStreamReplay>,
+}
 
 /// Options for SSE encoding.
 ///
@@ -88,6 +95,15 @@ impl SseOptions {
     }
 }
 
+fn encode_part_event(
+    part: &siumai::prelude::unified::ChatStreamPart,
+    replay: Option<&siumai::prelude::unified::ChatStreamReplay>,
+) -> Event {
+    let data = serde_json::to_string(&SsePartEnvelope { part, replay })
+        .unwrap_or_else(|_| "{}".to_string());
+    Event::default().event("part").data(data)
+}
+
 /// Convert a `ChatStream` into an Axum SSE response.
 pub fn to_sse_response(
     stream: ChatStream,
@@ -129,17 +145,9 @@ pub fn to_sse_response(
                 let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
                 Some(Event::default().event("reasoning").data(data_str))
             }
-            Ok(ChatStreamEvent::Part { part }) => {
-                let data = serde_json::to_string(&part).unwrap_or_else(|_| "{}".to_string());
-                Some(Event::default().event("part").data(data))
-            }
+            Ok(ChatStreamEvent::Part { part }) => Some(encode_part_event(&part, None)),
             Ok(ChatStreamEvent::PartWithReplay { part, replay }) => {
-                let data = serde_json::json!({
-                    "part": part,
-                    "replay": replay,
-                });
-                let data_str = serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string());
-                Some(Event::default().event("part").data(data_str))
+                Some(encode_part_event(&part, Some(&replay)))
             }
             Ok(ChatStreamEvent::UsageUpdate { usage }) => {
                 if opts.include_usage {
@@ -206,6 +214,13 @@ pub fn to_text_stream(
     let text_stream = stream.filter_map(|item| async move {
         match item {
             Ok(ChatStreamEvent::ContentDelta { delta, .. }) => Some(Ok(delta)),
+            Ok(ChatStreamEvent::Part {
+                part: siumai::prelude::unified::ChatStreamPart::TextDelta { delta, .. },
+            })
+            | Ok(ChatStreamEvent::PartWithReplay {
+                part: siumai::prelude::unified::ChatStreamPart::TextDelta { delta, .. },
+                ..
+            }) => Some(Ok(delta)),
             Ok(ChatStreamEvent::Error { error }) => Some(Ok(format!("\n[Error: {}]\n", error))),
             Err(e) => Some(Ok(format!("\n[Error: {}]\n", e.user_message()))),
             _ => None,
@@ -218,8 +233,19 @@ pub fn to_text_stream(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::response::IntoResponse;
     use futures::stream;
-    use siumai::prelude::unified::{ChatResponse, MessageContent, ResponseMetadata, Usage};
+    use siumai::prelude::unified::{
+        ChatResponse, ChatStreamPart, ChatStreamReplay, MessageContent, ResponseMetadata, Usage,
+    };
+
+    async fn sse_body_text(stream: ChatStream, opts: SseOptions) -> String {
+        let resp = to_sse_response(stream, opts).into_response();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        String::from_utf8(body.to_vec()).expect("utf8")
+    }
 
     #[tokio::test]
     async fn test_to_sse_response_basic() {
@@ -250,7 +276,11 @@ mod tests {
         ];
 
         let chat_stream: ChatStream = Box::pin(stream::iter(events));
-        let _sse = to_sse_response(chat_stream, SseOptions::default());
+        let text = sse_body_text(chat_stream, SseOptions::default()).await;
+        assert!(text.contains("event: start"));
+        assert!(text.contains("event: delta"));
+        assert!(text.contains("event: usage"));
+        assert!(text.contains("event: end"));
     }
 
     #[tokio::test]
@@ -274,5 +304,84 @@ mod tests {
             out.push_str(&item.unwrap());
         }
         assert_eq!(out, "Hello world");
+    }
+
+    #[tokio::test]
+    async fn test_to_text_stream_reads_stable_text_delta_parts() {
+        let events = vec![
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: "Hello".to_string(),
+                    provider_metadata: None,
+                },
+            }),
+            Ok(ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: " world".to_string(),
+                    provider_metadata: None,
+                },
+                replay: ChatStreamReplay::openai_responses(Some(1), None).expect("replay"),
+            }),
+        ];
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(events));
+        let mut text_stream = to_text_stream(chat_stream);
+
+        let mut out = String::new();
+        while let Some(item) = text_stream.next().await {
+            out.push_str(&item.unwrap());
+        }
+        assert_eq!(out, "Hello world");
+    }
+
+    #[tokio::test]
+    async fn test_to_sse_response_wraps_part_events_in_stable_envelope() {
+        let events = vec![Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "txt_1".to_string(),
+                delta: "hello".to_string(),
+                provider_metadata: None,
+            },
+        })];
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(events));
+        let text = sse_body_text(chat_stream, SseOptions::minimal()).await;
+
+        assert!(text.contains("event: part"));
+        assert!(text.contains(
+            r#"data: {"part":{"type":"text-delta","id":"txt_1","delta":"hello"},"replay":null}"#
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_to_sse_response_keeps_replay_inside_same_part_envelope() {
+        let events = vec![Ok(ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::ToolCall(siumai::prelude::unified::ChatStreamToolCall {
+                tool_call_id: "call_1".to_string(),
+                tool_name: "web_search".to_string(),
+                input: "{}".to_string(),
+                provider_executed: Some(true),
+                dynamic: Some(true),
+                provider_metadata: None,
+            }),
+            replay: ChatStreamReplay::openai_responses(
+                Some(3),
+                Some(serde_json::json!({ "id": "fc_1" })),
+            )
+            .expect("replay"),
+        })];
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(events));
+        let text = sse_body_text(chat_stream, SseOptions::minimal()).await;
+
+        assert!(text.contains("event: part"));
+        assert!(text.contains(r#""part":{"type":"tool-call","toolCallId":"call_1","toolName":"web_search","input":"{}","providerExecuted":true,"dynamic":true}"#));
+        assert!(
+            text.contains(
+                r#""replay":{"openaiResponses":{"outputIndex":3,"rawItem":{"id":"fc_1"}}}"#
+            )
+        );
     }
 }

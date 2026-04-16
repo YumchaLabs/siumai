@@ -47,6 +47,14 @@ fn merge_warnings(
     resp
 }
 
+fn google_image_max_images_per_call(model_id: &str) -> u32 {
+    if model_id.starts_with("gemini-") {
+        10
+    } else {
+        4
+    }
+}
+
 #[async_trait]
 impl ImageGenerationCapability for GeminiClient {
     async fn generate_images(
@@ -86,6 +94,10 @@ impl ImageGenerationCapability for GeminiClient {
 
         let resp = ImageExecutor::execute(&*exec, request).await?;
         Ok(merge_warnings(resp, parity_warnings))
+    }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        Some(google_image_max_images_per_call(self.config.model.as_str()))
     }
 }
 

@@ -23,6 +23,7 @@ use crate::retry_api::RetryOptions;
 // Split capability implementations into focused submodules (no API change)
 mod audio;
 mod chat;
+mod completion;
 mod embedding;
 mod files;
 mod image;
@@ -190,6 +191,16 @@ impl OpenAiClient {
     /// Get a provider-specific files client.
     pub fn files(&self) -> super::OpenAiFiles {
         super::OpenAiFiles::new(
+            self.resource_config(),
+            self.http_client.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
+
+    /// Get a provider-specific skills client.
+    pub fn skills(&self) -> super::OpenAiSkills {
+        super::OpenAiSkills::new(
             self.resource_config(),
             self.http_client.clone(),
             self.http_interceptors.clone(),
@@ -760,6 +771,7 @@ impl LlmProvider for OpenAiClient {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::new()
             .with_chat()
+            .with_completion()
             .with_streaming()
             .with_tools()
             .with_vision()
@@ -767,6 +779,7 @@ impl LlmProvider for OpenAiClient {
             .with_embedding()
             .with_image_generation()
             .with_file_management()
+            .with_custom_feature("skills", true)
             .with_custom_feature("moderation", true)
             .with_custom_feature("model_listing", true)
             .with_custom_feature("structured_output", true)
@@ -813,6 +826,10 @@ impl LlmClient for OpenAiClient {
         Some(self)
     }
 
+    fn as_completion_capability(&self) -> Option<&dyn CompletionCapability> {
+        Some(self)
+    }
+
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         Some(self)
     }
@@ -854,6 +871,10 @@ impl LlmClient for OpenAiClient {
     fn as_file_management_capability(
         &self,
     ) -> Option<&dyn crate::traits::FileManagementCapability> {
+        Some(self)
+    }
+
+    fn as_skills_capability(&self) -> Option<&dyn crate::traits::SkillsCapability> {
         Some(self)
     }
 

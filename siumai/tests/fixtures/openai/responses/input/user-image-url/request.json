@@ -5,9 +5,8 @@
       "content": {
         "MultiModal": [
           {
-            "type": "file",
-            "url": "https://example.com/image.jpg",
-            "media_type": "image/*"
+            "type": "image",
+            "url": "https://example.com/image.jpg"
           }
         ]
       },

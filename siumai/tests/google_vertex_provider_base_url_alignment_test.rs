@@ -129,3 +129,23 @@ async fn vertex_builder_uses_custom_base_url_when_provided() {
 
     assert_eq!(inner.base_url(), "https://custom-endpoint.example.com");
 }
+
+#[tokio::test]
+async fn vertex_builder_requires_explicit_model_id() {
+    let _g1 = EnvGuard::remove("GOOGLE_VERTEX_API_KEY");
+    let _g2 = EnvGuard::remove("GOOGLE_VERTEX_PROJECT");
+    let _g3 = EnvGuard::remove("GOOGLE_VERTEX_LOCATION");
+
+    let result = Siumai::builder()
+        .vertex()
+        .api_key("test-api-key")
+        .build()
+        .await;
+    assert!(result.is_err(), "missing model should be an error");
+
+    let msg = result.err().unwrap().to_string();
+    assert!(
+        msg.contains("Google Vertex requires an explicit model id"),
+        "unexpected error: {msg}"
+    );
+}

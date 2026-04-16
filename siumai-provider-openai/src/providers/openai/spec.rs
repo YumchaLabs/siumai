@@ -315,12 +315,14 @@ impl ProviderSpec for OpenAiSpec {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::new()
             .with_chat()
+            .with_completion()
             .with_streaming()
             .with_tools()
             .with_embedding()
             .with_audio()
             .with_file_management()
             .with_image_generation()
+            .with_custom_feature("skills", true)
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {

@@ -58,3 +58,6 @@ groq = [
     "siumai-protocol-openai/openai-standard",
     "siumai-provider-openai-compatible/openai-standard",
 ]
+
+[dev-dependencies]
+temp-env = "0.3"

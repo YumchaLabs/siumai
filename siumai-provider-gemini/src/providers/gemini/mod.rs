@@ -59,10 +59,14 @@ pub mod tokens;
 pub mod video;
 
 // Re-export main types for convenience
+#[allow(deprecated)]
+pub use crate::provider_options::gemini::GoogleGenerativeAIImageProviderOptions;
+pub use crate::provider_options::gemini::{GeminiImageOptions, GoogleImageModelOptions};
 pub use builder::GeminiBuilder;
 pub use cached_contents::GeminiCachedContents;
 pub use chat::GeminiChatCapability;
 pub use client::GeminiClient;
+pub use ext::{GeminiChatRequestExt, GeminiImageRequestExt};
 pub use file_search_stores::GeminiFileSearchStores;
 pub use files::GeminiFiles;
 pub use middleware::GeminiToolWarningsMiddleware;

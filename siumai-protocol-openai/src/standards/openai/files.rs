@@ -11,8 +11,49 @@
 use crate::error::LlmError;
 use crate::execution::transformers::files::{FilesHttpBody, FilesTransformer};
 
+fn upload_options_object<'a>(
+    req: &'a crate::types::FileUploadRequest,
+    provider_id: &str,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    match provider_id {
+        "azure" => req
+            .provider_options
+            .get_object("azure")
+            .or_else(|| req.provider_options.get_object("openai")),
+        _ => req.provider_options.get_object(provider_id),
+    }
+}
+
+fn upload_purpose(req: &crate::types::FileUploadRequest, provider_id: &str) -> String {
+    upload_options_object(req, provider_id)
+        .and_then(|options| options.get("purpose"))
+        .and_then(|value| value.as_str())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| req.purpose.clone())
+}
+
+fn upload_expires_after(
+    req: &crate::types::FileUploadRequest,
+    provider_id: &str,
+) -> Option<String> {
+    upload_options_object(req, provider_id)
+        .and_then(|options| {
+            options
+                .get("expiresAfter")
+                .or_else(|| options.get("expires_after"))
+        })
+        .and_then(|value| {
+            value
+                .as_i64()
+                .map(|number| number.to_string())
+                .or_else(|| value.as_u64().map(|number| number.to_string()))
+                .or_else(|| value.as_str().map(ToOwned::to_owned))
+        })
+}
+
 fn build_upload_body_impl(
     req: &crate::types::FileUploadRequest,
+    provider_id: &str,
 ) -> Result<FilesHttpBody, LlmError> {
     let detected = req
         .mime_type
@@ -22,9 +63,12 @@ fn build_upload_body_impl(
         .file_name(req.filename.clone())
         .mime_str(&detected)
         .map_err(|e| LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}")))?;
-    let form = reqwest::multipart::Form::new()
-        .text("purpose", req.purpose.clone())
+    let mut form = reqwest::multipart::Form::new()
+        .text("purpose", upload_purpose(req, provider_id))
         .part("file", part);
+    if let Some(expires_after) = upload_expires_after(req, provider_id) {
+        form = form.text("expires_after", expires_after);
+    }
     Ok(FilesHttpBody::Multipart(form))
 }
 
@@ -148,7 +192,7 @@ impl FilesTransformer for OpenAiFilesTransformer {
         &self,
         req: &crate::types::FileUploadRequest,
     ) -> Result<FilesHttpBody, LlmError> {
-        build_upload_body_impl(req)
+        build_upload_body_impl(req, self.provider_id())
     }
 
     fn list_endpoint(&self, query: &Option<crate::types::FileListQuery>) -> String {
@@ -206,7 +250,7 @@ impl FilesTransformer for OpenAiFilesTransformerWithProviderId {
         &self,
         req: &crate::types::FileUploadRequest,
     ) -> Result<FilesHttpBody, LlmError> {
-        build_upload_body_impl(req)
+        build_upload_body_impl(req, self.provider_id())
     }
 
     fn list_endpoint(&self, query: &Option<crate::types::FileListQuery>) -> String {
@@ -278,6 +322,7 @@ mod tests {
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: std::collections::HashMap::new(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             http_config: None,
         };
         match tx.build_upload_body(&req).unwrap() {

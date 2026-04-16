@@ -18,4 +18,10 @@ impl ImageGenerationCapability for Siumai {
             )))
         }
     }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        self.client
+            .as_image_generation_capability()
+            .and_then(ImageGenerationCapability::max_images_per_call)
+    }
 }

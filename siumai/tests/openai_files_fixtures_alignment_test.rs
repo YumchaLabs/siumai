@@ -108,6 +108,7 @@ async fn openai_files_lifecycle_upload_list_retrieve_content_delete() {
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: HashMap::new(),
+            provider_options: Default::default(),
             http_config: None,
         })
         .await
@@ -146,4 +147,56 @@ async fn openai_files_lifecycle_upload_list_retrieve_content_delete() {
         .expect("delete ok");
     assert!(deleted.deleted);
     assert_eq!(deleted.id, "file_123");
+}
+
+#[tokio::test]
+async fn openai_files_upload_provider_options_override_wire_fields() {
+    let server = MockServer::start().await;
+    let file_body: serde_json::Value = read_json(fixtures_dir().join("file.json"));
+
+    Mock::given(method("POST"))
+        .and(path("/v1/files"))
+        .and(header("authorization", "Bearer test-api-key"))
+        .and(header_regex("content-type", "multipart/form-data"))
+        .and(body_string_contains("name=\"purpose\""))
+        .and(body_string_contains("batch"))
+        .and(body_string_contains("name=\"expires_after\""))
+        .and(body_string_contains("42"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(file_body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = Siumai::builder()
+        .openai()
+        .api_key("test-api-key")
+        .base_url(format!("{}/v1", server.uri()))
+        .model("gpt-4o")
+        .build()
+        .await
+        .expect("build ok");
+
+    let mut provider_options = siumai::prelude::unified::ProviderOptionsMap::default();
+    provider_options.insert(
+        "openai",
+        serde_json::json!({
+            "purpose": "batch",
+            "expiresAfter": 42
+        }),
+    );
+
+    let uploaded = client
+        .upload_file(FileUploadRequest {
+            content: b"hello".to_vec(),
+            filename: "hello.txt".to_string(),
+            mime_type: Some("text/plain".to_string()),
+            purpose: "assistants".to_string(),
+            metadata: HashMap::new(),
+            provider_options,
+            http_config: None,
+        })
+        .await
+        .expect("upload ok");
+
+    assert_eq!(uploaded.id, "file_123");
 }

@@ -46,6 +46,13 @@ pub struct ProviderDefinedTool {
     ///
     /// This is aligned with Vercel AI SDK's `{ type: "provider", id, name, args }` shape.
     pub args: serde_json::Value,
+
+    /// Whether this provider-defined tool can return deferred results on later turns.
+    ///
+    /// This mirrors AI SDK's `supportsDeferredResults` provider-tool metadata and is kept on the
+    /// stable portable tool shape so higher-level orchestration can reason about deferred tool
+    /// outputs without baking the detail into provider request shapers.
+    pub supports_deferred_results: Option<bool>,
 }
 
 impl serde::Serialize for ProviderDefinedTool {
@@ -54,10 +61,14 @@ impl serde::Serialize for ProviderDefinedTool {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut st = serializer.serialize_struct("ProviderDefinedTool", 3)?;
+        let field_count = 3 + usize::from(self.supports_deferred_results.is_some());
+        let mut st = serializer.serialize_struct("ProviderDefinedTool", field_count)?;
         st.serialize_field("id", &self.id)?;
         st.serialize_field("name", &self.name)?;
         st.serialize_field("args", &self.args)?;
+        if let Some(supports_deferred_results) = self.supports_deferred_results {
+            st.serialize_field("supportsDeferredResults", &supports_deferred_results)?;
+        }
         st.end()
     }
 }
@@ -76,6 +87,12 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
             name: String,
             #[serde(default)]
             args: Option<serde_json::Value>,
+            #[serde(
+                default,
+                rename = "supportsDeferredResults",
+                alias = "supports_deferred_results"
+            )]
+            supports_deferred_results: Option<bool>,
             #[serde(flatten)]
             extra: HashMap<String, serde_json::Value>,
         }
@@ -100,6 +117,7 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
             id: de.id,
             name: de.name,
             args,
+            supports_deferred_results: de.supports_deferred_results,
         })
     }
 }
@@ -124,6 +142,7 @@ impl ProviderDefinedTool {
             id: id.into(),
             name: name.into(),
             args: serde_json::Value::Object(Default::default()),
+            supports_deferred_results: None,
         }
     }
 
@@ -145,6 +164,12 @@ impl ProviderDefinedTool {
     /// ```
     pub fn with_args(mut self, args: serde_json::Value) -> Self {
         self.args = args;
+        self
+    }
+
+    /// Mark whether this provider-defined tool supports deferred results.
+    pub fn with_supports_deferred_results(mut self, supports_deferred_results: bool) -> Self {
+        self.supports_deferred_results = Some(supports_deferred_results);
         self
     }
 

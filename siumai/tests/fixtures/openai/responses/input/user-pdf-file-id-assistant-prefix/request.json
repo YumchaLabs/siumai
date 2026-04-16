@@ -4,13 +4,18 @@
       "role": "user",
       "content": {
         "MultiModal": [
-          { "type": "file", "media_type": "application/pdf", "data": "assistant-abc123", "filename": "test.pdf" }
+          {
+            "type": "file",
+            "media_type": "application/pdf",
+            "providerReference": {
+              "openai": "assistant-abc123"
+            }
+          }
         ]
       },
       "metadata": {}
     }
   ],
-  "providerOptions": { "openai": { "fileIdPrefixes": ["assistant-"] } },
   "common_params": {
     "model": "gpt-5-nano",
     "temperature": null,

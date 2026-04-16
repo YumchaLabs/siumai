@@ -17,17 +17,191 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::LlmError;
-use crate::types::Tool;
+use crate::types::{ChatMessage, Tool, ToolResultOutput};
 
 /// Async execution function signature for tools.
 pub type ToolExecuteFn =
     Arc<dyn Fn(Value) -> BoxFuture<'static, Result<Value, LlmError>> + Send + Sync>;
+
+/// Context passed to runtime tool-result model-output mappers.
+#[derive(Debug, Clone)]
+pub struct ToolModelOutputContext {
+    pub tool_call_id: String,
+    pub input: Value,
+    pub output: Value,
+}
+
+/// Runtime tool-result model-output mapping function.
+pub type ToolModelOutputFn =
+    Arc<dyn Fn(ToolModelOutputContext) -> Result<ToolResultOutput, LlmError> + Send + Sync>;
+
+/// Runtime context shared by AI SDK-style tool callbacks.
+#[derive(Debug, Clone, Default)]
+pub struct ToolRuntimeContext {
+    pub tool_call_id: String,
+    pub messages: Vec<ChatMessage>,
+    pub context: serde_json::Map<String, Value>,
+}
+
+/// Runtime context passed when a tool-input delta becomes available.
+#[derive(Debug, Clone, Default)]
+pub struct ToolInputDeltaContext {
+    pub tool_call_id: String,
+    pub input_text_delta: String,
+    pub messages: Vec<ChatMessage>,
+    pub context: serde_json::Map<String, Value>,
+}
+
+/// Runtime context passed when a full tool input becomes available.
+#[derive(Debug, Clone, Default)]
+pub struct ToolInputAvailableContext {
+    pub tool_call_id: String,
+    pub input: Value,
+    pub messages: Vec<ChatMessage>,
+    pub context: serde_json::Map<String, Value>,
+}
+
+/// Runtime approval function for AI SDK-style tool execution gating.
+pub type ToolNeedsApprovalFn = Arc<
+    dyn Fn(ToolInputAvailableContext) -> BoxFuture<'static, Result<bool, LlmError>> + Send + Sync,
+>;
+
+/// Runtime callback invoked when streaming tool input starts.
+pub type ToolInputStartFn =
+    Arc<dyn Fn(ToolRuntimeContext) -> BoxFuture<'static, Result<(), LlmError>> + Send + Sync>;
+
+/// Runtime callback invoked when a streaming tool-input delta arrives.
+pub type ToolInputDeltaFn =
+    Arc<dyn Fn(ToolInputDeltaContext) -> BoxFuture<'static, Result<(), LlmError>> + Send + Sync>;
+
+/// Runtime callback invoked when a full tool input becomes available.
+pub type ToolInputAvailableFn = Arc<
+    dyn Fn(ToolInputAvailableContext) -> BoxFuture<'static, Result<(), LlmError>> + Send + Sync,
+>;
+
+/// Runtime approval policy for a tool.
+#[derive(Clone)]
+pub enum ToolNeedsApproval {
+    /// Always require approval before execution.
+    Always,
+    /// Decide at runtime using the provided callback.
+    Check(ToolNeedsApprovalFn),
+}
+
+impl std::fmt::Debug for ToolNeedsApproval {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Always => f.write_str("Always"),
+            Self::Check(_) => f.write_str("Check(..)"),
+        }
+    }
+}
+
+/// Runtime-only AI SDK tool metadata that should not leak into the stable wire schema.
+#[derive(Clone, Default)]
+pub struct ToolRuntimeMetadata {
+    dynamic: bool,
+    context_schema: Option<Value>,
+    needs_approval: Option<ToolNeedsApproval>,
+    on_input_start: Option<ToolInputStartFn>,
+    on_input_delta: Option<ToolInputDeltaFn>,
+    on_input_available: Option<ToolInputAvailableFn>,
+}
+
+impl std::fmt::Debug for ToolRuntimeMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolRuntimeMetadata")
+            .field("dynamic", &self.dynamic)
+            .field("has_context_schema", &self.context_schema.is_some())
+            .field("has_needs_approval", &self.needs_approval.is_some())
+            .field("has_on_input_start", &self.on_input_start.is_some())
+            .field("has_on_input_delta", &self.on_input_delta.is_some())
+            .field("has_on_input_available", &self.on_input_available.is_some())
+            .finish()
+    }
+}
+
+impl ToolRuntimeMetadata {
+    /// Whether the tool is dynamic/runtime-defined.
+    pub const fn dynamic(&self) -> bool {
+        self.dynamic
+    }
+
+    /// Optional context schema metadata carried for type/system parity.
+    pub fn context_schema(&self) -> Option<&Value> {
+        self.context_schema.as_ref()
+    }
+
+    /// Whether this tool has any approval gating configured.
+    pub const fn has_needs_approval(&self) -> bool {
+        self.needs_approval.is_some()
+    }
+
+    /// Whether this tool has an input-start callback.
+    pub const fn has_on_input_start(&self) -> bool {
+        self.on_input_start.is_some()
+    }
+
+    /// Whether this tool has an input-delta callback.
+    pub const fn has_on_input_delta(&self) -> bool {
+        self.on_input_delta.is_some()
+    }
+
+    /// Whether this tool has an input-available callback.
+    pub const fn has_on_input_available(&self) -> bool {
+        self.on_input_available.is_some()
+    }
+
+    /// Evaluate whether this tool requires approval for the given input.
+    pub async fn needs_approval(
+        &self,
+        context: ToolInputAvailableContext,
+    ) -> Result<bool, LlmError> {
+        match &self.needs_approval {
+            None => Ok(false),
+            Some(ToolNeedsApproval::Always) => Ok(true),
+            Some(ToolNeedsApproval::Check(callback)) => callback(context).await,
+        }
+    }
+
+    /// Invoke the input-start callback when configured.
+    pub async fn invoke_on_input_start(&self, context: ToolRuntimeContext) -> Result<(), LlmError> {
+        match &self.on_input_start {
+            Some(callback) => callback(context).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Invoke the input-delta callback when configured.
+    pub async fn invoke_on_input_delta(
+        &self,
+        context: ToolInputDeltaContext,
+    ) -> Result<(), LlmError> {
+        match &self.on_input_delta {
+            Some(callback) => callback(context).await,
+            None => Ok(()),
+        }
+    }
+
+    /// Invoke the input-available callback when configured.
+    pub async fn invoke_on_input_available(
+        &self,
+        context: ToolInputAvailableContext,
+    ) -> Result<(), LlmError> {
+        match &self.on_input_available {
+            Some(callback) => callback(context).await,
+            None => Ok(()),
+        }
+    }
+}
 
 /// A tool definition with an optional bound executor.
 #[derive(Clone)]
 pub struct ExecutableTool {
     tool: Tool,
     execute: Option<ToolExecuteFn>,
+    to_model_output: Option<ToolModelOutputFn>,
+    runtime_metadata: ToolRuntimeMetadata,
 }
 
 impl std::fmt::Debug for ExecutableTool {
@@ -35,22 +209,136 @@ impl std::fmt::Debug for ExecutableTool {
         f.debug_struct("ExecutableTool")
             .field("name", &self.name())
             .field("has_execute", &self.execute.is_some())
+            .field("has_to_model_output", &self.to_model_output.is_some())
+            .field("runtime_metadata", &self.runtime_metadata)
             .finish()
     }
 }
 
 impl ExecutableTool {
     /// Create a tool wrapper without an executor.
-    pub const fn new(tool: Tool) -> Self {
+    pub fn new(tool: Tool) -> Self {
         Self {
             tool,
             execute: None,
+            to_model_output: None,
+            runtime_metadata: ToolRuntimeMetadata::default(),
         }
     }
 
     /// Bind an executor to an existing tool schema.
     pub fn with_execute(mut self, execute: ToolExecuteFn) -> Self {
         self.execute = Some(execute);
+        self
+    }
+
+    /// Bind a runtime tool-result model-output mapper to an existing tool schema.
+    pub fn with_to_model_output(mut self, to_model_output: ToolModelOutputFn) -> Self {
+        self.to_model_output = Some(to_model_output);
+        self
+    }
+
+    /// Mark the tool as dynamic/runtime-defined for AI SDK parity.
+    pub fn with_dynamic(mut self, dynamic: bool) -> Self {
+        self.runtime_metadata.dynamic = dynamic;
+        self
+    }
+
+    /// Carry context-schema metadata for runtime parity without enforcing validation.
+    pub fn with_context_schema(mut self, context_schema: Value) -> Self {
+        self.runtime_metadata.context_schema = Some(context_schema);
+        self
+    }
+
+    /// Configure whether this tool requires approval before execution.
+    pub fn with_needs_approval(mut self, needs_approval: bool) -> Self {
+        self.runtime_metadata.needs_approval = needs_approval.then_some(ToolNeedsApproval::Always);
+        self
+    }
+
+    /// Configure a runtime approval predicate for this tool.
+    pub fn with_needs_approval_fn<F, Fut>(mut self, needs_approval: F) -> Self
+    where
+        F: Fn(ToolInputAvailableContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<bool, LlmError>> + Send + 'static,
+    {
+        self.runtime_metadata.needs_approval =
+            Some(ToolNeedsApproval::Check(Arc::new(move |context| {
+                Box::pin(needs_approval(context))
+            })));
+        self
+    }
+
+    /// Configure a callback invoked when streaming tool input starts.
+    pub fn with_on_input_start(mut self, on_input_start: ToolInputStartFn) -> Self {
+        self.runtime_metadata.on_input_start = Some(on_input_start);
+        self
+    }
+
+    /// Configure a callback invoked when a streaming tool-input delta arrives.
+    pub fn with_on_input_delta(mut self, on_input_delta: ToolInputDeltaFn) -> Self {
+        self.runtime_metadata.on_input_delta = Some(on_input_delta);
+        self
+    }
+
+    /// Configure a callback invoked when a full tool input becomes available.
+    pub fn with_on_input_available(mut self, on_input_available: ToolInputAvailableFn) -> Self {
+        self.runtime_metadata.on_input_available = Some(on_input_available);
+        self
+    }
+
+    /// Configure a callback invoked when streaming tool input starts.
+    pub fn with_on_input_start_fn<F, Fut>(mut self, on_input_start: F) -> Self
+    where
+        F: Fn(ToolRuntimeContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), LlmError>> + Send + 'static,
+    {
+        self.runtime_metadata.on_input_start =
+            Some(Arc::new(move |context| Box::pin(on_input_start(context))));
+        self
+    }
+
+    /// Configure a callback invoked when a streaming tool-input delta arrives.
+    pub fn with_on_input_delta_fn<F, Fut>(mut self, on_input_delta: F) -> Self
+    where
+        F: Fn(ToolInputDeltaContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), LlmError>> + Send + 'static,
+    {
+        self.runtime_metadata.on_input_delta =
+            Some(Arc::new(move |context| Box::pin(on_input_delta(context))));
+        self
+    }
+
+    /// Configure a callback invoked when a full tool input becomes available.
+    pub fn with_on_input_available_fn<F, Fut>(mut self, on_input_available: F) -> Self
+    where
+        F: Fn(ToolInputAvailableContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), LlmError>> + Send + 'static,
+    {
+        self.runtime_metadata.on_input_available = Some(Arc::new(move |context| {
+            Box::pin(on_input_available(context))
+        }));
+        self
+    }
+
+    /// Replace the function input schema on the portable tool definition.
+    pub fn with_input_schema(mut self, input_schema: Value) -> Self {
+        self.tool = self.tool.with_input_schema(input_schema);
+        self
+    }
+
+    /// Attach AI SDK-style function output schema metadata to the portable tool definition.
+    pub fn with_output_schema(mut self, output_schema: Value) -> Self {
+        self.tool = self.tool.with_output_schema(output_schema);
+        self
+    }
+
+    /// Bind a runtime tool-result model-output mapper from a closure.
+    pub fn with_to_model_output_fn<F>(mut self, to_model_output: F) -> Self
+    where
+        F: Fn(ToolModelOutputContext) -> Result<ToolResultOutput, LlmError> + Send + Sync + 'static,
+    {
+        self.to_model_output = Some(Arc::new(to_model_output));
         self
     }
 
@@ -70,7 +358,24 @@ impl ExecutableTool {
         Self {
             tool,
             execute: Some(exec),
+            to_model_output: None,
+            runtime_metadata: ToolRuntimeMetadata::default(),
         }
+    }
+
+    /// Create a JSON-based function tool with an executor and output schema metadata.
+    pub fn function_with_output_schema<F, Fut>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: Value,
+        output_schema: Value,
+        execute: F,
+    ) -> Self
+    where
+        F: Fn(Value) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Value, LlmError>> + Send + 'static,
+    {
+        Self::function(name, description, input_schema, execute).with_output_schema(output_schema)
     }
 
     /// Create a typed function tool.
@@ -113,7 +418,27 @@ impl ExecutableTool {
         Self {
             tool,
             execute: Some(exec),
+            to_model_output: None,
+            runtime_metadata: ToolRuntimeMetadata::default(),
         }
+    }
+
+    /// Create a typed function tool with AI SDK-style output schema metadata.
+    pub fn typed_function_with_output_schema<TArgs, TOut, F, Fut>(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        input_schema: Value,
+        output_schema: Value,
+        execute: F,
+    ) -> Self
+    where
+        TArgs: DeserializeOwned + Send + 'static,
+        TOut: Serialize + Send + 'static,
+        F: Fn(TArgs) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<TOut, LlmError>> + Send + 'static,
+    {
+        Self::typed_function::<TArgs, TOut, _, _>(name, description, input_schema, execute)
+            .with_output_schema(output_schema)
     }
 
     /// Return the portable tool schema (for sending to the model).
@@ -129,6 +454,11 @@ impl ExecutableTool {
         }
     }
 
+    /// Access runtime-only AI SDK-style tool metadata.
+    pub const fn runtime_metadata(&self) -> &ToolRuntimeMetadata {
+        &self.runtime_metadata
+    }
+
     /// Execute the tool with JSON arguments.
     pub async fn execute_json(&self, args: Value) -> Result<Value, LlmError> {
         let exec = self.execute.as_ref().ok_or_else(|| {
@@ -138,6 +468,17 @@ impl ExecutableTool {
             ))
         })?;
         exec(args).await
+    }
+
+    /// Convert a runtime tool result into a stable model-facing output.
+    pub fn to_model_output(
+        &self,
+        context: ToolModelOutputContext,
+    ) -> Result<Option<ToolResultOutput>, LlmError> {
+        match &self.to_model_output {
+            Some(mapper) => mapper(context).map(Some),
+            None => Ok(None),
+        }
     }
 }
 
@@ -194,12 +535,29 @@ impl ExecutableTools {
         self.tools.get(idx)
     }
 
+    /// Return runtime-only AI SDK-style metadata by tool name.
+    pub fn runtime_metadata(&self, name: &str) -> Option<ToolRuntimeMetadata> {
+        self.get(name).map(|tool| tool.runtime_metadata().clone())
+    }
+
     /// Execute a tool by name.
     pub async fn execute(&self, name: &str, args: Value) -> Result<Value, LlmError> {
         let tool = self
             .get(name)
             .ok_or_else(|| LlmError::NotFound(format!("Tool not found: '{name}'")))?;
         tool.execute_json(args).await
+    }
+
+    /// Convert a runtime tool result into a stable model-facing output by tool name.
+    pub fn to_model_output(
+        &self,
+        name: &str,
+        context: ToolModelOutputContext,
+    ) -> Result<Option<ToolResultOutput>, LlmError> {
+        match self.get(name) {
+            Some(tool) => tool.to_model_output(context),
+            None => Ok(None),
+        }
     }
 }
 
@@ -262,5 +620,137 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out, serde_json::json!({"a":1}));
+    }
+
+    #[test]
+    fn tool_builder_keeps_output_schema_on_portable_function_tool() {
+        #[derive(Deserialize)]
+        struct Args {
+            city: String,
+        }
+
+        #[derive(Serialize)]
+        struct Out {
+            forecast: String,
+        }
+
+        let tool = ExecutableTool::typed_function_with_output_schema::<Args, Out, _, _>(
+            "weather",
+            "Weather tool",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "city": { "type": "string" }
+                },
+                "required": ["city"]
+            }),
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "forecast": { "type": "string" }
+                },
+                "required": ["forecast"]
+            }),
+            |args| async move {
+                Ok(Out {
+                    forecast: format!("sunny:{}", args.city),
+                })
+            },
+        );
+
+        let schema = tool
+            .tool()
+            .output_schema()
+            .expect("output schema should be attached");
+
+        assert_eq!(
+            schema,
+            &serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "forecast": { "type": "string" }
+                },
+                "required": ["forecast"]
+            })
+        );
+    }
+
+    #[test]
+    fn tool_set_uses_runtime_model_output_mapper() {
+        let tools = ExecutableTools::from_tools([ExecutableTool::new(Tool::function(
+            "weather",
+            "Weather tool",
+            serde_json::json!({ "type": "object" }),
+        ))
+        .with_to_model_output_fn(|ctx| {
+            Ok(ToolResultOutput::content(vec![
+                crate::types::ToolResultContentPart::text(format!(
+                    "{}:{}",
+                    ctx.tool_call_id, ctx.output["temp"]
+                )),
+            ]))
+        })]);
+
+        let output = tools
+            .to_model_output(
+                "weather",
+                ToolModelOutputContext {
+                    tool_call_id: "call_1".to_string(),
+                    input: serde_json::json!({ "city": "Tokyo" }),
+                    output: serde_json::json!({ "temp": 18 }),
+                },
+            )
+            .expect("map ok")
+            .expect("mapper should exist");
+
+        assert_eq!(
+            output,
+            ToolResultOutput::content(vec![crate::types::ToolResultContentPart::text("call_1:18")])
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_runtime_metadata_supports_callbacks_and_dynamic_flags() {
+        let tool = ExecutableTool::function(
+            "dangerous",
+            "Dangerous tool",
+            serde_json::json!({ "type": "object" }),
+            |args| async move { Ok(args) },
+        )
+        .with_dynamic(true)
+        .with_context_schema(serde_json::json!({
+            "type": "object",
+            "properties": {
+                "role": { "type": "string" }
+            }
+        }))
+        .with_needs_approval_fn(|context| async move {
+            Ok(context
+                .context
+                .get("role")
+                .and_then(|value| value.as_str())
+                .is_some_and(|role| role != "admin"))
+        })
+        .with_on_input_available_fn(|_context| async move { Ok(()) });
+
+        let metadata = tool.runtime_metadata();
+        assert!(metadata.dynamic());
+        assert!(metadata.context_schema().is_some());
+        assert!(metadata.has_needs_approval());
+        assert!(metadata.has_on_input_available());
+        assert!(
+            metadata
+                .needs_approval(ToolInputAvailableContext {
+                    tool_call_id: "call_1".to_string(),
+                    input: serde_json::json!({}),
+                    messages: Vec::new(),
+                    context: serde_json::Map::from_iter([(
+                        "role".to_string(),
+                        serde_json::json!("viewer"),
+                    )]),
+                })
+                .await
+                .unwrap()
+        );
     }
 }

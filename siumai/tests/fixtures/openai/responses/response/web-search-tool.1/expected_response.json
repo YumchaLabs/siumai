@@ -17,7 +17,8 @@
         "toolCallId": "ws_0953eda47ee1741200693330682c988195aaa470a8cc51dfe4",
         "toolName": "webSearch",
         "input": "{}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -98,7 +99,9 @@
             ]
           }
         },
-        "providerExecuted": true
+        "input": "{}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "reasoning",
@@ -115,7 +118,8 @@
         "toolCallId": "ws_0953eda47ee17412006933306f501c8195b9d3dfba4c547834",
         "toolName": "webSearch",
         "input": "{}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -130,7 +134,9 @@
             }
           }
         },
-        "providerExecuted": true
+        "input": "{}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "reasoning",
@@ -147,7 +153,8 @@
         "toolCallId": "ws_0953eda47ee1741200693330740e248195a2c77632e480424b",
         "toolName": "webSearch",
         "input": "{}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -163,7 +170,9 @@
             }
           }
         },
-        "providerExecuted": true
+        "input": "{}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "reasoning",

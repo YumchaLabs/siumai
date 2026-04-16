@@ -13,21 +13,37 @@ use super::types::{
 };
 use crate::types::{ToolResultContentPart, ToolResultOutput};
 
+fn preferred_provider_option_keys(config: Option<&GeminiConfig>) -> [&'static str; 2] {
+    let prefers_vertex = config
+        .and_then(|cfg| cfg.provider_metadata_key.as_deref())
+        .is_some_and(|key| key.eq_ignore_ascii_case("vertex"));
+
+    if prefers_vertex {
+        ["vertex", "google"]
+    } else {
+        ["google", "vertex"]
+    }
+}
+
 fn provider_options_object<'a>(
     provider_options: Option<&'a crate::types::ProviderOptionsMap>,
+    config: Option<&GeminiConfig>,
 ) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
-    provider_options.and_then(|provider_options| {
-        provider_options
-            .get_object("google")
-            .or_else(|| provider_options.get_object("vertex"))
-    })
+    let provider_options = provider_options?;
+    for key in preferred_provider_option_keys(config) {
+        if let Some(value) = provider_options.get_object(key) {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn extract_thought_signature(
     provider_options: Option<&crate::types::ProviderOptionsMap>,
     provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
+    config: Option<&GeminiConfig>,
 ) -> Option<String> {
-    if let Some(sig) = provider_options_object(provider_options)
+    if let Some(sig) = provider_options_object(provider_options, config)
         .and_then(|map| {
             map.get("thoughtSignature")
                 .or_else(|| map.get("thought_signature"))
@@ -41,7 +57,10 @@ fn extract_thought_signature(
     }
 
     let map = provider_metadata.as_ref()?;
-    for v in map.values() {
+    for key in preferred_provider_option_keys(config) {
+        let Some(v) = map.get(key) else {
+            continue;
+        };
         if let Some(sig) = v.get("thoughtSignature").and_then(|s| s.as_str()) {
             let sig = sig.trim();
             if !sig.is_empty() {
@@ -64,15 +83,23 @@ fn extract_thought_signature(
 fn extract_thought_flag(
     provider_options: Option<&crate::types::ProviderOptionsMap>,
     provider_metadata: &Option<std::collections::HashMap<String, serde_json::Value>>,
+    config: Option<&GeminiConfig>,
 ) -> bool {
-    provider_options_object(provider_options)
+    provider_options_object(provider_options, config)
         .and_then(|map| map.get("thought"))
         .and_then(|value| value.as_bool())
         .or_else(|| {
             provider_metadata.as_ref().and_then(|map| {
-                map.values()
-                    .find_map(|value| value.get("thought").and_then(|value| value.as_bool()))
-                    .or_else(|| map.get("thought").and_then(|value| value.as_bool()))
+                for key in preferred_provider_option_keys(config) {
+                    if let Some(flag) = map
+                        .get(key)
+                        .and_then(|value| value.get("thought"))
+                        .and_then(|value| value.as_bool())
+                    {
+                        return Some(flag);
+                    }
+                }
+                map.get("thought").and_then(|value| value.as_bool())
             })
         })
         .unwrap_or(false)
@@ -368,7 +395,10 @@ fn guess_mime_type(url: &str) -> String {
 }
 
 /// Convert `ChatMessage` to Gemini Content
-pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmError> {
+pub fn convert_message_to_content(
+    message: &ChatMessage,
+    config: Option<&GeminiConfig>,
+) -> Result<Content, LlmError> {
     let role = match message.role {
         crate::types::MessageRole::User => Some("user".to_string()),
         crate::types::MessageRole::Assistant => Some("model".to_string()),
@@ -405,6 +435,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                             let thought_signature = extract_thought_signature(
                                 Some(provider_options),
                                 provider_metadata,
+                                config,
                             );
                             parts.push(Part::Text {
                                 text: text.clone(),
@@ -419,23 +450,27 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                         provider_metadata,
                         ..
                     }
-                    | crate::types::ContentPart::Audio {
-                        source,
-                        provider_options,
-                        provider_metadata,
-                        ..
-                    }
                     | crate::types::ContentPart::File {
                         source,
                         provider_options,
                         provider_metadata,
                         ..
                     } => {
-                        let thought_signature =
-                            extract_thought_signature(Some(provider_options), provider_metadata);
+                        let thought_signature = extract_thought_signature(
+                            Some(provider_options),
+                            provider_metadata,
+                            config,
+                        );
                         let thought =
-                            extract_thought_flag(Some(provider_options), provider_metadata)
+                            extract_thought_flag(Some(provider_options), provider_metadata, config)
                                 .then_some(true);
+                        let Some(source) = source.as_media_source() else {
+                            return Err(LlmError::InvalidParameter(
+                                "Gemini prompt parts do not support provider-managed file references"
+                                    .to_string(),
+                            ));
+                        };
+
                         match source {
                             crate::types::chat::MediaSource::Url { url } => {
                                 // Vercel AI SDK alignment: assistant messages cannot reference URL-based file data.
@@ -531,6 +566,85 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                             }
                         }
                     }
+                    crate::types::ContentPart::Audio {
+                        source,
+                        media_type,
+                        provider_options,
+                        provider_metadata,
+                        ..
+                    } => {
+                        let thought_signature = extract_thought_signature(
+                            Some(provider_options),
+                            provider_metadata,
+                            config,
+                        );
+                        let thought =
+                            extract_thought_flag(Some(provider_options), provider_metadata, config)
+                                .then_some(true);
+
+                        match source {
+                            crate::types::chat::MediaSource::Url { url } => {
+                                // Vercel AI SDK alignment: assistant messages cannot reference URL-based file data.
+                                if role.as_deref() == Some("model") {
+                                    return Err(LlmError::InvalidParameter(
+                                        "File data URLs in assistant messages are not supported"
+                                            .to_string(),
+                                    ));
+                                }
+
+                                if url.starts_with("data:") {
+                                    if let Some((mime_type, data)) = parse_data_url(url) {
+                                        parts.push(Part::InlineData {
+                                            inline_data: super::types::Blob { mime_type, data },
+                                            thought,
+                                            thought_signature,
+                                        });
+                                    }
+                                } else if url.starts_with("gs://")
+                                    || url.starts_with("https://")
+                                    || url.starts_with("http://")
+                                {
+                                    let mime_type = media_type
+                                        .clone()
+                                        .or_else(|| Some(guess_mime_type(url).to_string()));
+                                    parts.push(Part::FileData {
+                                        file_data: super::types::FileData {
+                                            file_uri: url.clone(),
+                                            mime_type,
+                                        },
+                                        thought,
+                                        thought_signature,
+                                    });
+                                }
+                            }
+                            crate::types::chat::MediaSource::Base64 { data } => {
+                                parts.push(Part::InlineData {
+                                    inline_data: super::types::Blob {
+                                        mime_type: media_type
+                                            .clone()
+                                            .unwrap_or_else(|| "audio/wav".to_string()),
+                                        data: data.clone(),
+                                    },
+                                    thought,
+                                    thought_signature,
+                                });
+                            }
+                            crate::types::chat::MediaSource::Binary { data } => {
+                                let encoded =
+                                    base64::engine::general_purpose::STANDARD.encode(data);
+                                parts.push(Part::InlineData {
+                                    inline_data: super::types::Blob {
+                                        mime_type: media_type
+                                            .clone()
+                                            .unwrap_or_else(|| "audio/wav".to_string()),
+                                        data: encoded,
+                                    },
+                                    thought,
+                                    thought_signature,
+                                });
+                            }
+                        }
+                    }
                     crate::types::ContentPart::ReasoningFile {
                         source,
                         media_type,
@@ -541,8 +655,11 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                             continue;
                         }
 
-                        let thought_signature =
-                            extract_thought_signature(Some(provider_options), provider_metadata);
+                        let thought_signature = extract_thought_signature(
+                            Some(provider_options),
+                            provider_metadata,
+                            config,
+                        );
                         match source {
                             crate::types::chat::MediaSource::Url { .. } => {
                                 return Err(LlmError::InvalidParameter(
@@ -594,6 +711,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
                             let thought_signature = extract_thought_signature(
                                 Some(provider_options),
                                 provider_metadata,
+                                config,
                             );
                             parts.push(Part::Text {
                                 text: text.clone(),
@@ -641,7 +759,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         } = part
         {
             let thought_signature =
-                extract_thought_signature(Some(provider_options), provider_metadata);
+                extract_thought_signature(Some(provider_options), provider_metadata, config);
             if *provider_executed == Some(true) && tool_name == "code_execution" {
                 let language = match arguments.get("language").and_then(|value| value.as_str()) {
                     Some("PYTHON") => super::types::CodeLanguage::Python,
@@ -681,7 +799,7 @@ pub fn convert_message_to_content(message: &ChatMessage) -> Result<Content, LlmE
         } = part
         {
             let thought_signature =
-                extract_thought_signature(Some(provider_options), provider_metadata);
+                extract_thought_signature(Some(provider_options), provider_metadata, config);
 
             fn json_value_to_option_string(value: &serde_json::Value) -> Option<String> {
                 match value {
@@ -1430,7 +1548,7 @@ pub fn build_request_body(
             }
             _ => {
                 system_messages_allowed = false;
-                contents.push(convert_message_to_content(message)?);
+                contents.push(convert_message_to_content(message, Some(config))?);
             }
         }
     }
@@ -1829,7 +1947,7 @@ mod system_and_tool_message_tests {
         ])
         .build();
 
-        let content = convert_message_to_content(&message).expect("convert");
+        let content = convert_message_to_content(&message, None).expect("convert");
         assert_eq!(content.role.as_deref(), Some("model"));
         assert_eq!(content.parts.len(), 1);
 
@@ -1845,6 +1963,39 @@ mod system_and_tool_message_tests {
                 assert_eq!(thought_signature.as_deref(), Some("sig_1"));
             }
             other => panic!("expected inline thought file part, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_request_body_prefers_vertex_namespace_for_thought_signature() {
+        let cfg = GeminiConfig::default().with_provider_metadata_key("vertex");
+        let messages = vec![
+            crate::types::ChatMessage::assistant_with_content(vec![
+                crate::types::ContentPart::reasoning("thinking")
+                    .with_provider_option(
+                        "google",
+                        serde_json::json!({ "thoughtSignature": "google_sig" }),
+                    )
+                    .with_provider_option(
+                        "vertex",
+                        serde_json::json!({ "thoughtSignature": "vertex_sig" }),
+                    ),
+            ])
+            .build(),
+        ];
+
+        let request = build_request_body(&cfg, &messages, None).expect("build request");
+
+        match &request.contents[0].parts[0] {
+            Part::Text {
+                thought,
+                thought_signature,
+                ..
+            } => {
+                assert_eq!(*thought, Some(true));
+                assert_eq!(thought_signature.as_deref(), Some("vertex_sig"));
+            }
+            other => panic!("expected reasoning text part, got: {other:?}"),
         }
     }
 }

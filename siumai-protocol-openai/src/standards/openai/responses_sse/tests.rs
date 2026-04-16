@@ -301,13 +301,13 @@ fn test_sse_named_events_routing() {
         other => panic!("expected tool-result part, got {other:?}"),
     }
 
-    match out_done[1].as_ref().unwrap() {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:source");
-            assert_eq!(data["url"], serde_json::json!("https://www.rust-lang.org"));
-            assert_eq!(data["sourceType"], serde_json::json!("url"));
+    match stream_part(&out_done[1]).expect("source part") {
+        crate::streaming::LanguageModelV3StreamPart::Source(
+            crate::streaming::LanguageModelV3Source::Url { url, .. },
+        ) => {
+            assert_eq!(url, "https://www.rust-lang.org");
         }
-        other => panic!("expected Custom source, got {other:?}"),
+        other => panic!("expected url source part, got {other:?}"),
     }
 }
 
@@ -791,6 +791,7 @@ fn responses_stream_proxy_serializes_basic_text_deltas() {
                         .build(),
                 ),
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -1913,20 +1914,73 @@ fn responses_failed_event_buffers_finish_with_unknown_usage_totals() {
     let pending = conv.handle_stream_end_events();
     assert_eq!(pending.len(), 1);
 
-    match pending[0].as_ref().expect("pending finish event") {
-        crate::streaming::ChatStreamEvent::Custom { event_type, data } => {
-            assert_eq!(event_type, "openai:finish");
-            assert_eq!(
-                data.pointer("/usage/inputTokens/total"),
-                Some(&serde_json::Value::Null)
-            );
-            assert_eq!(
-                data.pointer("/usage/outputTokens/total"),
-                Some(&serde_json::Value::Null)
-            );
-            assert_eq!(data.pointer("/usage/raw"), Some(&serde_json::Value::Null));
+    match stream_part(&pending[0]).expect("pending finish part") {
+        crate::streaming::LanguageModelV3StreamPart::Finish {
+            usage,
+            finish_reason,
+            ..
+        } => {
+            assert_eq!(finish_reason.unified, "other");
+            assert_eq!(usage.input_tokens.total, None);
+            assert_eq!(usage.output_tokens.total, None);
+            assert_eq!(usage.raw, None);
         }
-        other => panic!("expected openai:finish custom event, got {other:?}"),
+        other => panic!("expected finish part, got {other:?}"),
+    }
+}
+
+#[test]
+fn responses_custom_tool_input_stream_events_emit_stable_tool_input_parts() {
+    let conv = OpenAiResponsesEventConverter::new();
+
+    let added = eventsource_stream::Event {
+        event: "".to_string(),
+        data: r#"{"type":"response.output_item.added","output_index":0,"item":{"id":"ct_1","type":"custom_tool_call","name":"x_keyword_search","status":"in_progress"}}"#
+            .to_string(),
+        id: "1".to_string(),
+        retry: None,
+    };
+    let added_events = futures::executor::block_on(conv.convert_event(added));
+    assert_eq!(added_events.len(), 1);
+    match stream_part(&added_events[0]).expect("tool-input-start part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputStart { id, tool_name, .. } => {
+            assert_eq!(id, "ct_1");
+            assert_eq!(tool_name, "x_keyword_search");
+        }
+        other => panic!("expected tool-input-start part, got {other:?}"),
+    }
+
+    let delta = eventsource_stream::Event {
+        event: "response.custom_tool_call_input.delta".to_string(),
+        data: r#"{"type":"response.custom_tool_call_input.delta","item_id":"ct_1","delta":"{\"q\":\"rust\""}"#
+            .to_string(),
+        id: "2".to_string(),
+        retry: None,
+    };
+    let delta_events = futures::executor::block_on(conv.convert_event(delta));
+    assert_eq!(delta_events.len(), 1);
+    match stream_part(&delta_events[0]).expect("tool-input-delta part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputDelta { id, delta, .. } => {
+            assert_eq!(id, "ct_1");
+            assert_eq!(delta, "{\"q\":\"rust\"");
+        }
+        other => panic!("expected tool-input-delta part, got {other:?}"),
+    }
+
+    let done = eventsource_stream::Event {
+        event: "response.custom_tool_call_input.done".to_string(),
+        data: r#"{"type":"response.custom_tool_call_input.done","item_id":"ct_1","input":"{\"q\":\"rust\"}"}"#
+            .to_string(),
+        id: "3".to_string(),
+        retry: None,
+    };
+    let done_events = futures::executor::block_on(conv.convert_event(done));
+    assert_eq!(done_events.len(), 1);
+    match stream_part(&done_events[0]).expect("tool-input-end part") {
+        crate::streaming::LanguageModelV3StreamPart::ToolInputEnd { id, .. } => {
+            assert_eq!(id, "ct_1");
+        }
+        other => panic!("expected tool-input-end part, got {other:?}"),
     }
 }
 
@@ -2237,6 +2291,7 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
                 content: MessageContent::Text(String::new()),
                 usage: None,
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,

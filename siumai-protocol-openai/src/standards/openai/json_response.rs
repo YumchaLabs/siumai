@@ -23,6 +23,18 @@ fn openai_finish_reason(reason: Option<&FinishReason>) -> Option<&'static str> {
     }
 }
 
+fn openai_chat_finish_reason(response: &ChatResponse) -> Option<String> {
+    match response.raw_finish_reason.as_deref().map(str::trim) {
+        Some("stop") => Some("stop".to_string()),
+        Some("length") => Some("length".to_string()),
+        Some("content_filter") => Some("content_filter".to_string()),
+        Some("tool_calls") => Some("tool_calls".to_string()),
+        Some("function_call") => Some("function_call".to_string()),
+        Some("error") => Some("error".to_string()),
+        _ => openai_finish_reason(response.finish_reason.as_ref()).map(ToString::to_string),
+    }
+}
+
 fn openai_response_status(reason: Option<&FinishReason>) -> &'static str {
     match reason {
         Some(FinishReason::Error) => "failed",
@@ -102,7 +114,7 @@ pub struct OpenAiChatChoice {
     pub index: u32,
     pub message: OpenAiChatMessage,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub finish_reason: Option<&'static str>,
+    pub finish_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -201,7 +213,7 @@ impl JsonResponseConverter for OpenAiChatCompletionsJsonResponseConverter {
             choices: vec![OpenAiChatChoice {
                 index: 0,
                 message,
-                finish_reason: openai_finish_reason(response.finish_reason.as_ref()),
+                finish_reason: openai_chat_finish_reason(response),
             }],
             usage: response.usage.as_ref().map(chat_usage_json),
             system_fingerprint: response.system_fingerprint.clone(),
@@ -347,6 +359,13 @@ enum OpenAiProviderToolItemKind {
     Mcp,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenAiHostedDynamicToolItemKind {
+    LocalShell,
+    Shell,
+    ApplyPatch,
+}
+
 fn openai_provider_tool_item_kind(tool_name: &str) -> Option<OpenAiProviderToolItemKind> {
     match tool_name {
         "webSearch" | "web_search" | "web_search_preview" => {
@@ -361,6 +380,91 @@ fn openai_provider_tool_item_kind(tool_name: &str) -> Option<OpenAiProviderToolI
         _ if tool_name.starts_with("mcp.") => Some(OpenAiProviderToolItemKind::Mcp),
         _ => None,
     }
+}
+
+fn openai_hosted_dynamic_tool_item_kind_for_call(
+    tool_name: &str,
+    arguments: &serde_json::Value,
+    item_id: Option<&str>,
+) -> Option<OpenAiHostedDynamicToolItemKind> {
+    match tool_name {
+        "apply_patch" => Some(OpenAiHostedDynamicToolItemKind::ApplyPatch),
+        "shell" => {
+            if let Some(item_id) = item_id {
+                if item_id.starts_with("lsh_") {
+                    return Some(OpenAiHostedDynamicToolItemKind::LocalShell);
+                }
+                if item_id.starts_with("sh_") {
+                    return Some(OpenAiHostedDynamicToolItemKind::Shell);
+                }
+            }
+
+            let input = openai_json_object(arguments)?;
+            let action = input
+                .get("action")
+                .and_then(serde_json::Value::as_object)
+                .unwrap_or(&input);
+
+            if action.contains_key("commands") {
+                Some(OpenAiHostedDynamicToolItemKind::Shell)
+            } else {
+                Some(OpenAiHostedDynamicToolItemKind::LocalShell)
+            }
+        }
+        _ => None,
+    }
+}
+
+fn openai_hosted_dynamic_tool_item_kind_for_result(
+    tool_name: &str,
+    output: &crate::types::ToolResultOutput,
+    item_id: Option<&str>,
+) -> Option<OpenAiHostedDynamicToolItemKind> {
+    match tool_name {
+        "apply_patch" => Some(OpenAiHostedDynamicToolItemKind::ApplyPatch),
+        "shell" => {
+            if let Some(item_id) = item_id {
+                if item_id.starts_with("lsh_") {
+                    return Some(OpenAiHostedDynamicToolItemKind::LocalShell);
+                }
+                if item_id.starts_with("sh_") {
+                    return Some(OpenAiHostedDynamicToolItemKind::Shell);
+                }
+            }
+
+            let value = match output {
+                crate::types::ToolResultOutput::Json { value, .. }
+                | crate::types::ToolResultOutput::ErrorJson { value, .. } => Some(value),
+                _ => None,
+            };
+
+            if let Some(inner) = value
+                .and_then(serde_json::Value::as_object)
+                .and_then(|obj| obj.get("output"))
+            {
+                if inner.is_array() {
+                    return Some(OpenAiHostedDynamicToolItemKind::Shell);
+                }
+            }
+
+            Some(OpenAiHostedDynamicToolItemKind::LocalShell)
+        }
+        _ => None,
+    }
+}
+
+fn openai_hosted_dynamic_tool_payload(
+    arguments: &serde_json::Value,
+    field: &str,
+) -> serde_json::Value {
+    let Some(input) = openai_json_object(arguments) else {
+        return serde_json::Value::Object(serde_json::Map::new());
+    };
+
+    input
+        .get(field)
+        .cloned()
+        .unwrap_or_else(|| serde_json::Value::Object(input))
 }
 
 fn split_openai_sources(
@@ -890,6 +994,136 @@ fn openai_provider_executed_output_item(
     openai_custom_tool_output_item(tool_call, tool_result).map(|item| (item, false))
 }
 
+fn openai_hosted_dynamic_tool_call_output_item(part: &ContentPart) -> Option<serde_json::Value> {
+    let ContentPart::ToolCall {
+        tool_call_id,
+        tool_name,
+        arguments,
+        provider_executed,
+        dynamic,
+        ..
+    } = part
+    else {
+        return None;
+    };
+
+    if *provider_executed == Some(true) || *dynamic != Some(true) {
+        return None;
+    }
+
+    let item_id = openai_content_part_item_id(part);
+    let kind =
+        openai_hosted_dynamic_tool_item_kind_for_call(tool_name, arguments, item_id.as_deref())?;
+
+    let mut item = serde_json::Map::new();
+    if let Some(item_id) = item_id {
+        item.insert("id".to_string(), serde_json::json!(item_id));
+    }
+    item.insert("status".to_string(), serde_json::json!("completed"));
+    item.insert("call_id".to_string(), serde_json::json!(tool_call_id));
+
+    match kind {
+        OpenAiHostedDynamicToolItemKind::LocalShell => {
+            item.insert("type".to_string(), serde_json::json!("local_shell_call"));
+            item.insert(
+                "action".to_string(),
+                openai_hosted_dynamic_tool_payload(arguments, "action"),
+            );
+        }
+        OpenAiHostedDynamicToolItemKind::Shell => {
+            item.insert("type".to_string(), serde_json::json!("shell_call"));
+            item.insert(
+                "action".to_string(),
+                openai_hosted_dynamic_tool_payload(arguments, "action"),
+            );
+        }
+        OpenAiHostedDynamicToolItemKind::ApplyPatch => {
+            item.insert("type".to_string(), serde_json::json!("apply_patch_call"));
+            item.insert(
+                "operation".to_string(),
+                openai_hosted_dynamic_tool_payload(arguments, "operation"),
+            );
+        }
+    }
+
+    Some(serde_json::Value::Object(item))
+}
+
+fn openai_hosted_dynamic_tool_result_output_item(part: &ContentPart) -> Option<serde_json::Value> {
+    let ContentPart::ToolResult {
+        tool_call_id,
+        tool_name,
+        output,
+        provider_executed,
+        dynamic,
+        ..
+    } = part
+    else {
+        return None;
+    };
+
+    if *provider_executed == Some(true) || *dynamic != Some(true) {
+        return None;
+    }
+
+    let item_id = openai_content_part_item_id(part);
+    let kind =
+        openai_hosted_dynamic_tool_item_kind_for_result(tool_name, output, item_id.as_deref())?;
+    let (result_value, _) = openai_tool_result_payload(Some(part));
+
+    let mut item = serde_json::Map::new();
+    item.insert("call_id".to_string(), serde_json::json!(tool_call_id));
+
+    match kind {
+        OpenAiHostedDynamicToolItemKind::LocalShell => {
+            item.insert(
+                "type".to_string(),
+                serde_json::json!("local_shell_call_output"),
+            );
+            item.insert(
+                "output".to_string(),
+                result_value
+                    .as_object()
+                    .and_then(|obj| obj.get("output").cloned())
+                    .unwrap_or(result_value),
+            );
+        }
+        OpenAiHostedDynamicToolItemKind::Shell => {
+            item.insert("type".to_string(), serde_json::json!("shell_call_output"));
+            item.insert(
+                "output".to_string(),
+                result_value
+                    .as_object()
+                    .and_then(|obj| obj.get("output").cloned())
+                    .unwrap_or(result_value),
+            );
+        }
+        OpenAiHostedDynamicToolItemKind::ApplyPatch => {
+            item.insert(
+                "type".to_string(),
+                serde_json::json!("apply_patch_call_output"),
+            );
+            item.insert(
+                "status".to_string(),
+                result_value
+                    .as_object()
+                    .and_then(|obj| obj.get("status").cloned())
+                    .unwrap_or_else(|| serde_json::json!("completed")),
+            );
+            if let Some(output) = result_value
+                .as_object()
+                .and_then(|obj| obj.get("output").cloned())
+            {
+                item.insert("output".to_string(), output);
+            } else if !result_value.is_null() {
+                item.insert("output".to_string(), result_value);
+            }
+        }
+    }
+
+    Some(serde_json::Value::Object(item))
+}
+
 #[derive(Debug, Clone)]
 pub struct OpenAiResponsesJsonResponseConverter;
 
@@ -1020,6 +1254,11 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         provider_executed,
                         ..
                     } => {
+                        if let Some(item) = openai_hosted_dynamic_tool_call_output_item(part) {
+                            output.push(item);
+                            continue;
+                        }
+
                         if *provider_executed == Some(true) {
                             if approval_requests_by_call_id.contains_key(tool_call_id.as_str()) {
                                 continue;
@@ -1110,6 +1349,11 @@ impl JsonResponseConverter for OpenAiResponsesJsonResponseConverter {
                         provider_executed,
                         ..
                     } => {
+                        if let Some(item) = openai_hosted_dynamic_tool_result_output_item(part) {
+                            output.push(item);
+                            continue;
+                        }
+
                         if *provider_executed == Some(true)
                             && emitted_provider_tool_items.insert(tool_call_id.clone())
                         {
@@ -1249,6 +1493,10 @@ mod tests {
             tool_name: "get_weather".to_string(),
             arguments: serde_json::Value::String(r#"{"city":"Tokyo"}"#.to_string()),
             provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
@@ -1279,9 +1527,8 @@ mod tests {
         response.service_tier = Some("priority".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "openai".to_string(),
-            HashMap::from([(
-                "sources".to_string(),
-                serde_json::json!([
+            serde_json::json!({
+                "sources": [
                     {
                         "id": "src_1",
                         "source_type": "url",
@@ -1302,8 +1549,8 @@ mod tests {
                             }
                         }
                     }
-                ]),
-            )]),
+                ]
+            }),
         )]));
 
         let mut out = Vec::new();
@@ -1352,6 +1599,10 @@ mod tests {
                     "query": "rust release notes"
                 }),
                 provider_executed: Some(true),
+                dynamic: Some(true),
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "openai".to_string(),
@@ -1370,7 +1621,13 @@ mod tests {
                         "query": "rust release notes"
                     }
                 })),
+                input: Some(serde_json::json!({
+                    "query": "rust release notes"
+                })),
                 provider_executed: Some(true),
+                dynamic: Some(true),
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1379,9 +1636,8 @@ mod tests {
         response.model = Some("gpt-5-mini".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "openai".to_string(),
-            HashMap::from([(
-                "sources".to_string(),
-                serde_json::json!([
+            serde_json::json!({
+                "sources": [
                     {
                         "id": "src_1",
                         "source_type": "url",
@@ -1390,8 +1646,8 @@ mod tests {
                         "snippet": "Release notes",
                         "tool_call_id": "ws_1"
                     }
-                ]),
-            )]),
+                ]
+            }),
         )]));
 
         let mut out = Vec::new();
@@ -1433,7 +1689,9 @@ mod tests {
         response.model = Some("gpt-5-mini".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "openai".to_string(),
-            HashMap::from([("itemId".to_string(), serde_json::json!("msg_legacy"))]),
+            serde_json::json!({
+                "itemId": "msg_legacy"
+            }),
         )]));
 
         let mut out = Vec::new();
@@ -1459,6 +1717,10 @@ mod tests {
                     "query": "rust release notes"
                 }),
                 provider_executed: Some(true),
+                dynamic: Some(true),
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "openai".to_string(),
@@ -1482,7 +1744,13 @@ mod tests {
                         }
                     ]
                 })),
+                input: Some(serde_json::json!({
+                    "query": "rust release notes"
+                })),
                 provider_executed: Some(true),
+                dynamic: Some(true),
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1525,6 +1793,10 @@ mod tests {
                     r#"{"url":"https://example.com"}"#.to_string(),
                 ),
                 provider_executed: Some(true),
+                dynamic: Some(true),
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "openai".to_string(),
@@ -1539,7 +1811,13 @@ mod tests {
                 output: crate::types::ToolResultOutput::error_json(serde_json::json!({
                     "message": "blocked"
                 })),
+                input: Some(serde_json::Value::String(
+                    r#"{"url":"https://example.com"}"#.to_string(),
+                )),
                 provider_executed: Some(true),
+                dynamic: Some(true),
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1548,9 +1826,8 @@ mod tests {
         response.model = Some("gpt-5-mini".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "openai".to_string(),
-            HashMap::from([(
-                "sources".to_string(),
-                serde_json::json!([
+            serde_json::json!({
+                "sources": [
                     {
                         "id": "src_custom_1",
                         "source_type": "url",
@@ -1558,8 +1835,8 @@ mod tests {
                         "title": "Example",
                         "tool_call_id": "browser_1"
                     }
-                ]),
-            )]),
+                ]
+            }),
         )]));
 
         let mut out = Vec::new();
@@ -1587,6 +1864,155 @@ mod tests {
             value["output"][1]["output"]["message"],
             serde_json::json!("blocked")
         );
+    }
+
+    #[test]
+    fn responses_encoder_serializes_dynamic_hosted_tool_call_items() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolCall {
+                tool_call_id: "local_shell_call_1".to_string(),
+                tool_name: "shell".to_string(),
+                arguments: serde_json::Value::String(
+                    r#"{"action":{"type":"exec","command":["ls"],"working_directory":"/root","env":{}}}"#
+                        .to_string(),
+                ),
+                provider_executed: None,
+                dynamic: Some(true),
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "lsh_1"
+                    }),
+                )])),
+            },
+            ContentPart::ToolCall {
+                tool_call_id: "apply_patch_call_1".to_string(),
+                tool_name: "apply_patch".to_string(),
+                arguments: serde_json::Value::String(
+                    r#"{"operation":{"type":"create_file","path":"notes.md","diff":"+hello\n"}}"#
+                        .to_string(),
+                ),
+                provider_executed: None,
+                dynamic: Some(true),
+                invalid: None,
+                error: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "apc_1"
+                    }),
+                )])),
+            },
+        ]));
+        response.id = Some("resp_dynamic_hosted".to_string());
+        response.model = Some("gpt-5".to_string());
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["output"][0]["type"],
+            serde_json::json!("local_shell_call")
+        );
+        assert_eq!(value["output"][0]["id"], serde_json::json!("lsh_1"));
+        assert_eq!(
+            value["output"][0]["call_id"],
+            serde_json::json!("local_shell_call_1")
+        );
+        assert_eq!(
+            value["output"][0]["action"]["command"][0],
+            serde_json::json!("ls")
+        );
+        assert_eq!(
+            value["output"][1]["type"],
+            serde_json::json!("apply_patch_call")
+        );
+        assert_eq!(value["output"][1]["id"], serde_json::json!("apc_1"));
+        assert_eq!(
+            value["output"][1]["operation"]["type"],
+            serde_json::json!("create_file")
+        );
+    }
+
+    #[test]
+    fn responses_encoder_serializes_dynamic_hosted_tool_output_items() {
+        let mut response = ChatResponse::new(crate::types::MessageContent::MultiModal(vec![
+            ContentPart::ToolResult {
+                tool_call_id: "shell_call_1".to_string(),
+                tool_name: "shell".to_string(),
+                output: crate::types::ToolResultOutput::json(serde_json::json!({
+                    "output": [
+                        {
+                            "stdout": "ok",
+                            "stderr": "",
+                            "outcome": {
+                                "type": "exit",
+                                "exitCode": 0
+                            }
+                        }
+                    ]
+                })),
+                input: None,
+                provider_executed: None,
+                dynamic: Some(true),
+                preliminary: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: Some(HashMap::from([(
+                    "openai".to_string(),
+                    serde_json::json!({
+                        "itemId": "sh_1"
+                    }),
+                )])),
+            },
+            ContentPart::ToolResult {
+                tool_call_id: "apply_patch_call_1".to_string(),
+                tool_name: "apply_patch".to_string(),
+                output: crate::types::ToolResultOutput::json(serde_json::json!({
+                    "status": "completed",
+                    "output": "patched"
+                })),
+                input: None,
+                provider_executed: None,
+                dynamic: Some(true),
+                preliminary: None,
+                title: None,
+                provider_options: crate::types::ProviderOptionsMap::default(),
+                provider_metadata: None,
+            },
+        ]));
+        response.id = Some("resp_dynamic_hosted_output".to_string());
+        response.model = Some("gpt-5".to_string());
+
+        let mut out = Vec::new();
+        OpenAiResponsesJsonResponseConverter::new()
+            .serialize_response(&response, &mut out, JsonEncodeOptions::default())
+            .expect("serialize");
+
+        let value: serde_json::Value = serde_json::from_slice(&out).expect("json");
+        assert_eq!(
+            value["output"][0]["type"],
+            serde_json::json!("shell_call_output")
+        );
+        assert_eq!(
+            value["output"][0]["output"][0]["stdout"],
+            serde_json::json!("ok")
+        );
+        assert_eq!(
+            value["output"][1]["type"],
+            serde_json::json!("apply_patch_call_output")
+        );
+        assert_eq!(value["output"][1]["status"], serde_json::json!("completed"));
+        assert_eq!(value["output"][1]["output"], serde_json::json!("patched"));
     }
 
     #[test]

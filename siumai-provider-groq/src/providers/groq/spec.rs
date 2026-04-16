@@ -73,6 +73,100 @@ impl crate::standards::openai::chat::OpenAiChatAdapter for GroqOpenAiChatAdapter
 #[derive(Clone, Copy, Default)]
 pub struct GroqSpec;
 
+fn take_any(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<serde_json::Value> {
+    for key in keys {
+        if let Some(value) = obj.remove(*key) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn normalize_groq_body_option_keys(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    let structured_outputs = take_any(obj, &["structuredOutputs", "structured_outputs"])
+        .and_then(|value| value.as_bool());
+    let strict_json_schema = take_any(obj, &["strictJsonSchema", "strict_json_schema"])
+        .and_then(|value| value.as_bool());
+
+    if let Some(top_logprobs) = take_any(obj, &["topLogprobs", "top_logprobs"]) {
+        obj.insert("top_logprobs".to_string(), top_logprobs);
+    }
+    if let Some(service_tier) = take_any(obj, &["serviceTier", "service_tier"]) {
+        obj.insert("service_tier".to_string(), service_tier);
+    }
+    if let Some(reasoning_effort) = take_any(obj, &["reasoningEffort", "reasoning_effort"]) {
+        obj.insert("reasoning_effort".to_string(), reasoning_effort);
+    }
+    if let Some(reasoning_format) = take_any(obj, &["reasoningFormat", "reasoning_format"]) {
+        obj.insert("reasoning_format".to_string(), reasoning_format);
+    }
+    if let Some(parallel_tool_calls) = take_any(obj, &["parallelToolCalls", "parallel_tool_calls"])
+    {
+        obj.insert("parallel_tool_calls".to_string(), parallel_tool_calls);
+    }
+
+    if let Some(false) = structured_outputs
+        && obj
+            .get("response_format")
+            .and_then(|value| value.get("type"))
+            .and_then(|value| value.as_str())
+            == Some("json_schema")
+    {
+        obj.insert(
+            "response_format".to_string(),
+            serde_json::json!({ "type": "json_object" }),
+        );
+    }
+
+    if let Some(strict) = strict_json_schema
+        && let Some(serde_json::Value::Object(response_format)) = obj.get_mut("response_format")
+        && response_format.get("type").and_then(|value| value.as_str()) == Some("json_schema")
+        && let Some(serde_json::Value::Object(json_schema)) = response_format.get_mut("json_schema")
+    {
+        json_schema.insert("strict".to_string(), serde_json::Value::Bool(strict));
+    }
+}
+
+fn remove_known_aliases_for_request_override(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) {
+    match key {
+        "topLogprobs" | "top_logprobs" => {
+            obj.remove("topLogprobs");
+            obj.remove("top_logprobs");
+        }
+        "serviceTier" | "service_tier" => {
+            obj.remove("serviceTier");
+            obj.remove("service_tier");
+        }
+        "reasoningEffort" | "reasoning_effort" => {
+            obj.remove("reasoningEffort");
+            obj.remove("reasoning_effort");
+        }
+        "reasoningFormat" | "reasoning_format" => {
+            obj.remove("reasoningFormat");
+            obj.remove("reasoning_format");
+        }
+        "parallelToolCalls" | "parallel_tool_calls" => {
+            obj.remove("parallelToolCalls");
+            obj.remove("parallel_tool_calls");
+        }
+        "structuredOutputs" | "structured_outputs" => {
+            obj.remove("structuredOutputs");
+            obj.remove("structured_outputs");
+        }
+        "strictJsonSchema" | "strict_json_schema" => {
+            obj.remove("strictJsonSchema");
+            obj.remove("strict_json_schema");
+        }
+        _ => {}
+    }
+}
+
 impl ProviderSpec for GroqSpec {
     fn id(&self) -> &'static str {
         "groq"
@@ -125,32 +219,37 @@ impl ProviderSpec for GroqSpec {
         req: &crate::types::ChatRequest,
         _ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        // Groq typed options: merge extra params and validate.
-        let options_value = req.provider_options_map.get("groq").cloned();
+        // Groq typed options: merge request-level extras, normalize AI SDK option keys, and
+        // validate. The hook is always installed because config-level defaults may already be
+        // present on the body via the compat adapter even when the request itself has no
+        // `providerOptions.groq`.
+        let extra = req
+            .provider_options_map
+            .get("groq")
+            .cloned()
+            .and_then(|val| serde_json::from_value::<GroqOptions>(val).ok())
+            .map(|opts| opts.extra_params)
+            .unwrap_or_default();
 
-        if let Some(val) = options_value
-            && let Ok(opts) = serde_json::from_value::<GroqOptions>(val)
-        {
-            let extra = opts.extra_params;
-            let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
-                let mut out = body.clone();
-                if let Some(obj) = out.as_object_mut() {
-                    for (k, v) in &extra {
-                        if matches!(k.as_str(), "response_format" | "tool_choice")
-                            && obj.contains_key(k)
-                        {
-                            continue;
-                        }
-                        obj.insert(k.clone(), v.clone());
+        let hook = move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
+            let mut out = body.clone();
+            if let Some(obj) = out.as_object_mut() {
+                for (k, v) in &extra {
+                    remove_known_aliases_for_request_override(obj, k);
+                    if matches!(k.as_str(), "response_format" | "tool_choice")
+                        && obj.contains_key(k)
+                    {
+                        continue;
                     }
+                    obj.insert(k.clone(), v.clone());
                 }
-                crate::providers::groq::utils::validate_groq_params(&out)?;
-                Ok(out)
-            };
-            return Some(Arc::new(hook));
-        }
+                normalize_groq_body_option_keys(obj);
+            }
+            crate::providers::groq::utils::validate_groq_params(&out)?;
+            Ok(out)
+        };
 
-        None
+        Some(Arc::new(hook))
     }
 
     fn audio_base_url(&self, ctx: &ProviderContext) -> String {
@@ -166,9 +265,22 @@ impl ProviderSpec for GroqSpec {
 
 impl GroqSpec {
     fn chat_spec(&self) -> crate::standards::openai::chat::OpenAiChatSpec {
-        crate::standards::openai::chat::OpenAiChatStandard::with_adapter(Arc::new(
-            GroqOpenAiChatAdapter,
-        ))
+        let provider_adapter: Arc<dyn crate::standards::openai::compat::adapter::ProviderAdapter> =
+            Arc::new(
+                crate::standards::openai::compat::adapter::MetadataExtractingAdapter::new(
+                    Box::new(
+                        crate::standards::openai::compat::adapter::OpenAiStandardAdapter {
+                            base_url: String::new(),
+                        },
+                    ),
+                    Arc::new(crate::providers::groq::utils::extract_groq_response_metadata),
+                ),
+            );
+
+        crate::standards::openai::chat::OpenAiChatStandard::with_adapters(
+            Arc::new(GroqOpenAiChatAdapter),
+            provider_adapter,
+        )
         .create_spec("groq")
     }
 }
@@ -258,8 +370,8 @@ mod tests {
                 GroqOptions::new()
                     .with_logprobs(true)
                     .with_top_logprobs(2)
-                    .with_service_tier(GroqServiceTier::Flex)
-                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_service_tier(GroqServiceTier::Performance)
+                    .with_reasoning_effort(GroqReasoningEffort::High)
                     .with_reasoning_format(GroqReasoningFormat::Parsed),
             );
 
@@ -270,9 +382,13 @@ mod tests {
 
         assert_eq!(body["logprobs"], serde_json::json!(true));
         assert_eq!(body["top_logprobs"], serde_json::json!(2));
-        assert_eq!(body["service_tier"], serde_json::json!("flex"));
-        assert_eq!(body["reasoning_effort"], serde_json::json!("default"));
+        assert_eq!(body["service_tier"], serde_json::json!("performance"));
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
         assert_eq!(body["reasoning_format"], serde_json::json!("parsed"));
+        assert!(body.get("topLogprobs").is_none());
+        assert!(body.get("serviceTier").is_none());
+        assert!(body.get("reasoningEffort").is_none());
+        assert!(body.get("reasoningFormat").is_none());
     }
 
     #[test]
@@ -310,9 +426,11 @@ mod tests {
                 GroqOptions::new()
                     .with_logprobs(true)
                     .with_top_logprobs(2)
-                    .with_service_tier(GroqServiceTier::Flex)
-                    .with_reasoning_effort(GroqReasoningEffort::Default)
+                    .with_service_tier(GroqServiceTier::Performance)
+                    .with_reasoning_effort(GroqReasoningEffort::High)
                     .with_reasoning_format(GroqReasoningFormat::Parsed)
+                    .with_parallel_tool_calls(false)
+                    .with_user("groq-user-1")
                     .with_param(
                         "response_format",
                         serde_json::json!({
@@ -339,9 +457,12 @@ mod tests {
         );
         assert_eq!(body["logprobs"], serde_json::json!(true));
         assert_eq!(body["top_logprobs"], serde_json::json!(2));
-        assert_eq!(body["service_tier"], serde_json::json!("flex"));
-        assert_eq!(body["reasoning_effort"], serde_json::json!("default"));
+        assert_eq!(body["service_tier"], serde_json::json!("performance"));
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
         assert_eq!(body["reasoning_format"], serde_json::json!("parsed"));
+        assert_eq!(body["parallel_tool_calls"], serde_json::json!(false));
+        assert_eq!(body["user"], serde_json::json!("groq-user-1"));
+        assert!(body.get("parallelToolCalls").is_none());
     }
 
     #[test]

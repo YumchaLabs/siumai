@@ -13,6 +13,7 @@ pub mod message_batches;
 pub mod middleware;
 pub mod model_constants;
 pub mod models;
+pub mod skills;
 pub mod spec;
 pub mod streaming;
 pub mod thinking;
@@ -33,13 +34,26 @@ pub use message_batches::{
     AnthropicMessageBatchRequest, AnthropicMessageBatches,
 };
 pub use middleware::AnthropicToolWarningsMiddleware;
+pub use skills::{
+    AnthropicSkillFile, AnthropicSkillFileContent, AnthropicSkillProviderMetadata,
+    AnthropicSkillUploadResult, AnthropicSkills,
+};
 pub use tokens::{AnthropicCountTokensResponse, AnthropicTokens};
 pub use types::*;
 
 // Provider-owned typed options (kept out of `siumai-core`).
 pub use crate::provider_options::anthropic::{
-    AnthropicCacheControl, AnthropicCacheType, AnthropicOptions, AnthropicResponseFormat,
-    AnthropicStructuredOutputMode, PromptCachingConfig, ThinkingModeConfig,
+    AnthropicCacheControl, AnthropicCacheType, AnthropicContainerConfig, AnthropicContainerSkill,
+    AnthropicContainerSkillType, AnthropicContextManagementAllKeep,
+    AnthropicContextManagementConfig, AnthropicContextManagementEdit,
+    AnthropicContextManagementInputTokensValue, AnthropicContextManagementThinkingKeep,
+    AnthropicContextManagementThinkingTurnsKeep, AnthropicContextManagementThinkingTurnsKeepKind,
+    AnthropicContextManagementToolUsesKeep, AnthropicContextManagementTrigger, AnthropicEffort,
+    AnthropicMcpServer, AnthropicMcpServerType, AnthropicMcpToolConfiguration, AnthropicOptions,
+    AnthropicRequestCacheControl, AnthropicRequestCacheControlTtl,
+    AnthropicRequestCacheControlType, AnthropicRequestMetadata, AnthropicResponseFormat,
+    AnthropicSpeed, AnthropicStructuredOutputMode, AnthropicThinkingConfig, PromptCachingConfig,
+    ThinkingModeConfig,
 };
 
 // Typed provider metadata views (protocol-owned; re-exported via this provider for ergonomics).

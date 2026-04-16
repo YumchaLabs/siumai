@@ -7,7 +7,7 @@ use crate::retry_api::RetryOptions;
 use secrecy::ExposeSecret;
 use std::sync::Arc;
 
-/// Provider-owned builder for Cohere rerank clients.
+/// Provider-owned builder for Cohere native clients.
 #[derive(Clone)]
 pub struct CohereBuilder {
     pub(crate) core: ProviderCore,
@@ -37,7 +37,17 @@ impl CohereBuilder {
         self
     }
 
-    /// Alias for `model(...)` on rerank-only providers.
+    /// Alias for `model(...)` when using Cohere chat models.
+    pub fn language_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `model(...)` when using Cohere embedding models.
+    pub fn embedding_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `model(...)` when using Cohere reranking models.
     pub fn reranking_model<S: Into<String>>(self, model: S) -> Self {
         self.model(model)
     }
@@ -123,6 +133,11 @@ impl CohereBuilder {
         config.http_transport = self.core.http_transport.clone();
         config.http_interceptors = self.core.get_http_interceptors();
         config.validate()?;
+        if config.common_params.model.trim().is_empty() {
+            return Err(LlmError::ConfigurationError(
+                "Cohere requires an explicit model id".to_string(),
+            ));
+        }
         Ok(config)
     }
 

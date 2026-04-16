@@ -7,11 +7,143 @@ use crate::execution::transformers::{
 };
 use crate::types::{HttpResponseInfo, Warning};
 use crate::types::{
-    ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
+    ImageEditFileData, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
+    ImageGenerationResponse, ImageVariationRequest,
 };
+use base64::Engine;
+use reqwest::header::CONTENT_TYPE;
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+fn parse_image_data_url(url: &str, label: &str) -> Result<(Vec<u8>, Option<String>), LlmError> {
+    let Some(payload) = url.strip_prefix("data:") else {
+        return Err(LlmError::InvalidParameter(format!(
+            "Expected a data URL for {label}"
+        )));
+    };
+    let Some((meta, data)) = payload.split_once(',') else {
+        return Err(LlmError::InvalidParameter(format!(
+            "Invalid data URL for {label}"
+        )));
+    };
+
+    let Some(meta) = meta.strip_suffix(";base64") else {
+        return Err(LlmError::InvalidParameter(format!(
+            "{label} data URLs must use base64 encoding"
+        )));
+    };
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data)
+        .map_err(|err| {
+            LlmError::InvalidParameter(format!("Invalid base64 payload in {label} data URL: {err}"))
+        })?;
+    let media_type = (!meta.is_empty()).then_some(meta.to_string());
+    Ok((bytes, media_type))
+}
+
+async fn materialize_url_backed_image_input(
+    http_client: &reqwest::Client,
+    input: &ImageEditInput,
+    label: &str,
+) -> Result<ImageEditInput, LlmError> {
+    match input {
+        ImageEditInput::File { .. } => Ok(input.clone()),
+        ImageEditInput::Url {
+            url,
+            provider_options_map,
+        } => {
+            let (bytes, media_type) = if url.starts_with("data:") {
+                let (bytes, media_type) = parse_image_data_url(url, label)?;
+                let media_type =
+                    media_type.unwrap_or_else(|| crate::utils::guess_mime(Some(&bytes), Some(url)));
+                (bytes, media_type)
+            } else if url.starts_with("http://") || url.starts_with("https://") {
+                let response = http_client.get(url).send().await.map_err(|err| {
+                    LlmError::HttpError(format!("Failed to download {label}: {err}"))
+                })?;
+                let status = response.status();
+                if !status.is_success() {
+                    let body = response.text().await.unwrap_or_default();
+                    return Err(LlmError::ApiError {
+                        code: status.as_u16(),
+                        message: format!("Failed to download {label} from {url}"),
+                        details: Some(serde_json::json!({ "url": url, "body": body })),
+                    });
+                }
+
+                let content_type = response
+                    .headers()
+                    .get(CONTENT_TYPE)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.split(';').next())
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string);
+                let bytes = response.bytes().await.map_err(|err| {
+                    LlmError::HttpError(format!("Failed to read {label} bytes: {err}"))
+                })?;
+                let media_type = content_type.unwrap_or_else(|| {
+                    crate::utils::guess_mime(Some(bytes.as_ref()), Some(url.as_str()))
+                });
+                (bytes.to_vec(), media_type)
+            } else {
+                return Err(LlmError::InvalidParameter(format!(
+                    "Unsupported URL scheme for {label}. Only data:, http:, and https: URLs can be materialized on this image path."
+                )));
+            };
+
+            Ok(ImageEditInput::File {
+                data: ImageEditFileData::binary(bytes),
+                media_type: Some(media_type),
+                provider_options_map: provider_options_map.clone(),
+            })
+        }
+    }
+}
+
+async fn materialize_url_backed_image_edit_request(
+    http_client: &reqwest::Client,
+    mut req: ImageEditRequest,
+) -> Result<ImageEditRequest, LlmError> {
+    if !req.images.iter().any(ImageEditInput::is_url)
+        && !req.mask.as_ref().is_some_and(ImageEditInput::is_url)
+    {
+        return Ok(req);
+    }
+
+    let mut materialized_images = Vec::with_capacity(req.images.len());
+    for (index, image) in req.images.iter().enumerate() {
+        materialized_images.push(
+            materialize_url_backed_image_input(
+                http_client,
+                image,
+                &format!("image input {}", index + 1),
+            )
+            .await?,
+        );
+    }
+    req.images = materialized_images;
+
+    if let Some(mask) = req.mask.as_ref() {
+        req.mask = Some(materialize_url_backed_image_input(http_client, mask, "mask").await?);
+    }
+
+    Ok(req)
+}
+
+async fn materialize_url_backed_image_variation_request(
+    http_client: &reqwest::Client,
+    mut req: ImageVariationRequest,
+) -> Result<ImageVariationRequest, LlmError> {
+    if !req.image.is_url() {
+        return Ok(req);
+    }
+
+    req.image =
+        materialize_url_backed_image_input(http_client, &req.image, "variation image").await?;
+    Ok(req)
+}
 
 #[async_trait::async_trait]
 pub trait ImageExecutor: Send + Sync {
@@ -227,6 +359,7 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
+        let req = materialize_url_backed_image_edit_request(&self.http_client, req).await?;
         let caps = self.provider_spec.capabilities();
         if !caps.supports("image_generation") {
             return Err(LlmError::UnsupportedOperation(
@@ -305,6 +438,7 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
+        let req = materialize_url_backed_image_variation_request(&self.http_client, req).await?;
         let caps = self.provider_spec.capabilities();
         if !caps.supports("image_generation") {
             return Err(LlmError::UnsupportedOperation(
@@ -508,6 +642,89 @@ mod tests {
         }
     }
 
+    struct InspectMaterializedEditReq;
+    impl crate::execution::transformers::request::RequestTransformer for InspectMaterializedEditReq {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+
+        fn transform_chat(
+            &self,
+            _req: &crate::types::ChatRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image(
+            &self,
+            _req: &crate::types::ImageGenerationRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image_edit(
+            &self,
+            req: &crate::types::ImageEditRequest,
+        ) -> Result<ImageHttpBody, LlmError> {
+            let first = req.images.first().expect("expected first image");
+            let data = first.file_data().expect("image should be materialized");
+            assert_eq!(data.as_bytes().expect("image bytes"), vec![1, 2, 3, 4]);
+            assert_eq!(first.media_type(), Some("image/png"));
+            assert_eq!(
+                first.provider_options_map().get("openai"),
+                Some(&serde_json::json!({ "detail": "high" }))
+            );
+
+            let mask = req.mask.as_ref().expect("mask should exist");
+            let mask_data = mask.file_data().expect("mask should be materialized");
+            assert_eq!(mask_data.as_bytes().expect("mask bytes"), vec![5, 6, 7, 8]);
+            assert_eq!(mask.media_type(), Some("image/png"));
+
+            Ok(ImageHttpBody::Json(serde_json::json!({ "ok": true })))
+        }
+    }
+
+    struct InspectMaterializedVariationReq;
+    impl crate::execution::transformers::request::RequestTransformer
+        for InspectMaterializedVariationReq
+    {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+
+        fn transform_chat(
+            &self,
+            _req: &crate::types::ChatRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image(
+            &self,
+            _req: &crate::types::ImageGenerationRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image_variation(
+            &self,
+            req: &crate::types::ImageVariationRequest,
+        ) -> Result<ImageHttpBody, LlmError> {
+            let data = req
+                .image
+                .file_data()
+                .expect("variation image should be materialized");
+            assert_eq!(data.as_bytes().expect("variation bytes"), vec![9, 8, 7, 6]);
+            assert_eq!(req.image.media_type(), Some("image/png"));
+            assert_eq!(
+                req.image.provider_options_map().get("openai"),
+                Some(&serde_json::json!({ "detail": "low" }))
+            );
+
+            Ok(ImageHttpBody::Json(serde_json::json!({ "ok": true })))
+        }
+    }
+
     // Interceptor to capture
     struct CaptureHeaders {
         seen: Arc<Mutex<Option<HeaderMap>>>,
@@ -684,5 +901,101 @@ mod tests {
                 Some("This model does not support the `size` option. Use `aspectRatio` instead.")
             )
         );
+    }
+
+    #[tokio::test]
+    async fn image_edit_executor_materializes_url_backed_inputs_before_transformer() {
+        let mut server = mockito::Server::new_async().await;
+        let _m = server
+            .mock("POST", "/images/edits")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{\"ok\":true}")
+            .create_async()
+            .await;
+
+        let exec = HttpImageExecutor {
+            provider_id: "test".into(),
+            http_client: reqwest::Client::new(),
+            request_transformer: Arc::new(InspectMaterializedEditReq),
+            response_transformer: Arc::new(OkImgResp),
+            provider_spec: Arc::new(TestSpec),
+            provider_context: crate::core::ProviderContext::new(
+                "test",
+                server.url(),
+                None,
+                Default::default(),
+            ),
+            policy: crate::execution::ExecutionPolicy::new(),
+        };
+
+        let request = crate::types::ImageEditRequest {
+            images: vec![
+                crate::types::ImageEditInput::url("data:image/png;base64,AQIDBA==")
+                    .with_provider_option("openai", serde_json::json!({ "detail": "high" })),
+            ],
+            mask: Some(crate::types::ImageEditInput::url(
+                "data:image/png;base64,BQYHCA==",
+            )),
+            prompt: "edit".to_string(),
+            model: Some("gpt-image-1".to_string()),
+            count: Some(1),
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        exec.execute_edit(request)
+            .await
+            .expect("edit request should succeed");
+    }
+
+    #[tokio::test]
+    async fn image_variation_executor_materializes_url_backed_input_before_transformer() {
+        let mut server = mockito::Server::new_async().await;
+        let _m = server
+            .mock("POST", "/images/variations")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{\"ok\":true}")
+            .create_async()
+            .await;
+
+        let exec = HttpImageExecutor {
+            provider_id: "test".into(),
+            http_client: reqwest::Client::new(),
+            request_transformer: Arc::new(InspectMaterializedVariationReq),
+            response_transformer: Arc::new(OkImgResp),
+            provider_spec: Arc::new(TestSpec),
+            provider_context: crate::core::ProviderContext::new(
+                "test",
+                server.url(),
+                None,
+                Default::default(),
+            ),
+            policy: crate::execution::ExecutionPolicy::new(),
+        };
+
+        let request = crate::types::ImageVariationRequest {
+            image: crate::types::ImageEditInput::url("data:image/png;base64,CQgHBg==")
+                .with_provider_option("openai", serde_json::json!({ "detail": "low" })),
+            model: Some("gpt-image-1".to_string()),
+            count: Some(1),
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        exec.execute_variation(request)
+            .await
+            .expect("variation request should succeed");
     }
 }

@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - xAI native image generation/edit now consume the canonical shared top-level `aspectRatio` field
   before provider-owned options/legacy extras, and unsupported image warnings now more closely
   match the audited AI SDK shape for shared `size` / `seed`.
+- The provider-owned typed option surface now also exposes AI SDK-style alias names:
+  `XaiLanguageModelChatOptions`, `XaiLanguageModelResponsesOptions`,
+  `XaiImageModelOptions`, and `XaiVideoModelOptions`, plus the audited deprecated provider alias
+  names kept by upstream for migration parity.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

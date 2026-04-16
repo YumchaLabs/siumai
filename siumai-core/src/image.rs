@@ -20,6 +20,14 @@ pub trait ImageModelV3: Send + Sync {
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError>;
+
+    /// Maximum number of images this model can generate in a single call.
+    ///
+    /// Helpers use this object-safe metadata to batch larger `count` requests in
+    /// a way that mirrors AI SDK `maxImagesPerCall`.
+    fn max_images_per_call(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// Stable image-model contract aligned with AI SDK `ImageModelV4`.
@@ -43,6 +51,10 @@ where
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         self.generate_images(request).await
+    }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        ImageGenerationCapability::max_images_per_call(self)
     }
 }
 
@@ -85,6 +97,10 @@ mod tests {
                 response: None,
             })
         }
+
+        fn max_images_per_call(&self) -> Option<u32> {
+            Some(3)
+        }
     }
 
     #[tokio::test]
@@ -124,5 +140,12 @@ mod tests {
         }
 
         assert_image_model(&model);
+    }
+
+    #[test]
+    fn adapter_preserves_capability_batch_limit() {
+        let model = FakeImage;
+
+        assert_eq!(ImageModelV3::max_images_per_call(&model), Some(3));
     }
 }

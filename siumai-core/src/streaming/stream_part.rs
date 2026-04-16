@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// Vercel AI SDK uses `Record<string, JSONObject>`. We keep this type permissive
 /// to preserve metadata for forward compatibility.
-pub type SharedV3ProviderMetadata = serde_json::Map<String, serde_json::Value>;
+pub type SharedV3ProviderMetadata = crate::types::ProviderMetadataMap;
 
 /// V4-capable provider-metadata alias kept alongside the historical V3 compatibility name.
 pub type SharedV4ProviderMetadata = SharedV3ProviderMetadata;
@@ -444,15 +444,15 @@ pub enum V3UnsupportedPartBehavior {
 }
 
 fn stream_metadata_from_hashmap(
-    metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    metadata: Option<crate::types::ProviderMetadataMap>,
 ) -> Option<SharedV3ProviderMetadata> {
-    metadata.map(|m| serde_json::Map::from_iter(m))
+    metadata
 }
 
 fn stream_metadata_to_hashmap(
     metadata: Option<SharedV3ProviderMetadata>,
-) -> Option<std::collections::HashMap<String, serde_json::Value>> {
-    metadata.map(|m| m.into_iter().collect())
+) -> Option<crate::types::ProviderMetadataMap> {
+    metadata
 }
 
 fn finish_reason_to_unified_string(reason: crate::types::FinishReason) -> String {
@@ -632,7 +632,8 @@ impl From<LanguageModelV3ReasoningFile> for ChatStreamFilePart {
 }
 
 impl LanguageModelV3StreamPart {
-    fn from_runtime_part(part: ChatStreamPart) -> Self {
+    /// Convert a stable runtime semantic part into the typed V4-capable overlay.
+    pub fn from_runtime_part(part: ChatStreamPart) -> Self {
         match part {
             ChatStreamPart::TextStart {
                 id,
@@ -812,7 +813,8 @@ impl LanguageModelV3StreamPart {
         }
     }
 
-    fn to_runtime_part(&self) -> ChatStreamPart {
+    /// Convert this typed stream part into the stable runtime semantic part.
+    pub fn to_runtime_part(&self) -> ChatStreamPart {
         match self {
             Self::TextStart {
                 id,
@@ -1063,11 +1065,12 @@ impl LanguageModelV3StreamPart {
         }
     }
 
-    /// Format as a provider-specific `ChatStreamEvent::Custom` (best-effort).
+    /// Format as a provider-specific protocol-side `ChatStreamEvent::Custom` (best-effort).
     ///
-    /// This allows users to keep using the existing streaming pipeline while
-    /// operating on typed stream parts in custom bridges.
-    pub fn to_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
+    /// This is serializer compatibility glue for provider wire formats that still
+    /// encode some typed parts as `Custom` events. Stable runtime consumers should
+    /// prefer `to_part_event()` / `to_runtime_part()` instead.
+    pub fn to_protocol_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
         let (event_type, data) = match ns {
             StreamPartNamespace::OpenAi => self.to_openai_custom_event_payload()?,
             StreamPartNamespace::Anthropic => self.to_anthropic_custom_event_payload()?,
@@ -1075,6 +1078,12 @@ impl LanguageModelV3StreamPart {
         };
 
         Some(ChatStreamEvent::Custom { event_type, data })
+    }
+
+    /// Legacy compatibility alias for provider protocol serializers.
+    #[inline]
+    pub fn to_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
+        self.to_protocol_custom_event(ns)
     }
 
     /// Convert this typed stream part into a first-class runtime stream part event.
@@ -1309,7 +1318,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_part_formats_to_openai_custom_event() {
+    fn stream_part_formats_to_openai_protocol_custom_event() {
         let part = LanguageModelV3StreamPart::ToolCall(LanguageModelV3ToolCall {
             tool_call_id: "call_1".to_string(),
             tool_name: "web_search".to_string(),
@@ -1320,7 +1329,7 @@ mod tests {
         });
 
         let ev = part
-            .to_custom_event(StreamPartNamespace::OpenAi)
+            .to_protocol_custom_event(StreamPartNamespace::OpenAi)
             .expect("custom event");
 
         match ev {
@@ -1333,10 +1342,64 @@ mod tests {
     }
 
     #[test]
-    fn stream_part_formats_reasoning_to_anthropic_custom_event_with_provider_metadata() {
+    fn stream_part_roundtrips_runtime_tool_call_part() {
+        let runtime_part = ChatStreamPart::ToolCall(ChatStreamToolCall {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "weather".to_string(),
+            input: "{\"city\":\"Tokyo\"}".to_string(),
+            provider_executed: Some(true),
+            dynamic: Some(false),
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({ "itemId": "fc_1" }),
+            )])),
+        });
+
+        let part = LanguageModelV3StreamPart::from_runtime_part(runtime_part);
+        match &part {
+            LanguageModelV3StreamPart::ToolCall(call) => {
+                assert_eq!(call.tool_call_id, "call_1");
+                assert_eq!(call.tool_name, "weather");
+                assert_eq!(call.input, "{\"city\":\"Tokyo\"}");
+                assert_eq!(call.provider_executed, Some(true));
+                assert_eq!(call.dynamic, Some(false));
+                assert_eq!(
+                    call.provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("openai"))
+                        .and_then(|metadata| metadata.get("itemId"))
+                        .and_then(|value| value.as_str()),
+                    Some("fc_1")
+                );
+            }
+            other => panic!("unexpected part: {other:?}"),
+        }
+
+        match part.to_runtime_part() {
+            ChatStreamPart::ToolCall(call) => {
+                assert_eq!(call.tool_call_id, "call_1");
+                assert_eq!(call.tool_name, "weather");
+                assert_eq!(call.input, "{\"city\":\"Tokyo\"}");
+                assert_eq!(call.provider_executed, Some(true));
+                assert_eq!(call.dynamic, Some(false));
+                assert_eq!(
+                    call.provider_metadata
+                        .as_ref()
+                        .and_then(|metadata| metadata.get("openai"))
+                        .and_then(|metadata| metadata.get("itemId"))
+                        .and_then(|value| value.as_str()),
+                    Some("fc_1")
+                );
+            }
+            other => panic!("unexpected runtime part: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_part_formats_reasoning_to_anthropic_protocol_custom_event_with_provider_metadata() {
         let part = LanguageModelV3StreamPart::ReasoningStart {
             id: "0".to_string(),
-            provider_metadata: Some(serde_json::Map::from_iter([(
+            provider_metadata: Some(std::collections::HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({
                     "contentBlockIndex": 0,
@@ -1346,7 +1409,7 @@ mod tests {
         };
 
         let ev = part
-            .to_custom_event(StreamPartNamespace::Anthropic)
+            .to_protocol_custom_event(StreamPartNamespace::Anthropic)
             .expect("custom event");
 
         match ev {
@@ -1449,18 +1512,18 @@ mod tests {
     }
 
     #[test]
-    fn stream_part_formats_reasoning_file_to_openai_custom_event() {
+    fn stream_part_formats_reasoning_file_to_openai_protocol_custom_event() {
         let part = LanguageModelV3StreamPart::ReasoningFile(LanguageModelV3ReasoningFile {
             media_type: "image/png".to_string(),
             data: LanguageModelV3FileData::Base64("ZmFrZQ==".to_string()),
-            provider_metadata: Some(serde_json::Map::from_iter([(
+            provider_metadata: Some(std::collections::HashMap::from([(
                 "openai".to_string(),
                 serde_json::json!({ "itemId": "rs_1" }),
             )])),
         });
 
         let ev = part
-            .to_custom_event(StreamPartNamespace::OpenAi)
+            .to_protocol_custom_event(StreamPartNamespace::OpenAi)
             .expect("custom event");
 
         match ev {

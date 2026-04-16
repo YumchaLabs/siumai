@@ -133,6 +133,16 @@ impl DefaultModelRegistry {
             .or_else(|| super::config::get_default_rerank_model(provider_id))
     }
 
+    /// Get default speech model for a provider
+    pub fn get_default_speech_model(&self, provider_id: &str) -> Option<&'static str> {
+        super::config::get_default_speech_model(provider_id)
+    }
+
+    /// Get default transcription model for a provider
+    pub fn get_default_transcription_model(&self, provider_id: &str) -> Option<&'static str> {
+        super::config::get_default_transcription_model(provider_id)
+    }
+
     /// Get all supported providers
     pub fn get_supported_providers(&self) -> Vec<&'static str> {
         let mut providers: Vec<&'static str> = self.configs.keys().copied().collect();
@@ -140,7 +150,9 @@ impl DefaultModelRegistry {
         for (provider_id, config) in super::config::get_builtin_provider_map() {
             if config.default_model.is_some() {
                 let provider_id = provider_id.as_str();
-                if !providers.contains(&provider_id) {
+                if !super::config::is_hidden_compat_alias(provider_id)
+                    && !providers.contains(&provider_id)
+                {
                     providers.push(provider_id);
                 }
             }
@@ -186,6 +198,16 @@ pub fn get_default_rerank_model(provider_id: &str) -> Option<&'static str> {
     get_registry().get_default_rerank_model(provider_id)
 }
 
+/// Get default speech model for a provider
+pub fn get_default_speech_model(provider_id: &str) -> Option<&'static str> {
+    get_registry().get_default_speech_model(provider_id)
+}
+
+/// Get default transcription model for a provider
+pub fn get_default_transcription_model(provider_id: &str) -> Option<&'static str> {
+    get_registry().get_default_transcription_model(provider_id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,16 +250,53 @@ mod tests {
             Some("mistral-large-latest")
         );
         assert_eq!(
-            registry.get_default_chat_model("together"),
+            registry.get_default_embedding_model("mistral"),
+            Some("mistral-embed")
+        );
+        assert_eq!(registry.get_default_chat_model("perplexity"), Some("sonar"));
+        assert_eq!(
+            registry.get_default_chat_model("togetherai"),
             Some("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+        );
+        assert_eq!(
+            registry.get_default_speech_model("togetherai"),
+            Some("cartesia/sonic-2")
+        );
+        assert_eq!(
+            registry.get_default_transcription_model("togetherai"),
+            Some("openai/whisper-large-v3")
+        );
+        assert_eq!(
+            registry.get_default_chat_model("deepinfra"),
+            Some("meta-llama/Llama-3.3-70B-Instruct")
+        );
+        assert_eq!(
+            registry.get_default_embedding_model("deepinfra"),
+            Some("BAAI/bge-base-en-v1.5")
+        );
+        assert_eq!(
+            registry.get_default_image_model("deepinfra"),
+            Some("black-forest-labs/FLUX-1-schnell")
         );
         assert_eq!(
             registry.get_default_chat_model("fireworks"),
             Some("accounts/fireworks/models/llama-v3p1-8b-instruct")
         );
         assert_eq!(
+            registry.get_default_chat_model("moonshotai"),
+            Some("kimi-k2-0905")
+        );
+        assert_eq!(
+            registry.get_default_chat_model("moonshot"),
+            Some("kimi-k2-0905")
+        );
+        assert_eq!(
             registry.get_default_embedding_model("fireworks"),
             Some("nomic-ai/nomic-embed-text-v1.5")
+        );
+        assert_eq!(
+            registry.get_default_image_model("fireworks"),
+            Some("accounts/fireworks/models/flux-1-dev-fp8")
         );
         assert_eq!(
             registry.get_default_rerank_model("jina"),
@@ -269,23 +328,45 @@ mod tests {
             get_default_embedding_model("siliconflow"),
             Some("BAAI/bge-large-zh-v1.5")
         );
-        assert_eq!(
-            get_default_image_model("together"),
-            Some("black-forest-labs/FLUX.1-schnell")
-        );
         assert_eq!(get_default_rerank_model("jina"), Some("jina-reranker-m0"));
         assert_eq!(
             get_default_chat_model("mistral"),
             Some("mistral-large-latest")
         );
         assert_eq!(
-            get_default_chat_model("together"),
+            get_default_chat_model("togetherai"),
             Some("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo")
+        );
+        assert_eq!(
+            get_default_speech_model("togetherai"),
+            Some("cartesia/sonic-2")
+        );
+        assert_eq!(
+            get_default_transcription_model("togetherai"),
+            Some("openai/whisper-large-v3")
+        );
+        assert_eq!(
+            get_default_chat_model("deepinfra"),
+            Some("meta-llama/Llama-3.3-70B-Instruct")
+        );
+        assert_eq!(
+            get_default_embedding_model("deepinfra"),
+            Some("BAAI/bge-base-en-v1.5")
+        );
+        assert_eq!(
+            get_default_image_model("deepinfra"),
+            Some("black-forest-labs/FLUX-1-schnell")
+        );
+        assert_eq!(
+            get_default_image_model("fireworks"),
+            Some("accounts/fireworks/models/flux-1-dev-fp8")
         );
         assert_eq!(
             get_default_chat_model("fireworks"),
             Some("accounts/fireworks/models/llama-v3p1-8b-instruct")
         );
+        assert_eq!(get_default_chat_model("moonshotai"), Some("kimi-k2-0905"));
+        assert_eq!(get_default_chat_model("moonshot"), Some("kimi-k2-0905"));
         assert_eq!(get_default_chat_model("unknown"), None);
     }
 
@@ -299,8 +380,11 @@ mod tests {
         assert!(providers.contains(&"openrouter"));
         assert!(providers.contains(&"mistral"));
         assert!(providers.contains(&"cohere"));
-        assert!(providers.contains(&"together"));
+        assert!(providers.contains(&"togetherai"));
+        assert!(providers.contains(&"deepinfra"));
         assert!(providers.contains(&"fireworks"));
+        assert!(providers.contains(&"moonshotai"));
+        assert!(!providers.contains(&"moonshot"));
         assert!(providers.contains(&"groq"));
         assert!(providers.contains(&"xai"));
     }

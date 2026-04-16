@@ -25,6 +25,15 @@ pub fn join_url(base: &str, path: &str) -> String {
         return base.trim_end_matches('/').to_string();
     }
 
+    let (path_with_query, fragment) = match path.split_once('#') {
+        Some((path, fragment)) => (path, Some(fragment)),
+        None => (path, None),
+    };
+    let (path, query) = match path_with_query.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (path_with_query, None),
+    };
+
     if let Ok(mut url) = reqwest::Url::parse(base) {
         let current_path = url.path().trim_end_matches('/');
         let joined_path = if current_path.is_empty() || current_path == "/" {
@@ -33,10 +42,28 @@ pub fn join_url(base: &str, path: &str) -> String {
             format!("{current_path}/{path}")
         };
         url.set_path(&joined_path);
+        if let Some(query) = query {
+            url.set_query(Some(query));
+        }
+        if let Some(fragment) = fragment {
+            url.set_fragment(Some(fragment));
+        }
         return url.to_string();
     }
 
     let base = base.trim_end_matches('/');
+    if query.is_some() || fragment.is_some() {
+        let mut joined = format!("{base}/{path}");
+        if let Some(query) = query {
+            joined.push('?');
+            joined.push_str(query);
+        }
+        if let Some(fragment) = fragment {
+            joined.push('#');
+            joined.push_str(fragment);
+        }
+        return joined;
+    }
     format!("{base}/{path}")
 }
 
@@ -161,6 +188,17 @@ mod tests {
                 "/audio/speech"
             ),
             "https://api.example.com/v1/audio/speech?api-version=2025-04-01"
+        );
+        assert_eq!(
+            join_url(
+                "https://api.example.com/v1",
+                "files?purpose=assistants&limit=10"
+            ),
+            "https://api.example.com/v1/files?purpose=assistants&limit=10"
+        );
+        assert_eq!(
+            join_url("https://api.example.com/v1", "responses#stream-end"),
+            "https://api.example.com/v1/responses#stream-end"
         );
 
         // Empty path

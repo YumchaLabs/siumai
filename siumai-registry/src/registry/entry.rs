@@ -20,19 +20,22 @@ use crate::retry_api::RetryOptions;
 use crate::streaming::{ChatStream, ChatStreamHandle};
 use crate::text::{LanguageModel as FamilyLanguageModel, TextModelV3};
 use crate::traits::{
-    AudioCapability, ChatCapability, EmbeddingCapability, EmbeddingExtensions,
-    FileManagementCapability, ImageExtras, ImageGenerationCapability, MusicGenerationCapability,
-    ProviderCapabilities, RerankCapability, VideoGenerationCapability,
+    AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability,
+    EmbeddingExtensions, FileManagementCapability, ImageExtras, ImageGenerationCapability,
+    MusicGenerationCapability, ProviderCapabilities, RerankCapability, SkillsCapability,
+    VideoGenerationCapability,
 };
 use crate::types::{
     AudioFeature, AudioStream, AudioTranslationRequest, BatchEmbeddingRequest,
-    BatchEmbeddingResponse, ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest,
-    EmbeddingResponse, FileDeleteResponse, FileListQuery, FileListResponse, FileObject,
-    FileUploadRequest, ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse,
-    ImageVariationRequest, LanguageInfo, MusicGenerationRequest, MusicGenerationResponse,
-    RerankRequest, RerankResponse, SttRequest, SttResponse, Tool, TtsRequest, TtsResponse,
-    VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatusResponse, VoiceInfo,
+    BatchEmbeddingResponse, ChatMessage, ChatRequest, ChatResponse, CompletionRequest,
+    CompletionResponse, EmbeddingRequest, EmbeddingResponse, FileDeleteResponse, FileListQuery,
+    FileListResponse, FileObject, FileUploadRequest, ImageEditRequest, ImageGenerationRequest,
+    ImageGenerationResponse, ImageVariationRequest, LanguageInfo, MusicGenerationRequest,
+    MusicGenerationResponse, RerankRequest, RerankResponse, SkillUploadRequest, SkillUploadResult,
+    SttRequest, SttResponse, Tool, TtsRequest, TtsResponse, VideoGenerationRequest,
+    VideoGenerationResponse, VideoTaskStatusResponse, VoiceInfo,
 };
+use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
@@ -90,6 +93,43 @@ pub trait ProviderFactory: Send + Sync {
         model_id: &str,
     ) -> Result<Arc<dyn FamilyLanguageModel>, LlmError> {
         self.language_model_text_with_ctx(model_id, &BuildContext::default())
+            .await
+    }
+
+    /// Create a completion model client for the given model ID.
+    async fn completion_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.language_model(model_id).await
+    }
+
+    /// Create a completion model client with build context.
+    async fn completion_model_with_ctx(
+        &self,
+        model_id: &str,
+        _ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.completion_model(model_id).await
+    }
+
+    /// Create a completion-family model with build context.
+    async fn completion_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
+        let client = self.completion_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(ClientBackedCompletionModel::new(
+            client,
+            self.provider_id().into_owned(),
+            model_id.to_string(),
+        )))
+    }
+
+    /// Create a completion-family model without an explicit build context.
+    async fn completion_model_family(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
+        self.completion_model_family_with_ctx(model_id, &BuildContext::default())
             .await
     }
 
@@ -295,6 +335,12 @@ pub trait ProviderFactory: Send + Sync {
 /// Cache entry with TTL support
 struct CacheEntry {
     model: Arc<dyn FamilyLanguageModel>,
+    created_at: Instant,
+}
+
+/// Completion-family cache entry with TTL support
+struct CompletionCacheEntry {
+    model: Arc<dyn FamilyCompletionModel>,
     created_at: Instant,
 }
 
@@ -601,8 +647,78 @@ impl TextModelV3 for ClientBackedLanguageModel {
     }
 }
 
+struct ClientBackedCompletionModel {
+    client: Arc<dyn LlmClient>,
+    provider_id: String,
+    model_id: String,
+}
+
+impl ClientBackedCompletionModel {
+    fn new(client: Arc<dyn LlmClient>, provider_id: String, model_id: String) -> Self {
+        Self {
+            client,
+            provider_id,
+            model_id,
+        }
+    }
+}
+
+impl crate::traits::ModelMetadata for ClientBackedCompletionModel {
+    fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
+
+#[async_trait::async_trait]
+impl siumai_core::completion::CompletionModelV3 for ClientBackedCompletionModel {
+    async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        let completion = self.client.as_completion_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support completions".to_string())
+        })?;
+        completion.complete(request).await
+    }
+
+    async fn stream(&self, request: CompletionRequest) -> Result<ChatStream, LlmError> {
+        let completion = self.client.as_completion_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support completions".to_string())
+        })?;
+        completion.complete_stream(request).await
+    }
+
+    async fn stream_with_cancel(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        let completion = self.client.as_completion_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation("Provider does not support completions".to_string())
+        })?;
+        completion.complete_stream_with_cancel(request).await
+    }
+}
+
 impl CacheEntry {
     fn new(model: Arc<dyn FamilyLanguageModel>) -> Self {
+        Self {
+            model,
+            created_at: Instant::now(),
+        }
+    }
+
+    fn is_expired(&self, ttl: Option<Duration>) -> bool {
+        if let Some(ttl) = ttl {
+            self.created_at.elapsed() > ttl
+        } else {
+            false
+        }
+    }
+}
+
+impl CompletionCacheEntry {
+    fn new(model: Arc<dyn FamilyCompletionModel>) -> Self {
         Self {
             model,
             created_at: Instant::now(),
@@ -935,6 +1051,8 @@ pub struct ProviderRegistryHandle {
     /// LRU cache for language model clients (key: "provider:model")
     /// Uses async Mutex for concurrent access and per-key build de-duplication
     language_model_cache: Arc<TokioMutex<LruCache<String, CacheEntry>>>,
+    /// LRU cache for completion-family models (key: "provider:model")
+    completion_model_cache: Arc<TokioMutex<LruCache<String, CompletionCacheEntry>>>,
     /// LRU cache for speech-family models (key: "provider:model")
     speech_model_cache: Arc<TokioMutex<LruCache<String, SpeechCacheEntry>>>,
     /// LRU cache for transcription-family models (key: "provider:model")
@@ -977,6 +1095,8 @@ pub struct BuildContext {
     pub organization: Option<String>,
     /// Optional project identifier (e.g., OpenAI `project`).
     pub project: Option<String>,
+    /// Optional location/region identifier (e.g., Google Vertex `location`).
+    pub location: Option<String>,
     /// Optional tracing configuration for providers that support it.
     pub tracing_config: Option<crate::observability::tracing::TracingConfig>,
     /// Optional Google-family token provider (Gemini / Vertex / Anthropic-on-Vertex).
@@ -1179,6 +1299,62 @@ impl ProviderRegistryHandle {
             base_url: build_overrides.base_url,
             reasoning_enabled: build_overrides.reasoning_enabled,
             reasoning_budget: build_overrides.reasoning_budget,
+            retry_options: self.retry_options.clone(),
+            capabilities,
+        })
+    }
+
+    /// Resolve completion model - returns a handle that delegates to the factory.
+    pub fn completion_model(&self, id: &str) -> Result<CompletionModelHandle, LlmError> {
+        let (mut provider_id, model_id) = self.split_id(id)?;
+
+        let normalized = crate::provider::resolver::normalize_provider_id(&provider_id);
+        if normalized != provider_id
+            && !self.providers.contains_key(&provider_id)
+            && self.providers.contains_key(&normalized)
+        {
+            provider_id = normalized;
+        }
+
+        let mut middlewares = self.middlewares.clone();
+        if self.auto_middleware {
+            let auto_middlewares =
+                crate::execution::middleware::build_auto_middlewares_vec(&provider_id, &model_id);
+            middlewares.extend(auto_middlewares);
+        }
+
+        if !middlewares.is_empty() {
+            provider_id = crate::execution::middleware::language_model::apply_provider_id_override(
+                &middlewares,
+                &provider_id,
+            );
+        }
+
+        let factory = self.get_provider(&provider_id)?;
+        let capabilities = factory.capabilities();
+        if !capabilities.supports("completion") {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not expose completion on the completion_model handle",
+                provider_id
+            )));
+        }
+        let build_overrides = self.resolve_provider_build_overrides(&provider_id);
+
+        Ok(CompletionModelHandle {
+            factory: factory.clone(),
+            provider_id,
+            model_id,
+            middlewares,
+            http_interceptors: self.http_interceptors.clone(),
+            http_client: build_overrides.http_client,
+            http_transport: build_overrides.http_transport,
+            http_config: build_overrides.http_config,
+            api_key: build_overrides.api_key,
+            base_url: build_overrides.base_url,
+            reasoning_enabled: build_overrides.reasoning_enabled,
+            reasoning_budget: build_overrides.reasoning_budget,
+            cache: self.completion_model_cache.clone(),
+            client_ttl: self.client_ttl,
             retry_options: self.retry_options.clone(),
             capabilities,
         })
@@ -1404,6 +1580,8 @@ pub fn create_provider_registry(
     let cache_capacity = max_cache_entries.unwrap_or(100);
     let cache =
         LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
+    let completion_cache =
+        LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
     let speech_cache =
         LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
     let transcription_cache =
@@ -1417,6 +1595,7 @@ pub fn create_provider_registry(
         http_client,
         http_transport,
         language_model_cache: Arc::new(TokioMutex::new(cache)),
+        completion_model_cache: Arc::new(TokioMutex::new(completion_cache)),
         speech_model_cache: Arc::new(TokioMutex::new(speech_cache)),
         transcription_model_cache: Arc::new(TokioMutex::new(transcription_cache)),
         client_ttl,
@@ -1604,6 +1783,10 @@ impl LlmClient for LanguageModelHandle {
         self.capabilities
             .supports("file_management")
             .then_some(self)
+    }
+
+    fn as_skills_capability(&self) -> Option<&dyn SkillsCapability> {
+        self.capabilities.supports("skills").then_some(self)
     }
 
     fn as_video_generation_capability(&self) -> Option<&dyn VideoGenerationCapability> {
@@ -1887,6 +2070,23 @@ impl FileManagementCapability for LanguageModelHandle {
 }
 
 #[async_trait::async_trait]
+impl SkillsCapability for LanguageModelHandle {
+    async fn upload_skill(
+        &self,
+        request: SkillUploadRequest,
+    ) -> Result<SkillUploadResult, LlmError> {
+        let client = self.build_language_client(&self.model_id).await?;
+        let skills = client.as_skills_capability().ok_or_else(|| {
+            LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support skills.",
+                self.provider_id
+            ))
+        })?;
+        skills.upload_skill(request).await
+    }
+}
+
+#[async_trait::async_trait]
 impl VideoGenerationCapability for LanguageModelHandle {
     async fn create_video_task(
         &self,
@@ -1960,6 +2160,193 @@ impl MusicGenerationCapability for LanguageModelHandle {
 
     fn supports_lyrics(&self) -> bool {
         self.capabilities.supports("music")
+    }
+}
+
+/// Completion model handle - delegates to factory for client creation.
+#[derive(Clone)]
+pub struct CompletionModelHandle {
+    factory: Arc<dyn ProviderFactory>,
+    provider_id: String,
+    pub model_id: String,
+    middlewares: Vec<Arc<dyn LanguageModelMiddleware>>,
+    /// Registry-level HTTP interceptors to attempt injecting into clients.
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level pre-built HTTP client copied into the handle.
+    http_client: Option<reqwest::Client>,
+    /// Registry-level custom HTTP transport copied into the handle.
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    /// Registry-level retry options copied into the handle.
+    retry_options: Option<RetryOptions>,
+    /// Registry-level HTTP configuration copied into the handle.
+    http_config: Option<crate::types::HttpConfig>,
+    /// Registry-level API key copied into the handle.
+    api_key: Option<String>,
+    /// Registry-level base URL copied into the handle.
+    base_url: Option<String>,
+    /// Registry-level unified reasoning flag copied into the handle.
+    reasoning_enabled: Option<bool>,
+    /// Registry-level unified reasoning budget copied into the handle.
+    reasoning_budget: Option<i32>,
+    /// Shared LRU cache for completion-family models.
+    cache: Arc<TokioMutex<LruCache<String, CompletionCacheEntry>>>,
+    /// TTL for cached completion-family models.
+    client_ttl: Option<Duration>,
+    /// Provider-level capability hints captured at construction time.
+    capabilities: ProviderCapabilities,
+}
+
+impl CompletionModelHandle {
+    fn ensure_completion_capability(&self, stream: bool) -> Result<(), LlmError> {
+        if !self.capabilities.supports("completion") {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not expose completion on the completion_model handle",
+                self.provider_id
+            )));
+        }
+
+        if stream && !self.capabilities.supports("streaming") {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not expose completion streaming on the completion_model handle",
+                self.provider_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    async fn get_or_create_completion_model(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn FamilyCompletionModel>, LlmError> {
+        let cache_key = format!("{}:{}", self.provider_id, model_id);
+
+        let mut cache = self.cache.lock().await;
+        if let Some(entry) = cache.get(&cache_key) {
+            if !entry.is_expired(self.client_ttl) {
+                return Ok(entry.model.clone());
+            }
+            cache.pop(&cache_key);
+        }
+
+        drop(cache);
+        let ctx = build_registry_context(
+            &self.provider_id,
+            &self.http_interceptors,
+            &self.retry_options,
+            &self.http_client,
+            &self.http_transport,
+            &self.http_config,
+            &self.api_key,
+            &self.base_url,
+            self.reasoning_enabled,
+            self.reasoning_budget,
+        );
+        let model = self
+            .factory
+            .completion_model_family_with_ctx(model_id, &ctx)
+            .await?;
+
+        let mut cache = self.cache.lock().await;
+        cache.put(cache_key, CompletionCacheEntry::new(model.clone()));
+
+        Ok(model)
+    }
+}
+
+impl crate::traits::ModelMetadata for CompletionModelHandle {
+    fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
+
+impl LlmClient for CompletionModelHandle {
+    fn provider_id(&self) -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Owned(self.provider_id.clone())
+    }
+
+    fn supported_models(&self) -> Vec<String> {
+        vec![self.model_id.clone()]
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.capabilities.clone()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn clone_box(&self) -> Box<dyn LlmClient> {
+        Box::new(self.clone())
+    }
+
+    fn as_completion_capability(&self) -> Option<&dyn CompletionCapability> {
+        self.capabilities.supports("completion").then_some(self)
+    }
+}
+
+#[async_trait::async_trait]
+impl CompletionCapability for CompletionModelHandle {
+    async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        self.ensure_completion_capability(false)?;
+        let model_id = if !self.middlewares.is_empty() {
+            crate::execution::middleware::language_model::apply_model_id_override(
+                &self.middlewares,
+                &self.model_id,
+            )
+        } else {
+            self.model_id.clone()
+        };
+
+        let model = self.get_or_create_completion_model(&model_id).await?;
+        model
+            .complete(request.with_model_if_missing(model_id))
+            .await
+    }
+
+    async fn complete_stream(&self, request: CompletionRequest) -> Result<ChatStream, LlmError> {
+        self.ensure_completion_capability(true)?;
+        let model_id = if !self.middlewares.is_empty() {
+            crate::execution::middleware::language_model::apply_model_id_override(
+                &self.middlewares,
+                &self.model_id,
+            )
+        } else {
+            self.model_id.clone()
+        };
+
+        let model = self.get_or_create_completion_model(&model_id).await?;
+        model.stream(request.with_model_if_missing(model_id)).await
+    }
+
+    async fn complete_stream_with_cancel(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<ChatStreamHandle, LlmError> {
+        self.ensure_completion_capability(true)?;
+        let this = self.clone();
+        Ok(
+            crate::utils::cancel::make_cancellable_stream_handle_from_handle_future(async move {
+                let model_id = if !this.middlewares.is_empty() {
+                    crate::execution::middleware::language_model::apply_model_id_override(
+                        &this.middlewares,
+                        &this.model_id,
+                    )
+                } else {
+                    this.model_id.clone()
+                };
+
+                let model = this.get_or_create_completion_model(&model_id).await?;
+                model
+                    .stream_with_cancel(request.with_model_if_missing(model_id))
+                    .await
+            }),
+        )
     }
 }
 
@@ -2122,6 +2509,36 @@ pub struct ImageModelHandle {
     base_url: Option<String>,
 }
 
+fn image_model_handle_max_images_per_call(provider_id: &str, model_id: &str) -> Option<u32> {
+    match provider_id {
+        "openai" => Some(10),
+        "deepinfra" | "fireworks" | "together" | "togetherai" => Some(1),
+        "xai" => Some(3),
+        "bedrock" => Some(if model_id == "amazon.nova-canvas-v1:0" {
+            5
+        } else {
+            1
+        }),
+        "gemini" => Some(if model_id.starts_with("gemini-") {
+            10
+        } else {
+            4
+        }),
+        "google-vertex" | "vertex" => Some(if model_id.starts_with("gemini-") {
+            10
+        } else {
+            4
+        }),
+        other => match other {
+            // Image-capable OpenAI-compatible providers default to the generic compat limit
+            "openrouter" | "siliconflow" | "moonshot" | "moonshotai" | "openai-compatible" => {
+                Some(10)
+            }
+            _ => None,
+        },
+    }
+}
+
 /// Implementation of ImageGenerationCapability for ImageModelHandle
 ///
 /// This allows the handle to be used directly as an image generation client, aligning with
@@ -2151,6 +2568,10 @@ impl ImageGenerationCapability for ImageModelHandle {
             .await?;
 
         model.generate(request).await
+    }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        image_model_handle_max_images_per_call(&self.provider_id, &self.model_id)
     }
 }
 
@@ -2838,6 +3259,8 @@ impl ProviderFactory for TestProviderFactory {
 }
 
 #[cfg(test)]
+mod completion_tests;
+#[cfg(test)]
 mod embedding_tests;
 #[cfg(test)]
 mod file_tests;
@@ -2847,6 +3270,8 @@ mod image_tests;
 mod music_tests;
 #[cfg(test)]
 mod rerank_tests;
+#[cfg(test)]
+mod skills_tests;
 #[cfg(test)]
 mod speech_tests;
 #[cfg(test)]

@@ -10,3 +10,4 @@ pub mod thinking;
 pub mod tools;
 
 pub use request_options::AnthropicChatRequestExt;
+pub use tools::AnthropicToolExt;

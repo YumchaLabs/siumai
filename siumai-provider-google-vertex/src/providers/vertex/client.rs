@@ -71,6 +71,16 @@ fn requests_can_be_coalesced(
         )
 }
 
+fn vertex_image_max_images_per_call(model_id: &str, base_url: &str) -> u32 {
+    if model_id.starts_with("gemini-") {
+        10
+    } else if crate::standards::vertex_imagen::is_vertex_imagen_model(model_id, base_url) {
+        4
+    } else {
+        4
+    }
+}
+
 fn coalesce_batch_requests(
     requests: &[EmbeddingRequest],
     default_model: &str,
@@ -591,6 +601,13 @@ impl ImageGenerationCapability for GoogleVertexClient {
 
         ImageExecutor::execute(&*exec, request).await
     }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        Some(vertex_image_max_images_per_call(
+            self.common_params.model.as_str(),
+            self.config.base_url.as_str(),
+        ))
+    }
 }
 
 #[async_trait]
@@ -638,11 +655,43 @@ impl ImageExtras for GoogleVertexClient {
 
     async fn create_variation(
         &self,
-        _request: crate::types::ImageVariationRequest,
+        request: crate::types::ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "Vertex provider does not support image variations".to_string(),
-        ))
+        let mut request = request;
+        if request.model.is_none() {
+            request.model = Some(self.config.model.clone());
+        }
+        let mut http_config = self.config.http_config.clone();
+        self.inject_auth_header(&mut http_config).await?;
+        request.http_config = Some(http_config);
+
+        let ctx = self.build_context().await;
+        let spec = Arc::new(
+            crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
+        );
+
+        let mut builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
+            .with_spec(spec)
+            .with_context(ctx)
+            .with_interceptors(self.http_interceptors.clone());
+
+        if let Some(transport) = self.config.http_transport.clone() {
+            builder = builder.with_transport(transport);
+        }
+
+        let selector = ImageGenerationRequest {
+            model: request.model.clone(),
+            ..Default::default()
+        };
+        let exec = if let Some(retry) = self.retry_options.clone() {
+            builder
+                .with_retry_options(retry)
+                .build_for_request(&selector)
+        } else {
+            builder.build_for_request(&selector)
+        };
+
+        ImageExecutor::execute_variation(&*exec, request).await
     }
 
     fn get_supported_sizes(&self) -> Vec<String> {
@@ -658,7 +707,7 @@ impl ImageExtras for GoogleVertexClient {
     }
 
     fn supports_image_variations(&self) -> bool {
-        false
+        true
     }
 }
 

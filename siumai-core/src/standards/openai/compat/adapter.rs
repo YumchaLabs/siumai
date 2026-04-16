@@ -364,6 +364,7 @@ pub trait ProviderAdapter: Send + Sync + std::fmt::Debug {
     fn route_for(&self, req: super::types::RequestType) -> &'static str {
         match req {
             super::types::RequestType::Chat => "chat/completions",
+            super::types::RequestType::Completion => "completions",
             super::types::RequestType::Embedding => "embeddings",
             super::types::RequestType::ImageGeneration => "images/generations",
             super::types::RequestType::Rerank => "rerank",
@@ -461,6 +462,7 @@ impl ProviderAdapter for OpenAiStandardAdapter {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::new()
             .with_chat()
+            .with_completion()
             .with_streaming()
             .with_tools()
     }
@@ -1046,11 +1048,17 @@ mod tests {
                 std::collections::HashMap::from([
                     (
                         "openai".to_string(),
-                        std::collections::HashMap::from([("extra".to_string(), value.clone())]),
+                        serde_json::Value::Object(serde_json::Map::from_iter([(
+                            "extra".to_string(),
+                            value.clone(),
+                        )])),
                     ),
                     (
                         "test-provider".to_string(),
-                        std::collections::HashMap::from([("value".to_string(), value.clone())]),
+                        serde_json::Value::Object(serde_json::Map::from_iter([(
+                            "value".to_string(),
+                            value.clone(),
+                        )])),
                     ),
                 ])
             })

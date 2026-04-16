@@ -20,9 +20,10 @@ use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    AudioCapability, ChatCapability, EmbeddingCapability, EmbeddingExtensions,
-    FileManagementCapability, ImageGenerationCapability, ModelMetadata, ProviderCapabilities,
-    SpeechCapability, SpeechExtras, TranscriptionCapability, TranscriptionExtras,
+    AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability,
+    EmbeddingExtensions, FileManagementCapability, ImageGenerationCapability, ModelMetadata,
+    ProviderCapabilities, SpeechCapability, SpeechExtras, TranscriptionCapability,
+    TranscriptionExtras,
 };
 use crate::types::{
     AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse,
@@ -33,6 +34,8 @@ use crate::types::{
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+mod completion;
 
 #[derive(Clone)]
 pub struct AzureOpenAiClient {
@@ -492,6 +495,10 @@ impl LlmClient for AzureOpenAiClient {
     }
 
     fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
+    fn as_completion_capability(&self) -> Option<&dyn CompletionCapability> {
         Some(self)
     }
 

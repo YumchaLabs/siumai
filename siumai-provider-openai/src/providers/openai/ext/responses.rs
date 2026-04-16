@@ -152,10 +152,10 @@ pub async fn compact(
     client.responses_compact(request).await
 }
 
-/// OpenAI Responses streaming custom events emitted by Siumai.
+/// OpenAI Responses streaming extension events normalized by Siumai.
 ///
-/// These are emitted as `ChatStreamEvent::Custom` so we can extend streaming semantics without
-/// breaking the unified `ChatStreamEvent` enum.
+/// `from_stream_event()` accepts the current stable `Part` / `PartWithReplay` events first and
+/// still supports the historical `ChatStreamEvent::Custom` fallback for compatibility.
 ///
 /// Current events (beta.5 guidance):
 /// - `openai:tool-call` — provider-hosted tool call started (from `response.output_item.added`)
@@ -169,6 +169,24 @@ pub enum OpenAiResponsesCustomEvent {
 
 impl OpenAiResponsesCustomEvent {
     pub fn from_stream_event(event: &ChatStreamEvent) -> Option<Self> {
+        if let Some(part) = event.part_ref() {
+            if let Some(tool_call) =
+                OpenAiProviderToolCallEvent::from_part(part, event.replay_ref())
+            {
+                return Some(OpenAiResponsesCustomEvent::ProviderToolCall(tool_call));
+            }
+
+            if let Some(tool_result) =
+                OpenAiProviderToolResultEvent::from_part(part, event.replay_ref())
+            {
+                return Some(OpenAiResponsesCustomEvent::ProviderToolResult(tool_result));
+            }
+
+            if let Some(source) = OpenAiSourceEvent::from_part(part) {
+                return Some(OpenAiResponsesCustomEvent::Source(source));
+            }
+        }
+
         let ChatStreamEvent::Custom { event_type, data } = event else {
             return None;
         };
@@ -217,6 +235,33 @@ impl OpenAiProviderToolCallEvent {
         }
         serde_json::from_value(data.clone()).ok()
     }
+
+    pub fn from_part(
+        part: &crate::types::ChatStreamPart,
+        replay: Option<&crate::types::ChatStreamReplay>,
+    ) -> Option<Self> {
+        let crate::types::ChatStreamPart::ToolCall(tool_call) = part else {
+            return None;
+        };
+
+        let openai_replay = replay.and_then(crate::types::ChatStreamReplay::openai_responses_ref);
+        if !tool_call.provider_executed.unwrap_or(false)
+            || (openai_replay.is_none()
+                && !has_openai_provider_metadata(tool_call.provider_metadata.as_ref()))
+        {
+            return None;
+        }
+
+        Some(Self {
+            kind: "tool-call".to_string(),
+            tool_call_id: tool_call.tool_call_id.clone(),
+            tool_name: tool_call.tool_name.clone(),
+            input: tool_call.input.clone(),
+            provider_executed: true,
+            output_index: openai_replay.and_then(|replay| replay.output_index),
+            raw_item: openai_replay.and_then(|replay| replay.raw_item.clone()),
+        })
+    }
 }
 
 /// Provider-hosted tool result event (`openai:tool-result`).
@@ -243,6 +288,32 @@ impl OpenAiProviderToolResultEvent {
             return None;
         }
         serde_json::from_value(data.clone()).ok()
+    }
+
+    pub fn from_part(
+        part: &crate::types::ChatStreamPart,
+        replay: Option<&crate::types::ChatStreamReplay>,
+    ) -> Option<Self> {
+        let crate::types::ChatStreamPart::ToolResult(tool_result) = part else {
+            return None;
+        };
+
+        let openai_replay = replay.and_then(crate::types::ChatStreamReplay::openai_responses_ref);
+        if openai_replay.is_none()
+            && !has_openai_provider_metadata(tool_result.provider_metadata.as_ref())
+        {
+            return None;
+        }
+
+        Some(Self {
+            kind: "tool-result".to_string(),
+            tool_call_id: tool_result.tool_call_id.clone(),
+            tool_name: tool_result.tool_name.clone(),
+            result: tool_result.result.clone(),
+            provider_executed: true,
+            output_index: openai_replay.and_then(|replay| replay.output_index),
+            raw_item: openai_replay.and_then(|replay| replay.raw_item.clone()),
+        })
     }
 }
 
@@ -276,6 +347,69 @@ impl OpenAiSourceEvent {
         }
         serde_json::from_value(data.clone()).ok()
     }
+
+    pub fn from_part(part: &crate::types::ChatStreamPart) -> Option<Self> {
+        let crate::types::ChatStreamPart::Source {
+            id,
+            source,
+            provider_metadata,
+        } = part
+        else {
+            return None;
+        };
+
+        let source_type = source.source_type().to_string();
+        let (url, title, media_type, filename) = match source {
+            crate::types::SourcePart::Url { url, title } => {
+                (url.clone(), title.clone(), None, None)
+            }
+            crate::types::SourcePart::Document {
+                media_type,
+                title,
+                filename,
+            } => (
+                openai_source_metadata_str(provider_metadata.as_ref(), "fileId")
+                    .unwrap_or_else(|| id.clone()),
+                Some(title.clone()),
+                Some(media_type.clone()),
+                filename.clone(),
+            ),
+        };
+
+        Some(Self {
+            kind: "source".to_string(),
+            source_type,
+            id: id.clone(),
+            url,
+            title,
+            tool_call_id: openai_source_metadata_str(provider_metadata.as_ref(), "toolCallId"),
+            media_type,
+            filename,
+            provider_metadata: provider_metadata
+                .as_ref()
+                .and_then(|metadata| serde_json::to_value(metadata).ok()),
+        })
+    }
+}
+
+fn openai_source_metadata_str(
+    provider_metadata: Option<&crate::types::StreamProviderMetadata>,
+    key: &str,
+) -> Option<String> {
+    provider_metadata
+        .and_then(|metadata| metadata.get("openai"))
+        .and_then(|value| value.as_object())
+        .and_then(|metadata| metadata.get(key))
+        .and_then(|value| value.as_str())
+        .map(ToString::to_string)
+}
+
+fn has_openai_provider_metadata(
+    provider_metadata: Option<&crate::types::StreamProviderMetadata>,
+) -> bool {
+    provider_metadata
+        .map(|metadata| metadata.contains_key("openai"))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -284,6 +418,128 @@ mod tests {
     use crate::providers::openai::{OpenAiClient, OpenAiConfig};
     use wiremock::matchers::{body_json, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[test]
+    fn parses_openai_runtime_part_provider_tool_events() {
+        let tool_call = ChatStreamEvent::PartWithReplay {
+            part: crate::types::ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+                tool_call_id: "ws_1".to_string(),
+                tool_name: "web_search".to_string(),
+                input: "{}".to_string(),
+                provider_executed: Some(true),
+                dynamic: Some(true),
+                provider_metadata: None,
+            }),
+            replay: crate::types::ChatStreamReplay::openai_responses(
+                Some(1),
+                Some(serde_json::json!({
+                    "id": "ws_1",
+                    "type": "web_search_call",
+                })),
+            )
+            .expect("openai replay"),
+        };
+
+        match OpenAiResponsesCustomEvent::from_stream_event(&tool_call).unwrap() {
+            OpenAiResponsesCustomEvent::ProviderToolCall(ev) => {
+                assert_eq!(ev.tool_call_id, "ws_1");
+                assert_eq!(ev.tool_name, "web_search");
+                assert_eq!(ev.input, "{}");
+                assert!(ev.provider_executed);
+                assert_eq!(ev.output_index, Some(1));
+                assert!(ev.raw_item.is_some());
+            }
+            _ => panic!("expected tool call"),
+        }
+
+        let tool_result = ChatStreamEvent::PartWithReplay {
+            part: crate::types::ChatStreamPart::ToolResult(crate::types::ChatStreamToolResult {
+                tool_call_id: "ws_1".to_string(),
+                tool_name: "web_search".to_string(),
+                result: serde_json::json!({ "status": "completed" }),
+                is_error: Some(false),
+                preliminary: None,
+                dynamic: Some(true),
+                provider_metadata: None,
+            }),
+            replay: crate::types::ChatStreamReplay::openai_responses(
+                Some(1),
+                Some(serde_json::json!({
+                    "id": "ws_1",
+                    "type": "web_search_call",
+                    "status": "completed",
+                })),
+            )
+            .expect("openai replay"),
+        };
+
+        match OpenAiResponsesCustomEvent::from_stream_event(&tool_result).unwrap() {
+            OpenAiResponsesCustomEvent::ProviderToolResult(ev) => {
+                assert_eq!(ev.tool_call_id, "ws_1");
+                assert_eq!(ev.tool_name, "web_search");
+                assert!(ev.provider_executed);
+                assert_eq!(ev.output_index, Some(1));
+                assert_eq!(ev.result["status"], serde_json::json!("completed"));
+                assert!(ev.raw_item.is_some());
+            }
+            _ => panic!("expected tool result"),
+        }
+    }
+
+    #[test]
+    fn parses_openai_runtime_part_source_events() {
+        let source = ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Source {
+                id: "src_0".to_string(),
+                source: crate::types::SourcePart::Url {
+                    url: "https://www.rust-lang.org".to_string(),
+                    title: Some("Rust".to_string()),
+                },
+                provider_metadata: None,
+            },
+        };
+
+        match OpenAiResponsesCustomEvent::from_stream_event(&source).unwrap() {
+            OpenAiResponsesCustomEvent::Source(ev) => {
+                assert_eq!(ev.source_type, "url");
+                assert_eq!(ev.url, "https://www.rust-lang.org");
+                assert_eq!(ev.tool_call_id, None);
+            }
+            _ => panic!("expected source"),
+        }
+
+        let mut source_metadata = std::collections::HashMap::new();
+        source_metadata.insert(
+            "openai".to_string(),
+            serde_json::json!({
+                "fileId": "file_123",
+                "toolCallId": "ws_1",
+            }),
+        );
+        let doc_source = ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Source {
+                id: "ann:doc:10".to_string(),
+                source: crate::types::SourcePart::Document {
+                    media_type: "text/plain".to_string(),
+                    title: "Document".to_string(),
+                    filename: Some("notes.txt".to_string()),
+                },
+                provider_metadata: Some(source_metadata),
+            },
+        };
+
+        match OpenAiResponsesCustomEvent::from_stream_event(&doc_source).unwrap() {
+            OpenAiResponsesCustomEvent::Source(ev) => {
+                assert_eq!(ev.source_type, "document");
+                assert_eq!(ev.url, "file_123");
+                assert_eq!(ev.tool_call_id.as_deref(), Some("ws_1"));
+                assert_eq!(ev.media_type.as_deref(), Some("text/plain"));
+                assert_eq!(ev.filename.as_deref(), Some("notes.txt"));
+                assert!(ev.provider_metadata.is_some());
+            }
+            _ => panic!("expected source"),
+        }
+    }
 
     #[test]
     fn parses_openai_custom_provider_tool_events() {

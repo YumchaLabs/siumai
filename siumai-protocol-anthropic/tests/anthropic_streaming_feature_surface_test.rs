@@ -305,6 +305,7 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
                     content: MessageContent::Text(String::new()),
                     usage: None,
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,

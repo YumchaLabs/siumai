@@ -27,23 +27,6 @@ fn google_provider_metadata(value: serde_json::Value) -> crate::types::StreamPro
     provider_metadata
 }
 
-fn custom_events_by_type(
-    events: &[Result<ChatStreamEvent, crate::error::LlmError>],
-    ty: &str,
-) -> Vec<serde_json::Value> {
-    events
-        .iter()
-        .filter_map(|event| match event.as_ref().ok()? {
-            ChatStreamEvent::Custom { data, .. }
-                if data.get("type") == Some(&serde_json::Value::String(ty.to_string())) =>
-            {
-                Some(data.clone())
-            }
-            _ => None,
-        })
-        .collect()
-}
-
 #[tokio::test]
 async fn test_gemini_streaming_conversion() {
     let config = create_test_config();
@@ -164,38 +147,17 @@ async fn test_gemini_streaming_emits_reasoning_parts_with_signature() {
         )
     }));
 
-    let reasoning_starts = custom_events_by_type(&result, "reasoning-start");
-    let reasoning_deltas = custom_events_by_type(&result, "reasoning-delta");
-    assert_eq!(
-        reasoning_starts.len(),
-        1,
-        "expected one reasoning-start custom event"
-    );
-    assert_eq!(
-        reasoning_deltas.len(),
-        1,
-        "expected one reasoning-delta custom event"
-    );
-    assert_eq!(
-        reasoning_starts[0]
-            .get("providerMetadata")
-            .and_then(|meta| meta.get("google"))
-            .and_then(|meta| meta.get("thoughtSignature"))
-            .and_then(|value| value.as_str()),
-        Some("sig_1")
-    );
-    assert_eq!(
-        reasoning_deltas[0]
-            .get("providerMetadata")
-            .and_then(|meta| meta.get("google"))
-            .and_then(|meta| meta.get("thoughtSignature"))
-            .and_then(|value| value.as_str()),
-        Some("sig_1")
+    assert!(
+        !result.iter().any(|event| matches!(
+            event.as_ref().ok(),
+            Some(ChatStreamEvent::Custom { event_type, .. }) if event_type == "gemini:reasoning"
+        )),
+        "reasoning stable parts should no longer emit gemini:reasoning custom shadows: {result:?}"
     );
 }
 
 #[tokio::test]
-async fn test_vertex_streaming_emits_reasoning_custom_events_with_vertex_namespace() {
+async fn test_vertex_streaming_emits_reasoning_parts_with_vertex_namespace() {
     let config = create_test_config().with_provider_metadata_key("vertex");
     let converter = GeminiEventConverter::new(config);
 
@@ -216,43 +178,74 @@ async fn test_vertex_streaming_emits_reasoning_custom_events_with_vertex_namespa
     let mut result = converter.convert_event(thinking_event).await;
     result.extend(converter.convert_event(finish_event).await);
 
-    let reasoning_starts = custom_events_by_type(&result, "reasoning-start");
-    let reasoning_deltas = custom_events_by_type(&result, "reasoning-delta");
-    let reasoning_ends = custom_events_by_type(&result, "reasoning-end");
+    let reasoning_starts: Vec<_> = result
+        .iter()
+        .filter_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningStart {
+                provider_metadata,
+                ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .collect();
+    let reasoning_deltas: Vec<_> = result
+        .iter()
+        .filter_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningDelta {
+                provider_metadata,
+                ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .collect();
+    let reasoning_ends: Vec<_> = result
+        .iter()
+        .filter_map(|event| match stream_part(event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningEnd {
+                provider_metadata,
+                ..
+            }) => Some(provider_metadata),
+            _ => None,
+        })
+        .collect();
 
     assert_eq!(
         reasoning_starts.len(),
         1,
-        "expected one reasoning-start custom event"
+        "expected one reasoning-start part"
     );
     assert_eq!(
         reasoning_deltas.len(),
         1,
-        "expected one reasoning-delta custom event"
+        "expected one reasoning-delta part"
     );
-    assert_eq!(
-        reasoning_ends.len(),
-        1,
-        "expected one reasoning-end custom event"
-    );
+    assert_eq!(reasoning_ends.len(), 1, "expected one reasoning-end part");
 
-    for event in [&reasoning_starts[0], &reasoning_deltas[0]] {
+    for provider_metadata in [&reasoning_starts[0], &reasoning_deltas[0]] {
         assert_eq!(
-            event
-                .get("providerMetadata")
+            provider_metadata
+                .as_ref()
                 .and_then(|meta| meta.get("vertex"))
                 .and_then(|meta| meta.get("thoughtSignature"))
                 .and_then(|value| value.as_str()),
             Some("stream_sig")
         );
         assert!(
-            event
-                .get("providerMetadata")
+            provider_metadata
+                .as_ref()
                 .and_then(|meta| meta.get("google"))
                 .is_none(),
-            "vertex custom event should not include google namespace"
+            "vertex reasoning part should not include google namespace"
         );
     }
+
+    assert!(
+        !result.iter().any(|event| matches!(
+            event.as_ref().ok(),
+            Some(ChatStreamEvent::Custom { event_type, .. }) if event_type == "gemini:reasoning"
+        )),
+        "vertex reasoning parts should not emit gemini:reasoning custom shadows: {result:?}"
+    );
 }
 
 #[tokio::test]

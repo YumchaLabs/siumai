@@ -5,22 +5,16 @@
       "content": {
         "MultiModal": [
           {
-            "type": "file",
-            "data": "file-12345",
-            "media_type": "image/png"
+            "type": "image",
+            "providerReference": {
+              "openai": "file-12345"
+            }
           }
         ]
       },
       "metadata": {}
     }
   ],
-  "providerOptions": {
-    "openai": {
-      "fileIdPrefixes": [
-        "file-"
-      ]
-    }
-  },
   "common_params": {
     "model": "gpt-5-nano",
     "temperature": null,

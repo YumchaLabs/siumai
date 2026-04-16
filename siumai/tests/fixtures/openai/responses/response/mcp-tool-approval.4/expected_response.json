@@ -7,7 +7,8 @@
         "toolCallId": "id-0",
         "toolName": "mcp.create_short_url",
         "input": "{\"alias\":\"\",\"description\":\"\",\"max_clicks\":100,\"password\":\"\",\"url\":\"https://ai-sdk.dev/\"}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -23,7 +24,9 @@
             "output": "✅ Short URL created: https://zip1.io/oMAchr\n🔤 Generated code: oMAchr\n🔢 Max clicks: 100\n🔗 Original URL: https://ai-sdk.dev/\n\n📊 View stats: https://zip1.io/stats/oMAchr"
           }
         },
+        "input": "{\"alias\":\"\",\"description\":\"\",\"max_clicks\":100,\"password\":\"\",\"url\":\"https://ai-sdk.dev/\"}",
         "providerExecuted": true,
+        "dynamic": true,
         "providerMetadata": {
           "openai": {
             "itemId": "mcp_04f6b17429cf2b02006949a6908fc4819686c02f71f7faecc6"

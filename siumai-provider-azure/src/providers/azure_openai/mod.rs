@@ -10,6 +10,13 @@ pub mod ext;
 pub mod spec;
 
 #[cfg(any(feature = "azure-standard", feature = "azure"))]
+#[allow(deprecated)]
+pub use crate::provider_options::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
+#[cfg(any(feature = "azure-standard", feature = "azure"))]
+pub use crate::provider_options::{
+    OpenAILanguageModelChatOptions, OpenAILanguageModelResponsesOptions,
+};
+#[cfg(any(feature = "azure-standard", feature = "azure"))]
 pub use builder::AzureOpenAiBuilder;
 #[cfg(any(feature = "azure-standard", feature = "azure"))]
 pub use client::AzureOpenAiClient;

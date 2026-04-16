@@ -15,13 +15,15 @@
                   { "stdout": "hi\n", "stderr": "", "outcome": { "type": "exit", "exitCode": 0 } }
                 ]
               }
-            }
+            },
+            "dynamic": true
           },
           {
             "type": "tool-result",
             "toolCallId": "call-apply",
             "toolName": "apply_patch",
-            "output": { "type": "json", "value": { "status": "completed", "output": "patched" } }
+            "output": { "type": "json", "value": { "status": "completed", "output": "patched" } },
+            "dynamic": true
           }
         ]
       },

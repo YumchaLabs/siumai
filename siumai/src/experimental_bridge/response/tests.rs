@@ -278,7 +278,11 @@ fn strict_openai_chat_completions_bridge_rejects_reasoning_tool_result_and_metad
             output: siumai_core::types::ToolResultOutput::json(json!({
                 "temperature": 72
             })),
+            input: None,
             provider_executed: Some(true),
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
@@ -292,7 +296,9 @@ fn strict_openai_chat_completions_bridge_rejects_reasoning_tool_result_and_metad
     response.finish_reason = Some(FinishReason::StopSequence);
     response.provider_metadata = Some(HashMap::from([(
         "openai".to_string(),
-        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+        json!({
+            "responseId": "resp_1"
+        }),
     )]));
 
     let bridged = bridge_chat_response_to_openai_chat_completions_json_value(
@@ -334,8 +340,8 @@ fn strict_openai_chat_completions_bridge_rejects_reasoning_tool_result_and_metad
             .report
             .dropped_fields
             .iter()
-            .any(|field| field == "provider_metadata.openai"),
-        "expected top-level provider metadata drop"
+            .any(|field| field == "provider_metadata.openai.responseId"),
+        "expected top-level responseId metadata drop"
     );
     assert!(
         bridged
@@ -368,7 +374,9 @@ fn anthropic_response_bridge_reports_usage_and_metadata_loss() {
     );
     response.provider_metadata = Some(HashMap::from([(
         "openai".to_string(),
-        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+        json!({
+            "responseId": "resp_1"
+        }),
     )]));
 
     let bridged = bridge_chat_response_to_anthropic_messages_json_value(
@@ -429,7 +437,9 @@ fn strict_anthropic_response_bridge_rejects_usage_detail_loss() {
     );
     response.provider_metadata = Some(HashMap::from([(
         "openai".to_string(),
-        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+        json!({
+            "responseId": "resp_1"
+        }),
     )]));
 
     let bridged = bridge_chat_response_to_anthropic_messages_json_value(
@@ -473,7 +483,9 @@ fn custom_response_loss_policy_can_allow_lossy_bridge_in_strict_mode() {
     );
     response.provider_metadata = Some(HashMap::from([(
         "openai".to_string(),
-        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+        json!({
+            "responseId": "resp_1"
+        }),
     )]));
 
     let bridged = super::bridge_chat_response_to_anthropic_messages_json_value_with_options(
@@ -509,6 +521,10 @@ fn strict_anthropic_response_bridge_preserves_thinking_replay_fields() {
             tool_name: "weather".to_string(),
             arguments: json!({ "city": "Tokyo" }),
             provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
@@ -537,7 +553,9 @@ fn strict_anthropic_response_bridge_preserves_thinking_replay_fields() {
     response.service_tier = Some("priority".to_string());
     response.provider_metadata = Some(HashMap::from([(
         "anthropic".to_string(),
-        HashMap::from([("stopSequence".to_string(), json!("</tool>"))]),
+        json!({
+            "stopSequence": "</tool>"
+        }),
     )]));
 
     let bridged = bridge_chat_response_to_anthropic_messages_json_value(
@@ -591,9 +609,8 @@ fn strict_anthropic_response_bridge_preserves_text_part_citations_exactly() {
     response.model = Some("claude-sonnet-4-5".to_string());
     response.provider_metadata = Some(HashMap::from([(
         "anthropic".to_string(),
-        HashMap::from([(
-            "citations".to_string(),
-            json!([
+        json!({
+            "citations": [
                 {
                     "content_block_index": 1,
                     "citations": [
@@ -604,8 +621,8 @@ fn strict_anthropic_response_bridge_preserves_text_part_citations_exactly() {
                         }
                     ]
                 }
-            ]),
-        )]),
+            ]
+        }),
     )]));
 
     let bridged = bridge_chat_response_to_anthropic_messages_json_value(
@@ -636,6 +653,10 @@ fn strict_anthropic_response_bridge_preserves_mcp_server_name_metadata() {
         tool_name: "echo".to_string(),
         arguments: json!({ "message": "hello" }),
         provider_executed: Some(true),
+        dynamic: Some(true),
+        invalid: None,
+        error: None,
+        title: None,
         provider_options: ProviderOptionsMap::default(),
         provider_metadata: Some(HashMap::from([(
             "anthropic".to_string(),
@@ -673,6 +694,10 @@ fn strict_openai_responses_bridge_preserves_provider_executed_custom_tool_items(
                 "url": "https://example.com"
             }),
             provider_executed: Some(true),
+            dynamic: Some(true),
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
@@ -688,7 +713,13 @@ fn strict_openai_responses_bridge_preserves_provider_executed_custom_tool_items(
                 "status": "completed",
                 "message": "ok"
             })),
+            input: Some(json!({
+                "url": "https://example.com"
+            })),
             provider_executed: Some(true),
+            dynamic: Some(true),
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "openai".to_string(),
@@ -944,63 +975,45 @@ fn gemini_response_bridge_preserves_native_metadata_and_source_grounding() {
     );
     response.provider_metadata = Some(HashMap::from([(
         "google".to_string(),
-        HashMap::from([
-            (
-                "groundingMetadata".to_string(),
-                json!({
-                    "searchEntryPoint": { "renderedContent": "<div/>" },
-                    "groundingChunks": [
-                        { "web": { "uri": "https://example.com/original", "title": "Original" } }
-                    ]
-                }),
-            ),
-            (
-                "urlContextMetadata".to_string(),
-                json!({
-                    "urlMetadata": [
-                        {
-                            "retrievedUrl": "https://example.com/fact",
-                            "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS"
-                        }
-                    ]
-                }),
-            ),
-            (
-                "promptFeedback".to_string(),
-                json!({
-                    "blockReason": "BLOCK_REASON_UNSPECIFIED"
-                }),
-            ),
-            (
-                "safetyRatings".to_string(),
-                json!([
+        json!({
+            "groundingMetadata": {
+                "searchEntryPoint": { "renderedContent": "<div/>" },
+                "groundingChunks": [
+                    { "web": { "uri": "https://example.com/original", "title": "Original" } }
+                ]
+            },
+            "urlContextMetadata": {
+                "urlMetadata": [
                     {
-                        "category": "HARM_CATEGORY_HATE_SPEECH",
-                        "probability": "NEGLIGIBLE"
+                        "retrievedUrl": "https://example.com/fact",
+                        "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS"
                     }
-                ]),
-            ),
-            ("avgLogprobs".to_string(), json!(-0.25)),
-            (
-                "logprobsResult".to_string(),
-                json!({
-                    "topCandidates": [],
-                    "chosenCandidates": [],
-                    "logProbabilitySum": -1.0
-                }),
-            ),
-            (
-                "sources".to_string(),
-                json!([
-                    {
-                        "id": "src_0",
-                        "source_type": "url",
-                        "url": "https://example.com/original",
-                        "title": "Original"
-                    }
-                ]),
-            ),
-        ]),
+                ]
+            },
+            "promptFeedback": {
+                "blockReason": "BLOCK_REASON_UNSPECIFIED"
+            },
+            "safetyRatings": [
+                {
+                    "category": "HARM_CATEGORY_HATE_SPEECH",
+                    "probability": "NEGLIGIBLE"
+                }
+            ],
+            "avgLogprobs": -0.25,
+            "logprobsResult": {
+                "topCandidates": [],
+                "chosenCandidates": [],
+                "logProbabilitySum": -1.0
+            },
+            "sources": [
+                {
+                    "id": "src_0",
+                    "source_type": "url",
+                    "url": "https://example.com/original",
+                    "title": "Original"
+                }
+            ]
+        }),
     )]));
 
     let bridged = bridge_chat_response_to_gemini_generate_content_json_value(

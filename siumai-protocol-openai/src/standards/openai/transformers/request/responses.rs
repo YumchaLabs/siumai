@@ -1,6 +1,9 @@
 use crate::error::LlmError;
 use crate::execution::transformers::request::RequestTransformer;
-use crate::types::{ChatRequest, ModerationRequest, ProviderOptionsMap, RerankRequest};
+use crate::types::{
+    ChatRequest, FilePartSource, MediaSource, ModerationRequest, ProviderOptionsMap,
+    ProviderReference, RerankRequest,
+};
 use base64::Engine;
 
 /// Request transformer for OpenAI Responses API
@@ -98,6 +101,26 @@ fn openai_tool_result_file_id(file_id: &crate::types::ToolResultFileId) -> Optio
     file_id
         .preferred_value(&["openai", "azure"])
         .map(|value| value.to_string())
+}
+
+#[cfg(feature = "openai-responses")]
+fn openai_or_azure_provider_reference_value(
+    provider_reference: &ProviderReference,
+) -> Result<String, LlmError> {
+    provider_reference
+        .preferred_value(&["openai", "azure"])
+        .map(|value| value.to_string())
+        .ok_or_else(|| {
+            let available = provider_reference.available_providers();
+            let available = if available.is_empty() {
+                "none".to_string()
+            } else {
+                available.join(", ")
+            };
+            LlmError::InvalidParameter(format!(
+                "No provider reference found for provider 'openai' or 'azure'. Available providers: {available}"
+            ))
+        })
 }
 
 #[cfg(feature = "openai-responses")]
@@ -1088,24 +1111,36 @@ impl OpenAiResponsesRequestTransformer {
                             provider_options,
                             ..
                         } => {
-                            // Responses API prefers `input_image` items
-                            let url = match source {
-                                crate::types::chat::MediaSource::Url { url } => url.clone(),
-                                crate::types::chat::MediaSource::Base64 { data } => {
-                                    format!("data:image/jpeg;base64,{}", data)
+                            // Responses API prefers `input_image` items.
+                            let mut image_part = match source {
+                                FilePartSource::Media(MediaSource::Url { url }) => {
+                                    serde_json::json!({
+                                        "type": "input_image",
+                                        "image_url": url,
+                                    })
                                 }
-                                crate::types::chat::MediaSource::Binary { data } => {
+                                FilePartSource::Media(MediaSource::Base64 { data }) => {
+                                    serde_json::json!({
+                                        "type": "input_image",
+                                        "image_url": format!("data:image/jpeg;base64,{}", data),
+                                    })
+                                }
+                                FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
-                                    format!("data:image/jpeg;base64,{}", encoded)
+                                    serde_json::json!({
+                                        "type": "input_image",
+                                        "image_url": format!("data:image/jpeg;base64,{}", encoded),
+                                    })
+                                }
+                                FilePartSource::ProviderReference { provider_reference } => {
+                                    serde_json::json!({
+                                        "type": "input_image",
+                                        "file_id": openai_or_azure_provider_reference_value(provider_reference)?,
+                                    })
                                 }
                             };
 
-                            // OpenAI Responses `input_image`: `image_url` is a string and `detail` is top-level.
-                            let mut image_part = serde_json::json!({
-                                "type": "input_image",
-                                "image_url": url,
-                            });
                             let provider_detail = openai_image_detail(Some(provider_options));
                             if let Some(detail) = provider_detail {
                                 image_part["detail"] = serde_json::json!(detail);
@@ -1155,7 +1190,7 @@ impl OpenAiResponsesRequestTransformer {
                                 };
 
                                 match source {
-                                    crate::types::chat::MediaSource::Url { url } => {
+                                    FilePartSource::Media(MediaSource::Url { url }) => {
                                         let mut image_part = serde_json::json!({
                                             "type": "input_image",
                                             "image_url": url,
@@ -1171,7 +1206,7 @@ impl OpenAiResponsesRequestTransformer {
 
                                         content_parts.push(image_part);
                                     }
-                                    crate::types::chat::MediaSource::Base64 { data } => {
+                                    FilePartSource::Media(MediaSource::Base64 { data }) => {
                                         if Self::is_file_id(data, file_id_prefixes) {
                                             let mut image_part = serde_json::json!({
                                                 "type": "input_image",
@@ -1202,7 +1237,7 @@ impl OpenAiResponsesRequestTransformer {
                                             content_parts.push(image_part);
                                         }
                                     }
-                                    crate::types::chat::MediaSource::Binary { data } => {
+                                    FilePartSource::Media(MediaSource::Binary { data }) => {
                                         let encoded =
                                             base64::engine::general_purpose::STANDARD.encode(data);
                                         let mut image_part = serde_json::json!({
@@ -1219,16 +1254,31 @@ impl OpenAiResponsesRequestTransformer {
 
                                         content_parts.push(image_part);
                                     }
+                                    FilePartSource::ProviderReference { provider_reference } => {
+                                        let mut image_part = serde_json::json!({
+                                            "type": "input_image",
+                                            "file_id": openai_or_azure_provider_reference_value(provider_reference)?,
+                                        });
+
+                                        let provider_detail =
+                                            openai_image_detail(Some(provider_options));
+                                        if let Some(provider_detail) = provider_detail {
+                                            image_part["detail"] =
+                                                serde_json::json!(provider_detail);
+                                        }
+
+                                        content_parts.push(image_part);
+                                    }
                                 }
                             } else if media_type == "application/pdf" {
                                 match source {
-                                    crate::types::chat::MediaSource::Url { url } => {
+                                    FilePartSource::Media(MediaSource::Url { url }) => {
                                         content_parts.push(serde_json::json!({
                                             "type": "input_file",
                                             "file_url": url,
                                         }));
                                     }
-                                    crate::types::chat::MediaSource::Base64 { data } => {
+                                    FilePartSource::Media(MediaSource::Base64 { data }) => {
                                         if Self::is_file_id(data, file_id_prefixes) {
                                             content_parts.push(serde_json::json!({
                                                 "type": "input_file",
@@ -1245,7 +1295,7 @@ impl OpenAiResponsesRequestTransformer {
                                             }));
                                         }
                                     }
-                                    crate::types::chat::MediaSource::Binary { data } => {
+                                    FilePartSource::Media(MediaSource::Binary { data }) => {
                                         let encoded =
                                             base64::engine::general_purpose::STANDARD.encode(data);
                                         let filename = filename
@@ -1255,6 +1305,12 @@ impl OpenAiResponsesRequestTransformer {
                                             "type": "input_file",
                                             "filename": filename,
                                             "file_data": format!("data:application/pdf;base64,{}", encoded),
+                                        }));
+                                    }
+                                    FilePartSource::ProviderReference { provider_reference } => {
+                                        content_parts.push(serde_json::json!({
+                                            "type": "input_file",
+                                            "file_id": openai_or_azure_provider_reference_value(provider_reference)?,
                                         }));
                                     }
                                 }
@@ -1993,7 +2049,7 @@ mod tests {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::Image {
-                source: crate::types::chat::MediaSource::url("https://example.com/image.png"),
+                source: crate::types::chat::FilePartSource::url("https://example.com/image.png"),
                 detail: Some(ImageDetail::Low),
                 provider_options: image_provider_options,
                 provider_metadata: Some(provider_metadata),
@@ -2029,7 +2085,7 @@ mod tests {
         let msg = ChatMessage {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::File {
-                source: crate::types::chat::MediaSource::base64("AAECAw=="),
+                source: crate::types::chat::FilePartSource::base64("AAECAw=="),
                 media_type: "image/png".to_string(),
                 filename: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
@@ -2049,6 +2105,72 @@ mod tests {
 
     #[test]
     #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_maps_image_provider_reference_to_file_id() {
+        use crate::types::{
+            ChatMessage, ContentPart, FilePartSource, MessageContent, MessageMetadata, MessageRole,
+            ProviderOptionsMap, ProviderReference,
+        };
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::Image {
+                source: FilePartSource::provider_reference(ProviderReference::single(
+                    "openai",
+                    "file-image",
+                )),
+                detail: None,
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let request = ChatRequest::builder().message(msg).model("gpt-4.1").build();
+
+        let body = tx.transform_chat(&request).expect("transform chat");
+        let input = body["input"].as_array().expect("input array");
+        let content = input[0]["content"].as_array().expect("content array");
+        assert_eq!(content[0]["type"], serde_json::json!("input_image"));
+        assert_eq!(content[0]["file_id"], serde_json::json!("file-image"));
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_maps_pdf_provider_reference_to_file_id() {
+        use crate::types::{
+            ChatMessage, ContentPart, FilePartSource, MessageContent, MessageMetadata, MessageRole,
+            ProviderOptionsMap, ProviderReference,
+        };
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let msg = ChatMessage {
+            role: MessageRole::User,
+            content: MessageContent::MultiModal(vec![ContentPart::File {
+                source: FilePartSource::provider_reference(ProviderReference::single(
+                    "azure", "file-pdf",
+                )),
+                media_type: "application/pdf".to_string(),
+                filename: Some("doc.pdf".to_string()),
+                provider_options: ProviderOptionsMap::default(),
+                provider_metadata: None,
+            }]),
+            metadata: MessageMetadata::default(),
+            provider_options: ProviderOptionsMap::default(),
+        };
+
+        let request = ChatRequest::builder().message(msg).model("gpt-4.1").build();
+
+        let body = tx.transform_chat(&request).expect("transform chat");
+        let input = body["input"].as_array().expect("input array");
+        let content = input[0]["content"].as_array().expect("content array");
+        assert_eq!(content[0]["type"], serde_json::json!("input_file"));
+        assert_eq!(content[0]["file_id"], serde_json::json!("file-pdf"));
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
     fn responses_transform_chat_ignores_assistant_tool_call_legacy_metadata_item_id() {
         use crate::types::{
             ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
@@ -2064,6 +2186,10 @@ mod tests {
                 tool_name: "weather".to_string(),
                 arguments: serde_json::json!({ "city": "Tokyo" }),
                 provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "openai".to_string(),
@@ -2315,6 +2441,10 @@ mod tests {
                 tool_name: "weather".to_string(),
                 arguments: serde_json::json!({ "city": "Tokyo" }),
                 provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: tool_call_options,
                 provider_metadata: None,
             }]),

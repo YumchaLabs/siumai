@@ -7,10 +7,9 @@ use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
 use siumai::prelude::unified::{EmbeddingExtensions, EmbeddingRequest, LlmError};
-use siumai::provider_ext::cohere::CohereConfig;
+use siumai::provider_ext::cohere::{CohereClient, CohereConfig};
 use siumai::provider_ext::openai_compatible::{
     ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig, get_provider_config,
-    provider_supports_capability,
 };
 use siumai_core::types::EmbeddingFormat;
 use std::sync::{Arc, Mutex};
@@ -65,12 +64,27 @@ async fn make_compat_client(
 }
 
 #[test]
-fn cohere_boundary_keeps_native_package_rerank_led() {
+fn cohere_native_builder_requires_explicit_model() {
+    let err = Provider::cohere()
+        .api_key("test-key")
+        .into_config()
+        .expect_err("native cohere should require an explicit model");
+
+    match err {
+        LlmError::ConfigurationError(message) => {
+            assert!(message.contains("explicit model id"));
+        }
+        other => panic!("expected ConfigurationError, got: {other:?}"),
+    }
+}
+
+#[test]
+fn cohere_native_and_compat_configs_have_distinct_contracts() {
     let compat_registry = get_provider_config("cohere").expect("cohere compat config");
-    assert!(provider_supports_capability("cohere", "embedding"));
 
     let native_config = Provider::cohere()
         .api_key("test-key")
+        .language_model("command-a-03-2025")
         .into_config()
         .expect("native cohere config");
 
@@ -81,10 +95,7 @@ fn cohere_boundary_keeps_native_package_rerank_led() {
         .expect("compat cohere config");
 
     assert_eq!(native_config.base_url, CohereConfig::DEFAULT_BASE_URL);
-    assert_eq!(
-        native_config.common_params.model,
-        CohereConfig::DEFAULT_MODEL
-    );
+    assert_eq!(native_config.common_params.model, "command-a-03-2025");
 
     assert_eq!(compat_config.provider_id, "cohere");
     assert_eq!(compat_config.base_url, compat_registry.base_url);
@@ -92,56 +103,40 @@ fn cohere_boundary_keeps_native_package_rerank_led() {
 }
 
 #[tokio::test]
-async fn cohere_embedding_stays_on_compat_only_public_story() {
-    let provider_transport = CaptureTransport::default();
-    let config_transport = CaptureTransport::default();
+async fn cohere_native_v2_embedding_surface_remains_distinct_from_compat_v1_surface() {
+    let native_transport = CaptureTransport::default();
+    let compat_transport = CaptureTransport::default();
 
-    let provider_client = Provider::openai()
-        .compatible("cohere")
-        .api_key("test-key")
-        .model("embed-english-v3.0")
-        .fetch(Arc::new(provider_transport.clone()))
-        .build()
-        .await
-        .expect("build provider compat client");
+    let native_client = CohereClient::from_config(
+        CohereConfig::new("test-key")
+            .with_model("embed-v4.0")
+            .with_http_transport(Arc::new(native_transport.clone())),
+    )
+    .expect("build native cohere client");
 
-    let config_client = make_compat_client(
+    let compat_client = make_compat_client(
         "cohere",
         "embed-english-v3.0",
-        Arc::new(config_transport.clone()),
+        Arc::new(compat_transport.clone()),
     )
     .await;
 
-    let request = EmbeddingRequest::single("hello cohere embedding")
+    let native_request = EmbeddingRequest::single("hello native embedding")
+        .with_model("embed-v4.0")
+        .with_dimensions(1024);
+    let compat_request = EmbeddingRequest::single("hello compat embedding")
         .with_model("embed-english-v3.0")
         .with_dimensions(1024)
         .with_encoding_format(EmbeddingFormat::Float)
-        .with_user("compat-user-cohere");
+        .with_user("compat-user");
 
-    let _ = provider_client.embed_with_config(request.clone()).await;
-    let _ = config_client.embed_with_config(request).await;
+    let _ = native_client.embed_with_config(native_request).await;
+    let _ = compat_client.embed_with_config(compat_request).await;
 
-    let provider_req = provider_transport.take().expect("provider request");
-    let config_req = config_transport.take().expect("config request");
+    let native_req = native_transport.take().expect("native request");
+    let compat_req = compat_transport.take().expect("compat request");
 
-    assert_eq!(provider_req.url, "https://api.cohere.ai/v1/embeddings");
-    assert_eq!(provider_req.url, config_req.url);
-    assert_eq!(provider_req.body, config_req.body);
-    assert_eq!(
-        provider_req.body["model"],
-        serde_json::json!("embed-english-v3.0")
-    );
-    assert_eq!(
-        provider_req.body["input"],
-        serde_json::json!(["hello cohere embedding"])
-    );
-    assert_eq!(provider_req.body["dimensions"], serde_json::json!(1024));
-    assert_eq!(
-        provider_req.body["encoding_format"],
-        serde_json::json!("float")
-    );
-    assert_eq!(
-        provider_req.body["user"],
-        serde_json::json!("compat-user-cohere")
-    );
+    assert_eq!(native_req.url, "https://api.cohere.com/v2/embed");
+    assert_eq!(compat_req.url, "https://api.cohere.ai/v1/embeddings");
+    assert_ne!(native_req.url, compat_req.url);
 }

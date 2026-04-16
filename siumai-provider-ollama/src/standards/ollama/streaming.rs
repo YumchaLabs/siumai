@@ -137,6 +137,7 @@ impl OllamaEventConverter {
                         FinishReason::Stop
                     }
                 }),
+                raw_finish_reason: None,
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -222,6 +223,20 @@ impl OllamaEventConverter {
             request_id: None,
         }
     }
+
+    fn fallback_stream_start_metadata(&self) -> ResponseMetadata {
+        ResponseMetadata {
+            id: None,
+            model: self
+                .stream_model
+                .lock()
+                .ok()
+                .and_then(|model| model.clone()),
+            created: Some(chrono::Utc::now()),
+            provider: "ollama".to_string(),
+            request_id: None,
+        }
+    }
 }
 
 impl JsonEventConverter for OllamaEventConverter {
@@ -239,9 +254,16 @@ impl JsonEventConverter for OllamaEventConverter {
                     .map(Ok)
                     .collect(),
                 Err(e) => {
-                    vec![Err(LlmError::ParseError(format!(
+                    let mut out = Vec::new();
+                    if self.needs_stream_start() {
+                        out.push(Ok(ChatStreamEvent::StreamStart {
+                            metadata: self.fallback_stream_start_metadata(),
+                        }));
+                    }
+                    out.push(Err(LlmError::ParseError(format!(
                         "Failed to parse Ollama JSON: {e}"
-                    )))]
+                    ))));
+                    out
                 }
             }
         })
@@ -264,6 +286,7 @@ impl JsonEventConverter for OllamaEventConverter {
             content: MessageContent::Text("".to_string()),
             usage: None,
             finish_reason: Some(FinishReason::Unknown),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: None,
@@ -435,6 +458,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_ollama_invalid_json_emits_stream_start_before_parse_error() {
+        let converter = OllamaEventConverter::new();
+
+        let result = converter.convert_json("{ not json").await;
+
+        assert_eq!(result.len(), 2);
+        match result.first().expect("stream-start event") {
+            Ok(ChatStreamEvent::StreamStart { metadata }) => {
+                assert_eq!(metadata.provider, "ollama");
+                assert!(metadata.created.is_some());
+            }
+            other => panic!("Expected StreamStart event, got {other:?}"),
+        }
+        match result.get(1).expect("parse error") {
+            Err(LlmError::ParseError(message)) => {
+                assert!(message.contains("Failed to parse Ollama JSON"));
+            }
+            other => panic!("Expected parse error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn test_ollama_emits_tool_call_delta() {
         let converter = OllamaEventConverter::new();
 
@@ -587,6 +632,7 @@ mod tests {
                             .build(),
                     ),
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,

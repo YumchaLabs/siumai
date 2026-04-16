@@ -46,6 +46,13 @@ impl DeepSeekOptions {
     }
 }
 
+/// AI SDK-style alias for the canonical DeepSeek language-model options surface.
+pub type DeepSeekLanguageModelOptions = DeepSeekOptions;
+
+/// Deprecated AI SDK-compatible alias retained for migration.
+#[deprecated(note = "use `DeepSeekLanguageModelOptions` instead")]
+pub type DeepSeekChatOptions = DeepSeekLanguageModelOptions;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -63,5 +70,13 @@ mod tests {
         let options = DeepSeekOptions::new().with_param("foo", serde_json::json!("bar"));
         let value = serde_json::to_value(options).expect("serialize options");
         assert_eq!(value["foo"], serde_json::json!("bar"));
+    }
+
+    #[test]
+    fn ai_sdk_style_aliases_resolve_to_same_type() {
+        let _ = std::mem::size_of::<DeepSeekOptions>();
+        let _ = std::mem::size_of::<DeepSeekLanguageModelOptions>();
+        #[allow(deprecated)]
+        let _ = std::mem::size_of::<DeepSeekChatOptions>();
     }
 }

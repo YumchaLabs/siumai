@@ -11,7 +11,7 @@ use crate::streaming::{
 };
 use crate::types::{
     ChatResponse, ChatStreamFinishInfo, ChatStreamPart, FinishReason, MessageContent,
-    ResponseMetadata, Usage,
+    ProviderMetadataMap, ResponseMetadata, Usage,
 };
 use eventsource_stream::Event;
 use serde::{Deserialize, Serialize};
@@ -21,7 +21,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use super::adapter::ProviderAdapter;
-use super::metadata::{NestedProviderMetadata, merge_nested_provider_metadata};
+use super::metadata::{
+    NestedProviderMetadata, ensure_provider_metadata_namespace, merge_nested_provider_metadata,
+    nested_provider_metadata_to_map, provider_options_key, resolve_provider_metadata_key,
+};
 use super::openai_config::OpenAiCompatibleConfig;
 
 #[derive(Debug, Default, Clone)]
@@ -62,6 +65,7 @@ struct OpenAiCompatParseToolCallState {
     id: String,
     name: String,
     arguments: String,
+    thought_signature: Option<String>,
     stable_input_started: bool,
     stable_tool_call_emitted: bool,
 }
@@ -186,6 +190,8 @@ pub struct CompletionTokensDetails {
 pub struct OpenAiCompatibleEventConverter {
     config: OpenAiCompatibleConfig,
     adapter: Arc<dyn ProviderAdapter>,
+    provider_metadata_key: String,
+    include_raw_chunks: bool,
     state_tracker: StreamStateTracker,
     // Accumulate plain text content so StreamEnd can carry a fallback when no deltas were seen
     accumulated_content: Arc<tokio::sync::Mutex<String>>,
@@ -219,8 +225,10 @@ impl OpenAiCompatibleEventConverter {
     /// Create a new event converter
     pub fn new(config: OpenAiCompatibleConfig, adapter: Arc<dyn ProviderAdapter>) -> Self {
         Self {
+            provider_metadata_key: resolve_provider_metadata_key(&config.provider_id, None),
             config,
             adapter,
+            include_raw_chunks: false,
             state_tracker: StreamStateTracker::new(),
             accumulated_content: Arc::new(tokio::sync::Mutex::new(String::new())),
             emitted_content: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -241,6 +249,27 @@ impl OpenAiCompatibleEventConverter {
     ) -> Self {
         self.v3_unsupported_part_behavior = behavior;
         self
+    }
+
+    pub fn with_include_raw_chunks(mut self, include_raw_chunks: bool) -> Self {
+        self.include_raw_chunks = include_raw_chunks;
+        self
+    }
+
+    pub fn with_provider_metadata_key(mut self, key: impl Into<String>) -> Self {
+        self.provider_metadata_key = key.into();
+        self
+    }
+
+    fn current_provider_metadata(&self) -> NestedProviderMetadata {
+        ensure_provider_metadata_namespace(
+            self.latest_provider_metadata
+                .lock()
+                .ok()
+                .and_then(|meta| meta.clone()),
+            &self.provider_metadata_key,
+            &provider_options_key(self.adapter.provider_id().as_ref()),
+        )
     }
 
     /// Convert OpenAI-compatible stream event to multiple ChatStreamEvents
@@ -303,6 +332,12 @@ impl OpenAiCompatibleEventConverter {
             builder = builder
                 .add_stream_start(metadata)
                 .add_part(ChatStreamPart::StreamStart { warnings: vec![] });
+        }
+
+        if self.include_raw_chunks {
+            builder = builder.add_part(ChatStreamPart::Raw {
+                raw_value: json.clone(),
+            });
         }
 
         // If the event data itself is a JSON string (common when SSE named events
@@ -397,7 +432,12 @@ impl OpenAiCompatibleEventConverter {
             builder = builder.add_usage_update(usage);
         }
 
-        if let Some(provider_metadata) = self.adapter.extract_response_provider_metadata(json) {
+        {
+            let provider_metadata = ensure_provider_metadata_namespace(
+                self.adapter.extract_response_provider_metadata(json),
+                &self.provider_metadata_key,
+                &provider_options_key(self.adapter.provider_id().as_ref()),
+            );
             let mut latest = self.latest_provider_metadata.lock().unwrap();
             if let Some(current) = latest.as_mut() {
                 merge_nested_provider_metadata(current, provider_metadata);
@@ -453,21 +493,20 @@ impl OpenAiCompatibleEventConverter {
                     .ok()
                     .and_then(|usage| usage.clone()),
                 finish_reason: crate::standards::openai::utils::parse_finish_reason(Some(reason)),
+                raw_finish_reason: Some(reason.to_string()),
                 audio: None,
                 system_fingerprint: response_state.system_fingerprint,
                 service_tier: response_state.service_tier,
                 warnings: None,
-                provider_metadata: self
-                    .latest_provider_metadata
-                    .lock()
-                    .ok()
-                    .and_then(|meta| meta.clone()),
+                provider_metadata: Some(Self::nested_provider_metadata_to_stream(
+                    self.current_provider_metadata(),
+                )),
             };
             for part in self.close_active_content_parts() {
                 builder = builder.add_part(part);
             }
             builder = builder
-                .add_part(self.build_finish_part(reason))
+                .add_part(self.build_finish_part(Some(reason)))
                 .add_stream_end(response);
         }
 
@@ -509,29 +548,55 @@ impl OpenAiCompatibleEventConverter {
         }
     }
 
+    fn create_stream_start_metadata_for_unparsed_event(&self) -> ResponseMetadata {
+        ResponseMetadata {
+            id: None,
+            model: Some(self.config.model.trim())
+                .filter(|model| !model.is_empty())
+                .map(|model| model.to_string()),
+            created: None,
+            provider: self.config.provider_id.clone(),
+            request_id: None,
+        }
+    }
+
     fn update_response_state_from_json(&self, json: &serde_json::Value) {
         let mut state = self.latest_response_state.lock().unwrap();
 
-        if let Some(id) = self.extract_non_empty_string(json, "id") {
+        let id = self.extract_non_empty_string(json, "id");
+        let created =
+            Self::created_datetime_from_unix_seconds(json.get("created").and_then(|v| v.as_u64()));
+        let system_fingerprint = self.extract_non_empty_string(json, "system_fingerprint");
+        let service_tier = self.extract_non_empty_string(json, "service_tier");
+        let payload_model = self.extract_non_empty_string(json, "model");
+
+        if let Some(id) = id {
             state.id = Some(id);
         }
 
-        if let Some(model) = self.extract_model_from_json(json) {
+        let has_real_metadata = state.id.is_some()
+            || created.is_some()
+            || system_fingerprint.is_some()
+            || service_tier.is_some();
+
+        if let Some(model) = payload_model.or_else(|| {
+            has_real_metadata
+                .then(|| self.config.model.trim())
+                .filter(|model| !model.is_empty())
+                .map(|model| model.to_string())
+        }) {
             state.model = Some(model);
         }
 
-        if let Some(created) =
-            Self::created_datetime_from_unix_seconds(json.get("created").and_then(|v| v.as_u64()))
-        {
+        if let Some(created) = created {
             state.created = Some(created);
         }
 
-        if let Some(system_fingerprint) = self.extract_non_empty_string(json, "system_fingerprint")
-        {
+        if let Some(system_fingerprint) = system_fingerprint {
             state.system_fingerprint = Some(system_fingerprint);
         }
 
-        if let Some(service_tier) = self.extract_non_empty_string(json, "service_tier") {
+        if let Some(service_tier) = service_tier {
             state.service_tier = Some(service_tier);
         }
     }
@@ -679,7 +744,7 @@ impl OpenAiCompatibleEventConverter {
         parts
     }
 
-    fn build_finish_part(&self, reason: &str) -> ChatStreamPart {
+    fn build_finish_part(&self, reason: Option<&str>) -> ChatStreamPart {
         ChatStreamPart::Finish {
             usage: self
                 .latest_usage
@@ -688,39 +753,42 @@ impl OpenAiCompatibleEventConverter {
                 .and_then(|usage| usage.clone())
                 .unwrap_or_default(),
             finish_reason: ChatStreamFinishInfo {
-                unified: crate::standards::openai::utils::parse_finish_reason(Some(reason))
-                    .unwrap_or_else(|| FinishReason::Other(reason.to_string())),
-                raw: Some(reason.to_string()),
+                unified: match reason {
+                    Some(reason) => {
+                        crate::standards::openai::utils::parse_finish_reason(Some(reason))
+                            .unwrap_or_else(|| FinishReason::Other(reason.to_string()))
+                    }
+                    None => FinishReason::Unknown,
+                },
+                raw: reason.map(ToString::to_string),
             },
-            provider_metadata: self
-                .latest_provider_metadata
-                .lock()
-                .ok()
-                .and_then(|meta| meta.clone())
-                .map(Self::nested_provider_metadata_to_stream),
+            provider_metadata: Some(Self::nested_provider_metadata_to_stream(
+                self.current_provider_metadata(),
+            )),
         }
     }
 
     fn nested_provider_metadata_to_stream(
         metadata: NestedProviderMetadata,
     ) -> crate::types::StreamProviderMetadata {
-        metadata
-            .into_iter()
-            .map(|(provider, entries)| {
-                (
-                    provider,
-                    serde_json::Value::Object(entries.into_iter().collect()),
-                )
-            })
-            .collect()
+        nested_provider_metadata_to_map(metadata)
     }
 
     fn extract_model_from_json(&self, json: &serde_json::Value) -> Option<String> {
-        json.get("model")
+        let model = json
+            .get("model")
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
+            .map(|s| s.to_string());
+
+        if model.is_some() {
+            return model;
+        }
+
+        Some(self.config.model.trim())
+            .filter(|model| !model.is_empty())
+            .map(|model| model.to_string())
     }
 
     /// Extract content from stream event using dynamic field accessor
@@ -962,6 +1030,18 @@ impl OpenAiCompatibleEventConverter {
                     entry.arguments.push_str(args);
                 }
 
+                let thought_signature = tc
+                    .get("extra_content")
+                    .and_then(|value| value.get("google"))
+                    .and_then(|value| value.get("thought_signature"))
+                    .and_then(|value| value.as_str())
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(ToString::to_string);
+                if thought_signature.is_some() {
+                    entry.thought_signature = thought_signature;
+                }
+
                 let mut emitted_stable_start = false;
                 if !entry.stable_input_started && !entry.name.is_empty() {
                     emitted_stable_start = true;
@@ -1014,7 +1094,12 @@ impl OpenAiCompatibleEventConverter {
                             input: entry.arguments.clone(),
                             provider_executed: None,
                             dynamic: None,
-                            provider_metadata: None,
+                            provider_metadata: entry.thought_signature.as_ref().map(|signature| {
+                                std::collections::HashMap::from([(
+                                    self.provider_metadata_key.clone(),
+                                    serde_json::json!({ "thoughtSignature": signature }),
+                                )])
+                            }),
                         }),
                     });
                     entry.stable_tool_call_emitted = true;
@@ -1127,9 +1212,12 @@ impl OpenAiCompatibleEventConverter {
     #[allow(dead_code)]
     fn extract_usage(&self, event: &OpenAiCompatibleStreamEvent) -> Option<Usage> {
         event.usage.as_ref().and_then(|usage| {
-            serde_json::to_value(usage)
-                .ok()
-                .and_then(|value| crate::standards::openai::utils::parse_openai_usage_value(&value))
+            serde_json::to_value(usage).ok().and_then(|value| {
+                crate::standards::openai::utils::parse_provider_openai_usage_value(
+                    self.adapter.provider_id().as_ref(),
+                    &value,
+                )
+            })
         })
     }
 
@@ -1139,7 +1227,10 @@ impl OpenAiCompatibleEventConverter {
             return None;
         }
 
-        crate::standards::openai::utils::parse_openai_usage_value(usage)
+        crate::standards::openai::utils::parse_provider_openai_usage_value(
+            self.adapter.provider_id().as_ref(),
+            usage,
+        )
     }
 }
 
@@ -1157,11 +1248,141 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     .into_iter()
                     .map(Ok)
                     .collect(),
-                Err(e) => vec![Err(LlmError::ParseError(format!(
-                    "Failed to parse OpenAI-compatible event: {e}"
-                )))],
+                Err(e) => {
+                    let mut out = Vec::new();
+                    if self.needs_stream_start() {
+                        let metadata = self.create_stream_start_metadata_for_unparsed_event();
+                        out.push(Ok(ChatStreamEvent::StreamStart { metadata }));
+                        out.push(Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::StreamStart { warnings: vec![] },
+                        }));
+                    }
+                    if self.include_raw_chunks {
+                        out.push(Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::Raw {
+                                raw_value: serde_json::Value::String(event.data.clone()),
+                            },
+                        }));
+                    }
+                    out.push(Err(LlmError::ParseError(format!(
+                        "Failed to parse OpenAI-compatible event: {e}"
+                    ))));
+                    out
+                }
             }
         })
+    }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        if !self.state_tracker.needs_stream_end() {
+            return Vec::new();
+        }
+        self.state_tracker.mark_stream_ended();
+
+        let mut out = Vec::new();
+
+        for part in self.close_active_content_parts() {
+            out.push(Ok(ChatStreamEvent::Part { part }));
+        }
+
+        {
+            let mut parse_state = self
+                .parse_state
+                .lock()
+                .unwrap_or_else(|poison| poison.into_inner());
+
+            for entry in parse_state.tool_call_state_by_index.values_mut() {
+                if entry.stable_tool_call_emitted || entry.name.is_empty() {
+                    continue;
+                }
+
+                if !entry.stable_input_started {
+                    entry.stable_input_started = true;
+                    out.push(Ok(ChatStreamEvent::Part {
+                        part: ChatStreamPart::ToolInputStart {
+                            id: entry.id.clone(),
+                            tool_name: entry.name.clone(),
+                            provider_metadata: None,
+                            provider_executed: None,
+                            dynamic: None,
+                            title: None,
+                        },
+                    }));
+
+                    if !entry.arguments.is_empty() {
+                        out.push(Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::ToolInputDelta {
+                                id: entry.id.clone(),
+                                delta: entry.arguments.clone(),
+                                provider_metadata: None,
+                            },
+                        }));
+                    }
+                }
+
+                out.push(Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolInputEnd {
+                        id: entry.id.clone(),
+                        provider_metadata: None,
+                    },
+                }));
+                out.push(Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+                        tool_call_id: entry.id.clone(),
+                        tool_name: entry.name.clone(),
+                        input: entry.arguments.clone(),
+                        provider_executed: None,
+                        dynamic: None,
+                        provider_metadata: entry.thought_signature.as_ref().map(|signature| {
+                            std::collections::HashMap::from([(
+                                self.provider_metadata_key.clone(),
+                                serde_json::json!({ "thoughtSignature": signature }),
+                            )])
+                        }),
+                    }),
+                }));
+                entry.stable_tool_call_emitted = true;
+            }
+        }
+
+        out.push(Ok(ChatStreamEvent::Part {
+            part: self.build_finish_part(None),
+        }));
+
+        let response_state = self
+            .latest_response_state
+            .lock()
+            .ok()
+            .map(|state| state.clone())
+            .unwrap_or_default();
+        out.push(Ok(ChatStreamEvent::StreamEnd {
+            response: ChatResponse {
+                id: response_state.id,
+                model: response_state.model,
+                content: MessageContent::Text(
+                    self.accumulated_content
+                        .try_lock()
+                        .map(|g| g.clone())
+                        .unwrap_or_default(),
+                ),
+                usage: self
+                    .latest_usage
+                    .lock()
+                    .ok()
+                    .and_then(|usage| usage.clone()),
+                finish_reason: Some(FinishReason::Unknown),
+                raw_finish_reason: None,
+                audio: None,
+                system_fingerprint: response_state.system_fingerprint,
+                service_tier: response_state.service_tier,
+                warnings: None,
+                provider_metadata: Some(Self::nested_provider_metadata_to_stream(
+                    self.current_provider_metadata(),
+                )),
+            },
+        }));
+
+        out
     }
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
@@ -1199,15 +1420,14 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                 .ok()
                 .and_then(|usage| usage.clone()),
             finish_reason: Some(FinishReason::Unknown),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: response_state.system_fingerprint,
             service_tier: response_state.service_tier,
             warnings: None,
-            provider_metadata: self
-                .latest_provider_metadata
-                .lock()
-                .ok()
-                .and_then(|meta| meta.clone()),
+            provider_metadata: Some(Self::nested_provider_metadata_to_stream(
+                self.current_provider_metadata(),
+            )),
         };
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
@@ -1349,7 +1569,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
 
         fn extract_logprobs_from_stream_provider_metadata(
             provider_id: &str,
-            provider_metadata: &serde_json::Map<String, serde_json::Value>,
+            provider_metadata: &ProviderMetadataMap,
         ) -> Option<serde_json::Value> {
             let preferred_roots = [
                 provider_id,
@@ -1371,35 +1591,6 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             provider_metadata
                 .values()
                 .find_map(extract_logprobs_from_provider_value)
-        }
-
-        fn extract_logprobs_from_nested_provider_metadata(
-            provider_id: &str,
-            provider_metadata: &NestedProviderMetadata,
-        ) -> Option<serde_json::Value> {
-            let preferred_roots = [
-                provider_id,
-                "openai",
-                "openrouter",
-                "xai",
-                "groq",
-                "deepseek",
-            ];
-
-            for root in preferred_roots {
-                if let Some(value) = provider_metadata.get(root)
-                    && let Some(logprobs) = value.get("logprobs").filter(|value| !value.is_null())
-                {
-                    return Some(logprobs.clone());
-                }
-            }
-
-            provider_metadata.values().find_map(|value| {
-                value
-                    .get("logprobs")
-                    .filter(|value| !value.is_null())
-                    .cloned()
-            })
         }
 
         fn finish_reason_str(reason: &FinishReason) -> Option<&'static str> {
@@ -1661,7 +1852,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                             .provider_metadata
                             .as_ref()
                             .and_then(|provider_metadata| {
-                                extract_logprobs_from_nested_provider_metadata(
+                                extract_logprobs_from_stream_provider_metadata(
                                     &self.config.provider_id,
                                     provider_metadata,
                                 )
@@ -1895,6 +2086,137 @@ mod tests {
             .count()
     }
 
+    #[tokio::test]
+    async fn openai_compatible_raw_chunks_follow_stream_start_before_response_metadata() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("gpt-test".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-test",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-test");
+
+        let converter =
+            OpenAiCompatibleEventConverter::new(cfg, adapter).with_include_raw_chunks(true);
+        let events = converter
+            .convert_event(eventsource_stream::Event {
+                event: "".to_string(),
+                data: r#"{"id":"chat-id","model":"gpt-test","choices":[{"delta":{"content":"Hello"}}]}"#
+                    .to_string(),
+                id: "".to_string(),
+                retry: None,
+            })
+            .await;
+
+        let parts: Vec<_> = events
+            .into_iter()
+            .map(|event| event.expect("stream event"))
+            .filter_map(|event| match event {
+                ChatStreamEvent::Part { part } => Some(part),
+                _ => None,
+            })
+            .collect();
+
+        assert!(matches!(
+            parts.first(),
+            Some(ChatStreamPart::StreamStart { .. })
+        ));
+        match parts.get(1).expect("raw part") {
+            ChatStreamPart::Raw { raw_value } => {
+                assert_eq!(raw_value["id"], serde_json::json!("chat-id"));
+            }
+            other => panic!("expected raw part, got {other:?}"),
+        }
+        match parts.get(2).expect("response metadata part") {
+            ChatStreamPart::ResponseMetadata(metadata) => {
+                assert_eq!(metadata.id.as_deref(), Some("chat-id"));
+                assert_eq!(metadata.model.as_deref(), Some("gpt-test"));
+            }
+            other => panic!("expected response metadata, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_parse_error_with_raw_chunks_still_emits_stream_start_before_raw() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("gpt-test".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-test",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-test");
+
+        let converter =
+            OpenAiCompatibleEventConverter::new(cfg, adapter).with_include_raw_chunks(true);
+        let events = converter
+            .convert_event(eventsource_stream::Event {
+                event: "".to_string(),
+                data: "not-json".to_string(),
+                id: "".to_string(),
+                retry: None,
+            })
+            .await;
+
+        assert_eq!(events.len(), 4);
+        match events.first().expect("stream-start event") {
+            Ok(ChatStreamEvent::StreamStart { metadata }) => {
+                assert_eq!(metadata.id, None);
+                assert_eq!(metadata.model.as_deref(), Some("gpt-test"));
+                assert_eq!(metadata.provider, "openai");
+            }
+            other => panic!("expected stream-start event, got {other:?}"),
+        }
+        match events.get(1).expect("stream-start part") {
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::StreamStart { warnings },
+            }) => {
+                assert!(warnings.is_empty());
+            }
+            other => panic!("expected stream-start part, got {other:?}"),
+        }
+        match events.get(2).expect("raw part") {
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Raw { raw_value },
+            }) => {
+                assert_eq!(
+                    raw_value,
+                    &serde_json::Value::String("not-json".to_string())
+                );
+            }
+            other => panic!("expected raw part, got {other:?}"),
+        }
+        match events.get(3).expect("parse error") {
+            Err(LlmError::ParseError(message)) => {
+                assert!(message.contains("Failed to parse OpenAI-compatible event"));
+            }
+            other => panic!("expected parse error, got {other:?}"),
+        }
+    }
+
     #[test]
     fn openai_compat_serializes_v3_custom_parts_best_effort() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
@@ -2040,7 +2362,7 @@ mod tests {
 
         let final_chunk = Event {
             event: "".to_string(),
-            data: r#"{"id":"1","model":"sonar","created":1718345013,"choices":[{"index":0,"delta":{"content":" ecosystem","role":null},"finish_reason":"stop"}],"images":[{"image_url":"https://images.example.com/rust.png","origin_url":"https://example.com/rust","height":900,"width":1600}],"usage":{"prompt_tokens":11,"completion_tokens":17,"total_tokens":28,"citation_tokens":7,"num_search_queries":2,"reasoning_tokens":3}}"#.to_string(),
+            data: r#"{"id":"1","model":"sonar","created":1718345013,"choices":[{"index":0,"delta":{"content":" ecosystem","role":null},"finish_reason":"stop"}],"images":[{"image_url":"https://images.example.com/rust.png","origin_url":"https://example.com/rust","height":900,"width":1600}],"usage":{"prompt_tokens":11,"completion_tokens":17,"total_tokens":28,"citation_tokens":7,"num_search_queries":2,"reasoning_tokens":3,"cost":{"input_tokens_cost":0.12,"output_tokens_cost":0.34,"request_cost":0.01,"total_cost":0.47}}}"#.to_string(),
             id: "".to_string(),
             retry: None,
         };
@@ -2070,15 +2392,16 @@ mod tests {
             perplexity.get("citations"),
             Some(&serde_json::json!(["https://example.com/rust"]))
         );
-        assert_eq!(perplexity["usage"]["citation_tokens"], serde_json::json!(7));
+        assert_eq!(perplexity["usage"]["citationTokens"], serde_json::json!(7));
         assert_eq!(
-            perplexity["usage"]["num_search_queries"],
+            perplexity["usage"]["numSearchQueries"],
             serde_json::json!(2)
         );
         assert_eq!(
-            perplexity["images"][0]["image_url"],
+            perplexity["images"][0]["imageUrl"],
             serde_json::json!("https://images.example.com/rust.png")
         );
+        assert_eq!(perplexity["cost"]["requestCost"], serde_json::json!(0.01));
         assert!(converter.handle_stream_end().is_none());
     }
 
@@ -2274,6 +2597,136 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn openai_compatible_handle_stream_end_events_close_text_and_emit_finish_part() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("gpt-4.1".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-test",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-4.1");
+
+        let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+        let chunk = Event {
+            event: "".to_string(),
+            data: r#"{"id":"chatcmpl-789","model":"gpt-4.1","created":1718345013,"choices":[{"index":0,"delta":{"content":"Partial","role":"assistant"},"finish_reason":null}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let _ = converter.convert_event(chunk).await;
+        let end_events = converter.handle_stream_end_events();
+
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextEnd { .. },
+            })
+        )));
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish {
+                    finish_reason: ChatStreamFinishInfo {
+                        unified: FinishReason::Unknown,
+                        raw: None,
+                    },
+                    ..
+                },
+            })
+        )));
+
+        let stream_end = end_events
+            .iter()
+            .find_map(|event| match event {
+                Ok(ChatStreamEvent::StreamEnd { response }) => Some(response),
+                _ => None,
+            })
+            .expect("stream end event");
+        assert_eq!(stream_end.id.as_deref(), Some("chatcmpl-789"));
+        assert_eq!(stream_end.finish_reason, Some(FinishReason::Unknown));
+        assert_eq!(
+            stream_end.content,
+            MessageContent::Text("Partial".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn openai_compatible_handle_stream_end_events_finalize_unfinished_tool_calls() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openai".to_string(),
+            name: "OpenAI".to_string(),
+            base_url: "https://api.openai.com/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("gpt-4.1".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "openai",
+            "sk-test",
+            "https://api.openai.com/v1",
+            adapter.clone(),
+        )
+        .with_model("gpt-4.1");
+
+        let converter = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+        let chunk = Event {
+            event: "".to_string(),
+            data: r#"{"id":"chatcmpl-tool","model":"gpt-4.1","created":1718345013,"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"Tok"}}]},"finish_reason":null}]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        };
+
+        let _ = converter.convert_event(chunk).await;
+        let end_events = converter.handle_stream_end_events();
+
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolInputEnd { id, .. },
+            }) if id == "call_1"
+        )));
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolCall(tool_call),
+            }) if tool_call.tool_call_id == "call_1"
+                && tool_call.tool_name == "get_weather"
+                && tool_call.input == "{\"city\":\"Tok"
+        )));
+        assert!(end_events.iter().any(|event| matches!(
+            event,
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish {
+                    finish_reason: ChatStreamFinishInfo {
+                        unified: FinishReason::Unknown,
+                        raw: None,
+                    },
+                    ..
+                },
+            })
+        )));
+    }
+
     #[test]
     fn openai_compatible_serializes_basic_text_deltas_as_chat_completion_chunks() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
@@ -2351,6 +2804,7 @@ mod tests {
                             .build(),
                     ),
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
@@ -2729,6 +3183,7 @@ mod tests {
                             .build(),
                     ),
                     finish_reason: Some(FinishReason::Stop),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,
@@ -2812,6 +3267,7 @@ mod tests {
                             .build(),
                     ),
                     finish_reason: Some(FinishReason::ToolCalls),
+                    raw_finish_reason: None,
                     audio: None,
                     system_fingerprint: None,
                     service_tier: None,

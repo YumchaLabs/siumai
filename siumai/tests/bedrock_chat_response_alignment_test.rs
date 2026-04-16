@@ -24,7 +24,7 @@ fn read_json(path: impl AsRef<Path>) -> Value {
 fn bedrock_tool_use_maps_to_tool_call_part() {
     let raw = read_json(fixtures_dir().join("bedrock-tool-call.1.json"));
     let standard = siumai::experimental::standards::bedrock::chat::BedrockChatStandard::new();
-    let tx = standard.create_transformers("bedrock", false);
+    let tx = standard.create_transformers("bedrock", false, None, vec![], false);
 
     let resp = tx
         .response
@@ -50,7 +50,7 @@ fn bedrock_tool_use_maps_to_tool_call_part() {
 fn bedrock_json_tool_response_format_returns_json_as_text() {
     let raw = read_json(fixtures_dir().join("bedrock-json-tool.1.json"));
     let standard = siumai::experimental::standards::bedrock::chat::BedrockChatStandard::new();
-    let tx = standard.create_transformers("bedrock", true);
+    let tx = standard.create_transformers("bedrock", true, None, vec![], false);
 
     let resp = tx
         .response
@@ -73,7 +73,7 @@ fn bedrock_json_tool_response_format_returns_json_as_text() {
 fn bedrock_json_other_tool_stays_as_tool_call() {
     let raw = read_json(fixtures_dir().join("bedrock-json-other-tool.1.json"));
     let standard = siumai::experimental::standards::bedrock::chat::BedrockChatStandard::new();
-    let tx = standard.create_transformers("bedrock", true);
+    let tx = standard.create_transformers("bedrock", true, None, vec![], false);
 
     let resp = tx
         .response

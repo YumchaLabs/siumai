@@ -89,6 +89,18 @@ pub struct AnthropicMetadata {
     )]
     pub cache_creation_input_tokens: Option<u32>,
 
+    /// Stop sequence that terminated generation.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "stopSequence",
+        alias = "stop_sequence"
+    )]
+    pub stop_sequence: Option<String>,
+
+    /// Usage breakdown by Anthropic sampling iteration (for example compaction + message).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub iterations: Option<Vec<AnthropicUsageIteration>>,
+
     /// Number of input tokens read from the cache
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_read_input_tokens: Option<u32>,
@@ -131,7 +143,60 @@ pub struct AnthropicMetadata {
 
     /// Context management response (Vercel-aligned provider metadata shape).
     #[serde(skip_serializing_if = "Option::is_none", rename = "contextManagement")]
-    pub context_management: Option<serde_json::Value>,
+    pub context_management: Option<AnthropicContextManagement>,
+}
+
+/// AI SDK-style alias for Anthropic message metadata.
+pub type AnthropicMessageMetadata = AnthropicMetadata;
+
+/// Anthropic usage breakdown entry for a single sampling iteration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnthropicUsageIteration {
+    /// Iteration type (`compaction` or `message`).
+    pub r#type: String,
+
+    /// Number of input tokens used during this iteration.
+    #[serde(rename = "inputTokens", alias = "input_tokens")]
+    pub input_tokens: u32,
+
+    /// Number of output tokens produced during this iteration.
+    #[serde(rename = "outputTokens", alias = "output_tokens")]
+    pub output_tokens: u32,
+}
+
+/// Anthropic response-side context management metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnthropicContextManagement {
+    /// Context-management edits that were applied during the request.
+    #[serde(rename = "appliedEdits", alias = "applied_edits", default)]
+    pub applied_edits: Vec<AnthropicContextManagementEdit>,
+}
+
+/// A single context-management edit reported by Anthropic.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type")]
+pub enum AnthropicContextManagementEdit {
+    /// Tool-use clearing edit returned by Anthropic.
+    #[serde(rename = "clear_tool_uses_20250919")]
+    ClearToolUses20250919 {
+        #[serde(rename = "clearedToolUses", alias = "cleared_tool_uses")]
+        cleared_tool_uses: u32,
+        #[serde(rename = "clearedInputTokens", alias = "cleared_input_tokens")]
+        cleared_input_tokens: u32,
+    },
+
+    /// Thinking-history clearing edit returned by Anthropic.
+    #[serde(rename = "clear_thinking_20251015")]
+    ClearThinking20251015 {
+        #[serde(rename = "clearedThinkingTurns", alias = "cleared_thinking_turns")]
+        cleared_thinking_turns: u32,
+        #[serde(rename = "clearedInputTokens", alias = "cleared_input_tokens")]
+        cleared_input_tokens: u32,
+    },
+
+    /// Conversation compaction edit returned by Anthropic.
+    #[serde(rename = "compact_20260112")]
+    Compact20260112,
 }
 
 /// Container metadata returned by Anthropic when container tools are used.
@@ -267,6 +332,12 @@ impl crate::types::provider_metadata::FromMetadata for AnthropicMetadata {
                 .and_then(|value| u32::try_from(value).ok());
         }
 
+        if parsed.iterations.is_none() {
+            parsed.iterations = usage_obj
+                .and_then(|usage| usage.get("iterations"))
+                .and_then(|value| serde_json::from_value(value.clone()).ok());
+        }
+
         if parsed.service_tier.is_none() {
             parsed.service_tier = usage_obj
                 .and_then(|usage| usage.get("service_tier"))
@@ -295,22 +366,30 @@ impl crate::types::provider_metadata::FromMetadata for AnthropicToolCallMetadata
 /// Typed helper for Anthropic metadata extraction from `ChatResponse`.
 pub trait AnthropicChatResponseExt {
     fn anthropic_metadata(&self) -> Option<AnthropicMetadata>;
+    fn anthropic_metadata_with_key(&self, key: &str) -> Option<AnthropicMetadata>;
 }
 
 impl AnthropicChatResponseExt for crate::types::ChatResponse {
     fn anthropic_metadata(&self) -> Option<AnthropicMetadata> {
+        self.anthropic_metadata_with_key("anthropic")
+    }
+
+    fn anthropic_metadata_with_key(&self, key: &str) -> Option<AnthropicMetadata> {
         use crate::types::provider_metadata::FromMetadata;
 
         let has_top_level = self
             .provider_metadata
             .as_ref()
-            .and_then(|metadata| metadata.get("anthropic"))
+            .and_then(|metadata| metadata.get(key))
             .is_some();
         let mut parsed = self
             .provider_metadata
             .as_ref()
-            .and_then(|metadata| metadata.get("anthropic"))
-            .and_then(AnthropicMetadata::from_metadata)
+            .and_then(|metadata| metadata.get(key))
+            .and_then(|metadata| metadata.as_object())
+            .and_then(|metadata| {
+                AnthropicMetadata::from_metadata(&metadata.clone().into_iter().collect())
+            })
             .unwrap_or_default();
 
         if let crate::types::MessageContent::MultiModal(parts) = &self.content {
@@ -408,12 +487,38 @@ mod tests {
         );
 
         let mut outer = HashMap::new();
-        outer.insert("anthropic".to_string(), inner);
+        outer.insert(
+            "anthropic".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.anthropic_metadata().expect("anthropic metadata");
         assert_eq!(meta.thinking_signature.as_deref(), Some("sig-1"));
         assert_eq!(meta.redacted_thinking_data.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn anthropic_metadata_supports_custom_provider_key() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut inner = HashMap::new();
+        inner.insert("stopSequence".to_string(), serde_json::json!("STOP"));
+
+        let mut outer = HashMap::new();
+        outer.insert(
+            "my-custom-anthropic".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
+        resp.provider_metadata = Some(outer);
+
+        assert!(resp.anthropic_metadata().is_none());
+        let meta = resp
+            .anthropic_metadata_with_key("my-custom-anthropic")
+            .expect("custom anthropic metadata");
+        assert_eq!(meta.stop_sequence.as_deref(), Some("STOP"));
     }
 
     #[test]
@@ -440,20 +545,92 @@ mod tests {
             "cacheCreationInputTokens".to_string(),
             serde_json::json!(10),
         );
+        inner.insert("stopSequence".to_string(), serde_json::json!("</tool>"));
+        inner.insert(
+            "iterations".to_string(),
+            serde_json::json!([
+                {
+                    "type": "compaction",
+                    "inputTokens": 6,
+                    "outputTokens": 1
+                },
+                {
+                    "type": "message",
+                    "inputTokens": 11,
+                    "outputTokens": 2
+                }
+            ]),
+        );
+        inner.insert(
+            "contextManagement".to_string(),
+            serde_json::json!({
+                "appliedEdits": [
+                    {
+                        "type": "clear_tool_uses_20250919",
+                        "clearedToolUses": 3,
+                        "clearedInputTokens": 1000
+                    },
+                    {
+                        "type": "clear_thinking_20251015",
+                        "clearedThinkingTurns": 2,
+                        "clearedInputTokens": 500
+                    },
+                    {
+                        "type": "compact_20260112"
+                    }
+                ]
+            }),
+        );
 
         let mut outer = HashMap::new();
-        outer.insert("anthropic".to_string(), inner);
+        outer.insert(
+            "anthropic".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.anthropic_metadata().expect("anthropic metadata");
         assert_eq!(meta.cache_creation_input_tokens, Some(10));
+        assert_eq!(meta.stop_sequence.as_deref(), Some("</tool>"));
         assert_eq!(meta.cache_read_input_tokens, Some(5));
         assert_eq!(meta.service_tier.as_deref(), Some("standard"));
         assert_eq!(
             meta.server_tool_use
+                .as_ref()
                 .and_then(|usage| usage.web_search_requests),
             Some(2)
         );
+        let iterations = meta.iterations.as_ref().expect("iterations");
+        assert_eq!(iterations.len(), 2);
+        assert_eq!(iterations[0].r#type, "compaction");
+        assert_eq!(iterations[0].input_tokens, 6);
+        assert_eq!(iterations[0].output_tokens, 1);
+        assert_eq!(iterations[1].r#type, "message");
+        assert_eq!(iterations[1].input_tokens, 11);
+        assert_eq!(iterations[1].output_tokens, 2);
+        let context_management = meta
+            .context_management
+            .as_ref()
+            .expect("typed context management");
+        assert_eq!(context_management.applied_edits.len(), 3);
+        assert!(matches!(
+            context_management.applied_edits[0],
+            AnthropicContextManagementEdit::ClearToolUses20250919 {
+                cleared_tool_uses: 3,
+                cleared_input_tokens: 1000
+            }
+        ));
+        assert!(matches!(
+            context_management.applied_edits[1],
+            AnthropicContextManagementEdit::ClearThinking20251015 {
+                cleared_thinking_turns: 2,
+                cleared_input_tokens: 500
+            }
+        ));
+        assert!(matches!(
+            context_management.applied_edits[2],
+            AnthropicContextManagementEdit::Compact20260112
+        ));
         assert_eq!(
             meta.usage
                 .as_ref()
@@ -470,6 +647,10 @@ mod tests {
             tool_name: "rollDie".to_string(),
             arguments: serde_json::json!({"player":"player1"}),
             provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
@@ -497,6 +678,10 @@ mod tests {
             tool_name: "tool_search".to_string(),
             arguments: serde_json::json!({"pattern":"weather"}),
             provider_executed: Some(true),
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
@@ -522,6 +707,10 @@ mod tests {
             tool_name: "echo".to_string(),
             arguments: serde_json::json!({"message":"hello"}),
             provider_executed: Some(true),
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
@@ -611,5 +800,28 @@ mod tests {
         assert_eq!(meta.thinking.as_deref(), Some("internal"));
         assert_eq!(meta.thinking_signature.as_deref(), Some("sig-1"));
         assert_eq!(meta.redacted_thinking_data.as_deref(), Some("abc123"));
+    }
+
+    #[test]
+    fn message_metadata_alias_deserializes_the_same_shape() {
+        let value = serde_json::json!({
+            "stopSequence": "STOP",
+            "iterations": [
+                {
+                    "type": "message",
+                    "inputTokens": 10,
+                    "outputTokens": 2
+                }
+            ]
+        });
+
+        let meta: AnthropicMessageMetadata =
+            serde_json::from_value(value).expect("deserialize anthropic message metadata alias");
+        assert_eq!(meta.stop_sequence.as_deref(), Some("STOP"));
+        let iterations = meta.iterations.expect("iterations");
+        assert_eq!(iterations.len(), 1);
+        assert_eq!(iterations[0].r#type, "message");
+        assert_eq!(iterations[0].input_tokens, 10);
+        assert_eq!(iterations[0].output_tokens, 2);
     }
 }

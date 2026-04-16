@@ -3,7 +3,7 @@
     {
       "role": "user",
       "content": {
-        "MultiModal": [{ "type": "file", "media_type": "image/png", "data": "file-12345" }]
+        "MultiModal": [{ "type": "image", "data": "file-12345" }]
       },
       "metadata": {}
     }

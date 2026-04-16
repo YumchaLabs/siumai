@@ -272,9 +272,10 @@ where
             }
         })
         .flat_map(futures::stream::iter)
-        .chain(futures::stream::iter(
-            end_converter.handle_stream_end_events(),
-        ));
+        .chain(
+            futures::stream::once(async move { end_converter.handle_stream_end_events() })
+                .flat_map(futures::stream::iter),
+        );
 
     Ok(Box::pin(chat_stream))
 }
@@ -282,12 +283,14 @@ where
 mod tests {
     use super::create_json_stream_from_transport_body;
     use crate::error::LlmError;
+    use crate::streaming::adapters::MiddlewareJsonConverter;
     use crate::streaming::{ChatStreamEvent, JsonEventConverter};
-    use crate::types::{ChatResponse, FinishReason};
+    use crate::types::{ChatRequest, ChatResponse, ChatStreamPart, FinishReason, MessageContent};
     use futures_util::StreamExt;
     use serde_json::json;
     use std::future::Future;
     use std::pin::Pin;
+    use std::sync::{Arc, Mutex};
 
     #[derive(Clone)]
     struct MultiEndJsonConverter;
@@ -351,5 +354,84 @@ mod tests {
             }
             other => panic!("unexpected third event: {other:?}"),
         }
+    }
+
+    #[derive(Clone, Default)]
+    struct StatefulJsonConverter {
+        text: Arc<Mutex<String>>,
+    }
+
+    impl JsonEventConverter for StatefulJsonConverter {
+        fn convert_json<'a>(
+            &'a self,
+            json_data: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Vec<Result<ChatStreamEvent, LlmError>>> + Send + Sync + 'a>>
+        {
+            Box::pin(async move {
+                let value: serde_json::Value =
+                    serde_json::from_str(json_data).expect("valid JSON line");
+                let delta = value["delta"].as_str().expect("delta string");
+                self.text.lock().expect("lock").push_str(delta);
+
+                vec![
+                    Ok(ChatStreamEvent::ContentDelta {
+                        delta: delta.to_string(),
+                        index: None,
+                    }),
+                    Ok(ChatStreamEvent::Part {
+                        part: ChatStreamPart::TextDelta {
+                            id: "0".to_string(),
+                            delta: delta.to_string(),
+                            provider_metadata: None,
+                        },
+                    }),
+                ]
+            })
+        }
+
+        fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+            let text = self.text.lock().expect("lock").clone();
+            vec![Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse {
+                    id: None,
+                    content: MessageContent::Text(text),
+                    model: None,
+                    usage: None,
+                    finish_reason: Some(FinishReason::Unknown),
+                    raw_finish_reason: None,
+                    audio: None,
+                    system_fingerprint: None,
+                    service_tier: None,
+                    warnings: None,
+                    provider_metadata: None,
+                },
+            })]
+        }
+    }
+
+    #[tokio::test]
+    async fn transport_json_stream_preserves_stateful_stream_end_response_content() {
+        let body_stream = futures_util::stream::iter(vec![Ok(b"{\"delta\":\"hello\"}\n".to_vec())]);
+
+        let converter = MiddlewareJsonConverter {
+            middlewares: Vec::new(),
+            req: ChatRequest::default(),
+            convert: Arc::new(StatefulJsonConverter::default()),
+        };
+
+        let stream = create_json_stream_from_transport_body(body_stream, converter)
+            .await
+            .expect("stream should be created");
+
+        let events = stream.collect::<Vec<_>>().await;
+        let response = events
+            .into_iter()
+            .find_map(|event| match event {
+                Ok(ChatStreamEvent::StreamEnd { response }) => Some(response),
+                _ => None,
+            })
+            .expect("stream end response");
+
+        assert_eq!(response.content_text(), Some("hello"));
     }
 }

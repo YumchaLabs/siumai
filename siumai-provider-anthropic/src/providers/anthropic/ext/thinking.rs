@@ -158,10 +158,9 @@ mod tests {
         ]));
         response.provider_metadata = Some(std::collections::HashMap::from([(
             "anthropic".to_string(),
-            std::collections::HashMap::from([(
-                "redacted_thinking_data".to_string(),
-                serde_json::json!("redacted-blob"),
-            )]),
+            serde_json::json!({
+                "redacted_thinking_data": "redacted-blob"
+            }),
         )]));
 
         let msg = assistant_message_with_thinking_metadata(&response);
@@ -192,10 +191,9 @@ mod tests {
         let mut response = ChatResponse::new(MessageContent::Text("visible".to_string()));
         response.provider_metadata = Some(std::collections::HashMap::from([(
             "anthropic".to_string(),
-            std::collections::HashMap::from([(
-                "redacted_thinking_data".to_string(),
-                serde_json::json!("redacted-blob"),
-            )]),
+            serde_json::json!({
+                "redacted_thinking_data": "redacted-blob"
+            }),
         )]));
 
         let msg = assistant_message_with_thinking_metadata(&response);

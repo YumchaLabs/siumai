@@ -198,7 +198,9 @@ fn synthetic_lossy_response() -> ChatResponse {
     );
     response.provider_metadata = Some(HashMap::from([(
         "openai".to_string(),
-        HashMap::from([("responseId".to_string(), json!("resp_1"))]),
+        json!({
+            "responseId": "resp_1"
+        }),
     )]));
     response
 }

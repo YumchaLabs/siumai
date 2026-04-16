@@ -17,7 +17,8 @@
         "toolCallId": "ci_024ee52fc1900767006903bf34e2b08193a689f71dcc3724f7",
         "toolName": "codeExecution",
         "input": "{\"code\":\"import random\\r\\n\\r\\ntrials = 10000\\r\\nsums = []\\r\\nfor _ in range(trials):\\r\\n    die1 = random.randint(1,6)\\r\\n    die2 = random.randint(1,6)\\r\\n    sums.append(die1 + die2)\\r\\ntotal_sum = sum(sums)\\r\\nlen(sums), total_sum\\n\",\"containerId\":\"cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec\"}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -34,7 +35,9 @@
             ]
           }
         },
-        "providerExecuted": true
+        "input": "{\"code\":\"import random\\r\\n\\r\\ntrials = 10000\\r\\nsums = []\\r\\nfor _ in range(trials):\\r\\n    die1 = random.randint(1,6)\\r\\n    die2 = random.randint(1,6)\\r\\n    sums.append(die1 + die2)\\r\\ntotal_sum = sum(sums)\\r\\nlen(sums), total_sum\\n\",\"containerId\":\"cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec\"}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "reasoning",
@@ -51,7 +54,8 @@
         "toolCallId": "ci_024ee52fc1900767006903bf38f1f08193a0b46ddc935fa028",
         "toolName": "codeExecution",
         "input": "{\"code\":\"filename = \\\"/mnt/data/two_dice_sums_10000.txt\\\"\\r\\nwith open(filename, \\\"w\\\") as f:\\r\\n    for s in sums:\\r\\n        f.write(str(s) + \\\"\\\\n\\\")\\r\\n    f.write(\\\"TOTAL: \\\" + str(total_sum) + \\\"\\\\n\\\")\\r\\nfilename, os.path.getsize(filename)\\n\",\"containerId\":\"cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec\"}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -63,7 +67,9 @@
             "outputs": []
           }
         },
-        "providerExecuted": true
+        "input": "{\"code\":\"filename = \\\"/mnt/data/two_dice_sums_10000.txt\\\"\\r\\nwith open(filename, \\\"w\\\") as f:\\r\\n    for s in sums:\\r\\n        f.write(str(s) + \\\"\\\\n\\\")\\r\\n    f.write(\\\"TOTAL: \\\" + str(total_sum) + \\\"\\\\n\\\")\\r\\nfilename, os.path.getsize(filename)\\n\",\"containerId\":\"cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec\"}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "reasoning",
@@ -80,7 +86,8 @@
         "toolCallId": "ci_024ee52fc1900767006903bf3e05b48193bbb2367cbc9a299e",
         "toolName": "codeExecution",
         "input": "{\"code\":\"import os\\r\\nfilename = \\\"/mnt/data/two_dice_sums_10000.txt\\\"\\r\\nwith open(filename, \\\"w\\\") as f:\\r\\n    for s in sums:\\r\\n        f.write(str(s) + \\\"\\\\n\\\")\\r\\n    f.write(\\\"TOTAL: \\\" + str(total_sum) + \\\"\\\\n\\\")\\r\\nos.path.getsize(filename), filename\\n\",\"containerId\":\"cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec\"}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-result",
@@ -97,7 +104,9 @@
             ]
           }
         },
-        "providerExecuted": true
+        "input": "{\"code\":\"import os\\r\\nfilename = \\\"/mnt/data/two_dice_sums_10000.txt\\\"\\r\\nwith open(filename, \\\"w\\\") as f:\\r\\n    for s in sums:\\r\\n        f.write(str(s) + \\\"\\\\n\\\")\\r\\n    f.write(\\\"TOTAL: \\\" + str(total_sum) + \\\"\\\\n\\\")\\r\\nos.path.getsize(filename), filename\\n\",\"containerId\":\"cntr_6903bf2c0470819090b2b1e63e0b66800c139a5d654a42ec\"}",
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "reasoning",

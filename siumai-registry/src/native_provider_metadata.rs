@@ -51,12 +51,14 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
         default_base_url: Some("https://api.openai.com/v1"),
         capabilities: ProviderCapabilities::new()
             .with_chat()
+            .with_completion()
             .with_streaming()
             .with_tools()
             .with_vision()
             .with_embedding()
             .with_audio()
             .with_file_management()
+            .with_custom_feature("skills", true)
             .with_image_generation(),
     });
 
@@ -70,6 +72,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
         default_base_url: None,
         capabilities: ProviderCapabilities::new()
             .with_chat()
+            .with_completion()
             .with_streaming()
             .with_tools()
             .with_embedding()
@@ -91,6 +94,7 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
                 .with_streaming()
                 .with_tools()
                 .with_vision()
+                .with_custom_feature("skills", true)
                 .with_custom_feature("thinking", true),
         });
     }
@@ -143,6 +147,22 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
                 .with_embedding()
                 .with_image_generation(),
         });
+
+        out.push(NativeProviderMetadata {
+            id: ids::VERTEX_MAAS,
+            name: "Google Vertex MaaS",
+            description:
+                "Google Vertex AI MaaS partner and open models served through the OpenAI-compatible /endpoints/openapi surface",
+            // Requires project/location or an explicit OpenAPI base URL.
+            default_base_url: None,
+            capabilities: ProviderCapabilities::new()
+                .with_chat()
+                .with_completion()
+                .with_streaming()
+                .with_tools()
+                .with_vision()
+                .with_embedding(),
+        });
     }
 
     // Groq
@@ -172,6 +192,41 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_tools()
             .with_vision()
             .with_custom_feature("thinking", true),
+    });
+
+    // DeepInfra
+    #[cfg(feature = "deepinfra")]
+    out.push(NativeProviderMetadata {
+        id: ids::DEEPINFRA,
+        name: "DeepInfra",
+        description: "DeepInfra unified provider surface via OpenAI-compatible text endpoints plus provider-owned image generation and edit routes",
+        default_base_url: Some("https://api.deepinfra.com/v1"),
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_completion()
+            .with_streaming()
+            .with_tools()
+            .with_vision()
+            .with_embedding()
+            .with_image_generation(),
+    });
+
+    // Fireworks
+    #[cfg(feature = "openai")]
+    out.push(NativeProviderMetadata {
+        id: ids::FIREWORKS,
+        name: "Fireworks AI",
+        description: "Fireworks unified provider surface via OpenAI-compatible chat, completion, embedding, and transcription endpoints plus provider-owned image generation and edit routes",
+        default_base_url: Some("https://api.fireworks.ai/inference/v1"),
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_completion()
+            .with_streaming()
+            .with_tools()
+            .with_vision()
+            .with_embedding()
+            .with_image_generation()
+            .with_transcription(),
     });
 
     // xAI
@@ -223,36 +278,56 @@ pub fn native_providers_metadata() -> Vec<NativeProviderMetadata> {
             .with_custom_feature("music", true),
     });
 
-    // Cohere (rerank)
+    // Cohere
     #[cfg(feature = "cohere")]
     out.push(NativeProviderMetadata {
         id: "cohere",
         name: "Cohere",
-        description: "Cohere reranking via the v2 rerank endpoint",
+        description: "Cohere native chat, embedding, and reranking via the v2 API",
         default_base_url: Some("https://api.cohere.com/v2"),
-        capabilities: ProviderCapabilities::new().with_rerank(),
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_streaming()
+            .with_tools()
+            .with_embedding()
+            .with_rerank(),
     });
 
-    // TogetherAI (rerank)
+    // TogetherAI (OpenAI-compatible text/audio/image + native rerank)
     #[cfg(feature = "togetherai")]
     out.push(NativeProviderMetadata {
         id: "togetherai",
         name: "TogetherAI",
-        description: "TogetherAI reranking via the /v1/rerank endpoint",
+        description:
+            "TogetherAI unified provider surface via OpenAI-compatible chat/completion/audio/image endpoints plus native /v1/rerank",
         default_base_url: Some("https://api.together.xyz/v1"),
-        capabilities: ProviderCapabilities::new().with_rerank(),
+        capabilities: ProviderCapabilities::new()
+            .with_chat()
+            .with_completion()
+            .with_streaming()
+            .with_tools()
+            .with_vision()
+            .with_embedding()
+            .with_image_generation()
+            .with_speech()
+            .with_transcription()
+            .with_audio()
+            .with_rerank(),
     });
 
-    // Amazon Bedrock (Converse + Rerank)
+    // Amazon Bedrock (Converse + embedding + image + Rerank)
     #[cfg(feature = "bedrock")]
     out.push(NativeProviderMetadata {
         id: "bedrock",
         name: "Amazon Bedrock",
-        description: "Amazon Bedrock models via Converse and Bedrock Agent Runtime reranking",
+        description:
+            "Amazon Bedrock models via Converse, invoke-based embedding/image APIs, and Agent Runtime reranking",
         // Requires region + service selection (bedrock-runtime vs bedrock-agent-runtime).
         default_base_url: None,
         capabilities: ProviderCapabilities::new()
             .with_chat()
+            .with_embedding()
+            .with_image_generation()
             .with_streaming()
             .with_tools()
             .with_rerank(),

@@ -110,31 +110,35 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                         .insert("responseId".to_string(), serde_json::Value::String(id));
                 }
 
-                let finish_evt = crate::streaming::ChatStreamEvent::Custom {
-                    event_type: "openai:finish".to_string(),
-                    data: serde_json::json!({
-                        "type": "finish",
-                        "finishReason": {
-                            "raw": serde_json::Value::Null,
-                            "unified": "other",
+                let finish_evt = crate::streaming::LanguageModelV3StreamPart::Finish {
+                    usage: crate::streaming::LanguageModelV3Usage {
+                        input_tokens: crate::streaming::LanguageModelV3InputTokens {
+                            total: None,
+                            no_cache: None,
+                            cache_read: None,
+                            cache_write: None,
                         },
-                        "providerMetadata": self.provider_metadata_json(serde_json::Value::Object(provider_metadata)),
-                        "usage": {
-                            "inputTokens": {
-                                "total": serde_json::Value::Null,
-                                "cacheRead": serde_json::Value::Null,
-                                "cacheWrite": serde_json::Value::Null,
-                                "noCache": serde_json::Value::Null,
-                            },
-                            "outputTokens": {
-                                "total": serde_json::Value::Null,
-                                "reasoning": serde_json::Value::Null,
-                                "text": serde_json::Value::Null,
-                            },
-                            "raw": serde_json::Value::Null,
+                        output_tokens: crate::streaming::LanguageModelV3OutputTokens {
+                            total: None,
+                            text: None,
+                            reasoning: None,
                         },
-                    }),
-                };
+                        raw: None,
+                    },
+                    finish_reason: crate::streaming::LanguageModelV3FinishReason {
+                        unified: "other".to_string(),
+                        raw: None,
+                    },
+                    provider_metadata: if provider_metadata.is_empty() {
+                        None
+                    } else {
+                        Some(std::collections::HashMap::from([(
+                            self.provider_metadata_key.clone(),
+                            serde_json::Value::Object(provider_metadata),
+                        )]))
+                    },
+                }
+                .to_part_event();
 
                 self.replace_pending_stream_end_events(vec![finish_evt]);
 

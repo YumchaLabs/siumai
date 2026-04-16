@@ -60,6 +60,137 @@ fn normalize_deepseek_options(obj: &mut serde_json::Map<String, serde_json::Valu
     rename_field(obj, "reasoningBudget", "reasoning_budget");
 }
 
+fn take_any(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<serde_json::Value> {
+    for key in keys {
+        if let Some(value) = obj.remove(*key) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn normalize_fireworks_reasoning_effort(value: &str) -> String {
+    match value {
+        "minimal" => "low".to_string(),
+        "xhigh" => "high".to_string(),
+        _ => value.to_string(),
+    }
+}
+
+fn normalize_fireworks_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(value) = take_any(obj, &["reasoningHistory", "reasoning_history"]) {
+        obj.entry("reasoning_history".to_string()).or_insert(value);
+    }
+
+    if let Some(thinking) = obj
+        .get_mut("thinking")
+        .and_then(|value| value.as_object_mut())
+    {
+        rename_field(thinking, "budgetTokens", "budget_tokens");
+    }
+}
+
+fn normalize_moonshotai_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(value) = take_any(obj, &["reasoningHistory", "reasoning_history"]) {
+        obj.entry("reasoning_history".to_string()).or_insert(value);
+    }
+
+    if let Some(thinking) = obj
+        .get_mut("thinking")
+        .and_then(|value| value.as_object_mut())
+    {
+        rename_field(thinking, "budgetTokens", "budget_tokens");
+    }
+}
+
+fn normalize_mistral_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(value) = take_any(obj, &["safePrompt", "safe_prompt"]) {
+        obj.insert("safe_prompt".to_string(), value);
+    }
+    if let Some(value) = take_any(obj, &["documentImageLimit", "document_image_limit"]) {
+        obj.insert("document_image_limit".to_string(), value);
+    }
+    if let Some(value) = take_any(obj, &["documentPageLimit", "document_page_limit"]) {
+        obj.insert("document_page_limit".to_string(), value);
+    }
+}
+
+fn normalize_perplexity_web_search_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    if let Some(value) = take_any(obj, &["searchContextSize", "search_context_size"]) {
+        obj.insert("search_context_size".to_string(), value);
+    }
+
+    if let Some(value) = take_any(obj, &["userLocation", "user_location"]) {
+        obj.insert("user_location".to_string(), value);
+    }
+}
+
+fn normalize_perplexity_options(obj: &mut serde_json::Map<String, serde_json::Value>) {
+    for (aliases, canonical) in [
+        (&["searchMode", "search_mode"][..], "search_mode"),
+        (
+            &["searchRecencyFilter", "search_recency_filter"][..],
+            "search_recency_filter",
+        ),
+        (
+            &["returnRelatedQuestions", "return_related_questions"][..],
+            "return_related_questions",
+        ),
+        (&["returnImages", "return_images"][..], "return_images"),
+        (&["disableSearch", "disable_search"][..], "disable_search"),
+        (
+            &["enableSearchClassifier", "enable_search_classifier"][..],
+            "enable_search_classifier",
+        ),
+        (
+            &["searchDomainFilter", "search_domain_filter"][..],
+            "search_domain_filter",
+        ),
+        (
+            &["searchLanguageFilter", "search_language_filter"][..],
+            "search_language_filter",
+        ),
+        (
+            &["searchAfterDateFilter", "search_after_date_filter"][..],
+            "search_after_date_filter",
+        ),
+        (
+            &["searchBeforeDateFilter", "search_before_date_filter"][..],
+            "search_before_date_filter",
+        ),
+        (
+            &["lastUpdatedAfterFilter", "last_updated_after_filter"][..],
+            "last_updated_after_filter",
+        ),
+        (
+            &["lastUpdatedBeforeFilter", "last_updated_before_filter"][..],
+            "last_updated_before_filter",
+        ),
+        (
+            &["imageDomainFilter", "image_domain_filter"][..],
+            "image_domain_filter",
+        ),
+        (
+            &["imageFormatFilter", "image_format_filter"][..],
+            "image_format_filter",
+        ),
+    ] {
+        if let Some(value) = take_any(obj, aliases) {
+            obj.insert(canonical.to_string(), value);
+        }
+    }
+
+    if let Some(mut value) = take_any(obj, &["webSearchOptions", "web_search_options"]) {
+        if let Some(web_search) = value.as_object_mut() {
+            normalize_perplexity_web_search_options(web_search);
+        }
+        obj.insert("web_search_options".to_string(), value);
+    }
+}
+
 fn string_option_by_aliases(
     obj: &serde_json::Map<String, serde_json::Value>,
     aliases: &[&str],
@@ -87,6 +218,8 @@ struct CompatChatOptions {
     reasoning_effort: Option<String>,
     verbosity: Option<String>,
     strict_json_schema: Option<bool>,
+    structured_outputs: Option<bool>,
+    parallel_tool_calls: Option<bool>,
 }
 
 fn compat_chat_options(
@@ -95,13 +228,15 @@ fn compat_chat_options(
 ) -> CompatChatOptions {
     let mut out = CompatChatOptions::default();
 
-    for options in [
-        map.get_object("openai-compatible"),
-        map.get_object("openaiCompatible"),
-        map.get_object(provider_id),
-    ]
-    .into_iter()
-    .flatten()
+    for options in [Some("openai-compatible"), Some("openaiCompatible")]
+        .into_iter()
+        .flatten()
+        .filter_map(|key| map.get_object(key))
+        .chain(
+            siumai_core::standards::openai::compat::metadata::provider_options_keys(provider_id)
+                .into_iter()
+                .filter_map(|key| map.get_object(&key)),
+        )
     {
         if let Some(user) = string_option_by_aliases(options, &["user"]) {
             out.user = Some(user);
@@ -109,7 +244,11 @@ fn compat_chat_options(
         if let Some(reasoning_effort) =
             string_option_by_aliases(options, &["reasoningEffort", "reasoning_effort"])
         {
-            out.reasoning_effort = Some(reasoning_effort);
+            out.reasoning_effort = Some(if provider_id == "fireworks" {
+                normalize_fireworks_reasoning_effort(&reasoning_effort)
+            } else {
+                reasoning_effort
+            });
         }
         if let Some(verbosity) =
             string_option_by_aliases(options, &["textVerbosity", "text_verbosity"])
@@ -120,6 +259,16 @@ fn compat_chat_options(
             bool_option_by_aliases(options, &["strictJsonSchema", "strict_json_schema"])
         {
             out.strict_json_schema = Some(strict_json_schema);
+        }
+        if let Some(structured_outputs) =
+            bool_option_by_aliases(options, &["structuredOutputs", "structured_outputs"])
+        {
+            out.structured_outputs = Some(structured_outputs);
+        }
+        if let Some(parallel_tool_calls) =
+            bool_option_by_aliases(options, &["parallelToolCalls", "parallel_tool_calls"])
+        {
+            out.parallel_tool_calls = Some(parallel_tool_calls);
         }
     }
 
@@ -135,59 +284,30 @@ fn remove_known_compat_chat_option_keys(obj: &mut serde_json::Map<String, serde_
         "text_verbosity",
         "strictJsonSchema",
         "strict_json_schema",
+        "structuredOutputs",
+        "structured_outputs",
+        "parallelToolCalls",
+        "parallel_tool_calls",
     ] {
         obj.remove(key);
     }
-}
-
-fn provider_options_key(provider_id: &str) -> String {
-    provider_id
-        .split('.')
-        .next()
-        .unwrap_or(provider_id)
-        .trim()
-        .to_ascii_lowercase()
-}
-
-fn to_camel_case(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let mut uppercase_next = false;
-
-    for ch in value.chars() {
-        if matches!(ch, '-' | '_') {
-            uppercase_next = true;
-            continue;
-        }
-
-        if uppercase_next {
-            out.extend(ch.to_uppercase());
-            uppercase_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-
-    out
 }
 
 fn compat_image_provider_options(
     provider_id: &str,
     map: &crate::types::ProviderOptionsMap,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let provider_key = provider_options_key(provider_id);
-    let provider_camel = to_camel_case(&provider_key);
     let mut merged = serde_json::Map::new();
 
-    for options in [
-        map.get_object("openai-compatible"),
-        map.get_object("openaiCompatible"),
-        map.get_object(&provider_key),
-        (provider_camel != provider_key)
-            .then(|| map.get_object(&provider_camel))
-            .flatten(),
-    ]
-    .into_iter()
-    .flatten()
+    for options in [Some("openai-compatible"), Some("openaiCompatible")]
+        .into_iter()
+        .flatten()
+        .filter_map(|key| map.get_object(key))
+        .chain(
+            siumai_core::standards::openai::compat::metadata::provider_options_keys(provider_id)
+                .into_iter()
+                .filter_map(|key| map.get_object(&key)),
+        )
     {
         for (key, value) in options {
             merged.insert(key.clone(), value.clone());
@@ -201,18 +321,6 @@ fn normalize_provider_options(
     provider_id: &str,
     value: Option<&serde_json::Value>,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
-    fn take_any(
-        obj: &mut serde_json::Map<String, serde_json::Value>,
-        keys: &[&str],
-    ) -> Option<serde_json::Value> {
-        for key in keys {
-            if let Some(value) = obj.remove(*key) {
-                return Some(value);
-            }
-        }
-        None
-    }
-
     let mut obj = value?.as_object()?.clone();
 
     if provider_id == "xai" {
@@ -229,20 +337,51 @@ fn normalize_provider_options(
         }
     } else if provider_id == "deepseek" {
         normalize_deepseek_options(&mut obj);
+    } else if provider_id == "mistral" {
+        normalize_mistral_options(&mut obj);
+    } else if provider_id == "perplexity" {
+        normalize_perplexity_options(&mut obj);
+    } else if provider_id == "fireworks" {
+        normalize_fireworks_options(&mut obj);
+    } else if provider_id == "moonshotai" || provider_id == "moonshot" {
+        normalize_moonshotai_options(&mut obj);
     } else if provider_id == "groq" {
         if let Some(value) = take_any(&mut obj, &["max_completion_tokens", "max_tokens"]) {
             obj.entry("max_tokens".to_string()).or_insert(value);
         }
+        rename_field(&mut obj, "serviceTier", "service_tier");
+        rename_field(&mut obj, "reasoningFormat", "reasoning_format");
+        rename_field(&mut obj, "topLogprobs", "top_logprobs");
     }
 
     Some(obj)
 }
 
+fn merged_normalized_provider_options(
+    provider_id: &str,
+    map: &crate::types::ProviderOptionsMap,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut merged = serde_json::Map::new();
+
+    for options in
+        siumai_core::standards::openai::compat::metadata::provider_options_keys(provider_id)
+            .into_iter()
+            .filter_map(|key| map.get(&key))
+            .filter_map(|value| normalize_provider_options(provider_id, Some(value)))
+    {
+        for (key, value) in options {
+            merged.insert(key, value);
+        }
+    }
+
+    (!merged.is_empty()).then_some(merged)
+}
+
 fn normalize_chat_passthrough_provider_options(
     provider_id: &str,
-    value: Option<&serde_json::Value>,
+    map: &crate::types::ProviderOptionsMap,
 ) -> Option<serde_json::Map<String, serde_json::Value>> {
-    let mut obj = normalize_provider_options(provider_id, value)?;
+    let mut obj = merged_normalized_provider_options(provider_id, map)?;
     remove_known_compat_chat_option_keys(&mut obj);
     Some(obj)
 }
@@ -308,11 +447,21 @@ fn apply_compat_chat_options(
             serde_json::Value::Bool(strict_json_schema),
         );
     }
+
+    if let Some(parallel_tool_calls) = compat_options.parallel_tool_calls
+        && body_obj.get("tools").is_some()
+    {
+        body_obj.insert(
+            "parallel_tool_calls".to_string(),
+            serde_json::Value::Bool(parallel_tool_calls),
+        );
+    }
 }
 
 fn apply_chat_request_settings(
     body_obj: &mut serde_json::Map<String, serde_json::Value>,
     settings: &OpenAiCompatibleRequestSettings,
+    structured_outputs_override: Option<bool>,
     supports_stream_usage_hints: bool,
     request_uses_structured_outputs: bool,
 ) {
@@ -332,7 +481,10 @@ fn apply_chat_request_settings(
         }
     }
 
-    if settings.supports_structured_outputs != Some(true) && request_uses_structured_outputs {
+    let supports_structured_outputs =
+        structured_outputs_override.or(settings.supports_structured_outputs);
+
+    if supports_structured_outputs != Some(true) && request_uses_structured_outputs {
         body_obj.insert(
             "response_format".to_string(),
             serde_json::json!({ "type": "json_object" }),
@@ -345,7 +497,7 @@ fn provider_options_map_merge_hook(
     map: &crate::types::ProviderOptionsMap,
 ) -> Option<crate::execution::executors::BeforeSendHook> {
     let provider_id = provider_id.to_string();
-    let provider_options = normalize_provider_options(&provider_id, map.get(&provider_id));
+    let provider_options = merged_normalized_provider_options(&provider_id, map);
     if provider_options.is_none() {
         return None;
     }
@@ -368,8 +520,7 @@ fn chat_request_settings_hook(
 ) -> crate::execution::executors::BeforeSendHook {
     let provider_id = provider_id.to_string();
     let compat_options = compat_chat_options(&provider_id, map);
-    let provider_options =
-        normalize_chat_passthrough_provider_options(&provider_id, map.get(&provider_id));
+    let provider_options = normalize_chat_passthrough_provider_options(&provider_id, map);
     let settings = settings.clone();
     Arc::new(
         move |body: &serde_json::Value| -> Result<serde_json::Value, LlmError> {
@@ -380,6 +531,7 @@ fn chat_request_settings_hook(
                 apply_chat_request_settings(
                     body_obj,
                     &settings,
+                    compat_options.structured_outputs,
                     supports_stream_usage_hints,
                     request_uses_structured_outputs,
                 );
@@ -407,6 +559,17 @@ fn apply_url_settings(url: String, settings: &OpenAiCompatibleRequestSettings) -
     crate::utils::url::with_query_params(&url, &settings.query_params)
 }
 
+fn default_request_settings_for_provider(provider_id: &str) -> OpenAiCompatibleRequestSettings {
+    OpenAiCompatibleRequestSettings {
+        supports_structured_outputs: match provider_id {
+            // Keep this aligned with the compat config defaults used by the public client surface.
+            "openrouter" | "perplexity" | "mistral" => Some(true),
+            _ => None,
+        },
+        ..OpenAiCompatibleRequestSettings::default()
+    }
+}
+
 /// OpenAI-Compatible ProviderSpec implementation with an injected adapter.
 ///
 /// This is used by OpenAI-compatible clients to avoid runtime global registry lookups.
@@ -418,7 +581,8 @@ pub struct OpenAiCompatibleSpecWithAdapter {
 
 impl OpenAiCompatibleSpecWithAdapter {
     pub fn new(adapter: Arc<dyn super::adapter::ProviderAdapter>) -> Self {
-        Self::with_settings(adapter, OpenAiCompatibleRequestSettings::default())
+        let provider_id = adapter.provider_id().into_owned();
+        Self::with_settings(adapter, default_request_settings_for_provider(&provider_id))
     }
 
     pub fn with_settings(
@@ -429,6 +593,17 @@ impl OpenAiCompatibleSpecWithAdapter {
             adapter,
             request_settings,
         }
+    }
+
+    /// Build the OpenAI-compatible completion endpoint URL.
+    ///
+    /// This mirrors the audited AI SDK `completionModel()` provider route and is primarily kept as
+    /// a lower-contract/public-fixture audit helper for completion-capable compat providers.
+    pub fn completion_url(&self, ctx: &ProviderContext) -> String {
+        apply_url_settings(
+            format!("{}{}", ctx.base_url.trim_end_matches('/'), "/completions"),
+            &self.request_settings,
+        )
     }
 }
 
@@ -692,7 +867,8 @@ impl OpenAiCompatibleSpecWithAdapter {
                 api_key: &str,
                 base_headers: &mut reqwest::header::HeaderMap,
             ) -> Result<(), LlmError> {
-                if api_key.is_empty() {
+                if api_key.is_empty() && !base_headers.contains_key(reqwest::header::AUTHORIZATION)
+                {
                     return Err(LlmError::MissingApiKey(
                         "OpenAI-Compatible API key not provided".into(),
                     ));
@@ -976,6 +1152,50 @@ mod tests {
         assert!(spec.capabilities().supports("transcription"));
         assert!(spec.capabilities().supports("audio"));
         assert!(!spec.capabilities().supports("speech"));
+    }
+
+    #[test]
+    fn openai_compatible_chat_headers_allow_preexisting_authorization() {
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "vertex-maas".to_string(),
+                name: "Vertex MaaS".to_string(),
+                base_url:
+                    "https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi"
+                        .to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into(), "embedding".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let mut extra_headers = std::collections::HashMap::new();
+        extra_headers.insert(
+            "Authorization".to_string(),
+            "Bearer google-token".to_string(),
+        );
+        let ctx = ProviderContext::new(
+            "vertex-maas".to_string(),
+            "https://aiplatform.googleapis.com/v1/projects/demo/locations/global/endpoints/openapi"
+                .to_string(),
+            None,
+            extra_headers,
+        );
+
+        let headers = spec
+            .chat_spec()
+            .build_headers(&ctx)
+            .expect("Authorization header should satisfy compat auth");
+
+        assert_eq!(
+            headers
+                .get(reqwest::header::AUTHORIZATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("Bearer google-token")
+        );
     }
 
     #[test]
@@ -1868,6 +2088,281 @@ mod tests {
     }
 
     #[test]
+    fn fireworks_reasoning_effort_levels_follow_ai_sdk_mapping() {
+        assert_eq!(normalize_fireworks_reasoning_effort("minimal"), "low");
+        assert_eq!(normalize_fireworks_reasoning_effort("low"), "low");
+        assert_eq!(normalize_fireworks_reasoning_effort("high"), "high");
+        assert_eq!(normalize_fireworks_reasoning_effort("xhigh"), "high");
+    }
+
+    #[test]
+    fn openai_compatible_fireworks_runtime_provider_normalizes_fireworks_chat_options() {
+        use crate::core::ProviderSpec;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "fireworks".to_string(),
+                name: "Fireworks".to_string(),
+                base_url: "https://api.fireworks.ai/inference/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["chat".into(), "streaming".into(), "tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "fireworks".to_string(),
+            "https://api.fireworks.ai/inference/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("accounts/fireworks/models/llama-v3p1-8b-instruct")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option(
+                "fireworks",
+                serde_json::json!({
+                    "reasoningEffort": "xhigh",
+                    "reasoningHistory": "preserved",
+                    "thinking": {
+                        "type": "enabled",
+                        "budgetTokens": 4096
+                    }
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(body["reasoning_history"], serde_json::json!("preserved"));
+        assert_eq!(
+            body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 4096
+            })
+        );
+        assert!(body.get("reasoningHistory").is_none());
+        assert!(body["thinking"].get("budgetTokens").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_mistral_defaults_to_structured_outputs_enabled() {
+        use crate::core::ProviderSpec;
+        use crate::types::chat::ResponseFormat;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral AI".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "mistral".to_string(),
+            "https://api.mistral.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let req = crate::types::ChatRequest::builder()
+            .model("mistral-large-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_mistral_runtime_provider_normalizes_chat_options() {
+        use crate::core::ProviderSpec;
+        use crate::types::{Tool, ToolChoice};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral AI".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "mistral".to_string(),
+            "https://api.mistral.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("mistral-small-latest")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![Tool::function(
+                "lookup",
+                "Lookup value",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .tool_choice(ToolChoice::None)
+            .build()
+            .with_provider_option(
+                "mistral",
+                serde_json::json!({
+                    "safe_prompt": false,
+                    "safePrompt": true,
+                    "document_image_limit": 4,
+                    "documentImageLimit": 8,
+                    "document_page_limit": 12,
+                    "documentPageLimit": 16,
+                    "structuredOutputs": false,
+                    "strictJsonSchema": false,
+                    "parallelToolCalls": false,
+                    "reasoningEffort": "none"
+                }),
+            )
+            .with_response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "answer": { "type": "string" } },
+                    "required": ["answer"],
+                    "additionalProperties": false
+                }),
+            ));
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["safe_prompt"], serde_json::json!(true));
+        assert_eq!(body["document_image_limit"], serde_json::json!(8));
+        assert_eq!(body["document_page_limit"], serde_json::json!(16));
+        assert_eq!(body["reasoning_effort"], serde_json::json!("none"));
+        assert_eq!(body["parallel_tool_calls"], serde_json::json!(false));
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({ "type": "json_object" }))
+        );
+        assert!(body.get("safePrompt").is_none());
+        assert!(body.get("documentImageLimit").is_none());
+        assert!(body.get("documentPageLimit").is_none());
+        assert!(body.get("parallelToolCalls").is_none());
+        assert!(body.get("structuredOutputs").is_none());
+        assert!(body.get("strictJsonSchema").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_perplexity_runtime_provider_normalizes_chat_options() {
+        use crate::core::ProviderSpec;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "perplexity".to_string(),
+                name: "Perplexity".to_string(),
+                base_url: "https://api.perplexity.ai".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "perplexity".to_string(),
+            "https://api.perplexity.ai".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("sonar")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option(
+                "perplexity",
+                serde_json::json!({
+                    "search_mode": "web",
+                    "searchMode": "academic",
+                    "return_images": false,
+                    "returnImages": true,
+                    "searchRecencyFilter": "month",
+                    "webSearchOptions": {
+                        "searchContextSize": "high",
+                        "userLocation": {
+                            "country": "US"
+                        }
+                    },
+                    "someVendorParam": true
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["search_mode"], serde_json::json!("academic"));
+        assert_eq!(body["return_images"], serde_json::json!(true));
+        assert_eq!(body["search_recency_filter"], serde_json::json!("month"));
+        assert_eq!(
+            body["web_search_options"]["search_context_size"],
+            serde_json::json!("high")
+        );
+        assert_eq!(
+            body["web_search_options"]["user_location"]["country"],
+            serde_json::json!("US")
+        );
+        assert_eq!(body["someVendorParam"], serde_json::json!(true));
+        assert!(body.get("searchMode").is_none());
+        assert!(body.get("returnImages").is_none());
+        assert!(body.get("webSearchOptions").is_none());
+    }
+
+    #[test]
     fn openai_compatible_xai_runtime_provider_preserves_response_format_json_schema_when_enabled() {
         use crate::core::ProviderSpec;
         use crate::types::chat::ResponseFormat;
@@ -2140,5 +2635,75 @@ mod tests {
         assert!(body.get("include").is_none());
         assert!(body.get("store").is_none());
         assert!(body.get("topLogprobs").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_groq_runtime_normalizes_passthrough_option_keys() {
+        use crate::core::ProviderSpec;
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "groq".to_string(),
+                name: "Groq".to_string(),
+                base_url: "https://api.groq.com/openai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+
+        let ctx = ProviderContext::new(
+            "groq".to_string(),
+            "https://api.groq.com/openai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+
+        let req = crate::types::ChatRequest::builder()
+            .model("llama-3.3-70b-versatile")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "get_weather",
+                "Get weather",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({
+                    "type": "object",
+                    "properties": { "value": { "type": "string" } }
+                }),
+            ))
+            .build()
+            .with_provider_option(
+                "groq",
+                serde_json::json!({
+                    "serviceTier": "performance",
+                    "reasoningFormat": "parsed",
+                    "topLogprobs": 2,
+                    "parallelToolCalls": false,
+                    "strictJsonSchema": false
+                }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body["service_tier"], serde_json::json!("performance"));
+        assert_eq!(body["reasoning_format"], serde_json::json!("parsed"));
+        assert_eq!(body["top_logprobs"], serde_json::json!(2));
+        assert_eq!(body["parallel_tool_calls"], serde_json::json!(false));
+        assert_eq!(
+            body["response_format"]["json_schema"]["strict"],
+            serde_json::json!(false)
+        );
+        assert!(body.get("serviceTier").is_none());
+        assert!(body.get("reasoningFormat").is_none());
+        assert!(body.get("topLogprobs").is_none());
+        assert!(body.get("strictJsonSchema").is_none());
     }
 }

@@ -25,7 +25,7 @@ fn read_fixture_lines(path: &Path) -> Vec<String> {
 
 fn run_converter(lines: Vec<String>, uses_json_tool: bool) -> Vec<ChatStreamEvent> {
     let standard = siumai::experimental::standards::bedrock::chat::BedrockChatStandard::new();
-    let tx = standard.create_transformers("bedrock", uses_json_tool);
+    let tx = standard.create_transformers("bedrock", uses_json_tool, None, vec![], false);
     let conv = tx.json.expect("bedrock json event converter");
 
     let mut out: Vec<ChatStreamEvent> = Vec::new();

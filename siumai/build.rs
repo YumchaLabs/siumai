@@ -31,6 +31,7 @@ fn ensure_provider_available() {
         cfg!(feature = "groq"),
         cfg!(feature = "minimaxi"),
         cfg!(feature = "deepseek"),
+        cfg!(feature = "deepinfra"),
         cfg!(feature = "cohere"),
         cfg!(feature = "togetherai"),
         cfg!(feature = "bedrock"),
@@ -38,7 +39,7 @@ fn ensure_provider_available() {
 
     if !providers.iter().any(|&enabled| enabled) {
         panic!(
-            "At least one provider feature must be enabled. Available features: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi, deepseek, cohere, togetherai, bedrock"
+            "At least one provider feature must be enabled. Available features: openai, azure, anthropic, google, google-vertex, ollama, xai, groq, minimaxi, deepseek, deepinfra, cohere, togetherai, bedrock"
         );
     }
 }
@@ -77,6 +78,9 @@ fn add_build_info() {
     }
     if cfg!(feature = "deepseek") {
         enabled_providers.push("deepseek");
+    }
+    if cfg!(feature = "deepinfra") {
+        enabled_providers.push("deepinfra");
     }
     if cfg!(feature = "cohere") {
         enabled_providers.push("cohere");

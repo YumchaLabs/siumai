@@ -13,6 +13,14 @@ pub trait ImageGenerationCapability: Send + Sync {
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError>;
 
+    /// Maximum number of images this model/provider can generate in a single call.
+    ///
+    /// This stays object-safe so higher-level helpers can implement AI SDK-style
+    /// batching without requiring providers to expose a different execution trait.
+    fn max_images_per_call(&self) -> Option<u32> {
+        None
+    }
+
     async fn generate_image(
         &self,
         prompt: String,

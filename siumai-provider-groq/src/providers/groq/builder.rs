@@ -105,6 +105,11 @@ impl GroqBuilder {
         self
     }
 
+    /// Alias for `custom_headers(...)` (AI SDK-aligned: `headers`).
+    pub fn headers(self, headers: HashMap<String, String>) -> Self {
+        self.custom_headers(headers)
+    }
+
     pub fn header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
         self.inner = self.inner.header(key, value);
         self
@@ -205,6 +210,22 @@ impl GroqBuilder {
         self.with_groq_options(GroqOptions::new().with_reasoning_format(format))
     }
 
+    pub fn parallel_tool_calls(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_parallel_tool_calls(enabled))
+    }
+
+    pub fn user(self, user: impl Into<String>) -> Self {
+        self.with_groq_options(GroqOptions::new().with_user(user))
+    }
+
+    pub fn structured_outputs(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_structured_outputs(enabled))
+    }
+
+    pub fn strict_json_schema(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_strict_json_schema(enabled))
+    }
+
     pub fn into_config(self) -> Result<super::GroqConfig, LlmError> {
         let compatible = self.inner.into_config()?;
         let mut config = super::GroqConfig::new(compatible.api_key)
@@ -264,16 +285,20 @@ mod tests {
             .top_p(0.8)
             .stop_sequences(vec!["END".to_string()])
             .seed(7)
-            .custom_headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
+            .headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
             .timeout(Duration::from_secs(9))
             .connect_timeout(Duration::from_secs(3))
             .http_stream_disable_compression(true)
             .http_debug(true)
             .logprobs(true)
             .top_logprobs(2)
-            .service_tier(GroqServiceTier::Flex)
-            .reasoning_effort(GroqReasoningEffort::Default)
+            .service_tier(GroqServiceTier::Performance)
+            .reasoning_effort(GroqReasoningEffort::Medium)
             .reasoning_format(GroqReasoningFormat::Parsed)
+            .parallel_tool_calls(false)
+            .user("groq-user-1")
+            .structured_outputs(false)
+            .strict_json_schema(false)
             .into_config()
             .expect("into_config ok");
 
@@ -303,20 +328,36 @@ mod tests {
             Some(&serde_json::json!(true))
         );
         assert_eq!(
-            config.provider_specific_config.get("top_logprobs"),
+            config.provider_specific_config.get("topLogprobs"),
             Some(&serde_json::json!(2))
         );
         assert_eq!(
-            config.provider_specific_config.get("service_tier"),
-            Some(&serde_json::json!("flex"))
+            config.provider_specific_config.get("serviceTier"),
+            Some(&serde_json::json!("performance"))
         );
         assert_eq!(
-            config.provider_specific_config.get("reasoning_effort"),
-            Some(&serde_json::json!("default"))
+            config.provider_specific_config.get("reasoningEffort"),
+            Some(&serde_json::json!("medium"))
         );
         assert_eq!(
-            config.provider_specific_config.get("reasoning_format"),
+            config.provider_specific_config.get("reasoningFormat"),
             Some(&serde_json::json!("parsed"))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("parallelToolCalls"),
+            Some(&serde_json::json!(false))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("user"),
+            Some(&serde_json::json!("groq-user-1"))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("structuredOutputs"),
+            Some(&serde_json::json!(false))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("strictJsonSchema"),
+            Some(&serde_json::json!(false))
         );
     }
 
@@ -331,16 +372,20 @@ mod tests {
             .top_p(0.8)
             .stop_sequences(vec!["END".to_string()])
             .seed(7)
-            .custom_headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
+            .headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
             .timeout(Duration::from_secs(9))
             .connect_timeout(Duration::from_secs(3))
             .http_stream_disable_compression(true)
             .http_debug(true)
             .logprobs(true)
             .top_logprobs(2)
-            .service_tier(GroqServiceTier::Flex)
-            .reasoning_effort(GroqReasoningEffort::Default)
+            .service_tier(GroqServiceTier::Performance)
+            .reasoning_effort(GroqReasoningEffort::Medium)
             .reasoning_format(GroqReasoningFormat::Parsed)
+            .parallel_tool_calls(false)
+            .user("groq-user-1")
+            .structured_outputs(false)
+            .strict_json_schema(false)
             .with_model_middlewares(vec![Arc::new(NoopMiddleware)])
             .into_config()
             .expect("builder config");
@@ -359,9 +404,13 @@ mod tests {
             .with_header("x-test", "1")
             .with_logprobs(true)
             .with_top_logprobs(2)
-            .with_service_tier(GroqServiceTier::Flex)
-            .with_reasoning_effort(GroqReasoningEffort::Default)
+            .with_service_tier(GroqServiceTier::Performance)
+            .with_reasoning_effort(GroqReasoningEffort::Medium)
             .with_reasoning_format(GroqReasoningFormat::Parsed)
+            .with_parallel_tool_calls(false)
+            .with_user("groq-user-1")
+            .with_structured_outputs(false)
+            .with_strict_json_schema(false)
             .with_http_interceptor(Arc::new(
                 crate::execution::http::interceptor::LoggingInterceptor,
             ))
@@ -445,5 +494,40 @@ mod tests {
             .expect("build client with explicit http client");
 
         assert!(client.retry_options().is_some());
+    }
+
+    #[test]
+    fn groq_builder_headers_alias_matches_custom_headers() {
+        let via_headers = GroqBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("llama-3.3-70b-versatile")
+            .headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
+            .into_config()
+            .expect("headers alias config");
+
+        let via_custom_headers = GroqBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("llama-3.3-70b-versatile")
+            .custom_headers(HashMap::from([("x-test".to_string(), "1".to_string())]))
+            .into_config()
+            .expect("custom_headers config");
+
+        assert_eq!(
+            via_headers.http_config.headers,
+            via_custom_headers.http_config.headers
+        );
+    }
+
+    #[test]
+    fn groq_builder_uses_groq_api_key_env_when_explicit_key_missing() {
+        temp_env::with_var("GROQ_API_KEY", Some("env-key"), || {
+            let config = GroqBuilder::new(BuilderBase::default())
+                .model("llama-3.3-70b-versatile")
+                .into_config()
+                .expect("env fallback config");
+
+            use secrecy::ExposeSecret;
+            assert_eq!(config.api_key.expose_secret(), "env-key");
+        });
     }
 }

@@ -102,6 +102,9 @@ impl RequestTransformer for GeminiChatRequestTransformer {
             cfg.model = req.common_params.model.clone();
             cfg.common_params.model = req.common_params.model.clone();
         }
+        if self.provider_id.to_ascii_lowercase().contains("vertex") {
+            cfg.provider_metadata_key = Some("vertex".to_string());
+        }
         let provider_tx =
             crate::standards::gemini::transformers::GeminiRequestTransformer { config: cfg };
         let mut body = provider_tx.transform_chat(req)?;
@@ -348,5 +351,33 @@ mod tests {
             spec.chat_url(true, &req, &ctx),
             "https://us-central1-aiplatform.googleapis.com/v1/projects/p/locations/us-central1/publishers/google/models/gemini-2.0-flash:streamGenerateContent?alt=sse"
         );
+    }
+
+    #[test]
+    fn vertex_request_transformer_prefers_vertex_provider_namespace() {
+        let tx = GeminiChatStandard::new().create_transformers_with_model("vertex", None);
+        let req = ChatRequest::builder()
+            .message(
+                ChatMessage::assistant_with_content(vec![
+                    crate::types::ContentPart::reasoning("thinking")
+                        .with_provider_option(
+                            "google",
+                            serde_json::json!({ "thoughtSignature": "google_sig" }),
+                        )
+                        .with_provider_option(
+                            "vertex",
+                            serde_json::json!({ "thoughtSignature": "vertex_sig" }),
+                        ),
+                ])
+                .build(),
+            )
+            .model("gemini-2.5-flash")
+            .build();
+
+        let body = tx.request.transform_chat(&req).expect("transform chat");
+        let part = &body["contents"][0]["parts"][0];
+
+        assert_eq!(part["thought"], serde_json::json!(true));
+        assert_eq!(part["thoughtSignature"], serde_json::json!("vertex_sig"));
     }
 }

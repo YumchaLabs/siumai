@@ -4,12 +4,12 @@
 use super::chat::ChatResponse;
 use super::chat::SourcePart;
 use crate::error::LlmError;
-use crate::types::{FinishReason, ResponseMetadata, Usage, Warning};
+use crate::types::{FinishReason, ProviderMetadataMap, ResponseMetadata, Usage, Warning};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Provider metadata object keyed by provider name.
-pub type StreamProviderMetadata = HashMap<String, serde_json::Value>;
+pub type StreamProviderMetadata = ProviderMetadataMap;
 
 /// Binary-or-base64 file payload used by stream parts.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

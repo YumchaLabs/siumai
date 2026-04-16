@@ -6,6 +6,7 @@ use std::{borrow::Cow, collections::HashMap};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequestType {
     Chat,
+    Completion,
     Embedding,
     Rerank,
     ImageGeneration,

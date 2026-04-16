@@ -1,5 +1,6 @@
 //! `Bedrock`-specific response metadata.
 
+use crate::types::ContentPart;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -20,12 +21,43 @@ pub struct BedrockMetadata {
     pub extra: HashMap<String, serde_json::Value>,
 }
 
+/// Bedrock-specific metadata attached to `ContentPart::Reasoning`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct BedrockReasoningContentPartMetadata {
+    /// Reasoning signature returned by Bedrock for replay validation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
+
+    /// Redacted reasoning payload returned by Bedrock.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "redactedData",
+        alias = "redacted_data"
+    )]
+    pub redacted_data: Option<String>,
+}
+
 impl crate::types::provider_metadata::FromMetadata for BedrockMetadata {
     fn from_metadata(
         metadata: &std::collections::HashMap<String, serde_json::Value>,
     ) -> Option<Self> {
         serde_json::from_value(serde_json::to_value(metadata).ok()?).ok()
     }
+}
+
+fn bedrock_reasoning_content_part_metadata(
+    part: &ContentPart,
+) -> Option<BedrockReasoningContentPartMetadata> {
+    let ContentPart::Reasoning {
+        provider_metadata: Some(provider_metadata),
+        ..
+    } = part
+    else {
+        return None;
+    };
+
+    let bedrock_metadata = provider_metadata.get("bedrock")?;
+    serde_json::from_value(bedrock_metadata.clone()).ok()
 }
 
 /// Typed helper for Bedrock metadata extraction from `ChatResponse`.
@@ -35,9 +67,25 @@ pub trait BedrockChatResponseExt {
 
 impl BedrockChatResponseExt for crate::types::ChatResponse {
     fn bedrock_metadata(&self) -> Option<BedrockMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("bedrock")?;
-        BedrockMetadata::from_metadata(meta)
+        let meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, "bedrock")
+            })?
+            .clone();
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
+    }
+}
+
+/// Typed helper for Bedrock metadata extraction from `ContentPart::Reasoning`.
+pub trait BedrockContentPartExt {
+    fn bedrock_reasoning_metadata(&self) -> Option<BedrockReasoningContentPartMetadata>;
+}
+
+impl BedrockContentPartExt for ContentPart {
+    fn bedrock_reasoning_metadata(&self) -> Option<BedrockReasoningContentPartMetadata> {
+        bedrock_reasoning_content_part_metadata(self)
     }
 }
 
@@ -60,12 +108,36 @@ mod tests {
         inner.insert("vendor_extra".to_string(), serde_json::json!(42));
 
         let mut outer = HashMap::new();
-        outer.insert("bedrock".to_string(), inner);
+        outer.insert(
+            "bedrock".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.bedrock_metadata().expect("bedrock metadata");
         assert_eq!(meta.is_json_response_from_tool, Some(true));
         assert_eq!(meta.stop_sequence, Some(serde_json::json!("END_OF_TURN")));
         assert_eq!(meta.extra.get("vendor_extra"), Some(&serde_json::json!(42)));
+    }
+
+    #[test]
+    fn bedrock_reasoning_metadata_parses_part_level_fields() {
+        let part = crate::types::ContentPart::Reasoning {
+            text: "internal".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "bedrock".to_string(),
+                serde_json::json!({
+                    "signature": "sig-1",
+                    "redactedData": "blob"
+                }),
+            )])),
+        };
+
+        let meta = part
+            .bedrock_reasoning_metadata()
+            .expect("bedrock reasoning metadata");
+        assert_eq!(meta.signature.as_deref(), Some("sig-1"));
+        assert_eq!(meta.redacted_data.as_deref(), Some("blob"));
     }
 }

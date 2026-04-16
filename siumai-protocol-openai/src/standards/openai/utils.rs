@@ -724,6 +724,14 @@ pub fn parse_openai_usage_value(value: &serde_json::Value) -> Option<Usage> {
     siumai_core::standards::openai::utils::parse_openai_usage_value(value)
 }
 
+/// Parse provider-specific OpenAI-compatible usage payloads into unified `Usage`.
+pub fn parse_provider_openai_usage_value(
+    provider_id: &str,
+    value: &serde_json::Value,
+) -> Option<Usage> {
+    siumai_core::standards::openai::utils::parse_provider_openai_usage_value(provider_id, value)
+}
+
 /// Convert unified `Usage` into OpenAI Chat Completions usage JSON.
 pub fn openai_chat_usage_value(usage: &Usage) -> serde_json::Value {
     siumai_core::standards::openai::utils::openai_chat_usage_value(usage)

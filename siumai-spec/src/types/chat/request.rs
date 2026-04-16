@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use super::message::ChatMessage;
 use crate::types::chat::ResponseFormat;
 use crate::types::tools::Tool;
-use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap};
+use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap, StreamRequestOptions};
 
 /// Chat request configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -61,6 +61,9 @@ pub struct ChatRequest {
 
     /// Stream the response
     pub stream: bool,
+    /// Runtime-only stream options.
+    #[serde(skip)]
+    pub stream_options: StreamRequestOptions,
     /// Optional telemetry configuration
     #[serde(skip)]
     pub telemetry: Option<crate::observability::telemetry::TelemetryConfig>,
@@ -78,6 +81,7 @@ impl ChatRequest {
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
             stream: false,
+            stream_options: StreamRequestOptions::default(),
             telemetry: None,
         }
     }
@@ -143,6 +147,18 @@ impl ChatRequest {
         self
     }
 
+    /// Set runtime-only stream options.
+    pub fn with_stream_options(mut self, options: StreamRequestOptions) -> Self {
+        self.stream_options = options;
+        self
+    }
+
+    /// Enable or disable raw chunk emission for streaming calls.
+    pub fn with_include_raw_chunks(mut self, include_raw_chunks: bool) -> Self {
+        self.stream_options.include_raw_chunks = include_raw_chunks;
+        self
+    }
+
     /// Set common parameters
     pub fn with_common_params(mut self, params: CommonParams) -> Self {
         self.common_params = params;
@@ -198,6 +214,7 @@ pub struct ChatRequestBuilder {
     provider_options_map: ProviderOptionsMap,
     http_config: Option<HttpConfig>,
     stream: bool,
+    stream_options: StreamRequestOptions,
 }
 
 impl ChatRequestBuilder {
@@ -212,6 +229,7 @@ impl ChatRequestBuilder {
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
             stream: false,
+            stream_options: StreamRequestOptions::default(),
         }
     }
 
@@ -252,6 +270,18 @@ impl ChatRequestBuilder {
     /// Enable streaming
     pub const fn stream(mut self, stream: bool) -> Self {
         self.stream = stream;
+        self
+    }
+
+    /// Set runtime-only stream options.
+    pub fn stream_options(mut self, options: StreamRequestOptions) -> Self {
+        self.stream_options = options;
+        self
+    }
+
+    /// Enable or disable raw chunk emission for streaming calls.
+    pub fn include_raw_chunks(mut self, include_raw_chunks: bool) -> Self {
+        self.stream_options.include_raw_chunks = include_raw_chunks;
         self
     }
 
@@ -344,6 +374,7 @@ impl ChatRequestBuilder {
             provider_options_map: self.provider_options_map,
             http_config: self.http_config,
             stream: self.stream,
+            stream_options: self.stream_options,
             telemetry: None,
         }
     }

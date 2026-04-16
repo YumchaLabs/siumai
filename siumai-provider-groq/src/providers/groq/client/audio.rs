@@ -3,6 +3,7 @@ use crate::error::LlmError;
 use crate::providers::groq::spec;
 use crate::traits::AudioCapability;
 use async_trait::async_trait;
+use std::collections::HashMap;
 
 #[async_trait]
 impl AudioCapability for GroqClient {
@@ -71,13 +72,46 @@ impl AudioCapability for GroqClient {
 
         let exec = builder.build();
         let result = AudioExecutor::stt(&*exec, request).await?;
+        let text = result.text;
+        let raw = result.raw;
+        let language = raw
+            .get("language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let duration = raw
+            .get("duration")
+            .and_then(|v| v.as_f64())
+            .map(|d| d as f32);
+        let words = raw.get("words").and_then(|v| v.as_array()).map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let obj = item.as_object()?;
+                    let word = obj.get("word")?.as_str()?.to_string();
+                    let start = obj.get("start")?.as_f64()? as f32;
+                    let end = obj.get("end")?.as_f64()? as f32;
+                    Some(crate::types::WordTimestamp {
+                        word,
+                        start,
+                        end,
+                        confidence: None,
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+        let mut metadata = HashMap::new();
+        for key in ["segments", "usage", "logprobs", "x_groq", "task"] {
+            if let Some(value) = raw.get(key) {
+                metadata.insert(key.to_string(), value.clone());
+            }
+        }
+
         Ok(crate::types::SttResponse {
-            text: result.text,
-            language: None,
+            text,
+            language,
             confidence: None,
-            words: None,
-            duration: None,
-            metadata: std::collections::HashMap::new(),
+            words,
+            duration,
+            metadata,
         })
     }
 }

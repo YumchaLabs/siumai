@@ -35,7 +35,7 @@ fn denormalize_gemini_option_key(key: &str) -> Option<&'static str> {
     })
 }
 
-fn denormalize_gemini_options_json(value: &serde_json::Value) -> serde_json::Value {
+pub(crate) fn denormalize_gemini_options_json(value: &serde_json::Value) -> serde_json::Value {
     fn inner(value: &serde_json::Value) -> Option<serde_json::Value> {
         match value {
             serde_json::Value::Null => None,
@@ -59,11 +59,33 @@ fn denormalize_gemini_options_json(value: &serde_json::Value) -> serde_json::Val
     inner(value).unwrap_or(serde_json::Value::Null)
 }
 
+pub(crate) fn merge_provider_option_object(
+    map: &mut crate::types::ProviderOptionsMap,
+    value: serde_json::Value,
+) {
+    if let serde_json::Value::Object(new_options) = value {
+        let mut merged = map
+            .get("gemini")
+            .and_then(|value| value.as_object())
+            .cloned()
+            .unwrap_or_default();
+
+        for (key, value) in new_options {
+            merged.insert(key, value);
+        }
+
+        map.insert("gemini", serde_json::Value::Object(merged));
+    } else {
+        map.insert("gemini", value);
+    }
+}
+
 impl GeminiChatRequestExt for ChatRequest {
-    fn with_gemini_options<T: serde::Serialize>(self, options: T) -> Self {
+    fn with_gemini_options<T: serde::Serialize>(mut self, options: T) -> Self {
         let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
         let value = denormalize_gemini_options_json(&value);
-        self.with_provider_option("gemini", value)
+        merge_provider_option_object(&mut self.provider_options_map, value);
+        self
     }
 }
 
@@ -148,5 +170,33 @@ mod tests {
         assert!(options.get("response_mime_type").is_none());
         assert!(options.get("retrieval_config").is_none());
         assert!(options.get("image_config").is_none());
+    }
+
+    #[test]
+    fn with_gemini_options_merges_existing_provider_options() {
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "gemini",
+                serde_json::json!({
+                    "existing": true,
+                    "responseMimeType": "text/plain"
+                }),
+            )
+            .with_gemini_options(
+                GeminiOptions::new()
+                    .with_response_mime_type("application/json")
+                    .with_structured_outputs(true),
+            );
+
+        let options = req
+            .provider_option("gemini")
+            .expect("gemini provider options");
+
+        assert_eq!(options["existing"], serde_json::json!(true));
+        assert_eq!(
+            options["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert_eq!(options["structuredOutputs"], serde_json::json!(true));
     }
 }

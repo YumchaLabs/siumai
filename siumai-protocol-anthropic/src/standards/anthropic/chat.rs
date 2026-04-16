@@ -43,11 +43,15 @@ impl AnthropicChatStandard {
         let response_tx = Arc::new(AnthropicChatResponseTransformer {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
+            citation_documents: Vec::new(),
+            provider_metadata_key: None,
+            params: super::params::AnthropicParams::default(),
         });
 
         let inner = crate::standards::anthropic::streaming::AnthropicEventConverter::new(
             super::params::AnthropicParams::default(),
-        );
+        )
+        .with_include_raw_chunks(false);
         let stream_tx = Arc::new(AnthropicChatStreamTransformer {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
@@ -138,12 +142,12 @@ impl ProviderSpec for AnthropicChatSpec {
         req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
+        let custom_provider_metadata_key =
+            crate::standards::anthropic::transformers::used_custom_anthropic_provider_key(
+                req,
+                &ctx.provider_id,
+            );
         let request_tx = Arc::new(AnthropicChatRequestTransformer {
-            provider_id: ctx.provider_id.clone(),
-            adapter: self.adapter.clone(),
-        });
-
-        let response_tx = Arc::new(AnthropicChatResponseTransformer {
             provider_id: ctx.provider_id.clone(),
             adapter: self.adapter.clone(),
         });
@@ -231,7 +235,8 @@ impl ProviderSpec for AnthropicChatSpec {
         }
 
         let citation_documents = extract_citation_documents(req);
-        let mut stream_params = super::params::AnthropicParams::default();
+        let mut stream_params = super::params::AnthropicParams::default()
+            .with_tools(req.tools.as_deref().unwrap_or_default());
         if matches!(
             req.response_format,
             Some(crate::types::chat::ResponseFormat::Json { .. })
@@ -251,10 +256,21 @@ impl ProviderSpec for AnthropicChatSpec {
                 },
             );
         }
+        let response_tx = Arc::new(AnthropicChatResponseTransformer {
+            provider_id: ctx.provider_id.clone(),
+            adapter: self.adapter.clone(),
+            citation_documents: citation_documents.clone(),
+            provider_metadata_key: custom_provider_metadata_key.clone(),
+            params: stream_params.clone(),
+        });
 
-        let inner =
+        let mut inner =
             crate::standards::anthropic::streaming::AnthropicEventConverter::new(stream_params)
-                .with_citation_documents(citation_documents);
+                .with_citation_documents(citation_documents)
+                .with_include_raw_chunks(req.stream_options.include_raw_chunks);
+        if let Some(key) = custom_provider_metadata_key {
+            inner = inner.with_provider_metadata_key(key);
+        }
         let stream_tx = Arc::new(AnthropicChatStreamTransformer {
             provider_id: ctx.provider_id.clone(),
             adapter: self.adapter.clone(),
@@ -312,7 +328,8 @@ impl RequestTransformer for AnthropicChatRequestTransformer {
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
         let anthropic_tx =
-            crate::standards::anthropic::transformers::AnthropicRequestTransformer::new(None);
+            crate::standards::anthropic::transformers::AnthropicRequestTransformer::new(None)
+                .with_provider_options_key(self.provider_id.clone());
         let mut body = anthropic_tx.transform_chat(req)?;
 
         if let Some(adapter) = &self.adapter {
@@ -327,6 +344,9 @@ impl RequestTransformer for AnthropicChatRequestTransformer {
 struct AnthropicChatResponseTransformer {
     provider_id: String,
     adapter: Option<Arc<dyn AnthropicChatAdapter>>,
+    citation_documents: Vec<crate::standards::anthropic::streaming::AnthropicCitationDocument>,
+    provider_metadata_key: Option<String>,
+    params: super::params::AnthropicParams,
 }
 
 impl ResponseTransformer for AnthropicChatResponseTransformer {
@@ -343,8 +363,16 @@ impl ResponseTransformer for AnthropicChatResponseTransformer {
             adapter.transform_response(&mut raw)?;
         }
 
-        let anthropic_tx = crate::standards::anthropic::transformers::AnthropicResponseTransformer;
-        anthropic_tx.transform_chat_response(&raw)
+        let mut anthropic_tx =
+            crate::standards::anthropic::transformers::AnthropicResponseTransformer::default();
+        if let Some(key) = &self.provider_metadata_key {
+            anthropic_tx = anthropic_tx.with_provider_metadata_key(key.clone());
+        }
+        anthropic_tx.transform_chat_response_with_citation_documents(
+            &raw,
+            &self.citation_documents,
+            &self.params,
+        )
     }
 }
 
@@ -424,8 +452,74 @@ impl StreamChunkTransformer for AnthropicChatStreamTransformer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_metadata::anthropic::AnthropicChatResponseExt;
     use crate::types::{ChatMessage, ChatRequest, ContentPart};
     use eventsource_stream::Event;
+
+    #[test]
+    fn non_stream_citation_documents_use_document_metadata_title_override() {
+        let spec = AnthropicChatStandard::new().create_spec("anthropic");
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com".to_string(),
+            Some("test".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        let msg = ChatMessage::user("hi")
+            .with_content_parts(vec![ContentPart::file_url(
+                "https://example.com/a.pdf",
+                "application/pdf",
+            )])
+            .anthropic_document_citations_for_part(1, true)
+            .anthropic_document_metadata_for_part(1, Some("My PDF".to_string()), None)
+            .build();
+
+        let req = ChatRequest::builder().message(msg).stream(false).build();
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+
+        let resp = bundle
+            .response
+            .transform_chat_response(&serde_json::json!({
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-3-haiku-20240307",
+                "stop_reason": "end_turn",
+                "stop_sequence": null,
+                "usage": {
+                    "input_tokens": 4,
+                    "output_tokens": 30
+                },
+                "content": [{
+                    "type": "text",
+                    "text": "Grounded answer",
+                    "citations": [{
+                        "type": "page_location",
+                        "cited_text": "hello",
+                        "document_index": 0,
+                        "document_title": null,
+                        "start_page_number": 1,
+                        "end_page_number": 1
+                    }]
+                }]
+            }))
+            .expect("transform response");
+
+        let crate::types::MessageContent::MultiModal(parts) = &resp.content else {
+            panic!("expected multimodal content");
+        };
+
+        match &parts[1] {
+            crate::types::ContentPart::Source {
+                source: crate::types::SourcePart::Document { title, .. },
+                ..
+            } => {
+                assert_eq!(title, "My PDF");
+            }
+            other => panic!("Expected source part, got {:?}", other),
+        }
+    }
 
     #[tokio::test]
     async fn citation_documents_use_document_metadata_title_override() {
@@ -493,7 +587,7 @@ mod tests {
         );
 
         let part = ContentPart::File {
-            source: crate::types::chat::MediaSource::url("https://example.com/a.pdf"),
+            source: crate::types::chat::FilePartSource::url("https://example.com/a.pdf"),
             media_type: "application/pdf".to_string(),
             filename: Some("fallback.pdf".to_string()),
             provider_options,
@@ -536,5 +630,91 @@ mod tests {
             }
             other => panic!("Expected source part, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn custom_provider_key_is_accepted_on_request_path() {
+        let spec = AnthropicChatStandard::new().create_spec("my-custom-anthropic.messages");
+        let ctx = ProviderContext::new(
+            "my-custom-anthropic.messages",
+            "https://api.anthropic.com".to_string(),
+            Some("test".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "testTool",
+                "A test tool",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .provider_option(
+                "my-custom-anthropic",
+                serde_json::json!({ "disableParallelToolUse": true }),
+            )
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle
+            .request
+            .transform_chat(&req)
+            .expect("transform request");
+
+        assert_eq!(
+            body.get("tool_choice"),
+            Some(&serde_json::json!({
+                "type": "auto",
+                "disable_parallel_tool_use": true
+            }))
+        );
+    }
+
+    #[test]
+    fn custom_provider_key_duplicates_top_level_response_metadata() {
+        let spec = AnthropicChatStandard::new().create_spec("my-custom-anthropic.messages");
+        let ctx = ProviderContext::new(
+            "my-custom-anthropic.messages",
+            "https://api.anthropic.com".to_string(),
+            Some("test".to_string()),
+            std::collections::HashMap::new(),
+        );
+
+        let req = ChatRequest::builder()
+            .model("claude-3-7-sonnet-latest")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .provider_option(
+                "my-custom-anthropic",
+                serde_json::json!({ "sendReasoning": true }),
+            )
+            .build();
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let resp = bundle
+            .response
+            .transform_chat_response(&serde_json::json!({
+                "id": "msg_1",
+                "type": "message",
+                "role": "assistant",
+                "model": "claude-3-7-sonnet-latest",
+                "stop_reason": "stop_sequence",
+                "stop_sequence": "STOP",
+                "usage": {
+                    "input_tokens": 1,
+                    "output_tokens": 2
+                },
+                "content": [{ "type": "text", "text": "ok" }]
+            }))
+            .expect("transform response");
+
+        let provider_metadata = resp.provider_metadata.as_ref().expect("provider metadata");
+        assert!(provider_metadata.get("anthropic").is_some());
+        assert!(provider_metadata.get("my-custom-anthropic").is_some());
+        assert_eq!(
+            resp.anthropic_metadata_with_key("my-custom-anthropic")
+                .and_then(|meta| meta.stop_sequence),
+            Some("STOP".to_string())
+        );
     }
 }

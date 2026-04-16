@@ -7,6 +7,26 @@ pub struct GeminiFilesTransformer {
 }
 
 impl GeminiFilesTransformer {
+    fn upload_provider_options(
+        req: &crate::types::FileUploadRequest,
+    ) -> Option<&serde_json::Map<String, serde_json::Value>> {
+        req.provider_options
+            .get_object("google")
+            .or_else(|| req.provider_options.get_object("gemini"))
+    }
+
+    fn display_name(req: &crate::types::FileUploadRequest) -> Option<String> {
+        Self::upload_provider_options(req)
+            .and_then(|options| {
+                options
+                    .get("displayName")
+                    .or_else(|| options.get("display_name"))
+            })
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned)
+            .or_else(|| req.metadata.get("display_name").cloned())
+    }
+
     fn convert_file(&self, gemini_file: &GeminiFile) -> crate::types::FileObject {
         let id = gemini_file
             .name
@@ -79,8 +99,8 @@ impl FilesTransformer for GeminiFilesTransformer {
                 LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}"))
             })?;
         let mut form = reqwest::multipart::Form::new().part("file", part);
-        if let Some(name) = req.metadata.get("display_name") {
-            form = form.text("display_name", name.clone());
+        if let Some(name) = Self::display_name(req) {
+            form = form.text("display_name", name);
         }
         Ok(FilesHttpBody::Multipart(form))
     }
@@ -219,6 +239,7 @@ mod files_tests {
             mime_type: Some("text/plain".into()),
             purpose: "general".into(),
             metadata: std::collections::HashMap::new(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
             http_config: None,
         };
         match tx.build_upload_body(&req).unwrap() {

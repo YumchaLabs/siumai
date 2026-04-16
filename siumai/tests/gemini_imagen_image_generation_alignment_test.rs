@@ -3,6 +3,9 @@
 
 use serde_json::json;
 use siumai::prelude::*;
+use siumai::provider_ext::gemini::{
+    GeminiClient, GeminiConfig, GeminiImageOptions, GeminiImageRequestExt,
+};
 use siumai_core::types::Warning;
 use wiremock::matchers::{body_json, header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -66,4 +69,48 @@ async fn gemini_imagen_defaults_aspect_ratio_and_emits_warnings() {
             ),
         ]
     );
+}
+
+#[tokio::test]
+async fn gemini_imagen_unified_helper_forwards_typed_image_options() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/models/imagen-3.0-generate-002:predict"))
+        .and(header("x-goog-api-key", "test-api-key"))
+        .and(body_json(json!({
+            "instances": [{ "prompt": "a cat" }],
+            "parameters": {
+                "sampleCount": 1,
+                "aspectRatio": "16:9",
+                "personGeneration": "allow_all"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "predictions": [{ "bytesBase64Encoded": "b64-image" }]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = GeminiClient::from_config(
+        GeminiConfig::new("test-api-key")
+            .with_base_url(mock_server.uri())
+            .with_model("imagen-3.0-generate-002".to_string()),
+    )
+    .unwrap();
+
+    let resp = siumai::image::generate_image(
+        &client,
+        siumai::image::GenerateImageRequest::new("a cat").with_gemini_image_options(
+            GeminiImageOptions::new()
+                .with_aspect_ratio("16:9")
+                .with_person_generation("allow_all"),
+        ),
+        Default::default(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(resp.images.len(), 1);
+    assert_eq!(resp.images[0].b64_json.as_deref(), Some("b64-image"));
 }

@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
-use crate::types::ProviderOptionsMap;
+use crate::types::{ProviderMetadataMap, ProviderOptionsMap};
 
 use super::super::metadata::{ToolCallInfo, ToolResultInfo};
-use super::{ImageDetail, MediaSource, ToolResultContentPart, ToolResultOutput};
+use super::{
+    FilePartSource, ImageDetail, MediaSource, ProviderReference, ToolResultContentPart,
+    ToolResultOutput,
+};
 
 /// Source citation payload aligned with the AI SDK URL/document union.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -96,14 +98,14 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
-    /// Image content - supports URL, base64, or binary data
+    /// Image content - supports URL, base64, binary data, or provider references
     Image {
         /// Image data source
         #[serde(flatten)]
-        source: MediaSource,
+        source: FilePartSource,
         /// Optional detail level (for providers that support it, e.g., OpenAI)
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<ImageDetail>,
@@ -123,7 +125,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// Audio content - supports URL, base64, or binary data
@@ -132,7 +134,11 @@ pub enum ContentPart {
         #[serde(flatten)]
         source: MediaSource,
         /// Media type (e.g., "audio/wav", "audio/mp3", "audio/mpeg")
-        #[serde(skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "mediaType",
+            alias = "media_type",
+            skip_serializing_if = "Option::is_none"
+        )]
         media_type: Option<String>,
 
         /// Provider-specific request options (Vercel-aligned).
@@ -150,15 +156,16 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// File content (PDF, documents, etc.)
     File {
         /// File data source
         #[serde(flatten)]
-        source: MediaSource,
+        source: FilePartSource,
         /// Media type (e.g., "application/pdf", "text/plain")
+        #[serde(rename = "mediaType", alias = "media_type")]
         media_type: String,
         /// Optional filename (for providers that support it)
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -179,7 +186,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// File content generated as part of model reasoning.
@@ -207,7 +214,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// Provider-specific content with no standardized payload beyond kind + provider fields.
@@ -230,7 +237,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// Source citation (Vercel-aligned).
@@ -251,7 +258,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// Tool call (function call request from AI)
@@ -298,6 +305,22 @@ pub enum ContentPart {
         )]
         provider_executed: Option<bool>,
 
+        /// Whether the tool is dynamic/runtime-defined instead of declared statically.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dynamic: Option<bool>,
+
+        /// Whether the tool call is invalid (e.g. unparsable or unknown tool).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        invalid: Option<bool>,
+
+        /// Error payload explaining why the tool call is invalid when available.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        error: Option<serde_json::Value>,
+
+        /// Optional human-readable title for the tool call.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+
         /// Provider-specific request options (Vercel-aligned).
         #[serde(
             rename = "providerOptions",
@@ -313,7 +336,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// Tool approval response (for MCP approval workflows)
@@ -330,6 +353,13 @@ pub enum ContentPart {
         /// Optional approval/denial reason.
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
+        /// Whether the approved tool call is provider-executed.
+        #[serde(
+            rename = "providerExecuted",
+            alias = "provider_executed",
+            skip_serializing_if = "Option::is_none"
+        )]
+        provider_executed: Option<bool>,
         /// Provider-specific request options (Vercel-aligned).
         #[serde(
             rename = "providerOptions",
@@ -369,7 +399,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// Tool result (function execution result)
@@ -411,6 +441,10 @@ pub enum ContentPart {
         #[serde(rename = "output")]
         output: ToolResultOutput,
 
+        /// Optional original tool input, aligned with AI SDK `tool-result.input`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input: Option<serde_json::Value>,
+
         /// Whether this result was generated by the provider
         #[serde(
             rename = "providerExecuted",
@@ -418,6 +452,18 @@ pub enum ContentPart {
             skip_serializing_if = "Option::is_none"
         )]
         provider_executed: Option<bool>,
+
+        /// Whether the tool is dynamic/runtime-defined instead of declared statically.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dynamic: Option<bool>,
+
+        /// Whether the result is preliminary.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        preliminary: Option<bool>,
+
+        /// Optional human-readable title for the tool result.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
 
         /// Provider-specific request options (Vercel-aligned).
         #[serde(
@@ -434,7 +480,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 
     /// Reasoning/thinking content
@@ -472,7 +518,7 @@ pub enum ContentPart {
             alias = "provider_metadata",
             skip_serializing_if = "Option::is_none"
         )]
-        provider_metadata: Option<HashMap<String, serde_json::Value>>,
+        provider_metadata: Option<ProviderMetadataMap>,
     },
 }
 
@@ -489,7 +535,7 @@ impl ContentPart {
     /// Create an image content part from URL
     pub fn image_url(url: impl Into<String>) -> Self {
         Self::Image {
-            source: MediaSource::url(url),
+            source: FilePartSource::url(url),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -499,7 +545,7 @@ impl ContentPart {
     /// Create an image content part from URL with detail level
     pub fn image_url_with_detail(url: impl Into<String>, detail: ImageDetail) -> Self {
         Self::Image {
-            source: MediaSource::url(url),
+            source: FilePartSource::url(url),
             detail: Some(detail),
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -509,7 +555,7 @@ impl ContentPart {
     /// Create an image content part from base64 data
     pub fn image_base64(data: impl Into<String>) -> Self {
         Self::Image {
-            source: MediaSource::base64(data),
+            source: FilePartSource::base64(data),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -519,7 +565,17 @@ impl ContentPart {
     /// Create an image content part from binary data
     pub fn image_binary(data: Vec<u8>) -> Self {
         Self::Image {
-            source: MediaSource::binary(data),
+            source: FilePartSource::binary(data),
+            detail: None,
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Create an image content part from provider-managed file references.
+    pub fn image_provider_reference(provider_reference: impl Into<ProviderReference>) -> Self {
+        Self::Image {
+            source: FilePartSource::provider_reference(provider_reference),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -559,7 +615,7 @@ impl ContentPart {
     /// Create a file content part from URL
     pub fn file_url(url: impl Into<String>, media_type: impl Into<String>) -> Self {
         Self::File {
-            source: MediaSource::url(url),
+            source: FilePartSource::url(url),
             media_type: media_type.into(),
             filename: None,
             provider_options: ProviderOptionsMap::default(),
@@ -574,7 +630,7 @@ impl ContentPart {
         filename: Option<String>,
     ) -> Self {
         Self::File {
-            source: MediaSource::base64(data),
+            source: FilePartSource::base64(data),
             media_type: media_type.into(),
             filename,
             provider_options: ProviderOptionsMap::default(),
@@ -589,7 +645,22 @@ impl ContentPart {
         filename: Option<String>,
     ) -> Self {
         Self::File {
-            source: MediaSource::binary(data),
+            source: FilePartSource::binary(data),
+            media_type: media_type.into(),
+            filename,
+            provider_options: ProviderOptionsMap::default(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Create a file content part from provider-managed file references.
+    pub fn file_provider_reference(
+        provider_reference: impl Into<ProviderReference>,
+        media_type: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        Self::File {
+            source: FilePartSource::provider_reference(provider_reference),
             media_type: media_type.into(),
             filename,
             provider_options: ProviderOptionsMap::default(),
@@ -678,6 +749,10 @@ impl ContentPart {
             tool_name: tool_name.into(),
             arguments,
             provider_executed,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
@@ -744,6 +819,7 @@ impl ContentPart {
             approval_id: approval_id.into(),
             approved,
             reason: None,
+            provider_executed: None,
             provider_options: ProviderOptionsMap::default(),
         }
     }
@@ -758,6 +834,7 @@ impl ContentPart {
             approval_id: approval_id.into(),
             approved,
             reason,
+            provider_executed: None,
             provider_options: ProviderOptionsMap::default(),
         }
     }
@@ -779,7 +856,7 @@ impl ContentPart {
     pub fn tool_approval_request_with_metadata(
         approval_id: impl Into<String>,
         tool_call_id: impl Into<String>,
-        provider_metadata: HashMap<String, serde_json::Value>,
+        provider_metadata: ProviderMetadataMap,
     ) -> Self {
         Self::ToolApprovalRequest {
             approval_id: approval_id.into(),
@@ -811,7 +888,11 @@ impl ContentPart {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
             output: ToolResultOutput::text(result),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
@@ -840,7 +921,11 @@ impl ContentPart {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
             output: ToolResultOutput::json(result),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
@@ -868,7 +953,11 @@ impl ContentPart {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
             output: ToolResultOutput::error_text(error),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
@@ -897,7 +986,11 @@ impl ContentPart {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
             output: ToolResultOutput::error_json(error),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
@@ -925,7 +1018,11 @@ impl ContentPart {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
             output: ToolResultOutput::execution_denied(reason),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
@@ -956,7 +1053,11 @@ impl ContentPart {
             tool_call_id: tool_call_id.into(),
             tool_name: tool_name.into(),
             output: ToolResultOutput::content(content),
+            input: None,
             provider_executed: None,
+            dynamic: None,
+            preliminary: None,
+            title: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
@@ -979,6 +1080,63 @@ impl ContentPart {
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
         }
+    }
+
+    /// Mark a tool call/result as dynamic.
+    pub fn with_tool_dynamic(mut self, dynamic: bool) -> Self {
+        match &mut self {
+            Self::ToolCall { dynamic: slot, .. } | Self::ToolResult { dynamic: slot, .. } => {
+                *slot = Some(dynamic)
+            }
+            _ => {}
+        }
+        self
+    }
+
+    /// Attach a human-readable title to a tool call/result.
+    pub fn with_tool_title(mut self, title: impl Into<String>) -> Self {
+        match &mut self {
+            Self::ToolCall { title: slot, .. } | Self::ToolResult { title: slot, .. } => {
+                *slot = Some(title.into());
+            }
+            _ => {}
+        }
+        self
+    }
+
+    /// Mark a tool call as invalid.
+    pub fn with_tool_invalid(mut self, invalid: bool) -> Self {
+        if let Self::ToolCall { invalid: slot, .. } = &mut self {
+            *slot = Some(invalid);
+        }
+        self
+    }
+
+    /// Attach an invalidity/error payload to a tool call.
+    pub fn with_tool_error_value(mut self, error: serde_json::Value) -> Self {
+        if let Self::ToolCall { error: slot, .. } = &mut self {
+            *slot = Some(error);
+        }
+        self
+    }
+
+    /// Attach the original tool input to a tool result.
+    pub fn with_tool_result_input(mut self, input: serde_json::Value) -> Self {
+        if let Self::ToolResult { input: slot, .. } = &mut self {
+            *slot = Some(input);
+        }
+        self
+    }
+
+    /// Mark a tool result as preliminary.
+    pub fn with_tool_preliminary(mut self, preliminary: bool) -> Self {
+        if let Self::ToolResult {
+            preliminary: slot, ..
+        } = &mut self
+        {
+            *slot = Some(preliminary);
+        }
+        self
     }
 
     /// Check if this is a text part
@@ -1091,12 +1249,21 @@ impl ContentPart {
                 tool_name,
                 arguments,
                 provider_executed,
+                dynamic,
+                invalid,
+                error,
+                title,
                 ..
             } => Some(ToolCallInfo {
                 tool_call_id,
                 tool_name,
+                input: arguments,
                 arguments,
                 provider_executed: provider_executed.as_ref(),
+                dynamic: dynamic.as_ref(),
+                invalid: invalid.as_ref(),
+                error: error.as_ref(),
+                title: title.as_deref(),
             }),
             _ => None,
         }
@@ -1124,14 +1291,22 @@ impl ContentPart {
             Self::ToolResult {
                 tool_call_id,
                 tool_name,
+                input,
                 output,
                 provider_executed,
+                dynamic,
+                preliminary,
+                title,
                 ..
             } => Some(ToolResultInfo {
                 tool_call_id,
                 tool_name,
+                input: input.as_ref(),
                 output,
                 provider_executed: provider_executed.as_ref(),
+                dynamic: dynamic.as_ref(),
+                preliminary: preliminary.as_ref(),
+                title: title.as_deref(),
             }),
             _ => None,
         }
@@ -1234,7 +1409,7 @@ impl ContentPart {
 mod tests {
     use super::ContentPart;
     use super::SourcePart;
-    use std::collections::HashMap;
+    use crate::types::ProviderReference;
 
     #[test]
     fn source_url_serializes_strict_url_shape() {
@@ -1264,7 +1439,7 @@ mod tests {
             ..
         } = &mut part
         {
-            *provider_metadata = Some(HashMap::from([(
+            *provider_metadata = Some(std::collections::HashMap::from([(
                 "anthropic".to_string(),
                 serde_json::json!({
                     "startPageNumber": 1,
@@ -1344,7 +1519,7 @@ mod tests {
         let request = ContentPart::tool_approval_request_with_metadata(
             "apr_1",
             "call_1",
-            HashMap::from([(
+            std::collections::HashMap::from([(
                 "openai".to_string(),
                 serde_json::json!({ "itemId": "out_123" }),
             )]),
@@ -1369,7 +1544,7 @@ mod tests {
             provider_metadata, ..
         } = &mut part
         {
-            *provider_metadata = Some(HashMap::from([(
+            *provider_metadata = Some(std::collections::HashMap::from([(
                 "google".to_string(),
                 serde_json::json!({ "thoughtSignature": "sig_1" }),
             )]));
@@ -1404,6 +1579,58 @@ mod tests {
         assert_eq!(
             value["providerOptions"]["openai"]["type"],
             serde_json::json!("compaction")
+        );
+    }
+
+    #[test]
+    fn image_provider_reference_serializes_vercel_shape() {
+        let part = ContentPart::image_provider_reference(ProviderReference::from([
+            ("openai", "file-openai"),
+            ("anthropic", "file-anthropic"),
+        ]));
+
+        let value = serde_json::to_value(&part).expect("serialize image provider reference");
+        assert_eq!(value["type"], serde_json::json!("image"));
+        assert_eq!(
+            value["providerReference"],
+            serde_json::json!({
+                "anthropic": "file-anthropic",
+                "openai": "file-openai"
+            })
+        );
+        assert!(value.get("url").is_none());
+        assert!(value.get("data").is_none());
+    }
+
+    #[test]
+    fn file_provider_reference_accepts_alias() {
+        let value = serde_json::json!({
+            "type": "file",
+            "provider_reference": {
+                "openai": "file-openai"
+            },
+            "mediaType": "application/pdf",
+            "filename": "doc.pdf"
+        });
+
+        let part = serde_json::from_value::<ContentPart>(value).expect("deserialize file");
+        let ContentPart::File {
+            source,
+            media_type,
+            filename,
+            ..
+        } = part
+        else {
+            panic!("expected file part");
+        };
+
+        assert_eq!(media_type, "application/pdf");
+        assert_eq!(filename.as_deref(), Some("doc.pdf"));
+        assert_eq!(
+            source
+                .as_provider_reference()
+                .and_then(|provider_reference| provider_reference.get("openai")),
+            Some("file-openai")
         );
     }
 }

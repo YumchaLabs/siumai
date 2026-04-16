@@ -39,9 +39,14 @@ pub trait XaiChatResponseExt {
 
 impl XaiChatResponseExt for crate::types::ChatResponse {
     fn xai_metadata(&self) -> Option<XaiMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("xai")?;
-        XaiMetadata::from_metadata(meta)
+        let meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, "xai")
+            })?
+            .clone();
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
     }
 }
 
@@ -91,7 +96,10 @@ mod tests {
         inner.insert("vendor_extra".to_string(), serde_json::json!(true));
 
         let mut outer = HashMap::new();
-        outer.insert("xai".to_string(), inner);
+        outer.insert(
+            "xai".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.xai_metadata().expect("xai metadata");

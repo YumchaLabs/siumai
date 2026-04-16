@@ -41,6 +41,7 @@ impl ChatCapability for TestProvider {
                 model: Some("mock-model".into()),
                 usage: None,
                 finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: None,
                 provider_metadata: None,
                 warnings: None,
                 audio: None,

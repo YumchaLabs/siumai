@@ -61,6 +61,13 @@ impl GroqConfig {
     /// Default Groq API base URL
     pub const DEFAULT_BASE_URL: &'static str = "https://api.groq.com/openai/v1";
 
+    /// Create config from `GROQ_API_KEY`.
+    pub fn from_env() -> Result<Self, LlmError> {
+        let api_key = std::env::var("GROQ_API_KEY")
+            .map_err(|_| LlmError::MissingApiKey("Groq API key not provided".to_string()))?;
+        Ok(Self::new(api_key))
+    }
+
     pub(crate) fn normalize_base_url(base_url: &str) -> String {
         let trimmed = base_url.trim_end_matches('/');
         let path = trimmed.splitn(4, '/').nth(3).unwrap_or("");
@@ -84,6 +91,12 @@ impl GroqConfig {
             model_middlewares: Vec::new(),
             provider_specific_config: std::collections::HashMap::new(),
         }
+    }
+
+    /// Replace the API key.
+    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+        self.api_key = SecretString::from(api_key.into());
+        self
     }
 
     /// Set the base URL
@@ -246,6 +259,26 @@ impl GroqConfig {
         self.with_groq_options(GroqOptions::new().with_reasoning_format(format))
     }
 
+    /// Control parallel tool calls by default.
+    pub fn with_parallel_tool_calls(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_parallel_tool_calls(enabled))
+    }
+
+    /// Set the Groq end-user identifier by default.
+    pub fn with_user(self, user: impl Into<String>) -> Self {
+        self.with_groq_options(GroqOptions::new().with_user(user))
+    }
+
+    /// Control structured outputs by default.
+    pub fn with_structured_outputs(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_structured_outputs(enabled))
+    }
+
+    /// Control strict JSON schema lowering by default.
+    pub fn with_strict_json_schema(self, enabled: bool) -> Self {
+        self.with_groq_options(GroqOptions::new().with_strict_json_schema(enabled))
+    }
+
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), LlmError> {
         use secrecy::ExposeSecret;
@@ -354,6 +387,24 @@ mod tests {
     }
 
     #[test]
+    fn test_groq_config_from_env_reads_groq_api_key() {
+        temp_env::with_var("GROQ_API_KEY", Some("env-groq-key"), || {
+            let config = GroqConfig::from_env().expect("config from env");
+
+            use secrecy::ExposeSecret;
+            assert_eq!(config.api_key.expose_secret(), "env-groq-key");
+        });
+    }
+
+    #[test]
+    fn test_groq_config_with_api_key_replaces_secret() {
+        let config = GroqConfig::new("initial-key").with_api_key("replacement-key");
+
+        use secrecy::ExposeSecret;
+        assert_eq!(config.api_key.expose_secret(), "replacement-key");
+    }
+
+    #[test]
     fn test_groq_config_validation() {
         // Valid configuration
         let valid_config = GroqConfig::new("test-api-key")
@@ -406,8 +457,8 @@ mod tests {
             .with_model("llama-3.3-70b-versatile")
             .with_logprobs(true)
             .with_top_logprobs(2)
-            .with_service_tier(GroqServiceTier::Flex)
-            .with_reasoning_effort(GroqReasoningEffort::Default)
+            .with_service_tier(GroqServiceTier::Performance)
+            .with_reasoning_effort(GroqReasoningEffort::Low)
             .with_reasoning_format(GroqReasoningFormat::Parsed);
 
         assert_eq!(
@@ -415,20 +466,48 @@ mod tests {
             Some(&serde_json::json!(true))
         );
         assert_eq!(
-            config.provider_specific_config.get("top_logprobs"),
+            config.provider_specific_config.get("topLogprobs"),
             Some(&serde_json::json!(2))
         );
         assert_eq!(
-            config.provider_specific_config.get("service_tier"),
-            Some(&serde_json::json!("flex"))
+            config.provider_specific_config.get("serviceTier"),
+            Some(&serde_json::json!("performance"))
         );
         assert_eq!(
-            config.provider_specific_config.get("reasoning_effort"),
-            Some(&serde_json::json!("default"))
+            config.provider_specific_config.get("reasoningEffort"),
+            Some(&serde_json::json!("low"))
         );
         assert_eq!(
-            config.provider_specific_config.get("reasoning_format"),
+            config.provider_specific_config.get("reasoningFormat"),
             Some(&serde_json::json!("parsed"))
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_groq_config_records_ai_sdk_style_option_keys() {
+        let config = GroqConfig::new("test-api-key")
+            .with_model("llama-3.3-70b-versatile")
+            .with_parallel_tool_calls(false)
+            .with_user("groq-user-1")
+            .with_structured_outputs(false)
+            .with_strict_json_schema(false);
+
+        assert_eq!(
+            config.provider_specific_config.get("parallelToolCalls"),
+            Some(&serde_json::json!(false))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("user"),
+            Some(&serde_json::json!("groq-user-1"))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("structuredOutputs"),
+            Some(&serde_json::json!(false))
+        );
+        assert_eq!(
+            config.provider_specific_config.get("strictJsonSchema"),
+            Some(&serde_json::json!(false))
         );
         assert!(config.validate().is_ok());
     }

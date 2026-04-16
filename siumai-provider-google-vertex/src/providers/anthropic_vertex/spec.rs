@@ -274,7 +274,7 @@ impl ProviderSpec for VertexAnthropicSpec {
 
         ChatTransformers {
             request: Arc::new(VertexAnthropicRequestTransformer::new("anthropic-vertex")),
-            response: Arc::new(anthropic::transformers::AnthropicResponseTransformer),
+            response: Arc::new(anthropic::transformers::AnthropicResponseTransformer::default()),
             stream: stream_transformer,
             json: None,
         }

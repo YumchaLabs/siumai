@@ -14,10 +14,20 @@ pub struct ToolCallInfo<'a> {
     pub tool_call_id: &'a str,
     /// The tool name
     pub tool_name: &'a str,
+    /// The tool input (AI SDK-aligned alias).
+    pub input: &'a serde_json::Value,
     /// The tool arguments (JSON)
     pub arguments: &'a serde_json::Value,
     /// Whether the tool was executed by the provider
     pub provider_executed: Option<&'a bool>,
+    /// Whether the tool is dynamic/runtime-defined.
+    pub dynamic: Option<&'a bool>,
+    /// Whether the tool call is invalid.
+    pub invalid: Option<&'a bool>,
+    /// Optional invalidity/error payload.
+    pub error: Option<&'a serde_json::Value>,
+    /// Optional human-readable tool title.
+    pub title: Option<&'a str>,
 }
 
 /// Tool result information (borrowed view)
@@ -29,10 +39,18 @@ pub struct ToolResultInfo<'a> {
     pub tool_call_id: &'a str,
     /// The tool name
     pub tool_name: &'a str,
+    /// Optional resolved tool input.
+    pub input: Option<&'a serde_json::Value>,
     /// The tool output
     pub output: &'a ToolResultOutput,
     /// Whether the tool was executed by the provider
     pub provider_executed: Option<&'a bool>,
+    /// Whether the tool is dynamic/runtime-defined.
+    pub dynamic: Option<&'a bool>,
+    /// Whether the result is preliminary.
+    pub preliminary: Option<&'a bool>,
+    /// Optional human-readable tool title.
+    pub title: Option<&'a str>,
 }
 
 /// Cache control

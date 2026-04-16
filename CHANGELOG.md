@@ -6,9 +6,29 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- Amazon Bedrock now has provider-owned image generation aligned with the AI SDK
+  `image()` / `imageModel()` surface: builder/config-first/registry/public paths all converge on
+  the real `/model/{id}/invoke` image runtime, Bedrock now advertises `image_generation`
+  capability, `amazon.nova-canvas-v1:0` keeps the audited `max_images_per_call = 5` default, and
+  Bedrock image responses now normalize onto stable base64 image outputs with moderation/error
+  handling.
+- Bedrock image alignment now also has a dedicated workstream under
+  `docs/workstreams/bedrock-image-alignment/`, documenting the audited upstream runtime surface
+  and the intentional decision to keep image-only Bedrock provider options private until the
+  upstream package exports a public image option type.
 - Stream/metadata parity hardening now has a dedicated workstream under
   `docs/workstreams/stream-metadata-parity-hardening/`, covering idempotent textual shadow replay,
   Perplexity hosted-search usage parity, and Gemini/Vertex reasoning stream compatibility.
+- Groq browser-search parity now has a dedicated workstream under
+  `docs/workstreams/groq-browser-search-alignment/`, documenting the AI SDK reference behavior,
+  the compat warning allowlist design, and the provider-owned middleware injection strategy.
+- Groq package-surface parity now also has a dedicated workstream under
+  `docs/workstreams/groq-package-surface-alignment/`, separating the wider `@ai-sdk/groq`
+  typed/model audit from the earlier browser-search-only runtime fix.
+- Groq response-metadata parity now also mirrors the upstream `@ai-sdk/groq`
+  `get-response-metadata.ts` contract on the provider-owned Rust helper surface: Groq chat
+  responses now keep stable `id` / `modelId` / `timestamp` metadata available across non-stream,
+  stream-end, config-first, and registry/runtime paths.
 - Chat/text/completion streaming now has a runtime-only `includeRawChunks` request lane:
   stable `StreamRequestOptions` lives outside provider wire payloads, `ChatRequest` and
   `CompletionRequest` carry it as runtime-only state, and `siumai::text::StreamOptions` plus
@@ -48,6 +68,30 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Shared image request typing now exposes top-level `aspectRatio` across generation/edit/variation
   plus shared `seed` support across the same request family, bringing the stable image call-option
   surface much closer to AI SDK `ImageModelV4CallOptions`.
+- Stable unified image helper support is now available on the public Rust surface:
+  `GenerateImageRequest` plus `siumai::image::{generate_image, edit, variation}` bridge one
+  AI SDK-style request/helper lane onto the current generation/edit/variation runtimes, while the
+  older split request structs remain available as compatibility surfaces.
+- Stable image helper batching now also aligns with AI SDK `maxImagesPerCall`: object-safe
+  `max_images_per_call()` metadata lives on `ImageGenerationCapability` / `ImageModelV3`,
+  `siumai::image::GenerateOptions` now accepts `max_images_per_call`, and
+  `siumai::image::{generate, edit, variation, generate_image}` split larger `count` requests
+  across explicit limits or audited provider defaults while preserving per-call metadata and
+  response envelopes under `metadata._siumai` for multi-call aggregation.
+- Image provider-option parity now has a dedicated workstream under
+  `docs/workstreams/ai-sdk-structural-alignment/image-provider-option-surface-parity.md`,
+  covering Gemini/Google image aliases, unified image request-ext coverage, and merge semantics on
+  the audited TogetherAI/xAI/Vertex/Gemini provider lanes.
+- Audited provider-owned image option surfaces now also align more closely with AI SDK on the
+  public Rust facade: `provider_ext::{gemini,google}` expose `GeminiImageOptions`,
+  `GoogleImageModelOptions`, and deprecated `GoogleGenerativeAIImageProviderOptions`; image request
+  ext traits on Gemini/xAI/TogetherAI/Google Vertex now also cover the stable unified
+  `GenerateImageRequest`; and those typed helpers now merge onto existing provider-owned
+  `providerOptions` objects instead of overwriting sibling raw fields.
+- Google Vertex image typed options now also expose the main audited generation-field subset from
+  AI SDK `GoogleVertexImageModelOptions`: `personGeneration`, `safetySetting`, `addWatermark`,
+  `storageUri`, and `sampleImageSize`, so callers no longer need raw `providerOptions.vertex`
+  objects for those settings.
 - Shared image variation typing now also uses a typed file/url image input instead of a raw
   byte-only field, aligning the stable variation request shape more closely with AI SDK
   `ImageModelV4File`.
@@ -85,6 +129,27 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - xAI, Groq, and Amazon Bedrock now also expose AI SDK-style provider-option aliases on the
   provider-owned/public facade boundary, including upstream-style deprecated migration aliases
   where the audited AI SDK packages still export them.
+- Anthropic package-surface naming is now closer to the audited AI SDK indices:
+  `provider_ext::anthropic` exposes `AnthropicLanguageModelOptions`, deprecated
+  `AnthropicProviderOptions`, `AnthropicMessageMetadata`, `AnthropicUsageIteration`, and
+  `AnthropicToolOptions`; Anthropic request/tool helper writes now merge onto existing
+  `providerOptions.anthropic` objects; the Anthropic tool path now forwards
+  `eagerInputStreaming`; and the stable Bedrock facade conditionally mirrors the upstream
+  `AnthropicProviderOptions` cross-export when both `anthropic` and `bedrock` features are
+  enabled. The audit is documented under
+  `docs/workstreams/anthropic-package-surface-alignment/`.
+- Groq now also exposes AI SDK-style `browser_search()` provider tools on the public Rust facade
+  through `provider_ext::groq::{tools, provider_tools}`.
+- Azure now also mirrors the audited `@ai-sdk/azure` option-alias surface on both the
+  provider-owned and public facade boundary:
+  `OpenAILanguageModel{Chat,Responses}Options` plus deprecated
+  `OpenAI{ChatLanguageModelOptions,ResponsesProviderOptions}`. `with_azure_options(...)` now also
+  merges into existing `providerOptions.azure` objects instead of replacing sibling raw fields.
+- Groq now also exposes AI SDK-style `GroqTranscriptionModelOptions` on the provider-owned/public
+  facade boundary. The provider-owned transcription helper surface now accepts
+  `language` / `responseFormat` / `timestampGranularities`, and Groq STT requests and responses
+  keep the matching runtime fields (`language`, `duration`, `segments`, `x_groq`) instead of
+  dropping them after lowering.
 - Native OpenAI now also exposes the main AI SDK-style typed option surface on the
   provider-owned/public facade boundary:
   `OpenAILanguageModel{Chat,Responses,Completion}Options`,
@@ -105,6 +170,14 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Perplexity now also has a dedicated package-alignment workstream under
   `docs/workstreams/perplexity-package-surface-alignment/`, documenting the public typed option
   surface and its explicit lowering onto the Perplexity wire contract.
+- xAI now also has a dedicated package-alignment workstream under
+  `docs/workstreams/xai-package-surface-alignment/`, documenting the audited `@ai-sdk/xai`
+  export boundary, provider-owned file-upload lane, and the intentional Rust-side deferrals for
+  TypeScript-only factory/settings exports.
+- Amazon Bedrock embedding parity now also has a dedicated workstream under
+  `docs/workstreams/bedrock-embedding-alignment/`, documenting the audited AI SDK embedding
+  export/runtime contract, provider-owned embedding standard, and registry/public-path parity
+  coverage.
 - The public MoonshotAI wrapper surface is now much closer to the audited `@ai-sdk/moonshotai`
   package: `provider_ext::moonshotai::{MoonshotAIClient, MoonshotAIConfig, model_sets,
   recommended}`, typed `MoonshotAIChatOptions` / `MoonshotAILanguageModelOptions`, and
@@ -121,12 +194,66 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   implementation sample now all read stable `Part(TextDelta)` / `PartWithReplay(TextDelta)`
   first, and the MiniMaxi sample also reads stable `ReasoningDelta` before falling back to legacy
   `ThinkingDelta`.
-- The public image model family now also exposes AI SDK-style `ImageModelV4` on core and
-  `siumai::image` facade boundaries while keeping `ImageModel` / `ImageModelV3` as compatibility
-  aliases.
+- The public image model family now also exposes AI SDK-style `ImageModelV4` on core,
+  `siumai::image`, and unified-prelude boundaries while keeping `ImageModel` / `ImageModelV3`
+  as compatibility aliases.
+- Groq's provider-owned PlayAI speech models now live in a provider-extension catalog that is
+  separate from the AI SDK-aligned chat/transcription model groups, making the public Rust surface
+  clearer about which constants mirror `@ai-sdk/groq` and which remain Rust-only extensions.
+- `provider_ext::groq::{options::*, *}` now keep the AI SDK-aligned option lane centered on
+  `GroqLanguageModelOptions` and `GroqTranscriptionModelOptions`; the concrete provider-owned
+  audio escape hatches `GroqSttOptions` / `GroqTtsOptions` remain available only under
+  `provider_ext::groq::ext::audio_options::*`.
+- `provider_ext::groq::*` now also re-exports `GroqBuilder`, keeping the provider-owned Groq
+  construction lane visible on the stable facade alongside `GroqClient` / `GroqConfig`.
 
 ### Fixed
 
+- OpenAI-compatible generic tool warnings can now defer selected provider-defined tool ids to
+  provider-owned middleware, allowing Groq `browser_search` to emit AI SDK-style
+  unsupported-model warnings instead of the older generic compat warning.
+- Groq GPT-OSS chat models now receive the native `{ "type": "browser_search" }` wire tool when a
+  request includes `groq.browser_search`, while unsupported models skip wire injection and return
+  the same warning details as AI SDK.
+- Groq typed chat option parity is now tighter around the audited `@ai-sdk/groq` surface:
+  `service_tier` accepts `performance`, `reasoning_effort` accepts `low|medium|high`, and the
+  built-in Groq `KIMI_K2_INSTRUCT` constant now uses
+  `moonshotai/kimi-k2-instruct-0905` instead of the decommissioned model id.
+- Groq provider-owned typed options now also expose the remaining audited `@ai-sdk/groq`
+  language-model option fields (`parallelToolCalls`, `user`, `structuredOutputs`,
+  `strictJsonSchema`) on the public Rust surface, serialize them in AI SDK-style camelCase
+  `providerOptions.groq`, and still normalize them back to Groq wire fields before transport.
+- Groq's built-in model catalog is now much closer to the audited `@ai-sdk/groq` package:
+  missing current chat ids such as `gemma2-9b-it`, `llama-guard-3-8b`, `llama3-{8b,70b}-8192`,
+  `qwen-qwq-32b`, `qwen-2.5-32b`, and `deepseek-r1-distill-qwen-32b` are restored, while obsolete
+  system/vision/tool-use preview ids are removed from the public Groq catalog.
+- Groq provider construction now also matches the audited `@ai-sdk/groq` settings contract more
+  closely: the compat `groq` preset resolves `GROQ_API_KEY` by default, provider-owned
+  `GroqConfig` now exposes `from_env()` / `with_api_key(...)`, and `GroqBuilder` now accepts the
+  AI SDK-style `headers(...)` alias in addition to the existing Rust-native HTTP configuration
+  helpers.
+- OpenAI-compatible provider option lookup now consistently accepts both raw provider ids and
+  canonical AI SDK package ids across chat/completion/image request shaping. Alias pairs such as
+  `together` / `togetherai` and `moonshot` / `moonshotai` no longer diverge by capability path
+  when merging `providerOptions`.
+- The public xAI package surface is now closer to the audited `@ai-sdk/xai` index:
+  `provider_ext::xai::{XaiErrorData, XaiVideoModelId}` are now available on the stable facade,
+  `provider_ext::xai::options::*` now also exports `XaiFilesOptions`, and the provider-owned
+  `XaiClient` now exposes file management so `siumai::files::upload(...)` can execute through the
+  xAI wrapper path with typed multipart lowering for `teamId` (plus provider-native
+  `filePath -> file_path` support on the Rust upload lane).
+- Amazon Bedrock embedding support is now closer to the audited
+  `@ai-sdk/amazon-bedrock` package/runtime contract: `provider_ext::bedrock::{options::*, *}`
+  now also exposes `AmazonBedrockEmbeddingModelOptions` plus typed Bedrock embedding helpers,
+  `BedrockClient` now implements provider-owned embedding over the real `/model/{id}/invoke`
+  route for Titan/Nova/Cohere model families, and builder/config-first/registry/public paths now
+  all agree on the same request shape instead of failing before transport.
+
+- Anthropic public streaming roundtrip coverage now explicitly guards GitHub issue `#17`:
+  `siumai::protocol::anthropic::streaming::AnthropicEventConverter` keeps
+  `cache_read_input_tokens`, `cache_creation_input_tokens`, `service_tier`, and
+  `server_tool_use` intact across the public encode/decode path, and the fix is documented under
+  `docs/workstreams/ai-sdk-structural-alignment/anthropic-extended-usage-roundtrip.md`.
 - Anthropic Messages request fixtures now pin AI SDK-style message/part request option handling
   more tightly: message-level `providerOptions.anthropic.cacheControl` lowering and part-level
   document `providerOptions.anthropic.{citations,title,context}` are now fixture-backed on the

@@ -88,6 +88,14 @@ pub mod __private {
     pub use siumai_core::types;
 }
 
+/// Shared stable data structures.
+///
+/// This keeps the historical `siumai::types::*` import path available while the
+/// workspace remains split across `siumai-spec` and `siumai-core`.
+pub mod types {
+    pub use siumai_core::types::*;
+}
+
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
 pub use siumai_core::hosted_tools;
 
@@ -128,15 +136,22 @@ pub mod tools;
 // Unified retry facade (siumai-core re-export + provider-aware defaults)
 pub mod retry_api;
 
+/// Model families (recommended Rust-first surface).
+pub mod completion;
 pub mod embedding;
+/// High-level file upload helper aligned with AI SDK `uploadFile`.
+pub mod files;
 pub mod image;
 pub mod rerank;
+/// High-level skill upload helper aligned with AI SDK `uploadSkill`.
+pub mod skills;
 pub mod speech;
 /// Structured output helpers (JSON extraction + parsing).
 pub mod structured_output;
-/// Model families (recommended Rust-first surface).
 pub mod text;
 pub mod transcription;
+/// AI SDK-style `UIMessage` validation and conversion helpers.
+pub mod ui;
 
 /// Tool runtime (schema + execution binding).
 pub mod tooling;
@@ -332,10 +347,17 @@ pub mod provider_ext {
         pub mod options {
             pub use siumai_provider_openai::provider_options::openai::{
                 ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
-                ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiOptions,
+                ChatCompletionModalities, InputAudio, InputAudioFormat,
+                OpenAIEmbeddingModelOptions, OpenAIFilesOptions, OpenAILanguageModelChatOptions,
+                OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
+                OpenAISpeechModelOptions, OpenAITranscriptionModelOptions, OpenAiOptions,
                 OpenAiWebSearchOptions, PredictionContent, PredictionContentData, ReasoningEffort,
                 ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
                 WebSearchLocation,
+            };
+            #[allow(deprecated)]
+            pub use siumai_provider_openai::provider_options::openai::{
+                OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions,
             };
             pub use siumai_provider_openai::providers::openai::ext::OpenAiChatRequestExt;
             pub use siumai_provider_openai::providers::openai::ext::audio_options::{
@@ -347,12 +369,17 @@ pub mod provider_ext {
         }
         pub use options::{
             ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
-            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiChatRequestExt,
+            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAIEmbeddingModelOptions,
+            OpenAIFilesOptions, OpenAILanguageModelChatOptions,
+            OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
+            OpenAISpeechModelOptions, OpenAITranscriptionModelOptions, OpenAiChatRequestExt,
             OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt, OpenAiOptions, OpenAiSttOptions,
             OpenAiTtsOptions, OpenAiWebSearchOptions, PredictionContent, PredictionContentData,
             ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation,
             UserLocationWrapper, WebSearchLocation,
         };
+        #[allow(deprecated)]
+        pub use options::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
 
         /// Non-unified OpenAI extension APIs (streaming helpers, moderation/files resources, etc.).
         pub mod ext {
@@ -365,7 +392,9 @@ pub mod provider_ext {
         /// Provider-specific resources not covered by the unified families.
         pub mod resources {
             pub use siumai_provider_openai::providers::openai::{
-                OpenAiFiles, OpenAiModels, OpenAiModeration, OpenAiRerank,
+                OpenAiFiles, OpenAiModels, OpenAiModeration, OpenAiRerank, OpenAiSkillFile,
+                OpenAiSkillFileContent, OpenAiSkillProviderMetadata, OpenAiSkillUploadResult,
+                OpenAiSkills,
             };
         }
 
@@ -385,8 +414,9 @@ pub mod provider_ext {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
             ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig,
             OpenAiCompatibleRequestSettings, ProviderAdapter, ProviderCompatibility,
-            ProviderConfig, RequestBodyTransformer, ResponseMetadataExtractor, get_provider_config,
-            list_provider_ids, provider_supports_capability,
+            ProviderConfig, RequestBodyTransformer, ResponseMetadataExtractor, deepinfra, deepseek,
+            fireworks, get_provider_config, groq, list_provider_ids, moonshot, moonshotai,
+            openrouter, provider_supports_capability, siliconflow, vertex_maas, xai,
         };
     }
 
@@ -417,7 +447,46 @@ pub mod provider_ext {
     }
 
     #[cfg(feature = "openai")]
+    pub mod mistral {
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+            MistralClient, MistralConfig,
+        };
+
+        /// Curated Mistral model constants aligned with the audited AI SDK package subset.
+        pub mod models {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::mistral::{
+                self, chat, embedding,
+            };
+        }
+
+        /// Typed provider options (`provider_options_map["mistral"]`).
+        pub mod options {
+            pub use siumai_provider_openai_compatible::provider_options::{
+                MistralChatOptions, MistralLanguageModelOptions, MistralReasoningEffort,
+            };
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::ext::MistralChatRequestExt;
+        }
+
+        pub use models::{chat, embedding, mistral as model_sets};
+        pub use options::{
+            MistralChatOptions, MistralChatRequestExt, MistralLanguageModelOptions,
+            MistralReasoningEffort,
+        };
+    }
+
+    #[cfg(feature = "openai")]
     pub mod perplexity {
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+            PerplexityClient, PerplexityConfig,
+        };
+
+        /// Curated Perplexity model constants aligned with the audited AI SDK package subset.
+        pub mod models {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::perplexity::{
+                self, chat,
+            };
+        }
+
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["perplexity"]`).
         pub mod metadata {
             pub use siumai_provider_openai_compatible::providers::openai_compatible::{
@@ -437,6 +506,7 @@ pub mod provider_ext {
         pub use metadata::{
             PerplexityChatResponseExt, PerplexityImage, PerplexityMetadata, PerplexityUsage,
         };
+        pub use models::{chat, perplexity as model_sets};
         pub use options::{
             PerplexityChatRequestExt, PerplexityOptions, PerplexitySearchContextSize,
             PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
@@ -444,47 +514,204 @@ pub mod provider_ext {
         };
     }
 
+    #[cfg(feature = "openai")]
+    pub mod fireworks {
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+            FireworksClient, FireworksConfig,
+        };
+
+        /// Curated Fireworks model constants aligned with the audited AI SDK package subset.
+        pub mod models {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::fireworks::{
+                self, chat, completion, embedding, image,
+            };
+        }
+
+        /// Typed provider options (`provider_options_map["fireworks"]`).
+        pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_openai_compatible::provider_options::{
+                FireworksChatOptions, FireworksEmbeddingModelOptions,
+                FireworksEmbeddingProviderOptions, FireworksLanguageModelOptions,
+                FireworksProviderOptions, FireworksReasoningHistory, FireworksThinkingConfig,
+                FireworksThinkingType,
+            };
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::ext::FireworksChatRequestExt;
+        }
+
+        pub use models::{chat, completion, embedding, fireworks as model_sets, image};
+        #[allow(deprecated)]
+        pub use options::{
+            FireworksChatOptions, FireworksChatRequestExt, FireworksEmbeddingModelOptions,
+            FireworksEmbeddingProviderOptions, FireworksLanguageModelOptions,
+            FireworksProviderOptions, FireworksReasoningHistory, FireworksThinkingConfig,
+            FireworksThinkingType,
+        };
+    }
+
+    #[cfg(feature = "openai")]
+    pub mod moonshotai {
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+            MoonshotAIClient, MoonshotAIConfig,
+        };
+
+        /// Curated MoonshotAI model constants aligned with the audited AI SDK package subset.
+        pub mod models {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::moonshotai::{
+                self, recommended,
+            };
+        }
+
+        /// Typed provider options (`provider_options_map["moonshotai"]`).
+        pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_openai_compatible::provider_options::{
+                MoonshotAIChatOptions, MoonshotAILanguageModelOptions, MoonshotAIProviderOptions,
+                MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType,
+            };
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::ext::MoonshotAIChatRequestExt;
+        }
+
+        pub use models::{moonshotai as model_sets, recommended};
+        #[allow(deprecated)]
+        pub use options::{
+            MoonshotAIChatOptions, MoonshotAIChatRequestExt, MoonshotAILanguageModelOptions,
+            MoonshotAIProviderOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
+            MoonshotAIThinkingType,
+        };
+    }
+
+    #[cfg(feature = "deepinfra")]
+    pub mod deepinfra {
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+            DeepInfraClient, DeepInfraConfig,
+        };
+
+        /// Curated DeepInfra model constants aligned with the audited AI SDK package subset.
+        pub mod models {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::deepinfra::{
+                self, chat, completion, embedding, image,
+            };
+        }
+
+        pub use models::{chat, completion, deepinfra as model_sets, embedding, image};
+    }
+
+    #[cfg(feature = "google-vertex")]
+    pub mod vertex_maas {
+        /// Curated Vertex MaaS model constants aligned with the audited AI SDK package subset.
+        pub mod models {
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::vertex_maas::{
+                self, chat, completion, embedding,
+            };
+        }
+
+        pub use models::{chat, completion, embedding, vertex_maas as model_sets};
+    }
+
     #[cfg(feature = "bedrock")]
     pub mod bedrock {
         pub use siumai_provider_amazon_bedrock::providers::bedrock::{
-            BedrockClient, BedrockConfig,
+            BedrockBuilder, BedrockClient, BedrockConfig,
         };
+
+        /// Anthropic provider tool factories re-exported on the Bedrock surface like AI SDK.
+        #[cfg(feature = "anthropic")]
+        pub mod tools {
+            pub use crate::tools::anthropic::*;
+        }
+
+        /// Compatibility alias for older imports.
+        #[cfg(feature = "anthropic")]
+        pub mod provider_tools {
+            pub use crate::tools::anthropic::*;
+        }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["bedrock"]`).
         pub mod metadata {
             pub use siumai_provider_amazon_bedrock::provider_metadata::bedrock::{
-                BedrockChatResponseExt, BedrockMetadata,
+                BedrockChatResponseExt, BedrockContentPartExt, BedrockMetadata,
+                BedrockReasoningContentPartMetadata,
             };
         }
 
         /// Typed provider options (`provider_options_map["bedrock"]`).
         pub mod options {
+            #[allow(deprecated)]
             pub use siumai_provider_amazon_bedrock::provider_options::{
-                BedrockChatOptions, BedrockRerankOptions,
+                AmazonBedrockEmbeddingModelOptions, AmazonBedrockLanguageModelOptions,
+                AmazonBedrockRerankingModelOptions, BedrockCachePoint, BedrockCachePointConfig,
+                BedrockCachePointType, BedrockCacheTtl, BedrockChatOptions,
+                BedrockEmbeddingInputType, BedrockEmbeddingOptions, BedrockEmbeddingPurpose,
+                BedrockEmbeddingTruncate, BedrockFilePartCitations, BedrockFilePartProviderOptions,
+                BedrockProviderOptions, BedrockReasoningConfig, BedrockReasoningEffort,
+                BedrockReasoningType, BedrockRerankOptions, BedrockRerankingOptions,
+                BedrockServiceTier,
             };
             pub use siumai_provider_amazon_bedrock::providers::bedrock::{
-                BedrockChatRequestExt, BedrockRerankRequestExt,
+                BedrockChatRequestExt, BedrockEmbeddingRequestExt, BedrockMessageExt,
+                BedrockRequestContentPartExt, BedrockRerankRequestExt,
             };
+            #[cfg(feature = "anthropic")]
+            #[allow(deprecated)]
+            pub use siumai_provider_anthropic::provider_options::anthropic::AnthropicProviderOptions;
         }
 
-        pub use metadata::{BedrockChatResponseExt, BedrockMetadata};
-        pub use options::{
-            BedrockChatOptions, BedrockChatRequestExt, BedrockRerankOptions,
-            BedrockRerankRequestExt,
+        pub use metadata::{
+            BedrockChatResponseExt, BedrockContentPartExt, BedrockMetadata,
+            BedrockReasoningContentPartMetadata,
         };
+        #[cfg(feature = "anthropic")]
+        #[allow(deprecated)]
+        pub use options::AnthropicProviderOptions;
+        #[allow(deprecated)]
+        pub use options::{
+            AmazonBedrockEmbeddingModelOptions, AmazonBedrockLanguageModelOptions,
+            AmazonBedrockRerankingModelOptions, BedrockCachePoint, BedrockCachePointConfig,
+            BedrockCachePointType, BedrockCacheTtl, BedrockChatOptions, BedrockChatRequestExt,
+            BedrockEmbeddingInputType, BedrockEmbeddingOptions, BedrockEmbeddingPurpose,
+            BedrockEmbeddingRequestExt, BedrockEmbeddingTruncate, BedrockFilePartCitations,
+            BedrockFilePartProviderOptions, BedrockMessageExt, BedrockProviderOptions,
+            BedrockReasoningConfig, BedrockReasoningEffort, BedrockReasoningType,
+            BedrockRequestContentPartExt, BedrockRerankOptions, BedrockRerankRequestExt,
+            BedrockRerankingOptions, BedrockServiceTier,
+        };
+        pub use siumai_provider_amazon_bedrock::providers::bedrock::assistant_message_with_reasoning_metadata;
     }
 
     #[cfg(feature = "cohere")]
     pub mod cohere {
         pub use siumai_provider_cohere::providers::cohere::{CohereClient, CohereConfig};
 
-        /// Typed provider options (`provider_options_map["cohere"]`).
-        pub mod options {
-            pub use siumai_provider_cohere::provider_options::CohereRerankOptions;
-            pub use siumai_provider_cohere::providers::cohere::CohereRerankRequestExt;
+        pub mod models {
+            pub use siumai_provider_cohere::providers::cohere::models::{
+                self as model_sets, chat, embedding, rerank,
+            };
         }
 
-        pub use options::{CohereRerankOptions, CohereRerankRequestExt};
+        /// Typed provider options (`provider_options_map["cohere"]`).
+        pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_cohere::provider_options::{
+                CohereChatModelOptions, CohereChatOptions, CohereEmbeddingInputType,
+                CohereEmbeddingModelOptions, CohereEmbeddingOptions, CohereEmbeddingTruncate,
+                CohereLanguageModelOptions, CohereRerankOptions, CohereRerankingModelOptions,
+                CohereRerankingOptions, CohereThinkingConfig, CohereThinkingType,
+            };
+            pub use siumai_provider_cohere::providers::cohere::{
+                CohereChatRequestExt, CohereEmbeddingRequestExt, CohereRerankRequestExt,
+            };
+        }
+
+        pub use models::{chat, embedding, model_sets, rerank};
+        #[allow(deprecated)]
+        pub use options::{
+            CohereChatModelOptions, CohereChatOptions, CohereChatRequestExt,
+            CohereEmbeddingInputType, CohereEmbeddingModelOptions, CohereEmbeddingOptions,
+            CohereEmbeddingRequestExt, CohereEmbeddingTruncate, CohereLanguageModelOptions,
+            CohereRerankOptions, CohereRerankRequestExt, CohereRerankingModelOptions,
+            CohereRerankingOptions, CohereThinkingConfig, CohereThinkingType,
+        };
     }
 
     #[cfg(feature = "togetherai")]
@@ -493,13 +720,32 @@ pub mod provider_ext {
             TogetherAiClient, TogetherAiConfig,
         };
 
-        /// Typed provider options (`provider_options_map["togetherai"]`).
-        pub mod options {
-            pub use siumai_provider_togetherai::provider_options::TogetherAiRerankOptions;
-            pub use siumai_provider_togetherai::providers::togetherai::TogetherAiRerankRequestExt;
+        pub mod models {
+            pub use siumai_provider_togetherai::providers::togetherai::models::{
+                self as model_sets, chat, completion, embedding, image, rerank,
+            };
         }
 
-        pub use options::{TogetherAiRerankOptions, TogetherAiRerankRequestExt};
+        /// Typed provider options (`provider_options_map["togetherai"]`).
+        pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_togetherai::provider_options::{
+                TogetherAiImageModelOptions, TogetherAiImageOptions,
+                TogetherAiImageProviderOptions, TogetherAiRerankOptions,
+                TogetherAiRerankingModelOptions, TogetherAiRerankingOptions,
+            };
+            pub use siumai_provider_togetherai::providers::togetherai::{
+                TogetherAiImageRequestExt, TogetherAiRerankRequestExt,
+            };
+        }
+
+        pub use models::{chat, completion, embedding, image, model_sets, rerank};
+        #[allow(deprecated)]
+        pub use options::{
+            TogetherAiImageModelOptions, TogetherAiImageOptions, TogetherAiImageProviderOptions,
+            TogetherAiImageRequestExt, TogetherAiRerankOptions, TogetherAiRerankRequestExt,
+            TogetherAiRerankingModelOptions, TogetherAiRerankingOptions,
+        };
     }
 
     #[cfg(feature = "azure")]
@@ -511,15 +757,23 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["azure"]`).
         pub mod options {
-            pub use siumai_provider_azure::provider_options::azure::{
+            pub use siumai_provider_azure::provider_options::{
                 AzureOpenAiOptions, AzureReasoningEffort, AzureResponsesApiConfig,
+                OpenAILanguageModelChatOptions, OpenAILanguageModelResponsesOptions,
+            };
+            #[allow(deprecated)]
+            pub use siumai_provider_azure::provider_options::{
+                OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions,
             };
             pub use siumai_provider_azure::providers::azure_openai::AzureOpenAiChatRequestExt;
         }
         pub use options::{
             AzureOpenAiChatRequestExt, AzureOpenAiOptions, AzureReasoningEffort,
-            AzureResponsesApiConfig,
+            AzureResponsesApiConfig, OpenAILanguageModelChatOptions,
+            OpenAILanguageModelResponsesOptions,
         };
+        #[allow(deprecated)]
+        pub use options::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["azure"]`).
         pub mod metadata {
@@ -557,39 +811,67 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["anthropic"]`).
         pub mod options {
+            #[allow(deprecated)]
             pub use siumai_provider_anthropic::provider_options::anthropic::{
-                AnthropicCacheControl, AnthropicCacheType, AnthropicEffort, AnthropicOptions,
-                AnthropicResponseFormat, AnthropicStructuredOutputMode, PromptCachingConfig,
-                ThinkingModeConfig,
+                AnthropicCacheControl, AnthropicCacheType, AnthropicContainerConfig,
+                AnthropicContainerSkill, AnthropicContainerSkillType,
+                AnthropicContextManagementAllKeep, AnthropicContextManagementConfig,
+                AnthropicContextManagementEdit, AnthropicContextManagementInputTokensValue,
+                AnthropicContextManagementThinkingKeep,
+                AnthropicContextManagementThinkingTurnsKeep,
+                AnthropicContextManagementThinkingTurnsKeepKind,
+                AnthropicContextManagementToolUsesKeep, AnthropicContextManagementTrigger,
+                AnthropicEffort, AnthropicLanguageModelOptions, AnthropicMcpServer,
+                AnthropicMcpServerType, AnthropicMcpToolConfiguration, AnthropicOptions,
+                AnthropicProviderOptions, AnthropicRequestCacheControl,
+                AnthropicRequestCacheControlTtl, AnthropicRequestCacheControlType,
+                AnthropicRequestMetadata, AnthropicResponseFormat, AnthropicSpeed,
+                AnthropicStructuredOutputMode, AnthropicThinkingConfig, AnthropicToolAllowedCaller,
+                AnthropicToolOptions, PromptCachingConfig, ThinkingModeConfig,
             };
             pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
         }
+        #[allow(deprecated)]
         pub use options::{
-            AnthropicCacheControl, AnthropicCacheType, AnthropicChatRequestExt, AnthropicEffort,
-            AnthropicOptions, AnthropicResponseFormat, AnthropicStructuredOutputMode,
-            PromptCachingConfig, ThinkingModeConfig,
+            AnthropicCacheControl, AnthropicCacheType, AnthropicChatRequestExt,
+            AnthropicContainerConfig, AnthropicContainerSkill, AnthropicContainerSkillType,
+            AnthropicContextManagementAllKeep, AnthropicContextManagementConfig,
+            AnthropicContextManagementEdit, AnthropicContextManagementInputTokensValue,
+            AnthropicContextManagementThinkingKeep, AnthropicContextManagementThinkingTurnsKeep,
+            AnthropicContextManagementThinkingTurnsKeepKind,
+            AnthropicContextManagementToolUsesKeep, AnthropicContextManagementTrigger,
+            AnthropicEffort, AnthropicLanguageModelOptions, AnthropicMcpServer,
+            AnthropicMcpServerType, AnthropicMcpToolConfiguration, AnthropicOptions,
+            AnthropicProviderOptions, AnthropicRequestCacheControl,
+            AnthropicRequestCacheControlTtl, AnthropicRequestCacheControlType,
+            AnthropicRequestMetadata, AnthropicResponseFormat, AnthropicSpeed,
+            AnthropicStructuredOutputMode, AnthropicThinkingConfig, AnthropicToolAllowedCaller,
+            AnthropicToolOptions, PromptCachingConfig, ThinkingModeConfig,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).
         pub mod metadata {
             pub use siumai_provider_anthropic::provider_metadata::anthropic::{
                 AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-                AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse,
-                AnthropicSource, AnthropicToolCallMetadata, AnthropicToolCaller,
+                AnthropicContentPartExt, AnthropicMessageMetadata, AnthropicMetadata,
+                AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
+                AnthropicToolCaller, AnthropicUsageIteration,
             };
         }
         pub use metadata::{
             AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-            AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
-            AnthropicToolCallMetadata, AnthropicToolCaller,
+            AnthropicContentPartExt, AnthropicMessageMetadata, AnthropicMetadata,
+            AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
+            AnthropicToolCaller, AnthropicUsageIteration,
         };
 
         /// Non-unified Anthropic extension APIs (request extensions, tool helpers, thinking, etc.).
         pub mod ext {
             pub use siumai_provider_anthropic::providers::anthropic::ext::{
-                structured_output, thinking, tools,
+                AnthropicToolExt, structured_output, thinking, tools,
             };
         }
+        pub use ext::AnthropicToolExt;
 
         /// Provider-specific resources not covered by the unified families.
         pub mod resources {
@@ -597,7 +879,9 @@ pub mod provider_ext {
                 AnthropicCountTokensResponse, AnthropicCreateMessageBatchRequest, AnthropicFile,
                 AnthropicFileDeleteResponse, AnthropicFiles, AnthropicListFilesResponse,
                 AnthropicListMessageBatchesResponse, AnthropicMessageBatch,
-                AnthropicMessageBatchRequest, AnthropicMessageBatches, AnthropicTokens,
+                AnthropicMessageBatchRequest, AnthropicMessageBatches, AnthropicSkillFile,
+                AnthropicSkillFileContent, AnthropicSkillProviderMetadata,
+                AnthropicSkillUploadResult, AnthropicSkills, AnthropicTokens,
             };
         }
 
@@ -627,22 +911,29 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["google"]`).
         pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_gemini::provider_options::gemini::GoogleGenerativeAIImageProviderOptions;
             pub use siumai_provider_gemini::provider_options::gemini::{
-                GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions,
+                GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiImageOptions, GeminiOptions,
                 GeminiResponseModality, GeminiSafetySetting, GeminiThinkingConfig,
-                GeminiThinkingLevel,
+                GeminiThinkingLevel, GoogleImageModelOptions,
             };
-            pub use siumai_provider_gemini::providers::gemini::ext::GeminiChatRequestExt;
+            pub use siumai_provider_gemini::providers::gemini::ext::{
+                GeminiChatRequestExt, GeminiImageRequestExt,
+            };
             pub use siumai_provider_gemini::providers::gemini::types::{
                 GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
             };
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
+        #[allow(deprecated)]
+        pub use options::GoogleGenerativeAIImageProviderOptions;
         pub use options::{
             GeminiChatRequestExt, GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
-            GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiOptions, GeminiResponseModality,
-            GeminiSafetySetting, GeminiThinkingConfig, GeminiThinkingLevel,
+            GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiImageOptions,
+            GeminiImageRequestExt, GeminiOptions, GeminiResponseModality, GeminiSafetySetting,
+            GeminiThinkingConfig, GeminiThinkingLevel, GoogleImageModelOptions,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["google"]`).
@@ -691,6 +982,13 @@ pub mod provider_ext {
             GoogleVertexClient, GoogleVertexConfig,
         };
 
+        /// Curated Google Vertex model constants aligned with the audited public subset.
+        pub mod models {
+            pub use siumai_provider_google_vertex::providers::vertex::models::{
+                self as model_sets, chat, embedding, image,
+            };
+        }
+
         /// Provider tool factories that return `Tool` directly (Vercel-aligned `googleVertexTools`).
         pub mod tools {
             use siumai_core::types::Tool;
@@ -725,7 +1023,10 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["vertex"]`).
         pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_google_vertex::provider_options::vertex::GoogleVertexImageProviderOptions;
             pub use siumai_provider_google_vertex::provider_options::vertex::{
+                GoogleVertexEmbeddingModelOptions, GoogleVertexImageModelOptions,
                 VertexEmbeddingOptions, VertexImagenEditOptions, VertexImagenInlineImage,
                 VertexImagenMaskImageConfig, VertexImagenOptions, VertexImagenReferenceImage,
             };
@@ -734,7 +1035,11 @@ pub mod provider_ext {
             };
         }
 
+        pub use models::{chat, embedding, image, model_sets};
+        #[allow(deprecated)]
+        pub use options::GoogleVertexImageProviderOptions;
         pub use options::{
+            GoogleVertexEmbeddingModelOptions, GoogleVertexImageModelOptions,
             VertexEmbeddingOptions, VertexEmbeddingRequestExt, VertexImagenEditOptions,
             VertexImagenInlineImage, VertexImagenMaskImageConfig, VertexImagenOptions,
             VertexImagenReferenceImage, VertexImagenRequestExt,
@@ -758,6 +1063,13 @@ pub mod provider_ext {
     #[cfg(feature = "minimaxi")]
     pub mod minimaxi {
         pub use siumai_provider_minimaxi::providers::minimaxi::MinimaxiClient;
+
+        /// Curated MiniMaxi model constants for the public provider surface.
+        pub mod models {
+            pub use siumai_provider_minimaxi::providers::minimaxi::models::{
+                self as model_sets, chat, image, music, speech, video,
+            };
+        }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["minimaxi"]`).
         pub mod metadata {
@@ -787,6 +1099,7 @@ pub mod provider_ext {
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
+        pub use models::{chat, image, model_sets, music, speech, video};
         pub use options::{
             MinimaxiChatRequestExt, MinimaxiOptions, MinimaxiResponseFormat,
             MinimaxiThinkingModeConfig, MinimaxiTtsOptions, MinimaxiTtsRequestBuilder,
@@ -814,6 +1127,13 @@ pub mod provider_ext {
     pub mod ollama {
         pub use siumai_provider_ollama::providers::ollama::{OllamaClient, OllamaConfig};
 
+        /// Curated Ollama model constants for the public provider surface.
+        pub mod models {
+            pub use siumai_provider_ollama::providers::ollama::models::{
+                self as model_sets, chat, embedding,
+            };
+        }
+
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["ollama"]`).
         pub mod metadata {
             pub use siumai_provider_ollama::provider_metadata::ollama::{
@@ -833,6 +1153,7 @@ pub mod provider_ext {
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
+        pub use models::{chat, embedding, model_sets};
         pub use options::{
             OllamaChatRequestExt, OllamaEmbeddingOptions, OllamaEmbeddingRequestExt, OllamaOptions,
         };
@@ -851,6 +1172,13 @@ pub mod provider_ext {
         pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
             VertexAnthropicBuilder, VertexAnthropicClient, VertexAnthropicConfig,
         };
+
+        /// Curated Anthropic-on-Vertex model constants aligned with the audited public subset.
+        pub mod models {
+            pub use siumai_provider_google_vertex::providers::anthropic_vertex::models::{
+                self as model_sets, chat,
+            };
+        }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).
         pub mod metadata {
@@ -875,6 +1203,7 @@ pub mod provider_ext {
             };
         }
 
+        pub use models::{chat, model_sets};
         pub use options::{
             VertexAnthropicChatRequestExt, VertexAnthropicOptions,
             VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
@@ -889,6 +1218,13 @@ pub mod provider_ext {
     #[cfg(feature = "deepseek")]
     pub mod deepseek {
         pub use siumai_provider_deepseek::providers::deepseek::{DeepSeekClient, DeepSeekConfig};
+
+        /// Curated DeepSeek model constants aligned with the audited AI SDK chat surface.
+        pub mod models {
+            pub use siumai_provider_deepseek::providers::deepseek::models::{
+                self as model_sets, chat,
+            };
+        }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["deepseek"]`).
         pub mod metadata {
@@ -905,11 +1241,20 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["deepseek"]`).
         pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_deepseek::provider_options::{
+                DeepSeekChatOptions, DeepSeekLanguageModelOptions,
+            };
             pub use siumai_provider_deepseek::providers::deepseek::DeepSeekOptions;
             pub use siumai_provider_deepseek::providers::deepseek::ext::DeepSeekChatRequestExt;
         }
 
-        pub use options::{DeepSeekChatRequestExt, DeepSeekOptions};
+        pub use models::{chat, model_sets};
+        #[allow(deprecated)]
+        pub use options::{
+            DeepSeekChatOptions, DeepSeekChatRequestExt, DeepSeekLanguageModelOptions,
+            DeepSeekOptions,
+        };
 
         /// Non-unified DeepSeek extension APIs (escape hatches).
         pub mod ext {
@@ -919,7 +1264,9 @@ pub mod provider_ext {
 
     #[cfg(feature = "xai")]
     pub mod xai {
-        pub use siumai_provider_xai::providers::xai::{XaiClient, XaiConfig};
+        pub use siumai_provider_xai::providers::xai::{
+            XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId,
+        };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["xai"]`).
         pub mod metadata {
@@ -944,26 +1291,35 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["xai"]`).
         pub mod options {
+            #[allow(deprecated)]
             pub use siumai_provider_xai::providers::xai::ext::{
                 XaiChatRequestExt, XaiImageRequestExt, XaiTtsRequestExt, XaiVideoRequestExt,
             };
+            #[allow(deprecated)]
             pub use siumai_provider_xai::providers::xai::{
                 NewsSearchSource, RssSearchSource, SearchMode, SearchSource, WebSearchSource,
-                XSearchSource, XaiChatOptions, XaiChatReasoningEffort, XaiImageOptions,
-                XaiImageQuality, XaiImageResolution, XaiOptions, XaiReasoningSummary,
-                XaiResponseInclude, XaiResponsesOptions, XaiResponsesReasoningEffort,
-                XaiSearchParameters, XaiTtsOptions, XaiVideoOptions, XaiVideoResolution,
+                XSearchSource, XaiChatOptions, XaiChatReasoningEffort, XaiFilesOptions,
+                XaiImageModelOptions, XaiImageOptions, XaiImageProviderOptions, XaiImageQuality,
+                XaiImageResolution, XaiLanguageModelChatOptions, XaiLanguageModelResponsesOptions,
+                XaiOptions, XaiProviderOptions, XaiReasoningSummary, XaiResponseInclude,
+                XaiResponsesOptions, XaiResponsesProviderOptions, XaiResponsesReasoningEffort,
+                XaiSearchParameters, XaiTtsOptions, XaiVideoModelOptions, XaiVideoOptions,
+                XaiVideoProviderOptions, XaiVideoResolution,
             };
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
+        #[allow(deprecated)]
         pub use options::{
             NewsSearchSource, RssSearchSource, SearchMode, SearchSource, WebSearchSource,
             XSearchSource, XaiChatOptions, XaiChatReasoningEffort, XaiChatRequestExt,
-            XaiImageOptions, XaiImageQuality, XaiImageRequestExt, XaiImageResolution, XaiOptions,
-            XaiReasoningSummary, XaiResponseInclude, XaiResponsesOptions,
+            XaiFilesOptions, XaiImageModelOptions, XaiImageOptions, XaiImageProviderOptions,
+            XaiImageQuality, XaiImageRequestExt, XaiImageResolution, XaiLanguageModelChatOptions,
+            XaiLanguageModelResponsesOptions, XaiOptions, XaiProviderOptions, XaiReasoningSummary,
+            XaiResponseInclude, XaiResponsesOptions, XaiResponsesProviderOptions,
             XaiResponsesReasoningEffort, XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
-            XaiVideoOptions, XaiVideoRequestExt, XaiVideoResolution,
+            XaiVideoModelOptions, XaiVideoOptions, XaiVideoProviderOptions, XaiVideoRequestExt,
+            XaiVideoResolution,
         };
 
         /// Non-unified xAI extension APIs (escape hatches).
@@ -974,7 +1330,7 @@ pub mod provider_ext {
 
     #[cfg(feature = "groq")]
     pub mod groq {
-        pub use siumai_provider_groq::providers::groq::{GroqClient, GroqConfig};
+        pub use siumai_provider_groq::providers::groq::{GroqBuilder, GroqClient, GroqConfig};
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["groq"]`).
         pub mod metadata {
@@ -987,18 +1343,32 @@ pub mod provider_ext {
             GroqChatResponseExt, GroqMetadata, GroqSource, GroqSourceExt, GroqSourceMetadata,
         };
 
+        /// Provider tool factories that return `Tool` directly (Vercel-aligned).
+        pub mod tools {
+            pub use crate::tools::groq::*;
+        }
+
+        /// Vercel-style provider tool factories that return `Tool` directly.
+        pub mod provider_tools {
+            pub use crate::tools::groq::*;
+        }
+
         /// Typed provider options (`provider_options_map["groq"]`).
         pub mod options {
+            #[allow(deprecated)]
             pub use siumai_provider_groq::provider_options::{
-                GroqOptions, GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+                GroqLanguageModelOptions, GroqOptions, GroqProviderOptions, GroqReasoningEffort,
+                GroqReasoningFormat, GroqServiceTier, GroqTranscriptionModelOptions,
             };
-            pub use siumai_provider_groq::providers::groq::ext::GroqChatRequestExt;
+            pub use siumai_provider_groq::providers::groq::GroqChatRequestExt;
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
+        #[allow(deprecated)]
         pub use options::{
-            GroqChatRequestExt, GroqOptions, GroqReasoningEffort, GroqReasoningFormat,
-            GroqServiceTier,
+            GroqChatRequestExt, GroqLanguageModelOptions, GroqOptions, GroqProviderOptions,
+            GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+            GroqTranscriptionModelOptions,
         };
 
         /// Non-unified Groq extension APIs (escape hatches).
@@ -1019,8 +1389,8 @@ pub mod provider_catalog;
 pub mod extensions {
     pub use siumai_core::traits::{
         AudioCapability, FileManagementCapability, ImageExtras, ModelListingCapability,
-        ModerationCapability, MusicGenerationCapability, SpeechExtras, TimeoutCapability,
-        TranscriptionExtras, VideoGenerationCapability,
+        ModerationCapability, MusicGenerationCapability, SkillsCapability, SpeechExtras,
+        TimeoutCapability, TranscriptionExtras, VideoGenerationCapability,
     };
 
     /// Types used by non-unified extension capabilities.
@@ -1028,7 +1398,8 @@ pub mod extensions {
         pub use siumai_core::types::{
             FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
             ImageEditInput, ImageEditRequest, ImageVariationRequest, ModerationRequest,
-            ModerationResponse, VideoGenerationInput, VideoGenerationRequest,
+            ModerationResponse, SkillFileContent, SkillProviderMetadata, SkillUploadFile,
+            SkillUploadRequest, SkillUploadResult, VideoGenerationInput, VideoGenerationRequest,
             VideoGenerationResponse, VideoTaskStatus, VideoTaskStatusResponse,
         };
     }
@@ -1075,45 +1446,58 @@ pub mod prelude {
     pub mod unified {
         #[doc(hidden)]
         pub use crate::Provider;
+        pub use crate::files::{
+            FileUploadProvider, UploadFileApi, UploadFileData, UploadFileOptions,
+            UploadFileProviderMetadata, UploadFileResult,
+        };
         #[doc(hidden)]
         pub use crate::provider::Siumai;
         pub use crate::retry_api::*;
+        pub use crate::skills::{
+            UploadSkillApi, UploadSkillFile, UploadSkillFileContent, UploadSkillOptions,
+            UploadSkillProviderMetadata, UploadSkillResult,
+        };
         pub use crate::tooling;
         pub use crate::tools;
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
-        pub use crate::{embedding, image, rerank, speech, text, transcription};
+        pub use crate::{
+            completion, embedding, files, image, rerank, skills, speech, text, transcription,
+        };
         pub use crate::{system, tool, user, user_with_image};
+        pub use siumai_core::completion::CompletionModel;
         pub use siumai_core::error::{ErrorCategory, LlmError};
+        pub use siumai_core::image::{ImageModel, ImageModelV4};
         pub use siumai_core::rerank::RerankingModel;
         pub use siumai_core::speech::SpeechModel;
         pub use siumai_core::streaming::*;
         pub use siumai_core::text::LanguageModel;
         pub use siumai_core::traits::{
-            ChatCapability, EmbeddingCapability, EmbeddingExtensions, ImageGenerationCapability,
-            ModelMetadata, ProviderCapabilities, RerankCapability, SpeechCapability,
-            TranscriptionCapability,
+            ChatCapability, CompletionCapability, EmbeddingCapability, EmbeddingExtensions,
+            ImageGenerationCapability, ModelMetadata, ProviderCapabilities, RerankCapability,
+            SpeechCapability, TranscriptionCapability,
         };
         pub use siumai_core::transcription::TranscriptionModel;
 
         // Core request/response types for the six stable model families.
         pub use siumai_core::types::{
             AudioStreamEvent, CacheControl, ChatMessage, ChatRequest, ChatRequestBuilder,
-            ChatResponse, CommonParams, CompletionTokensDetails, ContentPart,
-            CustomProviderOptions, EmbeddingRequest, EmbeddingResponse, FinishReason,
-            GeneratedImage, HttpConfig, ImageDetail, ImageGenerationRequest,
-            ImageGenerationResponse, MediaSource, MessageContent, MessageMetadata, MessageRole,
-            ModelInfo, OutputSchema, PromptTokensDetails, ProviderDefinedTool, ProviderOptionsMap,
+            ChatResponse, CommonParams, CompletionRequest, CompletionResponse,
+            CompletionTokensDetails, ContentPart, CustomProviderOptions, EmbeddingRequest,
+            EmbeddingResponse, FilePartSource, FinishReason, GenerateImageRequest, GeneratedImage,
+            HttpConfig, ImageDetail, ImageGenerationRequest, ImageGenerationResponse, MediaSource,
+            MessageContent, MessageMetadata, MessageRole, ModelInfo, OutputSchema,
+            PromptTokensDetails, ProviderDefinedTool, ProviderOptionsMap, ProviderReference,
             ProviderType, RerankRequest, RerankResponse, ResponseFormat, ResponseMetadata,
-            SchemaValidator, SttRequest, SttResponse, Tool, ToolChoice, TtsRequest, TtsResponse,
-            Usage, Warning,
+            SchemaValidator, StreamRequestOptions, SttRequest, SttResponse, Tool, ToolChoice,
+            TtsRequest, TtsResponse, Usage, Warning,
         };
 
         pub mod registry {
             pub use crate::registry::{
-                EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle, ProviderFactory,
-                ProviderRegistryHandle, RegistryOptions, RerankingModelHandle, SpeechModelHandle,
-                TranscriptionModelHandle, create_bare_registry, create_empty_registry,
-                create_provider_registry,
+                CompletionModelHandle, EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle,
+                ProviderFactory, ProviderRegistryHandle, RegistryOptions, RerankingModelHandle,
+                SpeechModelHandle, TranscriptionModelHandle, create_bare_registry,
+                create_empty_registry, create_provider_registry,
             };
 
             #[cfg(any(
@@ -1248,12 +1632,63 @@ impl Provider {
         )
     }
 
-    /// Create a TogetherAI client builder
+    /// Create a TogetherAI unified builder.
+    ///
+    /// This aligns with the AI SDK-style provider surface:
+    /// chat/completion/embedding/speech/transcription route through the shared
+    /// OpenAI-compatible TogetherAI path, while image and rerank use provider-owned TogetherAI
+    /// implementations.
     #[cfg(feature = "togetherai")]
-    pub fn togetherai() -> siumai_provider_togetherai::providers::togetherai::TogetherAiBuilder {
-        siumai_provider_togetherai::providers::togetherai::TogetherAiBuilder::new(
-            crate::builder::BuilderBase::default(),
-        )
+    pub fn togetherai() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().togetherai()
+    }
+
+    /// Create a DeepInfra unified builder.
+    ///
+    /// This aligns with the AI SDK-style provider surface:
+    /// text/completion/embedding reuse the shared OpenAI-compatible runtime, while image
+    /// generation and editing use the provider-owned DeepInfra `/inference` and
+    /// `/openai/images/edits` routes.
+    #[cfg(feature = "deepinfra")]
+    pub fn deepinfra() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().deepinfra()
+    }
+
+    /// Create a Mistral unified builder.
+    ///
+    /// This mirrors the AI SDK `mistral` provider package surface while continuing to reuse the
+    /// shared OpenAI-compatible runtime internally.
+    #[cfg(feature = "openai")]
+    pub fn mistral() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().mistral()
+    }
+
+    /// Create a Fireworks unified builder.
+    ///
+    /// This mirrors the AI SDK `fireworks` provider package surface: chat/completion/embedding/
+    /// transcription use the shared OpenAI-compatible runtime, while image generation/edit use the
+    /// provider-owned Fireworks workflow routes.
+    #[cfg(feature = "openai")]
+    pub fn fireworks() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().fireworks()
+    }
+
+    /// Create a Perplexity unified builder.
+    ///
+    /// This mirrors the AI SDK `perplexity` provider package surface while continuing to reuse the
+    /// shared OpenAI-compatible runtime internally.
+    #[cfg(feature = "openai")]
+    pub fn perplexity() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().perplexity()
+    }
+
+    /// Create a MoonshotAI unified builder.
+    ///
+    /// This mirrors the AI SDK `moonshotai` provider package surface while continuing to reuse the
+    /// shared OpenAI-compatible runtime internally.
+    #[cfg(feature = "openai")]
+    pub fn moonshotai() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().moonshotai()
     }
 
     /// Create an Ollama client builder
@@ -1292,6 +1727,16 @@ impl Provider {
         siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
             crate::builder::BuilderBase::default(),
         )
+    }
+
+    /// Create a Google Vertex MaaS unified builder.
+    ///
+    /// This aligns with the AI SDK `vertexMaas` surface:
+    /// chat/completion/embedding route through the shared OpenAI-compatible runtime on
+    /// Vertex's `/endpoints/openapi` base URL, authenticated with Google-style Bearer tokens.
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex_maas() -> crate::provider::SiumaiBuilder {
+        crate::provider::SiumaiBuilder::new().vertex_maas()
     }
 
     /// Create an Anthropic on Vertex client builder

@@ -210,6 +210,60 @@ pub struct GeminiImageConfig {
     pub image_size: Option<String>,
 }
 
+/// Provider-owned image-model options for Gemini/Google image requests.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct GeminiImageOptions {
+    /// Output aspect ratio (for example `1:1`, `16:9`, `9:16`).
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "aspectRatio",
+        alias = "aspect_ratio"
+    )]
+    pub aspect_ratio: Option<String>,
+    /// Person-generation policy (`dont_allow`, `allow_adult`, `allow_all`).
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "personGeneration",
+        alias = "person_generation"
+    )]
+    pub person_generation: Option<String>,
+    /// Forward-compatible provider-owned escape hatch for newly introduced fields.
+    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
+    pub extra_fields: HashMap<String, serde_json::Value>,
+}
+
+impl GeminiImageOptions {
+    /// Create empty Gemini image options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the image aspect ratio.
+    pub fn with_aspect_ratio(mut self, aspect_ratio: impl Into<String>) -> Self {
+        self.aspect_ratio = Some(aspect_ratio.into());
+        self
+    }
+
+    /// Set the person-generation policy.
+    pub fn with_person_generation(mut self, person_generation: impl Into<String>) -> Self {
+        self.person_generation = Some(person_generation.into());
+        self
+    }
+
+    /// Add an extra provider-owned field.
+    pub fn with_extra_field(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.extra_fields.insert(key.into(), value);
+        self
+    }
+}
+
+/// AI SDK-style alias for Google image-model options.
+pub type GoogleImageModelOptions = GeminiImageOptions;
+
+/// Deprecated AI SDK compatibility alias for Google image-model options.
+#[deprecated(note = "Use `GoogleImageModelOptions` instead.")]
+pub type GoogleGenerativeAIImageProviderOptions = GoogleImageModelOptions;
+
 /// Grounding retrieval config (location context).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GeminiRetrievalConfig {
@@ -408,4 +462,50 @@ pub struct FileSearchConfig {
     /// Names of File Search stores to use for retrieval
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub file_search_store_names: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_image_options_serialize_to_google_shape() {
+        let value = serde_json::to_value(
+            GeminiImageOptions::new()
+                .with_aspect_ratio("16:9")
+                .with_person_generation("allow_all")
+                .with_extra_field("style", serde_json::json!("cinematic")),
+        )
+        .expect("serialize GeminiImageOptions");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "aspectRatio": "16:9",
+                "personGeneration": "allow_all",
+                "style": "cinematic"
+            })
+        );
+    }
+
+    #[test]
+    fn gemini_image_options_accept_aliases() {
+        let options: GeminiImageOptions = serde_json::from_value(serde_json::json!({
+            "aspect_ratio": "9:16",
+            "personGeneration": "dont_allow"
+        }))
+        .expect("deserialize GeminiImageOptions");
+
+        assert_eq!(options.aspect_ratio.as_deref(), Some("9:16"));
+        assert_eq!(options.person_generation.as_deref(), Some("dont_allow"));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn google_image_option_aliases_resolve_to_same_type() {
+        let options: GoogleImageModelOptions = GeminiImageOptions::new().with_aspect_ratio("1:1");
+        let deprecated: GoogleGenerativeAIImageProviderOptions = options.clone();
+
+        assert_eq!(options.aspect_ratio, deprecated.aspect_ratio);
+    }
 }

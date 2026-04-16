@@ -22,7 +22,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default, Clone)]
@@ -54,6 +54,7 @@ struct AnthropicSerializeBlock {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum AnthropicSerializeBlockKind {
     Text,
+    Compaction,
     Thinking,
     RedactedThinking,
     Tool { id: String },
@@ -144,6 +145,14 @@ struct AnthropicContent {
     #[allow(dead_code)]
     // Some events carry full text here; our converter aggregates from deltas instead
     text: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    input: Option<serde_json::Value>,
+    #[serde(default)]
+    caller: Option<serde_json::Value>,
 }
 
 /// Anthropic delta structure
@@ -157,6 +166,8 @@ struct AnthropicDelta {
     delta_type: Option<String>,
     #[serde(default)]
     text: Option<String>,
+    #[serde(default)]
+    content: Option<String>,
     #[serde(default)]
     #[allow(dead_code)]
     // Partial JSON chunks for tool inputs; not emitted as separate events in our model yet
@@ -189,6 +200,8 @@ pub struct AnthropicEventConverter {
     #[allow(dead_code)]
     // Retained for potential future behavior toggles; not read in the current converter
     config: AnthropicParams,
+    include_raw_chunks: bool,
+    custom_provider_metadata_key: Option<String>,
     state_tracker: StreamStateTracker,
     tool_use_ids_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     content_block_type_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
@@ -197,8 +210,10 @@ pub struct AnthropicEventConverter {
     thinking_signature_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     redacted_thinking_data_by_index: Arc<Mutex<std::collections::HashMap<usize, String>>>,
     citation_documents: Vec<AnthropicCitationDocument>,
+    next_source_index: Arc<AtomicUsize>,
     sources_by_id: Arc<Mutex<std::collections::HashMap<String, AnthropicSource>>>,
     tool_names_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
+    tool_callers_by_id: Arc<Mutex<std::collections::HashMap<String, serde_json::Value>>>,
     tool_input_json_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     server_tool_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
     mcp_server_name_by_id: Arc<Mutex<std::collections::HashMap<String, String>>>,
@@ -219,6 +234,8 @@ impl AnthropicEventConverter {
     pub fn new(config: AnthropicParams) -> Self {
         Self {
             config,
+            include_raw_chunks: false,
+            custom_provider_metadata_key: None,
             state_tracker: StreamStateTracker::new(),
             tool_use_ids_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             content_block_type_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -227,8 +244,10 @@ impl AnthropicEventConverter {
             thinking_signature_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             redacted_thinking_data_by_index: Arc::new(Mutex::new(std::collections::HashMap::new())),
             citation_documents: Vec::new(),
+            next_source_index: Arc::new(AtomicUsize::new(0)),
             sources_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             tool_names_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            tool_callers_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             tool_input_json_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             server_tool_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
             mcp_server_name_by_id: Arc::new(Mutex::new(std::collections::HashMap::new())),
@@ -257,6 +276,53 @@ impl AnthropicEventConverter {
     ) -> Self {
         self.v3_unsupported_part_behavior = behavior;
         self
+    }
+
+    pub fn with_include_raw_chunks(mut self, include_raw_chunks: bool) -> Self {
+        self.include_raw_chunks = include_raw_chunks;
+        self
+    }
+
+    pub fn with_provider_metadata_key(mut self, key: impl Into<String>) -> Self {
+        self.custom_provider_metadata_key =
+            super::transformers::normalize_custom_anthropic_provider_key(&key.into());
+        self
+    }
+
+    fn dynamic_code_execution_flag(&self, raw_server_tool_name: &str) -> Option<bool> {
+        (self.config.should_mark_code_execution_dynamic()
+            && raw_server_tool_name == "code_execution")
+            .then_some(true)
+    }
+
+    fn inject_raw_chunk(
+        &self,
+        mut events: Vec<ChatStreamEvent>,
+        raw_value: serde_json::Value,
+    ) -> Vec<ChatStreamEvent> {
+        if !self.include_raw_chunks {
+            return events;
+        }
+
+        let raw_event = ChatStreamEvent::Part {
+            part: ChatStreamPart::Raw { raw_value },
+        };
+
+        let insert_at = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    ChatStreamEvent::Part {
+                        part: ChatStreamPart::StreamStart { .. }
+                    }
+                )
+            })
+            .map(|index| index + 1)
+            .unwrap_or(0);
+
+        events.insert(insert_at, raw_event);
+        events
     }
 
     fn record_source(&self, source: AnthropicSource) {
@@ -333,6 +399,37 @@ impl AnthropicEventConverter {
             .and_then(|map| map.get(tool_call_id).cloned())
     }
 
+    fn map_tool_caller_provider_metadata(caller: &serde_json::Value) -> Option<serde_json::Value> {
+        let caller = caller.as_object()?;
+        let mut mapped = serde_json::Map::new();
+        mapped.insert("type".to_string(), caller.get("type")?.clone());
+        if let Some(tool_id) = caller.get("tool_id").or_else(|| caller.get("toolId"))
+            && !tool_id.is_null()
+        {
+            mapped.insert("toolId".to_string(), tool_id.clone());
+        }
+        Some(serde_json::Value::Object(mapped))
+    }
+
+    fn record_tool_caller(&self, tool_call_id: &str, caller: &serde_json::Value) {
+        if tool_call_id.is_empty() {
+            return;
+        }
+        let Some(mapped) = Self::map_tool_caller_provider_metadata(caller) else {
+            return;
+        };
+        if let Ok(mut map) = self.tool_callers_by_id.lock() {
+            map.insert(tool_call_id.to_string(), mapped);
+        }
+    }
+
+    fn tool_caller_for_id(&self, tool_call_id: &str) -> Option<serde_json::Value> {
+        self.tool_callers_by_id
+            .lock()
+            .ok()
+            .and_then(|map| map.get(tool_call_id).cloned())
+    }
+
     fn set_tool_input_json(&self, tool_call_id: &str, input: String) {
         if tool_call_id.is_empty() {
             return;
@@ -386,43 +483,65 @@ impl AnthropicEventConverter {
         serde_json::to_string(value).ok()
     }
 
+    fn next_source_id(&self) -> String {
+        format!(
+            "id-{}",
+            self.next_source_index.fetch_add(1, Ordering::Relaxed)
+        )
+    }
+
     fn build_stream_provider_metadata(
         &self,
-    ) -> Option<
-        std::collections::HashMap<String, std::collections::HashMap<String, serde_json::Value>>,
-    > {
+    ) -> Option<std::collections::HashMap<String, serde_json::Value>> {
         let mut anthropic = std::collections::HashMap::new();
 
-        if let Some(usage) = self.current_vercel_usage() {
-            anthropic.insert("usage".to_string(), usage.clone());
+        let usage = self.current_vercel_usage();
+        anthropic.insert(
+            "usage".to_string(),
+            usage.clone().unwrap_or(serde_json::Value::Null),
+        );
+        anthropic.insert(
+            "cacheCreationInputTokens".to_string(),
+            usage
+                .as_ref()
+                .and_then(|usage| usage.get("cache_creation_input_tokens"))
+                .cloned()
+                .unwrap_or(serde_json::Value::Null),
+        );
+        anthropic.insert(
+            "iterations".to_string(),
+            usage
+                .as_ref()
+                .map(super::utils::map_usage_iterations_provider_metadata)
+                .unwrap_or(serde_json::Value::Null),
+        );
+
+        if let Ok(v) = self.vercel_stop_sequence.lock() {
             anthropic.insert(
-                "cacheCreationInputTokens".to_string(),
-                usage
-                    .get("cache_creation_input_tokens")
-                    .cloned()
+                "stopSequence".to_string(),
+                v.clone()
+                    .map(serde_json::Value::String)
                     .unwrap_or(serde_json::Value::Null),
             );
         }
 
-        if let Ok(v) = self.vercel_stop_sequence.lock()
-            && let Some(stop_sequence) = v.clone()
-        {
-            anthropic.insert("stopSequence".to_string(), serde_json::json!(stop_sequence));
-        }
+        let container = self
+            .vercel_container
+            .lock()
+            .ok()
+            .and_then(|v| v.clone())
+            .and_then(|value| super::utils::map_container_provider_metadata(&value))
+            .unwrap_or(serde_json::Value::Null);
+        anthropic.insert("container".to_string(), container);
 
-        if let Ok(v) = self.vercel_container.lock()
-            && let Some(container) = v.clone()
-            && let Some(mapped) = super::utils::map_container_provider_metadata(&container)
-        {
-            anthropic.insert("container".to_string(), mapped);
-        }
-
-        if let Ok(v) = self.vercel_context_management.lock()
-            && let Some(cm) = v.clone()
-            && let Some(mapped) = super::utils::map_context_management_provider_metadata(&cm)
-        {
-            anthropic.insert("contextManagement".to_string(), mapped);
-        }
+        let context_management = self
+            .vercel_context_management
+            .lock()
+            .ok()
+            .and_then(|v| v.clone())
+            .and_then(|value| super::utils::map_context_management_provider_metadata(&value))
+            .unwrap_or(serde_json::Value::Null);
+        anthropic.insert("contextManagement".to_string(), context_management);
 
         if let Ok(map) = self.thinking_signature_by_index.lock()
             && let Some((_, sig)) = map.iter().min_by_key(|(k, _)| *k)
@@ -454,9 +573,10 @@ impl AnthropicEventConverter {
         if anthropic.is_empty() {
             None
         } else {
-            let mut all = std::collections::HashMap::new();
-            all.insert("anthropic".to_string(), anthropic);
-            Some(all)
+            Some(super::transformers::anthropic_provider_metadata_map(
+                anthropic,
+                self.custom_provider_metadata_key.as_deref(),
+            ))
         }
     }
 
@@ -484,7 +604,7 @@ impl AnthropicEventConverter {
 
         for (idx, block_type) in ordered_types {
             match block_type.as_str() {
-                "text" | "json_tool_use" => {
+                "text" | "json_tool_use" | "compaction" => {
                     if let Some(text) = text_blocks.get(&idx)
                         && !text.is_empty()
                     {
@@ -527,6 +647,7 @@ impl AnthropicEventConverter {
             content: self.build_stream_content(),
             usage: super::utils::create_usage_from_json_value(usage_raw.as_ref()),
             finish_reason: Some(finish_reason),
+            raw_finish_reason: None,
             audio: None,
             system_fingerprint: None,
             service_tier: usage_raw
@@ -590,12 +711,44 @@ impl AnthropicEventConverter {
         provider_metadata
     }
 
+    fn anthropic_response_provider_metadata(
+        &self,
+        value: serde_json::Value,
+    ) -> crate::types::StreamProviderMetadata {
+        super::transformers::anthropic_provider_metadata_map_from_value(
+            value,
+            self.custom_provider_metadata_key.as_deref(),
+        )
+    }
+
     fn anthropic_content_block_provider_metadata(
         index: usize,
     ) -> crate::types::StreamProviderMetadata {
         Self::anthropic_stream_provider_metadata(serde_json::json!({
             "contentBlockIndex": index as u64,
         }))
+    }
+
+    fn anthropic_compaction_provider_metadata(
+        index: usize,
+    ) -> crate::types::StreamProviderMetadata {
+        Self::anthropic_content_block_provider_metadata_with(Some(index), |anthropic| {
+            anthropic.insert("type".to_string(), serde_json::json!("compaction"));
+        })
+        .unwrap_or_else(|| Self::anthropic_content_block_provider_metadata(index))
+    }
+
+    fn anthropic_tool_call_provider_metadata(
+        index: Option<usize>,
+        caller: Option<&serde_json::Value>,
+    ) -> Option<crate::types::StreamProviderMetadata> {
+        Self::anthropic_content_block_provider_metadata_with(index, |anthropic| {
+            if let Some(caller) = caller
+                && let Some(mapped) = Self::map_tool_caller_provider_metadata(caller)
+            {
+                anthropic.insert("caller".to_string(), mapped);
+            }
+        })
     }
 
     fn anthropic_content_block_provider_metadata_with<F>(
@@ -630,6 +783,31 @@ impl AnthropicEventConverter {
         })
     }
 
+    fn fallback_stream_start_metadata(&self) -> ResponseMetadata {
+        ResponseMetadata {
+            id: self.vercel_response_id.lock().ok().and_then(|v| v.clone()),
+            model: self.vercel_model_id.lock().ok().and_then(|v| v.clone()),
+            created: Some(chrono::Utc::now()),
+            provider: "anthropic".to_string(),
+            request_id: None,
+        }
+    }
+
+    fn append_stream_start_events(
+        &self,
+        out: &mut Vec<ChatStreamEvent>,
+        metadata: ResponseMetadata,
+    ) {
+        if !self.state_tracker.needs_stream_start() {
+            return;
+        }
+
+        out.push(ChatStreamEvent::StreamStart { metadata });
+        if let Some(evt) = self.vercel_stream_start_event() {
+            out.push(evt);
+        }
+    }
+
     fn vercel_response_metadata_event(&self) -> Option<ChatStreamEvent> {
         let id = self
             .vercel_response_id
@@ -655,18 +833,6 @@ impl AnthropicEventConverter {
                 id: id.to_string(),
                 provider_metadata: Some(Self::anthropic_content_block_provider_metadata(id)),
             },
-        }
-    }
-
-    #[allow(dead_code)]
-    fn vercel_text_delta_event(id: usize, delta: String) -> ChatStreamEvent {
-        ChatStreamEvent::Custom {
-            event_type: "anthropic:text-delta".to_string(),
-            data: serde_json::json!({
-                "type": "text-delta",
-                "id": id.to_string(),
-                "delta": delta,
-            }),
         }
     }
 
@@ -772,11 +938,12 @@ impl AnthropicEventConverter {
                     unified: finish_reason.clone(),
                     raw: raw_stop_reason.map(ToOwned::to_owned),
                 },
-                provider_metadata: Some(Self::anthropic_stream_provider_metadata(
+                provider_metadata: Some(self.anthropic_response_provider_metadata(
                     serde_json::json!({
                         "cacheCreationInputTokens": cache_creation_input_tokens,
                         "container": container,
                         "contextManagement": context_management,
+                        "iterations": super::utils::map_usage_iterations_provider_metadata(&usage_raw),
                         "stopSequence": stop_sequence,
                         "usage": usage_raw,
                     }),
@@ -812,20 +979,84 @@ impl AnthropicEventConverter {
             "message_start" => {
                 if let Some(message) = event.message {
                     self.record_vercel_message_start(&message);
+                    let preloaded_content = message.content.clone();
                     let metadata = ResponseMetadata {
-                        id: message.id,
-                        model: message.model,
+                        id: message.id.clone(),
+                        model: message.model.clone(),
                         created: Some(chrono::Utc::now()),
                         provider: "anthropic".to_string(),
                         request_id: None,
                     };
                     let mut out: Vec<ChatStreamEvent> = Vec::new();
-                    out.push(ChatStreamEvent::StreamStart { metadata });
-                    if let Some(evt) = self.vercel_stream_start_event() {
-                        out.push(evt);
-                    }
+                    self.append_stream_start_events(&mut out, metadata);
                     if let Some(evt) = self.vercel_response_metadata_event() {
                         out.push(evt);
+                    }
+                    if let Some(content) = preloaded_content {
+                        for (content_index, part) in content.into_iter().enumerate() {
+                            if part.content_type != "tool_use" {
+                                continue;
+                            }
+
+                            let Some(tool_call_id) = part.id else {
+                                continue;
+                            };
+                            let Some(tool_name) = part.name else {
+                                continue;
+                            };
+
+                            self.record_content_block_type(content_index, "tool_use".to_string());
+                            self.record_tool_name(&tool_call_id, &tool_name);
+                            if let Some(caller) = part.caller.as_ref() {
+                                self.record_tool_caller(&tool_call_id, caller);
+                            }
+
+                            let input = part.input.unwrap_or_else(|| serde_json::json!({}));
+                            let input_json =
+                                serde_json::to_string(&input).unwrap_or_else(|_| "{}".to_string());
+                            let block_provider_metadata = Some(
+                                Self::anthropic_content_block_provider_metadata(content_index),
+                            );
+                            let tool_call_provider_metadata =
+                                Self::anthropic_tool_call_provider_metadata(
+                                    Some(content_index),
+                                    part.caller.as_ref(),
+                                );
+
+                            out.push(ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolInputStart {
+                                    id: tool_call_id.clone(),
+                                    tool_name: tool_name.clone(),
+                                    provider_metadata: block_provider_metadata.clone(),
+                                    provider_executed: None,
+                                    dynamic: None,
+                                    title: None,
+                                },
+                            });
+                            out.push(ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolInputDelta {
+                                    id: tool_call_id.clone(),
+                                    delta: input_json.clone(),
+                                    provider_metadata: block_provider_metadata.clone(),
+                                },
+                            });
+                            out.push(ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolInputEnd {
+                                    id: tool_call_id.clone(),
+                                    provider_metadata: block_provider_metadata,
+                                },
+                            });
+                            out.push(ChatStreamEvent::Part {
+                                part: ChatStreamPart::ToolCall(ChatStreamToolCall {
+                                    tool_call_id,
+                                    tool_name,
+                                    input: input_json,
+                                    provider_executed: None,
+                                    dynamic: None,
+                                    provider_metadata: tool_call_provider_metadata,
+                                }),
+                            });
+                        }
                     }
                     out
                 } else {
@@ -877,6 +1108,20 @@ impl AnthropicEventConverter {
                         }
                         if let Some(idx) = event.index {
                             vec![Self::vercel_text_start_event(idx)]
+                        } else {
+                            vec![]
+                        }
+                    }
+                    "compaction" => {
+                        if let Some(idx) = event.index {
+                            vec![ChatStreamEvent::Part {
+                                part: ChatStreamPart::TextStart {
+                                    id: idx.to_string(),
+                                    provider_metadata: Some(
+                                        Self::anthropic_compaction_provider_metadata(idx),
+                                    ),
+                                },
+                            }]
                         } else {
                             vec![]
                         }
@@ -934,6 +1179,7 @@ impl AnthropicEventConverter {
                             .and_then(|v| v.as_str())
                             .unwrap_or("")
                             .to_string();
+                        let caller = content_block.get("caller").cloned();
 
                         if tool_call_id.is_empty() || tool_name.is_empty() {
                             return vec![];
@@ -945,6 +1191,9 @@ impl AnthropicEventConverter {
                             map.insert(idx, tool_call_id.clone());
                         }
                         self.record_tool_name(&tool_call_id, &tool_name);
+                        if let Some(caller) = caller.as_ref() {
+                            self.record_tool_caller(&tool_call_id, caller);
+                        }
 
                         let initial_input = Self::encode_non_empty_json(content_block.get("input"));
                         self.set_tool_input_json(
@@ -1029,6 +1278,7 @@ impl AnthropicEventConverter {
                             server_tools::normalize_server_tool_name(&tool_name_raw).to_string();
                         let input =
                             server_tools::normalize_server_tool_input(&tool_name_raw, input);
+                        let dynamic = self.dynamic_code_execution_flag(&tool_name_raw);
 
                         if let Some(idx) = event.index
                             && let Ok(mut map) = self.tool_use_ids_by_index.lock()
@@ -1062,7 +1312,7 @@ impl AnthropicEventConverter {
                                 tool_name,
                                 provider_metadata: provider_metadata.clone(),
                                 provider_executed: Some(true),
-                                dynamic: None,
+                                dynamic,
                                 title: None,
                             },
                         }];
@@ -1239,7 +1489,7 @@ impl AnthropicEventConverter {
                             && let Some(arr) =
                                 content_block.get("content").and_then(|v| v.as_array())
                         {
-                            for (i, item) in arr.iter().enumerate() {
+                            for item in arr {
                                 let Some(obj) = item.as_object() else {
                                     continue;
                                 };
@@ -1250,9 +1500,10 @@ impl AnthropicEventConverter {
                                 let page_age = obj.get("page_age").and_then(|v| v.as_str());
                                 let encrypted_content =
                                     obj.get("encrypted_content").and_then(|v| v.as_str());
+                                let source_id = self.next_source_id();
 
                                 self.record_source(AnthropicSource {
-                                    id: format!("{tool_call_id}:{i}"),
+                                    id: source_id.clone(),
                                     source_type: "url".to_string(),
                                     url: Some(url.to_string()),
                                     title: title.map(|s| s.to_string()),
@@ -1266,7 +1517,7 @@ impl AnthropicEventConverter {
 
                                 events.push(ChatStreamEvent::Part {
                                     part: ChatStreamPart::Source {
-                                        id: format!("{tool_call_id}:{i}"),
+                                        id: source_id,
                                         source: SourcePart::Url {
                                             url: url.to_string(),
                                             title: title.map(ToOwned::to_owned),
@@ -1275,8 +1526,6 @@ impl AnthropicEventConverter {
                                             Self::anthropic_stream_provider_metadata(
                                                 serde_json::json!({
                                                     "pageAge": page_age,
-                                                    "encryptedContent": encrypted_content,
-                                                    "toolCallId": tool_call_id,
                                                 }),
                                             ),
                                         ),
@@ -1329,6 +1578,25 @@ impl AnthropicEventConverter {
                                     });
                                 } else {
                                     builder = builder.add_thinking_delta(thinking);
+                                }
+                            }
+                        }
+                        Some("compaction_delta") => {
+                            if let Some(content) = delta.content
+                                && let Some(idx) = event.index
+                            {
+                                self.append_text_content(idx, &content);
+                                if self.get_content_block_type(idx).as_deref() == Some("compaction")
+                                {
+                                    builder = builder.add_part(ChatStreamPart::TextDelta {
+                                        id: idx.to_string(),
+                                        delta: content,
+                                        provider_metadata: Some(
+                                            Self::anthropic_compaction_provider_metadata(idx),
+                                        ),
+                                    });
+                                } else {
+                                    builder = builder.add_content_delta(content, None);
                                 }
                             }
                         }
@@ -1392,11 +1660,7 @@ impl AnthropicEventConverter {
                                             .map(|s| s.to_string())
                                             .unwrap_or_else(|| doc.title.clone());
 
-                                        let id = format!(
-                                            "doc:{doc_index}:page:{}-{}",
-                                            start_page.unwrap_or(0),
-                                            end_page.unwrap_or(0)
-                                        );
+                                        let id = self.next_source_id();
 
                                         builder = builder.add_part(ChatStreamPart::Source {
                                             id: id.clone(),
@@ -1459,11 +1723,7 @@ impl AnthropicEventConverter {
                                             .map(|s| s.to_string())
                                             .unwrap_or_else(|| doc.title.clone());
 
-                                        let id = format!(
-                                            "doc:{doc_index}:char:{}-{}",
-                                            start_char.unwrap_or(0),
-                                            end_char.unwrap_or(0)
-                                        );
+                                        let id = self.next_source_id();
 
                                         builder = builder.add_part(ChatStreamPart::Source {
                                             id: id.clone(),
@@ -1627,6 +1887,14 @@ impl AnthropicEventConverter {
                             vec![Self::vercel_text_end_event(idx)]
                         }
                     }
+                    Some("compaction") => vec![ChatStreamEvent::Part {
+                        part: ChatStreamPart::TextEnd {
+                            id: idx.to_string(),
+                            provider_metadata: Some(Self::anthropic_compaction_provider_metadata(
+                                idx,
+                            )),
+                        },
+                    }],
                     Some("tool_use") => {
                         let Some(tool_call_id) = self
                             .tool_use_ids_by_index
@@ -1644,14 +1912,20 @@ impl AnthropicEventConverter {
                             .take_tool_input_json(&tool_call_id)
                             .filter(|value| !value.is_empty())
                             .unwrap_or_else(|| "{}".to_string());
-                        let provider_metadata =
+                        let tool_caller = self.tool_caller_for_id(&tool_call_id);
+                        let block_provider_metadata =
                             Some(Self::anthropic_content_block_provider_metadata(idx));
+                        let tool_call_provider_metadata =
+                            Self::anthropic_tool_call_provider_metadata(
+                                Some(idx),
+                                tool_caller.as_ref(),
+                            );
 
                         vec![
                             ChatStreamEvent::Part {
                                 part: ChatStreamPart::ToolInputEnd {
                                     id: tool_call_id.clone(),
-                                    provider_metadata: provider_metadata.clone(),
+                                    provider_metadata: block_provider_metadata,
                                 },
                             },
                             ChatStreamEvent::Part {
@@ -1661,7 +1935,7 @@ impl AnthropicEventConverter {
                                     input,
                                     provider_executed: None,
                                     dynamic: None,
-                                    provider_metadata,
+                                    provider_metadata: tool_call_provider_metadata,
                                 }),
                             },
                         ]
@@ -1684,6 +1958,9 @@ impl AnthropicEventConverter {
                             .filter(|value| !value.is_empty())
                             .unwrap_or_else(|| "{}".to_string());
                         let raw_server_tool_name = self.server_tool_name_for_id(&tool_call_id);
+                        let dynamic = raw_server_tool_name
+                            .as_deref()
+                            .and_then(|name| self.dynamic_code_execution_flag(name));
                         let provider_metadata =
                             Self::anthropic_content_block_provider_metadata_with(
                                 Some(idx),
@@ -1713,7 +1990,7 @@ impl AnthropicEventConverter {
                                     tool_name,
                                     input,
                                     provider_executed: Some(true),
-                                    dynamic: None,
+                                    dynamic,
                                     provider_metadata,
                                 }),
                             },
@@ -1784,16 +2061,20 @@ impl AnthropicEventConverter {
                     *v = Some(cm.clone());
                 }
 
+                if let Ok(mut v) = self.vercel_container.lock() {
+                    *v = event.delta.as_ref().and_then(|d| d.container.clone());
+                }
+
+                if let Some(delta) = &event.delta
+                    && let Ok(mut v) = self.vercel_stop_sequence.lock()
+                {
+                    *v = delta.stop_sequence.clone();
+                }
+
                 // Finish reason -> StreamEnd
                 if let Some(delta) = &event.delta
                     && let Some(stop_reason) = &delta.stop_reason
                 {
-                    if let Some(container) = &delta.container
-                        && let Ok(mut v) = self.vercel_container.lock()
-                    {
-                        *v = Some(container.clone());
-                    }
-
                     let reason = match stop_reason.as_str() {
                         "end_turn" => FinishReason::Stop,
                         "max_tokens" => FinishReason::Length,
@@ -1808,13 +2089,6 @@ impl AnthropicEventConverter {
                         "refusal" => FinishReason::ContentFilter,
                         _ => FinishReason::Stop,
                     };
-
-                    if let Some(stop_sequence) = &delta.stop_sequence
-                        && !stop_sequence.is_empty()
-                        && let Ok(mut v) = self.vercel_stop_sequence.lock()
-                    {
-                        *v = Some(stop_sequence.clone());
-                    }
 
                     if self.state_tracker.needs_stream_end() {
                         if let ChatStreamEvent::Part { part } =
@@ -1873,41 +2147,83 @@ impl SseEventConverter for AnthropicEventConverter {
                 self.seen_error.store(true, Ordering::Relaxed);
             }
 
-            // Try to parse as standard Anthropic event
-            match serde_json::from_str::<AnthropicStreamEvent>(&event.data) {
-                Ok(anthropic_event) => self
-                    .convert_anthropic_event(anthropic_event)
-                    .into_iter()
-                    .map(Ok)
-                    .collect(),
+            match serde_json::from_str::<serde_json::Value>(&event.data) {
+                Ok(raw_json) => {
+                    match serde_json::from_value::<AnthropicStreamEvent>(raw_json.clone()) {
+                        Ok(anthropic_event) => self
+                            .inject_raw_chunk(
+                                self.convert_anthropic_event(anthropic_event),
+                                raw_json,
+                            )
+                            .into_iter()
+                            .map(Ok)
+                            .collect(),
+                        Err(e) => {
+                            tracing::warn!("Failed to parse Anthropic SSE event: {}", e);
+                            tracing::warn!("Raw event data: {}", event.data);
+                            tracing::warn!("Event parsed as generic JSON: {:#}", raw_json);
+
+                            if let Some(error_obj) = raw_json.get("error") {
+                                let error_message = error_obj
+                                    .get("message")
+                                    .and_then(|m| m.as_str())
+                                    .unwrap_or("Unknown error");
+
+                                self.seen_error.store(true, Ordering::Relaxed);
+                                let mut events = Vec::new();
+                                self.append_stream_start_events(
+                                    &mut events,
+                                    self.fallback_stream_start_metadata(),
+                                );
+                                events.push(ChatStreamEvent::Error {
+                                    error: format!("Anthropic API error: {}", error_message),
+                                });
+                                return self
+                                    .inject_raw_chunk(events, raw_json)
+                                    .into_iter()
+                                    .map(Ok)
+                                    .collect();
+                            }
+
+                            let mut events = Vec::new();
+                            self.append_stream_start_events(
+                                &mut events,
+                                self.fallback_stream_start_metadata(),
+                            );
+
+                            let mut out: Vec<Result<ChatStreamEvent, LlmError>> = self
+                                .inject_raw_chunk(events, raw_json)
+                                .into_iter()
+                                .map(Ok)
+                                .collect();
+                            out.push(Err(LlmError::ParseError(format!(
+                                "Failed to parse Anthropic event: {}. Raw data: {}",
+                                e, event.data
+                            ))));
+                            out
+                        }
+                    }
+                }
                 Err(e) => {
-                    // Enhanced error reporting with event data
                     tracing::warn!("Failed to parse Anthropic SSE event: {}", e);
                     tracing::warn!("Raw event data: {}", event.data);
 
-                    // Try to parse as a generic JSON to see if it's a different format
-                    if let Ok(generic_json) = serde_json::from_str::<serde_json::Value>(&event.data)
-                    {
-                        tracing::warn!("Event parsed as generic JSON: {:#}", generic_json);
+                    let mut events = Vec::new();
+                    self.append_stream_start_events(
+                        &mut events,
+                        self.fallback_stream_start_metadata(),
+                    );
 
-                        // Check if this looks like an error response
-                        if let Some(error_obj) = generic_json.get("error") {
-                            let error_message = error_obj
-                                .get("message")
-                                .and_then(|m| m.as_str())
-                                .unwrap_or("Unknown error");
-
-                            self.seen_error.store(true, Ordering::Relaxed);
-                            return vec![Ok(ChatStreamEvent::Error {
-                                error: format!("Anthropic API error: {}", error_message),
-                            })];
-                        }
-                    }
-
-                    vec![Err(LlmError::ParseError(format!(
+                    let mut out: Vec<Result<ChatStreamEvent, LlmError>> = self
+                        .inject_raw_chunk(events, serde_json::Value::String(event.data.clone()))
+                        .into_iter()
+                        .map(Ok)
+                        .collect();
+                    out.push(Err(LlmError::ParseError(format!(
                         "Failed to parse Anthropic event: {}. Raw data: {}",
                         e, event.data
-                    )))]
+                    ))));
+                    out
                 }
             }
         })

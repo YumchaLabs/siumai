@@ -4,6 +4,9 @@
 //! Inspired by Cherry Studio's provider configuration system.
 
 use crate::providers::openai_compatible::ProviderAdapter;
+use crate::providers::openai_compatible::fireworks as fireworks_models;
+use crate::providers::openai_compatible::mistral as mistral_models;
+use crate::providers::openai_compatible::perplexity as perplexity_models;
 use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
 };
@@ -94,10 +97,29 @@ fn build_builtin_provider_family_defaults() -> HashMap<&'static str, ProviderFam
             .with_transcription("openai/whisper-large-v3"),
     );
     defaults.insert(
+        "togetherai",
+        ProviderFamilyDefaults::new()
+            .with_embedding("togethercomputer/m2-bert-80M-8k-retrieval")
+            .with_image("black-forest-labs/FLUX.1-schnell")
+            .with_speech("cartesia/sonic-2")
+            .with_transcription("openai/whisper-large-v3"),
+    );
+    defaults.insert(
+        "deepinfra",
+        ProviderFamilyDefaults::new()
+            .with_embedding("BAAI/bge-base-en-v1.5")
+            .with_image("black-forest-labs/FLUX-1-schnell"),
+    );
+    defaults.insert(
         "fireworks",
         ProviderFamilyDefaults::new()
-            .with_embedding("nomic-ai/nomic-embed-text-v1.5")
+            .with_embedding(fireworks_models::EMBEDDING)
+            .with_image(fireworks_models::IMAGE)
             .with_transcription("whisper-v3"),
+    );
+    defaults.insert(
+        "mistral",
+        ProviderFamilyDefaults::new().with_embedding(mistral_models::EMBEDDING),
     );
     defaults.insert(
         "jina",
@@ -247,8 +269,10 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             name: "Together AI".to_string(),
             base_url: "https://api.together.xyz/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
-            // Together documents OpenAI-style `/embeddings` and `/images/generations` endpoints.
+            // Together documents OpenAI-style `/completions`, `/embeddings`, and
+            // `/images/generations` endpoints.
             capabilities: vec![
+                "completion".to_string(),
                 "tools".to_string(),
                 "vision".to_string(),
                 "embedding".to_string(),
@@ -260,7 +284,51 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             ],
             default_model: Some("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo".to_string()),
             supports_reasoning: false,
-            api_key_env: None,
+            api_key_env: Some("TOGETHER_API_KEY".to_string()),
+            api_key_env_aliases: vec!["TOGETHER_AI_API_KEY".to_string()],
+        },
+    );
+    providers.insert(
+        "togetherai".to_string(),
+        ProviderConfig {
+            id: "togetherai".to_string(),
+            name: "TogetherAI".to_string(),
+            base_url: "https://api.together.xyz/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "completion".to_string(),
+                "tools".to_string(),
+                "vision".to_string(),
+                "embedding".to_string(),
+                "image_generation".to_string(),
+                "speech".to_string(),
+                "transcription".to_string(),
+            ],
+            default_model: Some("meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo".to_string()),
+            supports_reasoning: false,
+            api_key_env: Some("TOGETHER_API_KEY".to_string()),
+            api_key_env_aliases: vec!["TOGETHER_AI_API_KEY".to_string()],
+        },
+    );
+
+    // DeepInfra - OpenAI-compatible chat/completion/embedding surface with provider-owned image
+    // routes
+    providers.insert(
+        "deepinfra".to_string(),
+        ProviderConfig {
+            id: "deepinfra".to_string(),
+            name: "DeepInfra".to_string(),
+            base_url: "https://api.deepinfra.com/v1/openai".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "completion".to_string(),
+                "tools".to_string(),
+                "vision".to_string(),
+                "embedding".to_string(),
+            ],
+            default_model: Some("meta-llama/Llama-3.3-70B-Instruct".to_string()),
+            supports_reasoning: false,
+            api_key_env: Some("DEEPINFRA_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );
@@ -278,12 +346,13 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             // for OpenAI-style `/audio/transcriptions`, so we enroll transcription only.
             // Note: `/responses` is documented but currently out-of-scope for Siumai's compat preset.
             capabilities: vec![
+                "completion".to_string(),
                 "tools".to_string(),
                 "vision".to_string(),
                 "embedding".to_string(),
                 "transcription".to_string(),
             ],
-            default_model: Some("accounts/fireworks/models/llama-v3p1-8b-instruct".to_string()),
+            default_model: Some(fireworks_models::CHAT.to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),
@@ -315,7 +384,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             base_url: "https://api.perplexity.ai".to_string(),
             field_mappings: ProviderFieldMappings::default(),
             capabilities: vec!["tools".to_string()],
-            default_model: Some("llama-3.1-sonar-small-128k-online".to_string()),
+            default_model: Some(perplexity_models::CHAT.to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),
@@ -334,7 +403,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
             capabilities: vec!["tools".to_string()],
             default_model: Some("llama-3.3-70b-versatile".to_string()),
             supports_reasoning: false,
-            api_key_env: None,
+            api_key_env: Some("GROQ_API_KEY".to_string()),
             api_key_env_aliases: Vec::new(),
         },
     );
@@ -395,7 +464,7 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
                 "vision".to_string(),
                 "embedding".to_string(),
             ],
-            default_model: Some("mistral-large-latest".to_string()),
+            default_model: Some(mistral_models::CHAT.to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),
@@ -436,22 +505,26 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
         },
     );
 
-    // Moonshot AI - Chinese AI with long context
-    // Reference: https://platform.moonshot.cn/docs/intro
-    providers.insert(
-        "moonshot".to_string(),
-        ProviderConfig {
-            id: "moonshot".to_string(),
-            name: "Moonshot AI".to_string(),
-            base_url: "https://api.moonshot.cn/v1".to_string(),
-            field_mappings: ProviderFieldMappings::default(),
-            capabilities: vec!["tools".to_string(), "vision".to_string()],
-            default_model: Some("kimi-k2-0905-preview".to_string()), // Updated to latest K2 model
-            supports_reasoning: false,
-            api_key_env: None,
-            api_key_env_aliases: Vec::new(),
-        },
-    );
+    // Moonshot AI - AI SDK package-aligned chat/language-model surface
+    // Reference: repo-ref/ai/packages/moonshotai
+    let moonshotai = ProviderConfig {
+        id: "moonshotai".to_string(),
+        name: "Moonshot AI".to_string(),
+        base_url: "https://api.moonshot.ai/v1".to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec![
+            "tools".to_string(),
+            "vision".to_string(),
+            "reasoning".to_string(),
+        ],
+        default_model: Some("kimi-k2-0905".to_string()),
+        supports_reasoning: true,
+        api_key_env: Some("MOONSHOT_API_KEY".to_string()),
+        api_key_env_aliases: Vec::new(),
+    };
+    providers.insert("moonshotai".to_string(), moonshotai.clone());
+    // Hidden compatibility alias kept during migration from the older pre-package id.
+    providers.insert("moonshot".to_string(), moonshotai);
 
     // Baichuan AI - Chinese AI
     providers.insert(
@@ -638,6 +711,29 @@ fn build_builtin_providers() -> HashMap<String, ProviderConfig> {
                 "embedding".to_string(),
             ],
             default_model: Some("deepseek-chat".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        },
+    );
+
+    // Google Vertex MaaS - OpenAI-compatible partner/open-model endpoint
+    providers.insert(
+        "vertex-maas".to_string(),
+        ProviderConfig {
+            id: "vertex-maas".to_string(),
+            name: "Vertex MaaS".to_string(),
+            // Real builds should override this with project/location derived URLs.
+            base_url:
+                "https://aiplatform.googleapis.com/v1/projects/PROJECT/locations/global/endpoints/openapi"
+                    .to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "tools".to_string(),
+                "vision".to_string(),
+                "embedding".to_string(),
+            ],
+            default_model: Some("deepseek-ai/deepseek-v3.2-maas".to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: Vec::new(),
@@ -852,9 +948,17 @@ pub(crate) fn get_provider_config_ref(provider_id: &str) -> Option<&'static Prov
     get_builtin_provider_map().get(provider_id)
 }
 
+pub(crate) fn is_hidden_compat_alias(provider_id: &str) -> bool {
+    matches!(provider_id, "together" | "moonshot")
+}
+
 /// List all available provider IDs
 pub fn list_provider_ids() -> Vec<String> {
-    get_builtin_provider_map().keys().cloned().collect()
+    get_builtin_provider_map()
+        .keys()
+        .filter(|provider_id| !is_hidden_compat_alias(provider_id))
+        .cloned()
+        .collect()
 }
 
 /// Check if a provider supports a specific capability
@@ -879,8 +983,11 @@ mod tests {
         // Should have all major providers
         assert!(providers.contains_key("deepseek"));
         assert!(providers.contains_key("openrouter"));
-        assert!(providers.contains_key("together"));
+        assert!(providers.contains_key("togetherai"));
+        assert!(providers.contains_key("deepinfra"));
+        assert!(providers.contains_key("vertex-maas"));
         assert!(providers.contains_key("fireworks"));
+        assert!(providers.contains_key("moonshotai"));
 
         // DeepSeek should support reasoning
         let deepseek = providers.get("deepseek").unwrap();
@@ -917,12 +1024,32 @@ mod tests {
         assert!(provider_supports_capability("siliconflow", "speech"));
         assert!(provider_supports_capability("siliconflow", "transcription"));
         assert!(provider_supports_capability("siliconflow", "audio"));
-        assert!(provider_supports_capability("together", "embedding"));
-        assert!(provider_supports_capability("together", "image_generation"));
-        assert!(provider_supports_capability("together", "speech"));
-        assert!(provider_supports_capability("together", "transcription"));
-        assert!(provider_supports_capability("together", "audio"));
+        assert!(provider_supports_capability("togetherai", "embedding"));
+        assert!(provider_supports_capability("togetherai", "completion"));
+        assert!(provider_supports_capability(
+            "togetherai",
+            "image_generation"
+        ));
+        assert!(provider_supports_capability("togetherai", "speech"));
+        assert!(provider_supports_capability("togetherai", "transcription"));
+        assert!(provider_supports_capability("togetherai", "audio"));
+        assert!(provider_supports_capability("deepinfra", "embedding"));
+        assert!(provider_supports_capability("deepinfra", "completion"));
+        assert!(!provider_supports_capability(
+            "deepinfra",
+            "image_generation"
+        ));
+        assert!(provider_supports_capability("moonshotai", "reasoning"));
+        assert!(!provider_supports_capability("moonshotai", "completion"));
+        assert!(provider_supports_capability("vertex-maas", "embedding"));
+        assert!(!provider_supports_capability(
+            "vertex-maas",
+            "image_generation"
+        ));
         assert!(provider_supports_capability("mistral", "embedding"));
+        assert!(!provider_supports_capability("mistral", "completion"));
+        assert!(!provider_supports_capability("perplexity", "completion"));
+        assert!(provider_supports_capability("fireworks", "completion"));
         assert!(!provider_supports_capability("groq", "vision"));
         assert!(!provider_supports_capability("openrouter", "speech"));
         assert!(!provider_supports_capability("openrouter", "transcription"));
@@ -942,7 +1069,68 @@ mod tests {
         assert_eq!(config.name, "DeepSeek");
         assert_eq!(config.base_url, "https://api.deepseek.com");
 
+        let config = get_provider_config("deepinfra").unwrap();
+        assert_eq!(config.id, "deepinfra");
+        assert_eq!(config.name, "DeepInfra");
+        assert_eq!(config.base_url, "https://api.deepinfra.com/v1/openai");
+        assert_eq!(config.api_key_env.as_deref(), Some("DEEPINFRA_API_KEY"));
+
+        let config = get_provider_config("togetherai").unwrap();
+        assert_eq!(config.id, "togetherai");
+        assert_eq!(config.api_key_env.as_deref(), Some("TOGETHER_API_KEY"));
+        assert_eq!(
+            config.api_key_env_aliases,
+            vec!["TOGETHER_AI_API_KEY".to_string()]
+        );
+
+        let config = get_provider_config("moonshotai").unwrap();
+        assert_eq!(config.id, "moonshotai");
+        assert_eq!(config.base_url, "https://api.moonshot.ai/v1");
+        assert_eq!(config.api_key_env.as_deref(), Some("MOONSHOT_API_KEY"));
+
+        let config = get_provider_config("groq").unwrap();
+        assert_eq!(config.id, "groq");
+        assert_eq!(config.base_url, "https://api.groq.com/openai/v1");
+        assert_eq!(config.api_key_env.as_deref(), Some("GROQ_API_KEY"));
+
         assert!(get_provider_config("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_moonshotai_canonical_id_hides_legacy_alias() {
+        let provider_ids = list_provider_ids();
+        assert!(
+            provider_ids
+                .iter()
+                .any(|provider_id| provider_id == "moonshotai")
+        );
+        assert!(
+            !provider_ids
+                .iter()
+                .any(|provider_id| provider_id == "moonshot")
+        );
+
+        let canonical = get_provider_config("moonshotai").expect("moonshotai provider config");
+        let alias = get_provider_config("moonshot").expect("moonshot alias provider config");
+
+        assert_eq!(canonical.id, "moonshotai");
+        assert_eq!(alias.id, "moonshotai");
+        assert_eq!(alias.base_url, canonical.base_url);
+        assert_eq!(alias.default_model, canonical.default_model);
+        assert!(provider_supports_capability("moonshotai", "reasoning"));
+        assert!(!provider_supports_capability("moonshotai", "completion"));
+    }
+
+    #[test]
+    fn test_completion_capable_hybrid_presets_keep_explicit_completion_metadata() {
+        for provider_id in ["together", "togetherai", "deepinfra", "fireworks"] {
+            let config = get_provider_config(provider_id)
+                .unwrap_or_else(|| panic!("missing provider config for {provider_id}"));
+            assert!(
+                config.capabilities.iter().any(|cap| cap == "completion"),
+                "expected {provider_id} compat preset metadata to advertise completion explicitly"
+            );
+        }
     }
 
     #[test]
@@ -969,28 +1157,46 @@ mod tests {
             Some("FunAudioLLM/SenseVoiceSmall")
         );
 
-        let together = get_provider_family_defaults_ref("together").expect("together defaults");
+        let togetherai =
+            get_provider_family_defaults_ref("togetherai").expect("togetherai defaults");
         assert_eq!(
-            together.embedding_model,
+            togetherai.embedding_model,
             Some("togethercomputer/m2-bert-80M-8k-retrieval")
         );
         assert_eq!(
-            together.image_model,
+            togetherai.image_model,
             Some("black-forest-labs/FLUX.1-schnell")
         );
-        assert_eq!(together.speech_model, Some("cartesia/sonic-2"));
+        assert_eq!(togetherai.speech_model, Some("cartesia/sonic-2"));
         assert_eq!(
-            together.transcription_model,
+            togetherai.transcription_model,
             Some("openai/whisper-large-v3")
         );
+
+        let deepinfra = get_provider_family_defaults_ref("deepinfra").expect("deepinfra defaults");
+        assert_eq!(deepinfra.embedding_model, Some("BAAI/bge-base-en-v1.5"));
+        assert_eq!(
+            deepinfra.image_model,
+            Some("black-forest-labs/FLUX-1-schnell")
+        );
+        assert_eq!(deepinfra.speech_model, None);
+        assert_eq!(deepinfra.transcription_model, None);
 
         let fireworks = get_provider_family_defaults_ref("fireworks").expect("fireworks defaults");
         assert_eq!(
             fireworks.embedding_model,
             Some("nomic-ai/nomic-embed-text-v1.5")
         );
+        assert_eq!(
+            fireworks.image_model,
+            Some("accounts/fireworks/models/flux-1-dev-fp8")
+        );
         assert_eq!(fireworks.transcription_model, Some("whisper-v3"));
         assert_eq!(fireworks.speech_model, None);
+
+        let mistral = get_provider_family_defaults_ref("mistral").expect("mistral defaults");
+        assert_eq!(mistral.embedding_model, Some("mistral-embed"));
+        assert_eq!(mistral.image_model, None);
 
         assert_eq!(
             get_default_embedding_model("infini"),

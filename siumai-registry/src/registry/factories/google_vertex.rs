@@ -41,28 +41,32 @@ impl GoogleVertexProviderFactory {
         } else if api_key.is_some() {
             crate::utils::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL.to_string()
         } else {
-            let project = std::env::var("GOOGLE_VERTEX_PROJECT").ok().and_then(|v| {
-                let trimmed = v.trim().to_string();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed)
-                }
+            let project = ctx.project.clone().or_else(|| {
+                std::env::var("GOOGLE_VERTEX_PROJECT").ok().and_then(|v| {
+                    let trimmed = v.trim().to_string();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed)
+                    }
+                })
             });
-            let location = std::env::var("GOOGLE_VERTEX_LOCATION").ok().and_then(|v| {
-                let trimmed = v.trim().to_string();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed)
-                }
+            let location = ctx.location.clone().or_else(|| {
+                std::env::var("GOOGLE_VERTEX_LOCATION").ok().and_then(|v| {
+                    let trimmed = v.trim().to_string();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed)
+                    }
+                })
             });
 
             let (project, location) = match (project, location) {
                 (Some(p), Some(l)) => (p, l),
                 _ => {
                     return Err(LlmError::ConfigurationError(
-                        "Google Vertex requires `base_url`, `api_key` (express mode), or env vars GOOGLE_VERTEX_PROJECT + GOOGLE_VERTEX_LOCATION".to_string(),
+                        "Google Vertex requires `base_url`, `api_key` (express mode), explicit project+location, or env vars GOOGLE_VERTEX_PROJECT + GOOGLE_VERTEX_LOCATION".to_string(),
                     ))
                 }
             };

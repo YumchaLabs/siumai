@@ -225,6 +225,41 @@ impl XaiVideoOptions {
     }
 }
 
+/// xAI file-upload specific options.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct XaiFilesOptions {
+    /// Team identifier forwarded as `team_id` on the xAI multipart upload endpoint.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "teamId")]
+    pub team_id: Option<String>,
+    /// Optional provider-native file path hint.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "filePath")]
+    pub file_path: Option<String>,
+    /// Forward-compatible provider-owned escape hatch for newly introduced fields.
+    #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
+    pub extra_fields: HashMap<String, serde_json::Value>,
+}
+
+impl XaiFilesOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_team_id(mut self, team_id: impl Into<String>) -> Self {
+        self.team_id = Some(team_id.into());
+        self
+    }
+
+    pub fn with_file_path(mut self, file_path: impl Into<String>) -> Self {
+        self.file_path = Some(file_path.into());
+        self
+    }
+
+    pub fn with_extra_field(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.extra_fields.insert(key.into(), value);
+        self
+    }
+}
+
 /// xAI chat-completions specific options.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct XaiChatOptions {
@@ -375,6 +410,34 @@ impl XaiResponsesOptions {
 
 /// Backward-compatible alias for the native xAI chat options surface.
 pub type XaiOptions = XaiChatOptions;
+
+/// AI SDK-style alias for xAI chat language-model options.
+pub type XaiLanguageModelChatOptions = XaiChatOptions;
+
+/// Deprecated AI SDK compatibility alias for xAI chat options.
+#[deprecated(note = "Use `XaiLanguageModelChatOptions` instead.")]
+pub type XaiProviderOptions = XaiLanguageModelChatOptions;
+
+/// AI SDK-style alias for xAI Responses options.
+pub type XaiLanguageModelResponsesOptions = XaiResponsesOptions;
+
+/// Deprecated AI SDK compatibility alias for xAI Responses options.
+#[deprecated(note = "Use `XaiLanguageModelResponsesOptions` instead.")]
+pub type XaiResponsesProviderOptions = XaiLanguageModelResponsesOptions;
+
+/// AI SDK-style alias for xAI image-model options.
+pub type XaiImageModelOptions = XaiImageOptions;
+
+/// Deprecated AI SDK compatibility alias for xAI image options.
+#[deprecated(note = "Use `XaiImageModelOptions` instead.")]
+pub type XaiImageProviderOptions = XaiImageModelOptions;
+
+/// AI SDK-style alias for xAI video-model options.
+pub type XaiVideoModelOptions = XaiVideoOptions;
+
+/// Deprecated AI SDK compatibility alias for xAI video options.
+#[deprecated(note = "Use `XaiVideoModelOptions` instead.")]
+pub type XaiVideoProviderOptions = XaiVideoModelOptions;
 
 /// xAI text-to-speech specific options.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -855,6 +918,38 @@ mod tests {
         assert_eq!(
             options.extra_fields.get("style"),
             Some(&serde_json::json!("cinematic"))
+        );
+    }
+
+    #[test]
+    fn xai_files_options_serialize_aliases_and_passthrough() {
+        let value = serde_json::to_value(
+            XaiFilesOptions::new()
+                .with_team_id("team-123")
+                .with_file_path("/uploads/demo.txt")
+                .with_extra_field("retention_days", serde_json::json!(7)),
+        )
+        .expect("serialize xai files options");
+
+        assert_eq!(value["team_id"], serde_json::json!("team-123"));
+        assert_eq!(value["file_path"], serde_json::json!("/uploads/demo.txt"));
+        assert_eq!(value["retention_days"], serde_json::json!(7));
+    }
+
+    #[test]
+    fn xai_files_options_deserialize_camel_case_aliases() {
+        let options: XaiFilesOptions = serde_json::from_value(serde_json::json!({
+            "teamId": "team-123",
+            "filePath": "/uploads/demo.txt",
+            "custom": true
+        }))
+        .expect("deserialize xai files options");
+
+        assert_eq!(options.team_id.as_deref(), Some("team-123"));
+        assert_eq!(options.file_path.as_deref(), Some("/uploads/demo.txt"));
+        assert_eq!(
+            options.extra_fields.get("custom"),
+            Some(&serde_json::json!(true))
         );
     }
 

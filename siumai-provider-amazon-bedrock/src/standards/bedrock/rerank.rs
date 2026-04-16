@@ -50,33 +50,7 @@ impl ProviderSpec for BedrockRerankSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            "application/json".parse().expect("static header"),
-        );
-
-        // NOTE: Bedrock normally requires AWS SigV4 signing (or bearer token auth).
-        // Users can inject signed headers via `ProviderContext.http_extra_headers`.
-        if let Some(api_key) = ctx.api_key.as_deref().filter(|v| !v.trim().is_empty()) {
-            headers.insert(
-                reqwest::header::AUTHORIZATION,
-                format!("Bearer {api_key}").parse().map_err(|e| {
-                    LlmError::ConfigurationError(format!("Invalid Bedrock bearer token: {e}"))
-                })?,
-            );
-        }
-
-        for (k, v) in &ctx.http_extra_headers {
-            if let (Ok(name), Ok(value)) = (
-                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                reqwest::header::HeaderValue::from_str(v),
-            ) {
-                headers.insert(name, value);
-            }
-        }
-
-        Ok(headers)
+        crate::standards::bedrock::headers::build_bedrock_json_headers(ctx)
     }
 
     fn classify_http_error(

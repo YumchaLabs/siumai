@@ -67,6 +67,38 @@ fn image_model_handle_implements_model_metadata() {
     assert_image_model(&handle);
 }
 
+#[test]
+fn image_model_handle_batching_defaults_follow_audited_provider_mapping() {
+    assert_eq!(
+        image_model_handle_max_images_per_call("openai", "gpt-image-1"),
+        Some(10)
+    );
+    assert_eq!(
+        image_model_handle_max_images_per_call("xai", "grok-2-image"),
+        Some(3)
+    );
+    assert_eq!(
+        image_model_handle_max_images_per_call("bedrock", "amazon.nova-canvas-v1:0"),
+        Some(5)
+    );
+    assert_eq!(
+        image_model_handle_max_images_per_call("deepinfra", "black-forest-labs/flux-1-schnell"),
+        Some(1)
+    );
+    assert_eq!(
+        image_model_handle_max_images_per_call("vertex", "gemini-2.5-flash-image"),
+        Some(10)
+    );
+    assert_eq!(
+        image_model_handle_max_images_per_call("vertex", "imagen-3.0-generate-002"),
+        Some(4)
+    );
+    assert_eq!(
+        image_model_handle_max_images_per_call("moonshotai", "kimi-k2-0711-preview"),
+        Some(10)
+    );
+}
+
 #[tokio::test]
 async fn provider_factory_image_family_bridge_works() {
     let factory = TestImageProviderFactory;

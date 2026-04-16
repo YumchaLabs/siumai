@@ -5,9 +5,8 @@
       "content": {
         "MultiModal": [
           {
-            "type": "file",
-            "data": "file-12345",
-            "media_type": "image/png"
+            "type": "image",
+            "data": "file-12345"
           },
           {
             "type": "file",

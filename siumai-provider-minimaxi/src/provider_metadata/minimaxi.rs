@@ -32,13 +32,12 @@ pub trait MinimaxiChatResponseExt {
 
 impl MinimaxiChatResponseExt for crate::types::ChatResponse {
     fn minimaxi_metadata(&self) -> Option<MinimaxiMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-
         let provider_metadata = self.provider_metadata.as_ref()?;
         let meta = provider_metadata
             .get("minimaxi")
-            .or_else(|| provider_metadata.get("anthropic"))?;
-        MinimaxiMetadata::from_metadata(meta)
+            .or_else(|| provider_metadata.get("anthropic"))?
+            .clone();
+        serde_json::from_value(meta).ok()
     }
 }
 
@@ -92,7 +91,10 @@ mod tests {
         inner.insert("thinking".to_string(), serde_json::json!("step by step"));
 
         let mut outer = HashMap::new();
-        outer.insert("minimaxi".to_string(), inner);
+        outer.insert(
+            "minimaxi".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.minimaxi_metadata().expect("minimaxi metadata");
@@ -110,7 +112,10 @@ mod tests {
         inner.insert("thinking".to_string(), serde_json::json!("legacy"));
 
         let mut outer = HashMap::new();
-        outer.insert("anthropic".to_string(), inner);
+        outer.insert(
+            "anthropic".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.minimaxi_metadata().expect("legacy minimaxi metadata");
@@ -124,6 +129,10 @@ mod tests {
             tool_name: "rollDie".to_string(),
             arguments: serde_json::json!({"player":"player1"}),
             provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "minimaxi".to_string(),
@@ -157,6 +166,10 @@ mod tests {
             tool_name: "rollDie".to_string(),
             arguments: serde_json::json!({"player":"player2"}),
             provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),

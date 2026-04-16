@@ -6,7 +6,7 @@
       "content": [
         {
           "type": "input_image",
-          "image_url": "data:image/png;base64,AAECAw=="
+          "image_url": "data:image/jpeg;base64,AAECAw=="
         }
       ]
     }

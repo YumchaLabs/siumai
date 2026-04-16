@@ -148,7 +148,7 @@ fn redacted_thinking_block(data: String) -> serde_json::Value {
     })
 }
 
-fn tool_use_block(
+pub(crate) fn tool_use_block(
     tool_call_id: &str,
     tool_name: &str,
     input: &serde_json::Value,
@@ -756,6 +756,13 @@ impl JsonResponseConverter for AnthropicMessagesJsonResponseConverter {
                     }
                 }
             }
+            #[cfg(feature = "structured-messages")]
+            crate::types::MessageContent::Json(value) => {
+                let text = serde_json::to_string(value).unwrap_or_default();
+                if !text.trim().is_empty() {
+                    content.push(text_block(text, projected_citations_fallback.take()));
+                }
+            }
         }
 
         let body = AnthropicMessageResponse {
@@ -804,6 +811,10 @@ mod tests {
             tool_name: "weather".to_string(),
             arguments: serde_json::json!({ "city": "Tokyo" }),
             provider_executed: None,
+            dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
             provider_options: crate::types::ProviderOptionsMap::default(),
             provider_metadata: Some(HashMap::from([(
                 "anthropic".to_string(),
@@ -846,7 +857,9 @@ mod tests {
         response.service_tier = Some("priority".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "anthropic".to_string(),
-            HashMap::from([("stopSequence".to_string(), serde_json::json!("</tool>"))]),
+            serde_json::json!({
+                "stopSequence": "</tool>"
+            }),
         )]));
 
         let mut out = Vec::new();
@@ -886,6 +899,10 @@ mod tests {
                 tool_name: "web_search".to_string(),
                 arguments: serde_json::json!({ "query": "rust bridge" }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -895,7 +912,11 @@ mod tests {
                 output: ToolResultOutput::json(serde_json::json!([
                     { "type": "web_search_result", "url": "https://www.rust-lang.org" }
                 ])),
+                input: None,
                 provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -904,6 +925,10 @@ mod tests {
                 tool_name: "echo".to_string(),
                 arguments: serde_json::json!({ "message": "hello" }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
@@ -919,7 +944,11 @@ mod tests {
                     text: "Tool echo: hello".to_string(),
                     provider_options: crate::types::ProviderOptionsMap::default(),
                 }]),
+                input: None,
                 provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -963,6 +992,10 @@ mod tests {
                 tool_name: "tool_search".to_string(),
                 arguments: serde_json::json!({ "pattern": "weather", "limit": 2 }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
@@ -978,7 +1011,11 @@ mod tests {
                 output: ToolResultOutput::json(serde_json::json!([
                     { "type": "tool_reference", "toolName": "get_weather" }
                 ])),
+                input: None,
                 provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1016,6 +1053,10 @@ mod tests {
                 tool_name: "web_search".to_string(),
                 arguments: serde_json::json!({ "query": "latest tech news" }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1031,7 +1072,11 @@ mod tests {
                         "encryptedContent": "secret"
                     }
                 ])),
+                input: None,
                 provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1069,6 +1114,10 @@ mod tests {
                     "type": "text_editor_code_execution"
                 }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
@@ -1084,7 +1133,11 @@ mod tests {
                     "type": "text_editor_code_execution_create_result",
                     "is_file_update": false
                 })),
+                input: None,
                 provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1095,6 +1148,10 @@ mod tests {
                     "type": "bash_code_execution"
                 }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: Some(HashMap::from([(
                     "anthropic".to_string(),
@@ -1112,7 +1169,11 @@ mod tests {
                     "stderr": "",
                     "return_code": 0
                 })),
+                input: None,
                 provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1150,6 +1211,10 @@ mod tests {
                 tool_name: "web_fetch".to_string(),
                 arguments: serde_json::json!({ "url": "https://example.com" }),
                 provider_executed: Some(true),
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1170,7 +1235,11 @@ mod tests {
                         }
                     }
                 })),
+                input: None,
                 provider_executed: Some(true),
+                dynamic: None,
+                preliminary: None,
+                title: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
             },
@@ -1211,41 +1280,35 @@ mod tests {
         response.service_tier = Some("standard".to_string());
         response.provider_metadata = Some(HashMap::from([(
             "anthropic".to_string(),
-            HashMap::from([
-                (
-                    "usage".to_string(),
-                    serde_json::json!({
-                        "input_tokens": 7,
-                        "output_tokens": 3,
-                        "cache_creation_input_tokens": 0,
-                        "cache_read_input_tokens": 0,
-                        "cache_creation": {
-                            "ephemeral_5m_input_tokens": 0,
-                            "ephemeral_1h_input_tokens": 0
-                        },
-                        "service_tier": "standard",
-                        "server_tool_use": {
-                            "web_search_requests": 2,
-                            "web_fetch_requests": 0
-                        }
-                    }),
-                ),
-                (
-                    "citations".to_string(),
-                    serde_json::json!([
-                        {
-                            "content_block_index": 4,
-                            "citations": [
-                                {
-                                    "type": "web_search_result_location",
-                                    "url": "https://example.com",
-                                    "title": "Example"
-                                }
-                            ]
-                        }
-                    ]),
-                ),
-            ]),
+            serde_json::json!({
+                "usage": {
+                    "input_tokens": 7,
+                    "output_tokens": 3,
+                    "cache_creation_input_tokens": 0,
+                    "cache_read_input_tokens": 0,
+                    "cache_creation": {
+                        "ephemeral_5m_input_tokens": 0,
+                        "ephemeral_1h_input_tokens": 0
+                    },
+                    "service_tier": "standard",
+                    "server_tool_use": {
+                        "web_search_requests": 2,
+                        "web_fetch_requests": 0
+                    }
+                },
+                "citations": [
+                    {
+                        "content_block_index": 4,
+                        "citations": [
+                            {
+                                "type": "web_search_result_location",
+                                "url": "https://example.com",
+                                "title": "Example"
+                            }
+                        ]
+                    }
+                ]
+            }),
         )]));
 
         let mut out = Vec::new();
@@ -1312,9 +1375,8 @@ mod tests {
         ]));
         response.provider_metadata = Some(HashMap::from([(
             "anthropic".to_string(),
-            HashMap::from([(
-                "container".to_string(),
-                serde_json::json!({
+            serde_json::json!({
+                "container": {
                     "id": "container_123",
                     "expiresAt": "2025-10-14T10:28:40.590791Z",
                     "skills": [
@@ -1324,8 +1386,8 @@ mod tests {
                             "version": "latest"
                         }
                     ]
-                }),
-            )]),
+                }
+            }),
         )]));
 
         let mut out = Vec::new();
@@ -1357,9 +1419,8 @@ mod tests {
         ]));
         response.provider_metadata = Some(HashMap::from([(
             "anthropic".to_string(),
-            HashMap::from([(
-                "contextManagement".to_string(),
-                serde_json::json!({
+            serde_json::json!({
+                "contextManagement": {
                     "appliedEdits": [
                         {
                             "type": "clear_tool_uses_20250919",
@@ -1367,8 +1428,8 @@ mod tests {
                             "clearedInputTokens": 1000
                         }
                     ]
-                }),
-            )]),
+                }
+            }),
         )]));
 
         let mut out = Vec::new();

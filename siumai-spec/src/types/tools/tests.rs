@@ -143,6 +143,32 @@ fn provider_defined_tool_with_args() {
 }
 
 #[test]
+fn provider_defined_tool_supports_deferred_results_roundtrip() {
+    let tool = ProviderDefinedTool::new("anthropic.web_search_20250305", "web_search")
+        .with_supports_deferred_results(true);
+    let value = serde_json::to_value(&tool).expect("serialize provider-defined tool");
+
+    assert_eq!(value["supportsDeferredResults"], serde_json::json!(true));
+
+    let roundtrip: ProviderDefinedTool =
+        serde_json::from_value(value).expect("deserialize provider-defined tool");
+    assert_eq!(roundtrip.supports_deferred_results, Some(true));
+}
+
+#[test]
+fn provider_defined_tool_deserializes_supports_deferred_results_alias() {
+    let tool: ProviderDefinedTool = serde_json::from_value(serde_json::json!({
+        "id": "anthropic.web_fetch_20250910",
+        "name": "web_fetch",
+        "args": {},
+        "supports_deferred_results": true
+    }))
+    .expect("deserialize provider-defined tool");
+
+    assert_eq!(tool.supports_deferred_results, Some(true));
+}
+
+#[test]
 fn provider_defined_tool_provider() {
     let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
     assert_eq!(tool.provider(), Some("openai"));
@@ -314,4 +340,119 @@ fn tool_enum_deserialization() {
         }
         _ => panic!("Expected ProviderDefined variant"),
     }
+}
+
+#[test]
+fn function_tool_deserializes_ai_sdk_input_and_output_schema_fields() {
+    let tool: Tool = serde_json::from_value(serde_json::json!({
+        "type": "function",
+        "name": "weather",
+        "description": "Get weather",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "city": { "type": "string" }
+            },
+            "required": ["city"]
+        },
+        "outputSchema": {
+            "type": "object",
+            "properties": {
+                "forecast": { "type": "string" }
+            },
+            "required": ["forecast"]
+        },
+        "inputExamples": [
+            {
+                "input": {
+                    "city": "Tokyo"
+                }
+            }
+        ]
+    }))
+    .expect("deserialize function tool");
+
+    let Tool::Function { function } = tool else {
+        panic!("expected Function variant");
+    };
+
+    assert_eq!(
+        function.input_schema(),
+        &serde_json::json!({
+            "type": "object",
+            "properties": {
+                "city": { "type": "string" }
+            },
+            "required": ["city"]
+        })
+    );
+    assert_eq!(
+        function.output_schema(),
+        Some(&serde_json::json!({
+            "type": "object",
+            "properties": {
+                "forecast": { "type": "string" }
+            },
+            "required": ["forecast"]
+        }))
+    );
+    assert_eq!(
+        function.input_examples,
+        Some(vec![serde_json::json!({
+            "input": {
+                "city": "Tokyo"
+            }
+        })])
+    );
+}
+
+#[test]
+fn function_tool_serializes_ai_sdk_input_schema_and_output_schema() {
+    let tool = Tool::function(
+        "weather",
+        "Get weather",
+        serde_json::json!({ "type": "object" }),
+    )
+    .with_output_schema(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "forecast": { "type": "string" }
+        }
+    }));
+
+    let value = serde_json::to_value(&tool).expect("serialize tool");
+
+    assert_eq!(
+        value["inputSchema"],
+        serde_json::json!({ "type": "object" })
+    );
+    assert!(value.get("parameters").is_none());
+    assert_eq!(
+        value["outputSchema"],
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "forecast": { "type": "string" }
+            }
+        })
+    );
+}
+
+#[test]
+fn function_tool_accessors_use_ai_sdk_schema_naming() {
+    let tool = Tool::function_with_output_schema(
+        "weather",
+        "Get weather",
+        serde_json::json!({ "type": "object" }),
+        serde_json::json!({ "type": "object", "title": "WeatherOutput" }),
+    );
+
+    assert_eq!(
+        tool.input_schema(),
+        Some(&serde_json::json!({ "type": "object" }))
+    );
+    assert_eq!(
+        tool.output_schema(),
+        Some(&serde_json::json!({ "type": "object", "title": "WeatherOutput" }))
+    );
 }

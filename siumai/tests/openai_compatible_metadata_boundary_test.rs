@@ -29,7 +29,7 @@ fn openrouter_typed_metadata_requires_openrouter_root_namespace() {
     );
     vendor_response.provider_metadata = Some(HashMap::from([(
         "openrouter".to_string(),
-        vendor_metadata.clone(),
+        serde_json::Value::Object(vendor_metadata.clone().into_iter().collect()),
     )]));
 
     let vendor_view = vendor_response
@@ -48,7 +48,7 @@ fn openrouter_typed_metadata_requires_openrouter_root_namespace() {
     let mut generic_response = ChatResponse::new(MessageContent::Text("ok".to_string()));
     generic_response.provider_metadata = Some(HashMap::from([(
         "openai_compatible".to_string(),
-        vendor_metadata,
+        serde_json::Value::Object(vendor_metadata.into_iter().collect()),
     )]));
 
     assert!(
@@ -84,7 +84,7 @@ fn perplexity_typed_metadata_requires_perplexity_root_namespace() {
     );
     vendor_response.provider_metadata = Some(HashMap::from([(
         "perplexity".to_string(),
-        vendor_metadata.clone(),
+        serde_json::Value::Object(vendor_metadata.clone().into_iter().collect()),
     )]));
 
     let vendor_view = vendor_response
@@ -106,7 +106,7 @@ fn perplexity_typed_metadata_requires_perplexity_root_namespace() {
     let mut generic_response = ChatResponse::new(MessageContent::Text("ok".to_string()));
     generic_response.provider_metadata = Some(HashMap::from([(
         "openai_compatible".to_string(),
-        vendor_metadata,
+        serde_json::Value::Object(vendor_metadata.into_iter().collect()),
     )]));
 
     assert!(

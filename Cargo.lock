@@ -3217,12 +3217,18 @@ name = "siumai-provider-azure"
 version = "0.11.0-beta.6"
 dependencies = [
  "async-trait",
+ "chrono",
+ "eventsource-stream",
+ "futures-util",
  "reqwest 0.13.2",
  "serde",
  "serde_json",
  "siumai-core",
  "siumai-protocol-openai",
+ "siumai-provider-openai",
  "thiserror 2.0.18",
+ "tokio",
+ "wiremock",
 ]
 
 [[package]]
@@ -3373,6 +3379,7 @@ dependencies = [
  "siumai-core",
  "siumai-protocol-openai",
  "siumai-provider-openai-compatible",
+ "temp-env",
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
@@ -3582,6 +3589,7 @@ name = "siumai-registry"
 version = "0.11.0-beta.6"
 dependencies = [
  "async-trait",
+ "base64",
  "chrono",
  "futures",
  "lru",
@@ -3724,6 +3732,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "temp-env"
+version = "0.3.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "96374855068f47402c3121c6eed88d29cb1de8f3ab27090e273e420bdabcf050"
+dependencies = [
+ "parking_lot",
 ]
 
 [[package]]

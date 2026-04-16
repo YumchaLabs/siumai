@@ -331,6 +331,28 @@ impl AnthropicClient {
             self.retry_options.clone(),
         )
     }
+
+    /// Provider-only Skills API helpers (beta `skills-2025-10-02`).
+    pub fn skills(&self) -> super::skills::AnthropicSkills {
+        let mut betas = self.specific_params.beta_features.clone();
+        if !betas
+            .iter()
+            .any(|b| b.trim().eq_ignore_ascii_case("skills-2025-10-02"))
+        {
+            betas.push("skills-2025-10-02".to_string());
+        }
+
+        super::skills::AnthropicSkills::new(
+            self.api_key.clone(),
+            self.base_url.clone(),
+            self.http_client.clone(),
+            self.http_config.clone(),
+            betas,
+            self.http_transport.clone(),
+            self.http_interceptors.clone(),
+            self.retry_options.clone(),
+        )
+    }
 }
 
 fn normalize_anthropic_retry_options(mut options: RetryOptions) -> RetryOptions {
@@ -439,193 +461,7 @@ impl AnthropicAutoBetaHeadersMiddleware {
         }
     }
 
-    fn required_beta_features(req: &ChatRequest) -> Vec<&'static str> {
-        let mut out: Vec<&'static str> = Vec::new();
-
-        // Provider-hosted tools -> required betas.
-        if let Some(tools) = &req.tools {
-            for tool in tools {
-                let Tool::ProviderDefined(t) = tool else {
-                    continue;
-                };
-                if t.provider() != Some("anthropic") {
-                    continue;
-                }
-                match t.tool_type() {
-                    Some("web_fetch_20250910") => out.push("web-fetch-2025-09-10"),
-                    Some("code_execution_20250522") => out.push("code-execution-2025-05-22"),
-                    Some("code_execution_20250825") => out.push("code-execution-2025-08-25"),
-                    Some("computer_20241022")
-                    | Some("text_editor_20241022")
-                    | Some("bash_20241022") => out.push("computer-use-2024-10-22"),
-                    Some("computer_20250124")
-                    | Some("text_editor_20250124")
-                    | Some("text_editor_20250429")
-                    | Some("bash_20250124") => out.push("computer-use-2025-01-24"),
-                    Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
-                        out.push("advanced-tool-use-2025-11-20")
-                    }
-                    Some("memory_20250818") => out.push("context-management-2025-06-27"),
-                    _ => {}
-                }
-            }
-        }
-
-        let model = req.common_params.model.as_str();
-        let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
-            || model.starts_with("claude-opus-4-5")
-            || model.starts_with("claude-haiku-4-5");
-
-        // Structured outputs beta (Vercel-aligned):
-        // - enabled when using native `output_format` (depends on structuredOutputMode + model support),
-        // - enabled for supported models whenever function tools are present.
-        let structured_output_mode = req
-            .provider_options_map
-            .get("anthropic")
-            .and_then(|v| v.as_object())
-            .and_then(|o| {
-                o.get("structuredOutputMode")
-                    .or_else(|| o.get("structured_output_mode"))
-                    .and_then(|v| v.as_str())
-            })
-            .unwrap_or("auto");
-        let prefers_output_format =
-            structured_output_mode == "outputFormat" || structured_output_mode == "output_format";
-        let prefers_json_tool =
-            structured_output_mode == "jsonTool" || structured_output_mode == "json_tool";
-
-        let uses_native_output_format = matches!(
-            req.response_format,
-            Some(crate::types::chat::ResponseFormat::Json { .. })
-        ) && (prefers_output_format
-            || (!prefers_json_tool && supports_structured_outputs));
-        if uses_native_output_format {
-            out.push("structured-outputs-2025-11-13");
-        }
-
-        let has_function_tools = req
-            .tools
-            .as_deref()
-            .unwrap_or_default()
-            .iter()
-            .any(|t| matches!(t, Tool::Function { .. }));
-        if supports_structured_outputs && has_function_tools {
-            out.push("structured-outputs-2025-11-13");
-        }
-
-        // Advanced tool use beta is required for tool input examples and allowed_callers.
-        if let Some(tools) = req.tools.as_deref() {
-            for tool in tools {
-                let Tool::Function { function } = tool else {
-                    continue;
-                };
-
-                if function
-                    .input_examples
-                    .as_ref()
-                    .is_some_and(|arr| !arr.is_empty())
-                {
-                    out.push("advanced-tool-use-2025-11-20");
-                    break;
-                }
-
-                let has_allowed_callers = function
-                    .provider_options_map
-                    .get("anthropic")
-                    .and_then(|v| v.as_object())
-                    .and_then(|o| {
-                        o.get("allowedCallers")
-                            .or_else(|| o.get("allowed_callers"))
-                            .and_then(|v| v.as_array())
-                    })
-                    .is_some_and(|arr| !arr.is_empty());
-                if has_allowed_callers {
-                    out.push("advanced-tool-use-2025-11-20");
-                    break;
-                }
-            }
-        }
-
-        // PDF documents -> required beta (Vercel-aligned).
-        let uses_pdf = req.messages.iter().any(|m| match &m.content {
-            crate::types::MessageContent::MultiModal(parts) => parts.iter().any(|p| {
-                matches!(
-                    p,
-                    crate::types::ContentPart::File {
-                        media_type,
-                        ..
-                    } if media_type == "application/pdf"
-                )
-            }),
-            _ => false,
-        });
-        if uses_pdf {
-            out.push("pdfs-2024-09-25");
-        }
-
-        // Context management configured via providerOptions.
-        let has_context_management = req
-            .provider_options_map
-            .get("anthropic")
-            .and_then(|v| v.as_object())
-            .is_some_and(|o| {
-                o.contains_key("contextManagement") || o.contains_key("context_management")
-            });
-        if has_context_management {
-            out.push("context-management-2025-06-27");
-        }
-
-        // Vercel-aligned: only when streaming, enable fine-grained tool streaming by default.
-        // The flag can be disabled via `providerOptions.anthropic.toolStreaming = false`.
-        if req.stream {
-            let tool_streaming = req
-                .provider_options_map
-                .get("anthropic")
-                .and_then(|v| v.as_object())
-                .and_then(|o| {
-                    o.get("toolStreaming")
-                        .or_else(|| o.get("tool_streaming"))
-                        .and_then(|v| v.as_bool())
-                })
-                .unwrap_or(true);
-
-            if tool_streaming {
-                out.push("fine-grained-tool-streaming-2025-05-14");
-            }
-        }
-
-        // Vercel-aligned: `providerOptions.anthropic.effort` requires the effort beta.
-        let has_effort = req
-            .provider_options_map
-            .get("anthropic")
-            .and_then(|v| v.as_object())
-            .is_some_and(|o| o.contains_key("effort"));
-        if has_effort {
-            out.push("effort-2025-11-24");
-        }
-
-        // Agent skills (Vercel-aligned): requires both `skills` and `files` betas.
-        let has_agent_skills = req
-            .provider_options_map
-            .get("anthropic")
-            .and_then(|v| v.as_object())
-            .and_then(|o| o.get("container"))
-            .and_then(|v| v.as_object())
-            .and_then(|o| o.get("skills"))
-            .and_then(|v| v.as_array())
-            .is_some_and(|arr| !arr.is_empty());
-        if has_agent_skills {
-            // Vercel-aligned: skill containers always require code execution runtime beta
-            // regardless of whether the code execution tool is included (missing tool emits a warning).
-            out.push("code-execution-2025-08-25");
-            out.push("skills-2025-10-02");
-            out.push("files-api-2025-04-14");
-        }
-
-        out
-    }
-
-    fn merge_beta_values(existing: &str, required: &[&'static str]) -> String {
+    fn merge_beta_values(existing: &str, required: &[String]) -> String {
         use std::collections::HashSet;
 
         let mut seen: HashSet<String> = HashSet::new();
@@ -642,8 +478,8 @@ impl AnthropicAutoBetaHeadersMiddleware {
         }
 
         for token in required {
-            if seen.insert((*token).to_string()) {
-                out.push((*token).to_string());
+            if seen.insert(token.clone()) {
+                out.push(token.clone());
             }
         }
 
@@ -653,7 +489,7 @@ impl AnthropicAutoBetaHeadersMiddleware {
 
 impl LanguageModelMiddleware for AnthropicAutoBetaHeadersMiddleware {
     fn transform_params(&self, mut req: ChatRequest) -> ChatRequest {
-        let required = Self::required_beta_features(&req);
+        let required = crate::providers::anthropic::spec::collect_request_beta_tokens(&req);
         if required.is_empty() {
             return req;
         }
@@ -709,7 +545,9 @@ impl LanguageModelMiddleware for AnthropicAutoBetaHeadersMiddleware {
                     };
                     t.provider() == Some("anthropic")
                         && t.tool_type().is_some_and(|ty| {
-                            ty == "code_execution_20250522" || ty == "code_execution_20250825"
+                            ty == "code_execution_20250522"
+                                || ty == "code_execution_20250825"
+                                || ty == "code_execution_20260120"
                         })
                 })
             })
@@ -752,6 +590,7 @@ impl LlmClient for AnthropicClient {
             .with_streaming()
             .with_tools()
             .with_vision()
+            .with_custom_feature("skills", true)
             .with_custom_feature("prompt_caching", true)
             .with_custom_feature("thinking_mode", true)
     }
@@ -765,6 +604,10 @@ impl LlmClient for AnthropicClient {
     }
 
     fn as_chat_capability(&self) -> Option<&dyn ChatCapability> {
+        Some(self)
+    }
+
+    fn as_skills_capability(&self) -> Option<&dyn crate::traits::SkillsCapability> {
         Some(self)
     }
 
@@ -791,7 +634,9 @@ mod tests {
         HttpTransportStreamResponse,
     };
     use crate::provider_options::anthropic::{
-        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicEffort, AnthropicOptions,
+        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicContainerSkillType,
+        AnthropicContextManagementConfig, AnthropicContextManagementEdit,
+        AnthropicContextManagementInputTokensValue, AnthropicEffort, AnthropicOptions,
         AnthropicStructuredOutputMode, ThinkingModeConfig,
     };
     use crate::providers::anthropic::AnthropicConfig;
@@ -1129,6 +974,27 @@ mod tests {
     }
 
     #[test]
+    fn skills_helper_enables_skills_beta_by_default() {
+        let client = AnthropicClient::new(
+            "test-key".to_string(),
+            "https://api.anthropic.com".to_string(),
+            reqwest::Client::new(),
+            CommonParams::default(),
+            AnthropicParams::default(),
+            HttpConfig::default(),
+        );
+
+        let skills = client.skills();
+        assert!(
+            skills
+                .beta_features
+                .iter()
+                .any(|b| b == "skills-2025-10-02"),
+            "expected skills helper to include skills beta"
+        );
+    }
+
+    #[test]
     fn beta_middleware_injects_required_headers_for_hosted_tools() {
         let mw = AnthropicAutoBetaHeadersMiddleware;
 
@@ -1154,6 +1020,38 @@ mod tests {
         assert_eq!(
             val,
             "web-fetch-2025-09-10,advanced-tool-use-2025-11-20,code-execution-2025-05-22"
+        );
+    }
+
+    #[test]
+    fn beta_middleware_injects_fast_mode_and_user_requested_betas() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "speed": "fast",
+                    "anthropicBeta": ["custom-beta-1", "custom-beta-2"]
+                }),
+            )
+            .with_http_config(
+                HttpConfig::builder()
+                    .header("Anthropic-Beta", "preexisting-beta")
+                    .build(),
+            );
+
+        let out = mw.transform_params(req);
+        let val = out
+            .http_config
+            .as_ref()
+            .and_then(|hc| hc.headers.get("anthropic-beta"))
+            .cloned()
+            .unwrap_or_default();
+
+        assert_eq!(
+            val,
+            "preexisting-beta,fast-mode-2026-02-01,custom-beta-1,custom-beta-2"
         );
     }
 
@@ -1267,6 +1165,28 @@ mod tests {
                 "code execution tool is required when using skills"
             )]
         );
+    }
+
+    #[test]
+    fn agent_skills_do_not_warn_with_code_execution_20260120_tool() {
+        let mw = AnthropicAutoBetaHeadersMiddleware;
+
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_tools(vec![crate::tools::anthropic::code_execution_20260120()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "container": {
+                        "skills": [
+                            { "type": "anthropic", "skillId": "pptx", "version": "latest" }
+                        ]
+                    }
+                }),
+            );
+
+        let base = ChatResponse::new(crate::types::MessageContent::Text("ok".to_string()));
+        let out = mw.post_generate(&req, base).expect("post_generate");
+        assert!(out.warnings.is_none());
     }
 
     #[test]
@@ -1390,17 +1310,24 @@ mod tests {
                     })
                     .with_json_object()
                     .with_tool_streaming(false)
-                    .with_context_management(serde_json::json!({
-                        "clear_at_least": 1,
-                        "exclude_tools": ["editor"]
-                    }))
+                    .with_context_management(AnthropicContextManagementConfig::new().with_edit(
+                        AnthropicContextManagementEdit::ClearToolUses20250919 {
+                            trigger: None,
+                            keep: None,
+                            clear_at_least: Some(
+                                AnthropicContextManagementInputTokensValue::input_tokens(1),
+                            ),
+                            clear_tool_inputs: None,
+                            exclude_tools: Some(vec!["editor".to_string()]),
+                        },
+                    ))
                     .with_effort(AnthropicEffort::High)
                     .with_container(AnthropicContainerConfig {
                         id: Some("container-1".to_string()),
                         skills: Some(vec![AnthropicContainerSkill {
-                            skill_type: "anthropic".to_string(),
+                            skill_type: AnthropicContainerSkillType::Anthropic,
                             skill_id: "pptx".to_string(),
-                            version: "latest".to_string(),
+                            version: Some("latest".to_string()),
                         }]),
                     }),
             );
@@ -1445,8 +1372,14 @@ mod tests {
         assert_eq!(
             req.body["context_management"],
             serde_json::json!({
-                "clear_at_least": 1,
-                "exclude_tools": ["editor"]
+                "edits": [{
+                    "type": "clear_tool_uses_20250919",
+                    "clear_at_least": {
+                        "type": "input_tokens",
+                        "value": 1
+                    },
+                    "exclude_tools": ["editor"]
+                }]
             })
         );
         assert_eq!(

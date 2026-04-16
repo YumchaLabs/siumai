@@ -947,7 +947,7 @@ impl ChatCapability for OpenAiWebSocketSession {
 mod tests {
     use super::*;
     use crate::providers::openai::OpenAiConfig;
-    use crate::types::ChatStreamEvent;
+    use crate::types::{ChatStreamEvent, ChatStreamPart};
     use futures_util::SinkExt;
     use futures_util::StreamExt;
     use std::sync::atomic::{AtomicU32, Ordering};

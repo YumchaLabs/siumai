@@ -4,16 +4,28 @@ use crate::error::LlmError;
 use crate::execution::middleware::LanguageModelMiddleware;
 use crate::streaming::ChatStreamEvent;
 use crate::types::{ChatRequest, ChatResponse, Tool, Warning};
+use std::collections::BTreeSet;
 
 #[derive(Debug, Default)]
-pub struct OpenAiCompatibleToolWarningsMiddleware;
+pub struct OpenAiCompatibleToolWarningsMiddleware {
+    allowlist: BTreeSet<String>,
+}
 
 impl OpenAiCompatibleToolWarningsMiddleware {
-    pub const fn new() -> Self {
-        Self
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    fn compute_warnings(req: &ChatRequest) -> Vec<Warning> {
+    pub fn with_allowlist<I, S>(mut self, ids: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.allowlist = ids.into_iter().map(Into::into).collect();
+        self
+    }
+
+    fn compute_warnings(&self, req: &ChatRequest) -> Vec<Warning> {
         let Some(tools) = req.tools.as_deref() else {
             return Vec::new();
         };
@@ -25,10 +37,9 @@ impl OpenAiCompatibleToolWarningsMiddleware {
         tools
             .iter()
             .filter_map(|t| match t {
-                Tool::ProviderDefined(t) => Some(Warning::unsupported(
-                    format!("provider-defined tool {}", t.id),
-                    None::<String>,
-                )),
+                Tool::ProviderDefined(t) if !self.allowlist.contains(&t.id) => Some(
+                    Warning::unsupported(format!("provider-defined tool {}", t.id), None::<String>),
+                ),
                 _ => None,
             })
             .collect()
@@ -54,7 +65,7 @@ impl LanguageModelMiddleware for OpenAiCompatibleToolWarningsMiddleware {
         req: &ChatRequest,
         resp: ChatResponse,
     ) -> Result<ChatResponse, LlmError> {
-        Ok(Self::merge_warnings(resp, Self::compute_warnings(req)))
+        Ok(Self::merge_warnings(resp, self.compute_warnings(req)))
     }
 
     fn on_stream_event(
@@ -64,7 +75,7 @@ impl LanguageModelMiddleware for OpenAiCompatibleToolWarningsMiddleware {
     ) -> Result<Vec<ChatStreamEvent>, LlmError> {
         match ev {
             ChatStreamEvent::StreamEnd { response } => {
-                let response = Self::merge_warnings(response, Self::compute_warnings(req));
+                let response = Self::merge_warnings(response, self.compute_warnings(req));
                 Ok(vec![ChatStreamEvent::StreamEnd { response }])
             }
             other => Ok(vec![other]),
@@ -100,6 +111,28 @@ mod tests {
         assert!(warnings.iter().any(|w| matches!(
             w,
             Warning::Unsupported { feature, .. } if feature == "provider-defined tool google.google_search"
+        )));
+    }
+
+    #[test]
+    fn allowlist_skips_expected_provider_defined_tool() {
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_tools(vec![
+            Tool::provider_defined("groq.browser_search", "browser_search"),
+            Tool::provider_defined("openai.web_search", "web_search"),
+        ]);
+
+        let mw =
+            OpenAiCompatibleToolWarningsMiddleware::new().with_allowlist(["groq.browser_search"]);
+        let out = mw.post_generate(&req, dummy_resp()).unwrap();
+        let warnings = out.warnings.unwrap_or_default();
+
+        assert!(!warnings.iter().any(|w| matches!(
+            w,
+            Warning::Unsupported { feature, .. } if feature == "provider-defined tool groq.browser_search"
+        )));
+        assert!(warnings.iter().any(|w| matches!(
+            w,
+            Warning::Unsupported { feature, .. } if feature == "provider-defined tool openai.web_search"
         )));
     }
 }

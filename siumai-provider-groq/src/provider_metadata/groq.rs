@@ -11,6 +11,26 @@ pub use siumai_protocol_openai::provider_metadata::openai::OpenAiSourceMetadata 
 /// Groq-specific metadata from chat responses.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GroqMetadata {
+    /// Stable response id mirrored from the AI SDK response-metadata lane.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+
+    /// Stable model id mirrored from the AI SDK response-metadata lane.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "modelId",
+        alias = "model"
+    )]
+    pub model_id: Option<String>,
+
+    /// Stable response timestamp mirrored from the AI SDK response-metadata lane.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "timestamp",
+        alias = "created"
+    )]
+    pub timestamp: Option<chrono::DateTime<chrono::Utc>>,
+
     /// Sources extracted from provider-hosted tool results (Vercel-aligned).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sources: Option<Vec<GroqSource>>,
@@ -35,13 +55,45 @@ impl crate::types::provider_metadata::FromMetadata for GroqMetadata {
 /// Typed helper for Groq metadata extraction from `ChatResponse`.
 pub trait GroqChatResponseExt {
     fn groq_metadata(&self) -> Option<GroqMetadata>;
+    fn groq_response_metadata(&self) -> Option<crate::types::ResponseMetadata>;
 }
 
 impl GroqChatResponseExt for crate::types::ChatResponse {
     fn groq_metadata(&self) -> Option<GroqMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("groq")?;
-        GroqMetadata::from_metadata(meta)
+        let mut meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, "groq")
+            })?
+            .clone();
+
+        if !meta.contains_key("id")
+            && let Some(id) = self.id.clone()
+        {
+            meta.insert("id".to_string(), serde_json::Value::String(id));
+        }
+
+        if !meta.contains_key("modelId")
+            && !meta.contains_key("model")
+            && let Some(model_id) = self.model.clone()
+        {
+            meta.insert("modelId".to_string(), serde_json::Value::String(model_id));
+        }
+
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
+    }
+
+    fn groq_response_metadata(&self) -> Option<crate::types::ResponseMetadata> {
+        let meta = self.groq_metadata()?;
+
+        Some(crate::types::ResponseMetadata {
+            id: self.id.clone().or(meta.id),
+            model: self.model.clone().or(meta.model_id),
+            created: meta.timestamp,
+            provider: "groq".to_string(),
+            request_id: None,
+        })
     }
 }
 
@@ -71,8 +123,14 @@ mod tests {
         let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
             "hello".to_string(),
         ));
+        resp.id = Some("chatcmpl-groq-test".to_string());
+        resp.model = Some("llama-3.3-70b-versatile".to_string());
 
         let mut inner = HashMap::new();
+        inner.insert(
+            "timestamp".to_string(),
+            serde_json::json!("2025-03-08T00:00:00Z"),
+        );
         inner.insert(
             "sources".to_string(),
             serde_json::json!([
@@ -91,15 +149,39 @@ mod tests {
         inner.insert("vendor_extra".to_string(), serde_json::json!(true));
 
         let mut outer = HashMap::new();
-        outer.insert("groq".to_string(), inner);
+        outer.insert(
+            "groq".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.groq_metadata().expect("groq metadata");
+        assert_eq!(meta.id.as_deref(), Some("chatcmpl-groq-test"));
+        assert_eq!(meta.model_id.as_deref(), Some("llama-3.3-70b-versatile"));
+        assert_eq!(
+            meta.timestamp.map(|timestamp| timestamp.timestamp()),
+            Some(1_741_392_000)
+        );
         assert_eq!(meta.sources.as_ref().map(Vec::len), Some(1));
         assert!(meta.logprobs.is_some());
         assert_eq!(
             meta.extra.get("vendor_extra"),
             Some(&serde_json::json!(true))
+        );
+
+        let response_metadata = resp
+            .groq_response_metadata()
+            .expect("groq response metadata");
+        assert_eq!(response_metadata.id.as_deref(), Some("chatcmpl-groq-test"));
+        assert_eq!(
+            response_metadata.model.as_deref(),
+            Some("llama-3.3-70b-versatile")
+        );
+        assert_eq!(
+            response_metadata
+                .created
+                .map(|timestamp| timestamp.timestamp()),
+            Some(1_741_392_000)
         );
     }
 

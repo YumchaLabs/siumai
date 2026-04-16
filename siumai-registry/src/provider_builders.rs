@@ -19,6 +19,14 @@ macro_rules! gen_siumaibuilder_method {
             self.provider_id(ids::DEEPSEEK)
         }
     };
+    (togetherai_openai_compatible, $id:expr) => {
+        #[cfg(feature = "openai")]
+        pub fn togetherai_openai_compatible(self) -> Self {
+            // Route the unified builder through the hidden compat alias so the public
+            // shortcut does not collide with the native `togetherai` provider id.
+            self.provider_id("together")
+        }
+    };
     (cohere, $id:expr) => {
         #[cfg(all(feature = "openai", not(feature = "cohere")))]
         pub fn cohere(self) -> Self {
@@ -105,10 +113,22 @@ impl SiumaiBuilder {
         self.google_vertex()
     }
 
+    /// Create a Google Vertex MaaS provider (AI SDK-aligned OpenAI-compatible surface).
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex_maas(self) -> Self {
+        self.provider_id(ids::VERTEX_MAAS)
+    }
+
     /// Create a TogetherAI provider (convenience method)
     #[cfg(feature = "togetherai")]
     pub fn togetherai(self) -> Self {
         self.provider_id(ids::TOGETHERAI)
+    }
+
+    /// Create a DeepInfra provider (convenience method)
+    #[cfg(feature = "deepinfra")]
+    pub fn deepinfra(self) -> Self {
+        self.provider_id(ids::DEEPINFRA)
     }
 
     /// Create an Amazon Bedrock provider (convenience method)
@@ -154,6 +174,7 @@ mod tests {
     #[cfg(any(
         feature = "cohere",
         feature = "togetherai",
+        feature = "deepinfra",
         feature = "bedrock",
         feature = "deepseek",
         feature = "google-vertex"
@@ -182,6 +203,13 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "deepinfra")]
+    fn deepinfra_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().deepinfra();
+        assert_eq!(builder.provider_id, Some(ids::DEEPINFRA.to_string()));
+    }
+
+    #[test]
     #[cfg(feature = "deepseek")]
     fn deepseek_builder_method_sets_provider_id() {
         let builder = SiumaiBuilder::new().deepseek();
@@ -193,5 +221,12 @@ mod tests {
     fn anthropic_vertex_builder_method_sets_provider_id() {
         let builder = SiumaiBuilder::new().anthropic_vertex();
         assert_eq!(builder.provider_id, Some(ids::ANTHROPIC_VERTEX.to_string()));
+    }
+
+    #[test]
+    #[cfg(feature = "google-vertex")]
+    fn vertex_maas_builder_method_sets_provider_id() {
+        let builder = SiumaiBuilder::new().vertex_maas();
+        assert_eq!(builder.provider_id, Some(ids::VERTEX_MAAS.to_string()));
     }
 }

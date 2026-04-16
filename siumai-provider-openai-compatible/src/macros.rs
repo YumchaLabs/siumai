@@ -11,14 +11,14 @@ macro_rules! siumai_for_each_openai_compatible_provider {
         $mac!(deepseek, "deepseek");
         $mac!(openrouter, "openrouter");
         $mac!(siliconflow, "siliconflow");
-        $mac!(together, "together");
+        $mac!(togetherai_openai_compatible, "togetherai");
         $mac!(fireworks, "fireworks");
         $mac!(github_copilot, "github_copilot");
         $mac!(perplexity, "perplexity");
         $mac!(mistral, "mistral");
         $mac!(cohere, "cohere");
         $mac!(zhipu, "zhipu");
-        $mac!(moonshot, "moonshot");
+        $mac!(moonshotai, "moonshotai");
         $mac!(yi, "yi");
         $mac!(doubao, "doubao");
         $mac!(baichuan, "baichuan");

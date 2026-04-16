@@ -183,13 +183,19 @@ impl ThinkingResponseParser {
             let mut anthropic_meta = response
                 .provider_metadata
                 .as_ref()
-                .and_then(|m| m.get("anthropic").cloned())
+                .and_then(|m| {
+                    crate::types::provider_metadata::provider_metadata_object(m, "anthropic")
+                })
+                .cloned()
                 .unwrap_or_default();
 
             anthropic_meta.insert("thinking".to_string(), serde_json::Value::String(thinking));
 
             let mut provider_metadata = response.provider_metadata.unwrap_or_default();
-            provider_metadata.insert("anthropic".to_string(), anthropic_meta);
+            provider_metadata.insert(
+                "anthropic".to_string(),
+                serde_json::Value::Object(anthropic_meta),
+            );
             response.provider_metadata = Some(provider_metadata);
         }
         response

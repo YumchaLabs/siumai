@@ -25,6 +25,259 @@ impl AnthropicSpec {
     }
 }
 
+fn anthropic_provider_options(
+    req: &ChatRequest,
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
+    req.provider_options_map
+        .get("anthropic")
+        .and_then(|value| value.as_object())
+}
+
+fn provider_option_bool(req: &ChatRequest, camel: &str, snake: &str) -> Option<bool> {
+    anthropic_provider_options(req)
+        .and_then(|options| options.get(camel).or_else(|| options.get(snake)))
+        .and_then(|value| value.as_bool())
+}
+
+fn provider_option_str<'a>(req: &'a ChatRequest, camel: &str, snake: &str) -> Option<&'a str> {
+    anthropic_provider_options(req)
+        .and_then(|options| options.get(camel).or_else(|| options.get(snake)))
+        .and_then(|value| value.as_str())
+}
+
+fn user_requested_beta_tokens(req: &ChatRequest) -> Vec<String> {
+    anthropic_provider_options(req)
+        .and_then(|options| {
+            options
+                .get("anthropicBeta")
+                .or_else(|| options.get("anthropic_beta"))
+        })
+        .and_then(|value| value.as_array())
+        .map(|tokens| {
+            tokens
+                .iter()
+                .filter_map(|value| value.as_str())
+                .filter(|value| !value.trim().is_empty())
+                .map(ToString::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn has_agent_skills(req: &ChatRequest) -> bool {
+    anthropic_provider_options(req)
+        .and_then(|options| options.get("container"))
+        .and_then(|value| value.as_object())
+        .and_then(|container| container.get("skills"))
+        .and_then(|value| value.as_array())
+        .is_some_and(|skills| !skills.is_empty())
+}
+
+fn has_context_management(req: &ChatRequest) -> bool {
+    anthropic_provider_options(req).is_some_and(|options| {
+        options.get("contextManagement").is_some() || options.get("context_management").is_some()
+    })
+}
+
+fn has_effort(req: &ChatRequest) -> bool {
+    anthropic_provider_options(req).is_some_and(|options| options.get("effort").is_some())
+}
+
+fn has_mcp_servers(req: &ChatRequest) -> bool {
+    anthropic_provider_options(req)
+        .and_then(|options| {
+            options
+                .get("mcpServers")
+                .or_else(|| options.get("mcp_servers"))
+        })
+        .and_then(|value| value.as_array())
+        .is_some_and(|servers| !servers.is_empty())
+}
+
+fn fine_grained_tool_streaming_enabled(req: &ChatRequest) -> bool {
+    if !req.stream {
+        return false;
+    }
+
+    provider_option_bool(req, "toolStreaming", "tool_streaming").unwrap_or(true)
+}
+
+pub(crate) fn collect_request_beta_tokens(req: &ChatRequest) -> Vec<String> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+
+    let mut push_token = |token: &str| {
+        let token = token.trim();
+        if token.is_empty() {
+            return;
+        }
+        if seen.insert(token.to_string()) {
+            tokens.push(token.to_string());
+        }
+    };
+
+    let model = req.common_params.model.as_str();
+    let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
+        || model.starts_with("claude-opus-4-5")
+        || model.starts_with("claude-haiku-4-5");
+
+    if has_mcp_servers(req) {
+        push_token("mcp-client-2025-04-04");
+    }
+
+    if let Some(tools) = &req.tools {
+        for tool in tools {
+            let Tool::ProviderDefined(t) = tool else {
+                continue;
+            };
+            if t.provider() != Some("anthropic") {
+                continue;
+            }
+            match t.tool_type() {
+                Some("web_fetch_20250910") => push_token("web-fetch-2025-09-10"),
+                Some("web_fetch_20260209") | Some("web_search_20260209") => {
+                    push_token("code-execution-web-tools-2026-02-09")
+                }
+                Some("code_execution_20250522") => push_token("code-execution-2025-05-22"),
+                Some("code_execution_20250825") => push_token("code-execution-2025-08-25"),
+                Some("computer_20241022")
+                | Some("text_editor_20241022")
+                | Some("bash_20241022") => push_token("computer-use-2024-10-22"),
+                Some("computer_20251124") => push_token("computer-use-2025-11-24"),
+                Some("computer_20250124")
+                | Some("text_editor_20250124")
+                | Some("text_editor_20250429")
+                | Some("bash_20250124") => push_token("computer-use-2025-01-24"),
+                Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
+                    push_token("advanced-tool-use-2025-11-20")
+                }
+                Some("memory_20250818") => push_token("context-management-2025-06-27"),
+                _ => {}
+            }
+        }
+    }
+
+    let structured_output_mode =
+        provider_option_str(req, "structuredOutputMode", "structured_output_mode")
+            .unwrap_or("auto");
+    let prefers_output_format =
+        structured_output_mode == "outputFormat" || structured_output_mode == "output_format";
+    let prefers_json_tool =
+        structured_output_mode == "jsonTool" || structured_output_mode == "json_tool";
+
+    let uses_native_output_format = matches!(
+        req.response_format,
+        Some(crate::types::chat::ResponseFormat::Json { .. })
+    ) && (prefers_output_format
+        || (!prefers_json_tool && supports_structured_outputs));
+    if uses_native_output_format {
+        push_token("structured-outputs-2025-11-13");
+    }
+
+    let has_function_tools = req
+        .tools
+        .as_deref()
+        .unwrap_or_default()
+        .iter()
+        .any(|tool| matches!(tool, Tool::Function { .. }));
+    if supports_structured_outputs && has_function_tools {
+        push_token("structured-outputs-2025-11-13");
+    }
+
+    if let Some(tools) = req.tools.as_deref() {
+        for tool in tools {
+            let Tool::Function { function } = tool else {
+                continue;
+            };
+
+            if function
+                .input_examples
+                .as_ref()
+                .is_some_and(|examples| !examples.is_empty())
+            {
+                push_token("advanced-tool-use-2025-11-20");
+                break;
+            }
+
+            let has_allowed_callers = function
+                .provider_options_map
+                .get("anthropic")
+                .and_then(|value| value.as_object())
+                .and_then(|options| {
+                    options
+                        .get("allowedCallers")
+                        .or_else(|| options.get("allowed_callers"))
+                })
+                .and_then(|value| value.as_array())
+                .is_some_and(|callers| !callers.is_empty());
+            if has_allowed_callers {
+                push_token("advanced-tool-use-2025-11-20");
+                break;
+            }
+        }
+    }
+
+    let uses_pdf = req.messages.iter().any(|message| match &message.content {
+        crate::types::MessageContent::MultiModal(parts) => parts.iter().any(|part| {
+            matches!(
+                part,
+                crate::types::ContentPart::File { media_type, .. }
+                    if media_type == "application/pdf"
+            )
+        }),
+        _ => false,
+    });
+    if uses_pdf {
+        push_token("pdfs-2024-09-25");
+    }
+
+    let uses_anthropic_file_references =
+        req.messages.iter().any(|message| match &message.content {
+            crate::types::MessageContent::MultiModal(parts) => {
+                parts.iter().any(|part| match part {
+                    crate::types::ContentPart::Image { source, .. }
+                    | crate::types::ContentPart::File { source, .. } => source
+                        .as_provider_reference()
+                        .and_then(|provider_reference| provider_reference.get("anthropic"))
+                        .is_some(),
+                    _ => false,
+                })
+            }
+            _ => false,
+        });
+    if uses_anthropic_file_references {
+        push_token("files-api-2025-04-14");
+    }
+
+    if has_context_management(req) {
+        push_token("context-management-2025-06-27");
+    }
+
+    if fine_grained_tool_streaming_enabled(req) {
+        push_token("fine-grained-tool-streaming-2025-05-14");
+    }
+
+    if has_effort(req) {
+        push_token("effort-2025-11-24");
+    }
+
+    if matches!(provider_option_str(req, "speed", "speed"), Some("fast")) {
+        push_token("fast-mode-2026-02-01");
+    }
+
+    if has_agent_skills(req) {
+        push_token("code-execution-2025-08-25");
+        push_token("skills-2025-10-02");
+        push_token("files-api-2025-04-14");
+    }
+
+    for token in user_requested_beta_tokens(req) {
+        push_token(&token);
+    }
+
+    tokens
+}
+
 impl ProviderSpec for AnthropicSpec {
     fn id(&self) -> &'static str {
         "anthropic"
@@ -35,6 +288,7 @@ impl ProviderSpec for AnthropicSpec {
             .with_chat()
             .with_streaming()
             .with_tools()
+            .with_custom_feature("skills", true)
             .with_custom_feature("prompt_caching", true)
             .with_custom_feature("thinking_mode", true)
     }
@@ -104,242 +358,7 @@ impl ProviderSpec for AnthropicSpec {
         _ctx: &ProviderContext,
     ) -> HashMap<String, String> {
         let mut out: HashMap<String, String> = HashMap::new();
-
-        fn required_beta_features(req: &ChatRequest) -> Vec<&'static str> {
-            let mut out: Vec<&'static str> = Vec::new();
-
-            let model = req.common_params.model.as_str();
-            let supports_structured_outputs = model.starts_with("claude-sonnet-4-5")
-                || model.starts_with("claude-opus-4-5")
-                || model.starts_with("claude-haiku-4-5");
-
-            // Provider-hosted tools -> required betas.
-            if let Some(tools) = &req.tools {
-                for tool in tools {
-                    let Tool::ProviderDefined(t) = tool else {
-                        continue;
-                    };
-                    if t.provider() != Some("anthropic") {
-                        continue;
-                    }
-                    match t.tool_type() {
-                        Some("web_fetch_20250910") => out.push("web-fetch-2025-09-10"),
-                        Some("code_execution_20250522") => out.push("code-execution-2025-05-22"),
-                        Some("code_execution_20250825") => out.push("code-execution-2025-08-25"),
-                        Some("computer_20241022")
-                        | Some("text_editor_20241022")
-                        | Some("bash_20241022") => out.push("computer-use-2024-10-22"),
-                        Some("computer_20250124")
-                        | Some("text_editor_20250124")
-                        | Some("text_editor_20250429")
-                        | Some("bash_20250124") => out.push("computer-use-2025-01-24"),
-                        Some("tool_search_regex_20251119") | Some("tool_search_bm25_20251119") => {
-                            out.push("advanced-tool-use-2025-11-20")
-                        }
-                        Some("memory_20250818") => out.push("context-management-2025-06-27"),
-                        _ => {}
-                    }
-                }
-            }
-
-            // Structured outputs beta (Vercel-aligned):
-            // - enabled when using native `output_format` (depends on structuredOutputMode + model support),
-            // - enabled for supported models whenever function tools are present.
-            let structured_output_mode = req
-                .provider_options_map
-                .get("anthropic")
-                .and_then(|v| v.as_object())
-                .and_then(|o| {
-                    o.get("structuredOutputMode")
-                        .or_else(|| o.get("structured_output_mode"))
-                        .and_then(|v| v.as_str())
-                })
-                .unwrap_or("auto");
-            let prefers_output_format = structured_output_mode == "outputFormat"
-                || structured_output_mode == "output_format";
-            let prefers_json_tool =
-                structured_output_mode == "jsonTool" || structured_output_mode == "json_tool";
-
-            let uses_native_output_format = matches!(
-                req.response_format,
-                Some(crate::types::chat::ResponseFormat::Json { .. })
-            ) && (prefers_output_format
-                || (!prefers_json_tool && supports_structured_outputs));
-            if uses_native_output_format {
-                out.push("structured-outputs-2025-11-13");
-            }
-
-            let has_function_tools = req
-                .tools
-                .as_deref()
-                .unwrap_or_default()
-                .iter()
-                .any(|t| matches!(t, Tool::Function { .. }));
-            if supports_structured_outputs && has_function_tools {
-                out.push("structured-outputs-2025-11-13");
-            }
-
-            // Advanced tool use beta is required for tool input examples and allowed_callers.
-            if let Some(tools) = req.tools.as_deref() {
-                for tool in tools {
-                    let Tool::Function { function } = tool else {
-                        continue;
-                    };
-                    if function
-                        .input_examples
-                        .as_ref()
-                        .is_some_and(|arr| !arr.is_empty())
-                    {
-                        out.push("advanced-tool-use-2025-11-20");
-                        break;
-                    }
-
-                    let has_allowed_callers = function
-                        .provider_options_map
-                        .get("anthropic")
-                        .and_then(|v| v.as_object())
-                        .and_then(|o| {
-                            o.get("allowedCallers")
-                                .or_else(|| o.get("allowed_callers"))
-                                .and_then(|v| v.as_array())
-                        })
-                        .is_some_and(|arr| !arr.is_empty());
-                    if has_allowed_callers {
-                        out.push("advanced-tool-use-2025-11-20");
-                        break;
-                    }
-                }
-            }
-
-            // PDF documents -> required beta (Vercel-aligned).
-            let uses_pdf = req.messages.iter().any(|m| match &m.content {
-                crate::types::MessageContent::MultiModal(parts) => parts.iter().any(|p| {
-                    matches!(
-                        p,
-                        crate::types::ContentPart::File { media_type, .. }
-                            if media_type == "application/pdf"
-                    )
-                }),
-                _ => false,
-            });
-            if uses_pdf {
-                out.push("pdfs-2024-09-25");
-            }
-
-            out
-        }
-
-        fn has_agent_skills(req: &ChatRequest) -> bool {
-            let Some(v) = req.provider_options_map.get("anthropic") else {
-                return false;
-            };
-            let Some(obj) = v.as_object() else {
-                return false;
-            };
-            let Some(container) = obj.get("container").and_then(|v| v.as_object()) else {
-                return false;
-            };
-            let Some(skills) = container.get("skills").and_then(|v| v.as_array()) else {
-                return false;
-            };
-            !skills.is_empty()
-        }
-
-        fn has_context_management(req: &ChatRequest) -> bool {
-            let Some(v) = req.provider_options_map.get("anthropic") else {
-                return false;
-            };
-            let Some(obj) = v.as_object() else {
-                return false;
-            };
-
-            if obj.get("contextManagement").is_some() {
-                return true;
-            }
-            obj.get("context_management").is_some()
-        }
-
-        fn has_effort(req: &ChatRequest) -> bool {
-            let Some(v) = req.provider_options_map.get("anthropic") else {
-                return false;
-            };
-            let Some(obj) = v.as_object() else {
-                return false;
-            };
-            obj.get("effort").is_some()
-        }
-
-        fn fine_grained_tool_streaming_enabled(req: &ChatRequest) -> bool {
-            if !req.stream {
-                return false;
-            }
-
-            let Some(v) = req.provider_options_map.get("anthropic") else {
-                return true;
-            };
-            let Some(obj) = v.as_object() else {
-                return true;
-            };
-
-            if let Some(b) = obj.get("toolStreaming").and_then(|v| v.as_bool()) {
-                return b;
-            }
-            if let Some(b) = obj.get("tool_streaming").and_then(|v| v.as_bool()) {
-                return b;
-            }
-
-            true
-        }
-
-        let mut tokens: Vec<String> = Vec::new();
-        let mut seen: HashSet<String> = HashSet::new();
-
-        let mut push_token = |t: &str| {
-            if seen.insert(t.to_string()) {
-                tokens.push(t.to_string());
-            }
-        };
-
-        let has_mcp_servers = req
-            .provider_options_map
-            .get("anthropic")
-            .and_then(|value| value.as_object())
-            .and_then(|options| {
-                options
-                    .get("mcpServers")
-                    .or_else(|| options.get("mcp_servers"))
-            })
-            .and_then(|value| value.as_array())
-            .is_some_and(|servers| !servers.is_empty());
-        if has_mcp_servers {
-            push_token("mcp-client-2025-04-04");
-        }
-
-        for t in required_beta_features(req) {
-            push_token(t);
-        }
-
-        if has_context_management(req) {
-            push_token("context-management-2025-06-27");
-        }
-
-        // Vercel-aligned: only when streaming, enable fine-grained tool streaming by default.
-        if fine_grained_tool_streaming_enabled(req) {
-            push_token("fine-grained-tool-streaming-2025-05-14");
-        }
-
-        if has_effort(req) {
-            push_token("effort-2025-11-24");
-        }
-
-        if has_agent_skills(req) {
-            // Vercel-aligned: skill containers require the code execution runtime beta even if the
-            // code execution tool is missing (a warning is emitted by the Anthropic client middleware).
-            push_token("code-execution-2025-08-25");
-            push_token("skills-2025-10-02");
-            push_token("files-api-2025-04-14");
-        }
-
+        let tokens = collect_request_beta_tokens(req);
         if !tokens.is_empty() {
             out.insert("anthropic-beta".to_string(), tokens.join(","));
         }
@@ -489,6 +508,102 @@ mod tests {
     }
 
     #[test]
+    fn chat_request_headers_include_code_execution_web_tools_beta_for_2026_web_tools() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_tools(vec![crate::tools::anthropic::web_search_20260209()]);
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        assert!(headers.get("anthropic-beta").is_some_and(|value| {
+            value
+                .split(',')
+                .any(|token| token.trim() == "code-execution-web-tools-2026-02-09")
+        }));
+    }
+
+    #[test]
+    fn chat_request_headers_include_computer_use_2025_11_24_beta() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_tools(vec![crate::tools::anthropic::computer_20251124()]);
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        assert!(headers.get("anthropic-beta").is_some_and(|value| {
+            value
+                .split(',')
+                .any(|token| token.trim() == "computer-use-2025-11-24")
+        }));
+    }
+
+    #[test]
+    fn chat_request_headers_do_not_add_beta_for_code_execution_20260120() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_tools(vec![crate::tools::anthropic::code_execution_20260120()]);
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        let beta = headers.get("anthropic-beta").cloned().unwrap_or_default();
+
+        assert!(
+            !beta
+                .split(',')
+                .any(|token| token.trim() == "code-execution-2025-05-22"
+                    || token.trim() == "code-execution-2025-08-25"),
+            "unexpected code-execution beta token: {beta}"
+        );
+    }
+
+    #[test]
+    fn chat_request_headers_include_files_api_beta_for_provider_references() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![
+            crate::types::ChatMessage::user("hi")
+                .with_file_provider_reference(
+                    crate::types::ProviderReference::single("anthropic", "file-1"),
+                    "application/pdf",
+                    Some("doc.pdf".to_string()),
+                )
+                .build(),
+        ]);
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        assert!(headers.get("anthropic-beta").is_some_and(|value| {
+            value
+                .as_str()
+                .split(',')
+                .any(|token| token.trim() == "files-api-2025-04-14")
+        }));
+    }
+
+    #[test]
     fn chat_request_headers_includes_fine_grained_tool_streaming_beta_by_default() {
         let spec = AnthropicSpec::new();
 
@@ -532,6 +647,42 @@ mod tests {
                 .split(',')
                 .any(|t| t.trim() == "fine-grained-tool-streaming-2025-05-14"),
             "unexpected fine-grained-tool-streaming beta token: {beta}"
+        );
+    }
+
+    #[test]
+    fn chat_request_headers_include_fast_mode_and_user_requested_betas() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "speed": "fast",
+                    "anthropicBeta": ["custom-beta-1", "custom-beta-2"]
+                }),
+            );
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        let beta = headers.get("anthropic-beta").cloned().unwrap_or_default();
+
+        assert!(
+            beta.split(',').any(|t| t.trim() == "fast-mode-2026-02-01"),
+            "missing fast-mode beta token: {beta}"
+        );
+        assert!(
+            beta.split(',').any(|t| t.trim() == "custom-beta-1"),
+            "missing custom-beta-1 token: {beta}"
+        );
+        assert!(
+            beta.split(',').any(|t| t.trim() == "custom-beta-2"),
+            "missing custom-beta-2 token: {beta}"
         );
     }
 
@@ -687,5 +838,59 @@ mod tests {
                 "effort": "high"
             }))
         );
+    }
+
+    #[test]
+    fn chat_before_send_injects_speed_cache_control_and_metadata() {
+        let spec = AnthropicSpec::new();
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "thinking": {
+                        "type": "adaptive"
+                    },
+                    "cacheControl": {
+                        "type": "ephemeral",
+                        "ttl": "1h"
+                    },
+                    "metadata": {
+                        "userId": "user-1"
+                    },
+                    "speed": "fast"
+                }),
+            );
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("hook");
+
+        let out = hook(
+            &serde_json::json!({"model":"m","messages":[],"max_tokens":100,"temperature":0.5}),
+        )
+        .expect("apply hook");
+
+        assert_eq!(
+            out.get("thinking"),
+            Some(&serde_json::json!({ "type": "adaptive" }))
+        );
+        assert_eq!(
+            out.get("cache_control"),
+            Some(&serde_json::json!({
+                "type": "ephemeral",
+                "ttl": "1h"
+            }))
+        );
+        assert_eq!(
+            out.get("metadata"),
+            Some(&serde_json::json!({
+                "user_id": "user-1"
+            }))
+        );
+        assert_eq!(out.get("speed"), Some(&serde_json::json!("fast")));
+        assert!(out.get("temperature").is_none());
     }
 }

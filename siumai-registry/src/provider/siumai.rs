@@ -21,6 +21,7 @@ mod model_listing;
 mod moderation;
 mod music;
 mod rerank;
+mod skills;
 mod video;
 
 /// The main siumai LLM provider that can dynamically dispatch to different capabilities

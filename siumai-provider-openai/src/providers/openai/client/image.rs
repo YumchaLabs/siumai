@@ -18,6 +18,10 @@ impl ImageGenerationCapability for OpenAiClient {
         use crate::execution::executors::image::ImageExecutor;
         ImageExecutor::execute(&*exec, request).await
     }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        Some(10)
+    }
 }
 
 #[async_trait]

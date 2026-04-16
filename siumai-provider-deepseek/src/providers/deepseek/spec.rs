@@ -5,6 +5,7 @@ use crate::traits::ProviderCapabilities;
 use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
 use serde_json::{Map, Value};
+use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleRequestSettings;
 use std::sync::Arc;
 
 fn rename_field(obj: &mut Map<String, Value>, from: &str, to: &str) {
@@ -27,10 +28,17 @@ fn normalize_deepseek_options(value: &Value) -> Option<Map<String, Value>> {
     Some(normalized)
 }
 
+fn deepseek_provider_options_name(provider_id: &str) -> &str {
+    provider_id.split('.').next().unwrap_or(provider_id).trim()
+}
+
 fn deepseek_provider_options_hook(
     req: &ChatRequest,
+    provider_id: &str,
 ) -> Option<crate::execution::executors::BeforeSendHook> {
-    let normalized = normalize_deepseek_options(req.provider_options_map.get("deepseek")?)?;
+    let provider_options_key = deepseek_provider_options_name(provider_id);
+    let normalized =
+        normalize_deepseek_options(req.provider_options_map.get(provider_options_key)?)?;
     let hook = move |body: &Value| -> Result<Value, LlmError> {
         let mut out = body.clone();
         if let Some(body_obj) = out.as_object_mut() {
@@ -61,7 +69,13 @@ impl DeepSeekSpec {
         >,
     ) -> Self {
         Self {
-            inner: siumai_protocol_openai::standards::openai::compat::spec::OpenAiCompatibleSpecWithAdapter::new(adapter),
+            inner: siumai_protocol_openai::standards::openai::compat::spec::OpenAiCompatibleSpecWithAdapter::with_settings(
+                adapter,
+                OpenAiCompatibleRequestSettings {
+                    include_usage: Some(true),
+                    ..OpenAiCompatibleRequestSettings::default()
+                },
+            ),
         }
     }
 }
@@ -105,7 +119,8 @@ impl ProviderSpec for DeepSeekSpec {
         req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> Option<crate::execution::executors::BeforeSendHook> {
-        deepseek_provider_options_hook(req).or_else(|| self.inner.chat_before_send(req, ctx))
+        deepseek_provider_options_hook(req, &ctx.provider_id)
+            .or_else(|| self.inner.chat_before_send(req, ctx))
     }
 }
 
@@ -295,6 +310,97 @@ mod tests {
                     "top_logprobs": []
                 }
             ]))
+        );
+    }
+
+    #[test]
+    fn deepseek_spec_reads_runtime_custom_provider_options_key() {
+        let provider = get_provider_config("deepseek").expect("deepseek config");
+        let spec = DeepSeekSpec::new(Arc::new(ConfigurableAdapter::new(provider)));
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_provider_option(
+            "my-custom-deepseek",
+            serde_json::json!({
+                "enableReasoning": true,
+                "reasoningBudget": 2048,
+                "foo": "bar"
+            }),
+        );
+        let ctx = ProviderContext::new(
+            "my-custom-deepseek.chat",
+            "https://api.deepseek.com",
+            Some("test-key".to_string()),
+            HashMap::new(),
+        );
+
+        let hook = spec
+            .chat_before_send(&request, &ctx)
+            .expect("before_send hook");
+        let body = hook(&serde_json::json!({ "messages": [] })).expect("hook output");
+
+        assert_eq!(body["enable_reasoning"], serde_json::json!(true));
+        assert_eq!(body["reasoning_budget"], serde_json::json!(2048));
+        assert_eq!(body["foo"], serde_json::json!("bar"));
+    }
+
+    #[test]
+    fn deepseek_spec_uses_runtime_custom_provider_metadata_key() {
+        let provider = get_provider_config("deepseek").expect("deepseek config");
+        let spec = DeepSeekSpec::new(Arc::new(ConfigurableAdapter::new(provider)));
+        let request = ChatRequest::builder()
+            .model("deepseek-chat")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build();
+        let ctx = ProviderContext::new(
+            "my-custom-deepseek.chat",
+            "https://api.deepseek.com",
+            Some("test-key".to_string()),
+            HashMap::new(),
+        );
+
+        let bundle = spec.choose_chat_transformers(&request, &ctx);
+        let response = bundle
+            .response
+            .transform_chat_response(&serde_json::json!({
+                "id": "chatcmpl-1",
+                "object": "chat.completion",
+                "created": 1_741_392_000,
+                "model": "deepseek-chat",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": "hello"
+                    },
+                    "finish_reason": "stop",
+                    "logprobs": {
+                        "content": [{
+                            "token": "hello",
+                            "logprob": -0.1,
+                            "bytes": [104, 101, 108, 108, 111],
+                            "top_logprobs": []
+                        }]
+                    }
+                }],
+                "usage": {
+                    "prompt_tokens": 1,
+                    "completion_tokens": 1,
+                    "total_tokens": 2
+                }
+            }))
+            .expect("transform response");
+
+        let root = response
+            .provider_metadata
+            .as_ref()
+            .expect("provider metadata");
+        assert!(root.get("my-custom-deepseek").is_some());
+        assert!(root.get("deepseek").is_none());
+        assert!(response.deepseek_metadata().is_none());
+        assert!(
+            response
+                .deepseek_metadata_with_key("my-custom-deepseek")
+                .and_then(|meta| meta.logprobs)
+                .is_some()
         );
     }
 }

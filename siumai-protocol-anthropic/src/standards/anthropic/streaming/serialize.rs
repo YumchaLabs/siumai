@@ -1075,7 +1075,7 @@ pub(super) fn serialize_event(
             return Ok(Vec::new());
         };
         if let Some(custom_event) =
-            part.to_custom_event(crate::streaming::StreamPartNamespace::Anthropic)
+            part.to_protocol_custom_event(crate::streaming::StreamPartNamespace::Anthropic)
         {
             return serialize_event(this, &custom_event);
         }

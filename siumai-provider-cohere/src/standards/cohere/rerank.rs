@@ -3,10 +3,12 @@
 //! Vercel reference: `repo-ref/ai/packages/cohere/src/reranking/cohere-reranking-model.ts`
 //! API docs: <https://docs.cohere.com/v2/reference/rerank>
 
+use super::shared;
 use crate::core::{ProviderContext, ProviderSpec, RerankTransformers};
 use crate::error::LlmError;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
+use crate::provider_options::CohereRerankOptions;
 use crate::types::{
     RerankDocuments, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage,
 };
@@ -52,33 +54,7 @@ impl ProviderSpec for CohereRerankSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<reqwest::header::HeaderMap, LlmError> {
-        let api_key = ctx.api_key.as_deref().ok_or_else(|| {
-            LlmError::ConfigurationError("Cohere API key is required".to_string())
-        })?;
-
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            reqwest::header::AUTHORIZATION,
-            format!("Bearer {api_key}").parse().map_err(|e| {
-                LlmError::ConfigurationError(format!("Invalid Cohere API key: {e}"))
-            })?,
-        );
-        headers.insert(
-            reqwest::header::CONTENT_TYPE,
-            "application/json".parse().expect("static header"),
-        );
-
-        // Preserve custom headers (Vercel-aligned: user headers override defaults).
-        for (k, v) in &ctx.http_extra_headers {
-            if let (Ok(name), Ok(value)) = (
-                reqwest::header::HeaderName::from_bytes(k.as_bytes()),
-                reqwest::header::HeaderValue::from_str(v),
-            ) {
-                headers.insert(name, value);
-            }
-        }
-
-        Ok(headers)
+        shared::build_headers(ctx)
     }
 
     fn classify_http_error(
@@ -114,18 +90,8 @@ struct CohereRerankRequestTransformer {
 }
 
 impl CohereRerankRequestTransformer {
-    fn cohere_options(req: &RerankRequest) -> Option<&serde_json::Map<String, serde_json::Value>> {
-        req.provider_options_map.get_object("cohere")
-    }
-
-    fn get_u64(
-        obj: &serde_json::Map<String, serde_json::Value>,
-        camel: &str,
-        snake: &str,
-    ) -> Option<u64> {
-        obj.get(camel)
-            .or_else(|| obj.get(snake))
-            .and_then(|v| v.as_u64())
+    fn cohere_options(req: &RerankRequest) -> Result<Option<CohereRerankOptions>, LlmError> {
+        shared::cohere_provider_options(&req.provider_options_map)
     }
 }
 
@@ -146,11 +112,11 @@ impl RerankRequestTransformer for CohereRerankRequestTransformer {
             body["top_n"] = serde_json::json!(top_n);
         }
 
-        if let Some(opts) = Self::cohere_options(req) {
-            if let Some(max) = Self::get_u64(opts, "maxTokensPerDoc", "max_tokens_per_doc") {
+        if let Some(opts) = Self::cohere_options(req)? {
+            if let Some(max) = opts.max_tokens_per_doc {
                 body["max_tokens_per_doc"] = serde_json::json!(max);
             }
-            if let Some(priority) = Self::get_u64(opts, "priority", "priority") {
+            if let Some(priority) = opts.priority {
                 body["priority"] = serde_json::json!(priority);
             }
         }

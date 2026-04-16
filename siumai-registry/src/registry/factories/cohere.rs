@@ -1,4 +1,4 @@
-//! Cohere provider factory (rerank-only).
+//! Cohere provider factory.
 
 use super::*;
 
@@ -53,7 +53,7 @@ fn build_typed_client_with_ctx(
     Ok(client)
 }
 
-/// Cohere provider factory (rerank-only).
+/// Cohere provider factory.
 #[cfg(feature = "cohere")]
 pub struct CohereProviderFactory;
 
@@ -65,7 +65,14 @@ impl ProviderFactory for CohereProviderFactory {
         meta.into_iter()
             .find(|m| m.id == crate::provider::ids::COHERE)
             .map(|m| m.capabilities)
-            .unwrap_or_else(|| ProviderCapabilities::new().with_rerank())
+            .unwrap_or_else(|| {
+                ProviderCapabilities::new()
+                    .with_chat()
+                    .with_streaming()
+                    .with_tools()
+                    .with_embedding()
+                    .with_rerank()
+            })
     }
 
     async fn language_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
@@ -75,13 +82,18 @@ impl ProviderFactory for CohereProviderFactory {
 
     async fn language_model_with_ctx(
         &self,
-        _model_id: &str,
-        _ctx: &BuildContext,
+        model_id: &str,
+        ctx: &BuildContext,
     ) -> Result<Arc<dyn LlmClient>, LlmError> {
-        Err(LlmError::UnsupportedOperation(
-            "Cohere does not expose the language_model/chat family path; use reranking_model instead"
-                .to_string(),
-        ))
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
+    }
+
+    async fn embedding_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        Ok(Arc::new(build_typed_client_with_ctx(model_id, ctx)?))
     }
 
     async fn reranking_model_with_ctx(

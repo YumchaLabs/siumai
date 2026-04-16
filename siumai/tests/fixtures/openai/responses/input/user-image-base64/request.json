@@ -5,9 +5,8 @@
       "content": {
         "MultiModal": [
           {
-            "type": "file",
-            "data": "AAECAw==",
-            "media_type": "image/png"
+            "type": "image",
+            "data": "AAECAw=="
           }
         ]
       },

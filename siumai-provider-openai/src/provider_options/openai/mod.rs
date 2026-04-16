@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 
 // Sub-modules
+pub mod ai_sdk;
 pub mod audio;
 pub mod enums;
 pub mod prediction;
@@ -17,6 +18,13 @@ pub mod responses_api;
 pub mod web_search;
 
 // Re-exports
+#[allow(deprecated)]
+pub use ai_sdk::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
+pub use ai_sdk::{
+    OpenAIEmbeddingModelOptions, OpenAIFilesOptions, OpenAILanguageModelChatOptions,
+    OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
+    OpenAISpeechModelOptions, OpenAITranscriptionModelOptions,
+};
 pub use audio::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
     ChatCompletionModalities, InputAudio, InputAudioFormat,

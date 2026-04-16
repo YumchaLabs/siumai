@@ -4,6 +4,10 @@
 //! across non-streaming and streaming paths.
 
 use super::adapter::ProviderAdapter;
+use super::metadata::{
+    ensure_provider_metadata_namespace, nested_provider_metadata_to_map, provider_options_key,
+    resolve_provider_metadata_key,
+};
 use super::openai_config::OpenAiCompatibleConfig;
 use super::types::RequestType;
 use crate::error::LlmError;
@@ -148,6 +152,19 @@ impl RequestTransformer for CompatRequestTransformer {
 pub struct CompatResponseTransformer {
     pub config: OpenAiCompatibleConfig,
     pub adapter: Arc<dyn ProviderAdapter>,
+    pub provider_metadata_key: Option<String>,
+}
+
+impl CompatResponseTransformer {
+    fn resolved_provider_metadata_key(&self) -> String {
+        self.provider_metadata_key
+            .clone()
+            .unwrap_or_else(|| resolve_provider_metadata_key(&self.config.provider_id, None))
+    }
+
+    fn raw_provider_metadata_key(&self) -> String {
+        provider_options_key(self.adapter.provider_id().as_ref())
+    }
 }
 
 impl ResponseTransformer for CompatResponseTransformer {
@@ -169,6 +186,17 @@ impl ResponseTransformer for CompatResponseTransformer {
             id: String,
             r#type: String,
             function: Option<CompatFunction>,
+            extra_content: Option<CompatToolCallExtraContent>,
+        }
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct CompatToolCallExtraContent {
+            google: Option<CompatToolCallGoogleExtraContent>,
+        }
+        #[allow(dead_code)]
+        #[derive(serde::Deserialize)]
+        struct CompatToolCallGoogleExtraContent {
+            thought_signature: Option<String>,
         }
         #[allow(dead_code)]
         #[derive(serde::Deserialize)]
@@ -284,19 +312,34 @@ impl ResponseTransformer for CompatResponseTransformer {
         };
 
         // Add tool calls
+        let provider_metadata_key = self.resolved_provider_metadata_key();
+
         if let Some(calls) = choice.message.tool_calls {
             for call in calls {
                 if let Some(function) = call.function {
                     // Parse arguments string to JSON Value
                     let arguments = serde_json::from_str(&function.arguments)
                         .unwrap_or_else(|_| serde_json::Value::String(function.arguments.clone()));
-
-                    parts.push(ContentPart::tool_call(
-                        call.id,
-                        function.name,
-                        arguments,
-                        None,
-                    ));
+                    let thought_signature = call
+                        .extra_content
+                        .as_ref()
+                        .and_then(|extra| extra.google.as_ref())
+                        .and_then(|google| google.thought_signature.as_deref())
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(ToString::to_string);
+                    let mut part = ContentPart::tool_call(call.id, function.name, arguments, None);
+                    if let Some(thought_signature) = thought_signature
+                        && let ContentPart::ToolCall {
+                            provider_metadata, ..
+                        } = &mut part
+                    {
+                        *provider_metadata = Some(std::collections::HashMap::from([(
+                            provider_metadata_key.clone(),
+                            serde_json::json!({ "thoughtSignature": thought_signature }),
+                        )]));
+                    }
+                    parts.push(part);
                 }
             }
         } else if let Some(function) = choice.message.function_call {
@@ -391,18 +434,22 @@ impl ResponseTransformer for CompatResponseTransformer {
         };
 
         let usage = resp.usage.and_then(|u| {
-            serde_json::to_value(u)
-                .ok()
-                .and_then(|value| crate::standards::openai::utils::parse_openai_usage_value(&value))
+            serde_json::to_value(u).ok().and_then(|value| {
+                crate::standards::openai::utils::parse_provider_openai_usage_value(
+                    self.adapter.provider_id().as_ref(),
+                    &value,
+                )
+            })
         });
 
-        let finish_reason = choice.finish_reason.map(|r| match r.as_str() {
+        let raw_finish_reason = choice.finish_reason.clone();
+        let finish_reason = raw_finish_reason.as_deref().map(|r| match r {
             "stop" => FinishReason::Stop,
             "length" => FinishReason::Length,
             "tool_calls" => FinishReason::ToolCalls,
             "function_call" => FinishReason::ToolCalls,
             "content_filter" => FinishReason::ContentFilter,
-            _ => FinishReason::Other(r),
+            _ => FinishReason::Other(r.to_string()),
         });
 
         // Extract audio output if present (OpenAI audio modality)
@@ -425,7 +472,13 @@ impl ResponseTransformer for CompatResponseTransformer {
                 })
             });
 
-        let provider_metadata = self.adapter.extract_response_provider_metadata(raw);
+        let provider_metadata = Some(nested_provider_metadata_to_map(
+            ensure_provider_metadata_namespace(
+                self.adapter.extract_response_provider_metadata(raw),
+                &provider_metadata_key,
+                &self.raw_provider_metadata_key(),
+            ),
+        ));
 
         Ok(ChatResponse {
             id: Some(resp.id),
@@ -433,6 +486,7 @@ impl ResponseTransformer for CompatResponseTransformer {
             model: Some(resp.model),
             usage,
             finish_reason,
+            raw_finish_reason,
             audio,
             system_fingerprint: resp.system_fingerprint,
             service_tier: resp.service_tier,
@@ -491,6 +545,10 @@ impl StreamChunkTransformer for CompatStreamChunkTransformer {
 
     fn handle_stream_end(&self) -> Option<Result<ChatStreamEvent, LlmError>> {
         self.inner.handle_stream_end()
+    }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        self.inner.handle_stream_end_events()
     }
 }
 
@@ -573,7 +631,11 @@ mod tests {
         )
         .with_model("sonar-pro");
 
-        let tx = CompatResponseTransformer { config, adapter };
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
 
         let raw = serde_json::json!({
             "id": "gen-123",
@@ -595,6 +657,9 @@ mod tests {
         let perplexity = meta
             .get("perplexity")
             .expect("perplexity namespace should exist");
+        let perplexity = perplexity
+            .as_object()
+            .expect("perplexity provider metadata should be object-shaped");
         assert!(perplexity.contains_key("search_results"));
         assert!(perplexity.contains_key("videos"));
     }
@@ -610,7 +675,11 @@ mod tests {
         )
         .with_model("test-model");
 
-        let tx = CompatResponseTransformer { config, adapter };
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
 
         let raw = serde_json::json!({
             "id": "gen-123",
@@ -645,7 +714,11 @@ mod tests {
         )
         .with_model("test-model");
 
-        let tx = CompatResponseTransformer { config, adapter };
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
 
         let raw = serde_json::json!({
             "id": "gen-123",
@@ -679,7 +752,11 @@ mod tests {
         )
         .with_model("test-model");
 
-        let tx = CompatResponseTransformer { config, adapter };
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
 
         let raw = serde_json::json!( {
             "id": "gen-123",
@@ -724,7 +801,11 @@ mod tests {
         )
         .with_model("gpt-4.1-mini");
 
-        let tx = CompatResponseTransformer { config, adapter };
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
 
         let raw = serde_json::json!({
             "id": "chatcmpl_123",
@@ -762,6 +843,7 @@ mod tests {
         assert_eq!(resp.system_fingerprint.as_deref(), Some("fp_123"));
         assert_eq!(resp.service_tier.as_deref(), Some("priority"));
         assert_eq!(resp.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(resp.raw_finish_reason.as_deref(), Some("stop"));
 
         let usage = resp.usage.expect("usage");
         assert_eq!(usage.prompt_tokens(), Some(11));
@@ -823,7 +905,7 @@ mod tests {
     }
 
     #[test]
-    fn generic_openai_compatible_provider_does_not_infer_standard_metadata_by_default() {
+    fn generic_openai_compatible_provider_keeps_empty_provider_metadata_root_by_default() {
         let adapter: Arc<dyn ProviderAdapter> =
             Arc::new(ConfigurableAdapter::new(ProviderConfig {
                 id: "test-provider".to_string(),
@@ -844,7 +926,11 @@ mod tests {
         )
         .with_model("test-model");
 
-        let tx = CompatResponseTransformer { config, adapter };
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
         let raw = serde_json::json!({
             "id": "chatcmpl_123",
             "model": "test-model",
@@ -876,7 +962,88 @@ mod tests {
         });
 
         let resp = tx.transform_chat_response(&raw).unwrap();
-        assert!(resp.provider_metadata.is_none());
+        let provider_metadata = resp.provider_metadata.expect("provider metadata root");
+        assert_eq!(provider_metadata.len(), 1);
+        assert_eq!(
+            provider_metadata.get("test-provider"),
+            Some(&serde_json::json!({}))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_transformer_uses_requested_metadata_key_for_tool_call_signatures() {
+        let adapter: Arc<dyn ProviderAdapter> =
+            Arc::new(ConfigurableAdapter::new(ProviderConfig {
+                id: "test-provider".to_string(),
+                name: "Test Provider".to_string(),
+                base_url: "https://api.example.com/v1".to_string(),
+                field_mappings: ProviderFieldMappings::default(),
+                capabilities: vec!["chat".to_string(), "streaming".to_string()],
+                default_model: Some("test-model".to_string()),
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            }));
+        let config = OpenAiCompatibleConfig::new(
+            "test-provider",
+            "test-key",
+            "https://api.example.com/v1",
+            adapter.clone(),
+        )
+        .with_model("test-model");
+
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: Some("testProvider".to_string()),
+        };
+        let raw = serde_json::json!({
+            "id": "chatcmpl_123",
+            "model": "test-model",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {
+                            "name": "lookup",
+                            "arguments": "{\"q\":\"rust\"}"
+                        },
+                        "extra_content": {
+                            "google": {
+                                "thought_signature": "<Sig>"
+                            }
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+
+        let resp = tx.transform_chat_response(&raw).unwrap();
+        let provider_metadata = resp.provider_metadata.expect("provider metadata");
+        assert!(provider_metadata.get("testProvider").is_some());
+        assert!(provider_metadata.get("test-provider").is_none());
+
+        let parts = resp.content.as_multimodal().expect("multimodal content");
+        let tool_call = parts
+            .iter()
+            .find_map(|part| match part {
+                ContentPart::ToolCall {
+                    provider_metadata, ..
+                } => provider_metadata.as_ref(),
+                _ => None,
+            })
+            .expect("tool call provider metadata");
+        assert_eq!(
+            tool_call
+                .get("testProvider")
+                .and_then(|value| value.get("thoughtSignature")),
+            Some(&serde_json::json!("<Sig>"))
+        );
     }
 
     #[test]
@@ -890,7 +1057,11 @@ mod tests {
         )
         .with_model("gpt-4.1-mini");
 
-        let tx = CompatResponseTransformer { config, adapter };
+        let tx = CompatResponseTransformer {
+            config,
+            adapter,
+            provider_metadata_key: None,
+        };
 
         let raw = serde_json::json!({
             "id": "chatcmpl_123",

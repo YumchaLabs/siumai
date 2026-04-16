@@ -2,11 +2,19 @@
   "messages": [
     {
       "role": "user",
-      "content": { "MultiModal": [{ "type": "file", "media_type": "image/png", "data": "assistant-12345" }] },
+      "content": {
+        "MultiModal": [
+          {
+            "type": "image",
+            "providerReference": {
+              "openai": "assistant-12345"
+            }
+          }
+        ]
+      },
       "metadata": {}
     }
   ],
-  "providerOptions": { "openai": { "fileIdPrefixes": ["assistant-"] } },
   "common_params": {
     "model": "gpt-5-nano",
     "temperature": null,

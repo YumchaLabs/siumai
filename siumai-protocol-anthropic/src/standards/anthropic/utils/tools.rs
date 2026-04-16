@@ -43,6 +43,18 @@ pub fn convert_tools_to_anthropic_format(
                     map.insert("defer_loading".to_string(), serde_json::json!(v));
                 }
 
+                // Vercel-aligned: eager tool-input streaming for function tools.
+                if let Some(opts) = function.provider_options_map.get("anthropic")
+                    && let Some(obj) = opts.as_object()
+                    && let Some(v) = obj
+                        .get("eagerInputStreaming")
+                        .or_else(|| obj.get("eager_input_streaming"))
+                        .and_then(|v| v.as_bool())
+                    && let Some(map) = anthropic_tool.as_object_mut()
+                {
+                    map.insert("eager_input_streaming".to_string(), serde_json::json!(v));
+                }
+
                 // Vercel-aligned: tool-level cache control for Anthropic.
                 // Example: `{ providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } }`
                 if let Some(opts) = function.provider_options_map.get("anthropic")
@@ -149,6 +161,32 @@ pub fn convert_tools_to_anthropic_format(
                                     tool_map.insert("display_number".to_string(), v.clone());
                                 }
                             }
+                            "computer_20251124" => {
+                                if let Some(v) = args_map
+                                    .get("displayWidthPx")
+                                    .or_else(|| args_map.get("display_width_px"))
+                                {
+                                    tool_map.insert("display_width_px".to_string(), v.clone());
+                                }
+                                if let Some(v) = args_map
+                                    .get("displayHeightPx")
+                                    .or_else(|| args_map.get("display_height_px"))
+                                {
+                                    tool_map.insert("display_height_px".to_string(), v.clone());
+                                }
+                                if let Some(v) = args_map
+                                    .get("displayNumber")
+                                    .or_else(|| args_map.get("display_number"))
+                                {
+                                    tool_map.insert("display_number".to_string(), v.clone());
+                                }
+                                if let Some(v) = args_map
+                                    .get("enableZoom")
+                                    .or_else(|| args_map.get("enable_zoom"))
+                                {
+                                    tool_map.insert("enable_zoom".to_string(), v.clone());
+                                }
+                            }
                             "text_editor_20250728" => {
                                 if let Some(v) = args_map
                                     .get("maxCharacters")
@@ -157,7 +195,7 @@ pub fn convert_tools_to_anthropic_format(
                                     tool_map.insert("max_characters".to_string(), v.clone());
                                 }
                             }
-                            "web_fetch_20250910" => {
+                            "web_fetch_20250910" | "web_fetch_20260209" => {
                                 if let Some(v) =
                                     args_map.get("maxUses").or_else(|| args_map.get("max_uses"))
                                 {
@@ -185,7 +223,7 @@ pub fn convert_tools_to_anthropic_format(
                                     tool_map.insert("max_content_tokens".to_string(), v.clone());
                                 }
                             }
-                            "web_search_20250305" => {
+                            "web_search_20250305" | "web_search_20260209" => {
                                 if let Some(v) =
                                     args_map.get("maxUses").or_else(|| args_map.get("max_uses"))
                                 {
@@ -256,6 +294,32 @@ mod provider_tool_tests {
     }
 
     #[test]
+    fn maps_anthropic_provider_defined_web_search_20260209() {
+        let t = crate::tools::anthropic::web_search_20260209().with_args(serde_json::json!({
+            "maxUses": 2,
+            "allowedDomains": ["example.com"],
+            "blockedDomains": ["bad.com"],
+            "userLocation": { "type": "approximate", "city": "New York" }
+        }));
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("web_search_20260209")
+        );
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("web_search"));
+        assert_eq!(obj.get("max_uses").and_then(|v| v.as_u64()), Some(2));
+        assert!(obj.get("allowed_domains").is_some());
+        assert!(obj.get("blocked_domains").is_some());
+        assert_eq!(
+            obj.get("user_location")
+                .and_then(|v| v.get("city"))
+                .and_then(|v| v.as_str()),
+            Some("New York")
+        );
+    }
+
+    #[test]
     fn maps_anthropic_provider_defined_web_fetch() {
         let t = crate::tools::anthropic::web_fetch_20250910().with_args(serde_json::json!({
             "maxUses": 1,
@@ -268,6 +332,30 @@ mod provider_tool_tests {
         assert_eq!(
             obj.get("type").and_then(|v| v.as_str()),
             Some("web_fetch_20250910")
+        );
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("web_fetch"));
+        assert_eq!(obj.get("max_uses").and_then(|v| v.as_u64()), Some(1));
+        assert!(obj.get("allowed_domains").is_some());
+        assert!(obj.get("citations").is_some());
+        assert_eq!(
+            obj.get("max_content_tokens").and_then(|v| v.as_u64()),
+            Some(2048)
+        );
+    }
+
+    #[test]
+    fn maps_anthropic_provider_defined_web_fetch_20260209() {
+        let t = crate::tools::anthropic::web_fetch_20260209().with_args(serde_json::json!({
+            "maxUses": 1,
+            "allowedDomains": ["example.com"],
+            "citations": { "enabled": true },
+            "maxContentTokens": 2048
+        }));
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("web_fetch_20260209")
         );
         assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("web_fetch"));
         assert_eq!(obj.get("max_uses").and_then(|v| v.as_u64()), Some(1));
@@ -340,6 +428,21 @@ mod provider_tool_tests {
     }
 
     #[test]
+    fn maps_anthropic_provider_defined_code_execution_20260120() {
+        let t = crate::tools::anthropic::code_execution_20260120();
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("code_execution_20260120")
+        );
+        assert_eq!(
+            obj.get("name").and_then(|v| v.as_str()),
+            Some("code_execution")
+        );
+    }
+
+    #[test]
     fn maps_anthropic_provider_defined_computer_use() {
         let t = crate::tools::anthropic::computer_20241022().with_args(serde_json::json!({
             "displayWidthPx": 800,
@@ -387,6 +490,33 @@ mod provider_tool_tests {
             Some(600)
         );
         assert_eq!(obj.get("display_number").and_then(|v| v.as_u64()), Some(1));
+    }
+
+    #[test]
+    fn maps_anthropic_provider_defined_computer_use_20251124() {
+        let t = crate::tools::anthropic::computer_20251124().with_args(serde_json::json!({
+            "displayWidthPx": 800,
+            "displayHeightPx": 600,
+            "displayNumber": 1,
+            "enableZoom": true
+        }));
+        let mapped = convert_tools_to_anthropic_format(&[t]).expect("map ok");
+        let obj = mapped.first().and_then(|v| v.as_object()).expect("obj");
+        assert_eq!(
+            obj.get("type").and_then(|v| v.as_str()),
+            Some("computer_20251124")
+        );
+        assert_eq!(obj.get("name").and_then(|v| v.as_str()), Some("computer"));
+        assert_eq!(
+            obj.get("display_width_px").and_then(|v| v.as_u64()),
+            Some(800)
+        );
+        assert_eq!(
+            obj.get("display_height_px").and_then(|v| v.as_u64()),
+            Some(600)
+        );
+        assert_eq!(obj.get("display_number").and_then(|v| v.as_u64()), Some(1));
+        assert_eq!(obj.get("enable_zoom").and_then(|v| v.as_bool()), Some(true));
     }
 
     #[test]
@@ -519,6 +649,43 @@ mod function_tool_tests {
         assert_eq!(obj.get("strict").and_then(|v| v.as_bool()), Some(true));
         assert_eq!(
             obj.get("defer_loading").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn function_tools_forward_allowed_callers_and_eager_input_streaming() {
+        let mut tool = crate::types::Tool::function(
+            "testFunction",
+            "A test function",
+            serde_json::json!({ "type": "object", "properties": {} }),
+        );
+        match &mut tool {
+            crate::types::Tool::Function { function } => {
+                function.provider_options_map.insert(
+                    "anthropic",
+                    serde_json::json!({
+                        "allowedCallers": ["direct", "code_execution_20260120"],
+                        "eagerInputStreaming": true
+                    }),
+                );
+            }
+            _ => panic!("expected function tool"),
+        }
+
+        let mapped = convert_tools_to_anthropic_format(&[tool]).expect("map ok");
+        let obj = mapped
+            .first()
+            .and_then(|value| value.as_object())
+            .expect("obj");
+
+        assert_eq!(
+            obj.get("allowed_callers"),
+            Some(&serde_json::json!(["direct", "code_execution_20260120"]))
+        );
+        assert_eq!(
+            obj.get("eager_input_streaming")
+                .and_then(|value| value.as_bool()),
             Some(true)
         );
     }

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Native Azure OpenAI completion now follows the AI SDK completion-family execution path on the
+  real Azure `/completions` deployment route: non-stream and streamed calls preserve
+  `api-version`, structured prompts follow the audited completion materialization rules, completion
+  provider options merge audited OpenAI/Azure namespaces, and completion responses preserve raw
+  `choices[0].logprobs` under provider-owned Azure metadata.
+- Native Azure completion streaming now also honors runtime-only `includeRawChunks` on the audited
+  `/completions` deployment route: stable `stream-start`, `raw`, `response-metadata`, `text-*`,
+  and terminal `finish` parts are emitted while preserving legacy `ContentDelta` / `StreamEnd`.
+- Native Azure completion streaming terminal responses now preserve raw provider finish reasons on
+  stable `ChatResponse.raw_finish_reason` instead of dropping them at stream end.
 - Azure content-part metadata helpers now preserve metadata on stable `reasoning-file` and
   `custom` parts in addition to the older content-part variants.
 

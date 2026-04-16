@@ -250,6 +250,7 @@ async fn files_executor_retries_on_401_list_retrieve_delete_upload_content() {
             mime_type: Some("text/plain".to_string()),
             purpose: "test".to_string(),
             metadata: Default::default(),
+            provider_options: Default::default(),
             http_config: None,
         })
         .await

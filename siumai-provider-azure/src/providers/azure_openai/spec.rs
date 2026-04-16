@@ -88,7 +88,7 @@ impl AzureOpenAiSpec {
         self
     }
 
-    fn build_url(&self, ctx: &ProviderContext, model_id: &str, path: &str) -> String {
+    pub(crate) fn build_url(&self, ctx: &ProviderContext, model_id: &str, path: &str) -> String {
         let base = ctx.base_url.trim_end_matches('/');
         let path = if self.url_config.use_deployment_based_urls {
             format!("/deployments/{}{}", model_id.trim().trim_matches('/'), path)
@@ -362,6 +362,7 @@ impl ProviderSpec for AzureOpenAiSpec {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::new()
             .with_chat()
+            .with_completion()
             .with_streaming()
             .with_tools()
             .with_embedding()

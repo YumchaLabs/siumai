@@ -115,10 +115,21 @@ impl Warning {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderType {
     OpenAi,
+    Azure,
     Anthropic,
     Gemini,
+    Vertex,
+    AnthropicVertex,
+    VertexMaas,
     Ollama,
     DeepSeek,
+    DeepInfra,
+    Cohere,
+    TogetherAi,
+    Bedrock,
+    Mistral,
+    Fireworks,
+    Perplexity,
     XAI,
     Groq,
     MiniMaxi,
@@ -129,10 +140,21 @@ impl std::fmt::Display for ProviderType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::OpenAi => write!(f, "openai"),
+            Self::Azure => write!(f, "azure"),
             Self::Anthropic => write!(f, "anthropic"),
             Self::Gemini => write!(f, "gemini"),
+            Self::Vertex => write!(f, "vertex"),
+            Self::AnthropicVertex => write!(f, "anthropic-vertex"),
+            Self::VertexMaas => write!(f, "vertex-maas"),
             Self::Ollama => write!(f, "ollama"),
             Self::DeepSeek => write!(f, "deepseek"),
+            Self::DeepInfra => write!(f, "deepinfra"),
+            Self::Cohere => write!(f, "cohere"),
+            Self::TogetherAi => write!(f, "togetherai"),
+            Self::Bedrock => write!(f, "bedrock"),
+            Self::Mistral => write!(f, "mistral"),
+            Self::Fireworks => write!(f, "fireworks"),
+            Self::Perplexity => write!(f, "perplexity"),
             Self::XAI => write!(f, "xai"),
             Self::Groq => write!(f, "groq"),
             Self::MiniMaxi => write!(f, "minimaxi"),
@@ -146,11 +168,22 @@ impl ProviderType {
     /// Known names map to concrete variants; others map to Custom(name).
     pub fn from_name(name: &str) -> Self {
         match name {
-            "openai" => Self::OpenAi,
+            "openai" | "openai-chat" | "openai-responses" => Self::OpenAi,
+            "azure" | "azure-chat" => Self::Azure,
             "anthropic" => Self::Anthropic,
             "gemini" => Self::Gemini,
+            "vertex" | "google-vertex" => Self::Vertex,
+            "anthropic-vertex" | "google-vertex-anthropic" => Self::AnthropicVertex,
+            "vertex-maas" | "google-vertex-maas" | "vertex.maas" | "vertexMaas" => Self::VertexMaas,
             "ollama" => Self::Ollama,
             "deepseek" => Self::DeepSeek,
+            "deepinfra" => Self::DeepInfra,
+            "cohere" => Self::Cohere,
+            "togetherai" => Self::TogetherAi,
+            "bedrock" => Self::Bedrock,
+            "mistral" => Self::Mistral,
+            "fireworks" => Self::Fireworks,
+            "perplexity" => Self::Perplexity,
             "xai" => Self::XAI,
             "groq" => Self::Groq,
             "minimaxi" => Self::MiniMaxi,
@@ -278,6 +311,121 @@ mod tests {
     fn provider_type_maps_deepseek_name() {
         assert_eq!(ProviderType::from_name("deepseek"), ProviderType::DeepSeek);
         assert_eq!(ProviderType::DeepSeek.to_string(), "deepseek");
+    }
+
+    #[test]
+    fn provider_type_maps_deepinfra_name() {
+        assert_eq!(
+            ProviderType::from_name("deepinfra"),
+            ProviderType::DeepInfra
+        );
+        assert_eq!(ProviderType::DeepInfra.to_string(), "deepinfra");
+    }
+
+    #[test]
+    fn provider_type_maps_azure_name() {
+        assert_eq!(ProviderType::from_name("azure"), ProviderType::Azure);
+        assert_eq!(ProviderType::from_name("azure-chat"), ProviderType::Azure);
+        assert_eq!(ProviderType::Azure.to_string(), "azure");
+    }
+
+    #[test]
+    fn provider_type_maps_openai_family_variants() {
+        assert_eq!(ProviderType::from_name("openai"), ProviderType::OpenAi);
+        assert_eq!(ProviderType::from_name("openai-chat"), ProviderType::OpenAi);
+        assert_eq!(
+            ProviderType::from_name("openai-responses"),
+            ProviderType::OpenAi
+        );
+        assert_eq!(ProviderType::OpenAi.to_string(), "openai");
+    }
+
+    #[test]
+    fn provider_type_maps_cohere_name() {
+        assert_eq!(ProviderType::from_name("cohere"), ProviderType::Cohere);
+        assert_eq!(ProviderType::Cohere.to_string(), "cohere");
+    }
+
+    #[test]
+    fn provider_type_maps_togetherai_name() {
+        assert_eq!(
+            ProviderType::from_name("togetherai"),
+            ProviderType::TogetherAi
+        );
+        assert_eq!(ProviderType::TogetherAi.to_string(), "togetherai");
+    }
+
+    #[test]
+    fn provider_type_maps_bedrock_name() {
+        assert_eq!(ProviderType::from_name("bedrock"), ProviderType::Bedrock);
+        assert_eq!(ProviderType::Bedrock.to_string(), "bedrock");
+    }
+
+    #[test]
+    fn provider_type_maps_mistral_name() {
+        assert_eq!(ProviderType::from_name("mistral"), ProviderType::Mistral);
+        assert_eq!(ProviderType::Mistral.to_string(), "mistral");
+    }
+
+    #[test]
+    fn provider_type_maps_fireworks_name() {
+        assert_eq!(
+            ProviderType::from_name("fireworks"),
+            ProviderType::Fireworks
+        );
+        assert_eq!(ProviderType::Fireworks.to_string(), "fireworks");
+    }
+
+    #[test]
+    fn provider_type_maps_perplexity_name() {
+        assert_eq!(
+            ProviderType::from_name("perplexity"),
+            ProviderType::Perplexity
+        );
+        assert_eq!(ProviderType::Perplexity.to_string(), "perplexity");
+    }
+
+    #[test]
+    fn provider_type_maps_vertex_maas_name() {
+        assert_eq!(
+            ProviderType::from_name("vertex-maas"),
+            ProviderType::VertexMaas
+        );
+        assert_eq!(
+            ProviderType::from_name("google-vertex-maas"),
+            ProviderType::VertexMaas
+        );
+        assert_eq!(
+            ProviderType::from_name("vertex.maas"),
+            ProviderType::VertexMaas
+        );
+        assert_eq!(ProviderType::VertexMaas.to_string(), "vertex-maas");
+    }
+
+    #[test]
+    fn provider_type_maps_vertex_name() {
+        assert_eq!(ProviderType::from_name("vertex"), ProviderType::Vertex);
+        assert_eq!(
+            ProviderType::from_name("google-vertex"),
+            ProviderType::Vertex
+        );
+        assert_eq!(ProviderType::Vertex.to_string(), "vertex");
+    }
+
+    #[test]
+    fn provider_type_maps_anthropic_vertex_name() {
+        assert_eq!(
+            ProviderType::from_name("anthropic-vertex"),
+            ProviderType::AnthropicVertex
+        );
+        assert_eq!(
+            ProviderType::from_name("google-vertex-anthropic"),
+            ProviderType::AnthropicVertex
+        );
+        assert_eq!(
+            ProviderType::AnthropicVertex.to_string(),
+            "anthropic-vertex"
+        );
     }
 
     #[test]

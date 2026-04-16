@@ -158,7 +158,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                 // Provider-specific features:
                 // - Prefer provider-defined tools (`Tool::ProviderDefined`) for Google hosted tools.
                 // - Keep a deprecated compatibility bridge for `GeminiOptions` fields.
-                if let Some(opts) = gemini_options_from_request(req) {
+                if let Some(opts) = gemini_options_from_request(req, &self.0) {
                     // response MIME type escape hatch
                     if let Some(mime) = &opts.response_mime_type {
                         if body
@@ -353,7 +353,7 @@ impl RequestTransformer for GeminiRequestTransformer {
 
                 // responseFormat (Vercel-aligned): map JSON schema into responseMimeType/responseSchema.
                 if let Some(fmt) = &req.response_format {
-                    let structured_outputs = gemini_options_from_request(req)
+                    let structured_outputs = gemini_options_from_request(req, &self.0)
                         .and_then(|o| o.structured_outputs)
                         .unwrap_or(true);
 
@@ -536,11 +536,8 @@ impl RequestTransformer for GeminiRequestTransformer {
                 let mut output_dimensionality = req.dimensions;
 
                 // Vercel-aligned: allow providerOptions.google.taskType/outputDimensionality.
-                if let Some(opts) = req
-                    .provider_options_map
-                    .get("gemini")
-                    .or_else(|| req.provider_options_map.get("google"))
-                    .or_else(|| req.provider_options_map.get("vertex"))
+                if let Some(opts) =
+                    gemini_provider_options_value(&req.provider_options_map, &self.0)
                     && let Some(obj) = opts.as_object()
                 {
                     if task_type.is_none()
@@ -639,13 +636,11 @@ impl RequestTransformer for GeminiRequestTransformer {
                         ));
                     }
 
-                    fn get_provider_options(
-                        req: &ImageGenerationRequest,
-                    ) -> Option<&serde_json::Value> {
-                        req.provider_options_map
-                            .get("gemini")
-                            .or_else(|| req.provider_options_map.get("google"))
-                            .or_else(|| req.provider_options_map.get("vertex"))
+                    fn get_provider_options<'a>(
+                        config: &'a types::GeminiConfig,
+                        req: &'a ImageGenerationRequest,
+                    ) -> Option<&'a serde_json::Value> {
+                        gemini_provider_options_value(&req.provider_options_map, config)
                     }
 
                     fn get_string_opt(obj: &serde_json::Value, key: &str) -> Option<String> {
@@ -661,7 +656,7 @@ impl RequestTransformer for GeminiRequestTransformer {
                     }
 
                     // Prefer providerOptions for Vercel parity, then fall back to extra_params.
-                    if let Some(opts) = get_provider_options(req) {
+                    if let Some(opts) = get_provider_options(&self.0, req) {
                         let aspect_ratio = get_string_opt(opts, "aspectRatio")
                             .or_else(|| get_string_opt(opts, "aspect_ratio"));
                         if let Some(v) = aspect_ratio {
@@ -727,11 +722,8 @@ impl RequestTransformer for GeminiRequestTransformer {
                 }
 
                 // Allow `mediaResolution` / `imageConfig` from providerOptions on image requests.
-                if let Some(opts) = req
-                    .provider_options_map
-                    .get("gemini")
-                    .or_else(|| req.provider_options_map.get("google"))
-                    .or_else(|| req.provider_options_map.get("vertex"))
+                if let Some(opts) =
+                    gemini_provider_options_value(&req.provider_options_map, &self.0)
                     && let Some(obj) = opts.as_object()
                 {
                     if let Some(res) = obj.get("mediaResolution").and_then(|v| v.as_str()) {
@@ -1359,6 +1351,36 @@ mod tests_gemini_rules {
         );
 
         let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(body["generationConfig"].get("responseSchema").is_none());
+    }
+
+    #[test]
+    fn response_format_json_prefers_vertex_provider_options_over_google() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into())
+            .with_provider_metadata_key("vertex");
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        req.response_format = Some(crate::types::ResponseFormat::json_schema(
+            serde_json::json!({
+                "type": "object",
+                "properties": { "a": { "type": "string" } },
+                "required": ["a"]
+            }),
+        ));
+        let req = req
+            .with_provider_option("google", serde_json::json!({ "structuredOutputs": true }))
+            .with_provider_option("vertex", serde_json::json!({ "structuredOutputs": false }));
+
+        let body = tx.transform_chat(&req).expect("transform");
+
         assert_eq!(
             body["generationConfig"]["responseMimeType"],
             serde_json::json!("application/json")

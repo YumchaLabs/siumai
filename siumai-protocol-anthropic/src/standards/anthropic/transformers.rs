@@ -12,27 +12,168 @@ use crate::streaming::SseEventConverter;
 use crate::types::{ChatRequest, ChatResponse, FinishReason, MessageContent, Usage};
 use eventsource_stream::Event;
 
+use super::params::AnthropicParams;
 use super::request_options::{
     anthropic_request_body_overlays_needed, apply_anthropic_request_body_overlays,
+    cap_max_tokens_for_known_model, finalize_anthropic_thinking_body,
 };
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
 use super::utils::{
     convert_messages as convert_messages_to_anthropic, convert_tools_to_anthropic_format,
-    create_usage_from_response, parse_finish_reason, parse_response_content_and_tools,
+    create_usage_from_json_value, parse_finish_reason,
 };
 use crate::execution::transformers::request::{
     GenericRequestTransformer, MappingProfile, ProviderRequestHooks, RangeMode, Rule,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StructuredOutputMode {
+    Auto,
+    OutputFormat,
+    JsonTool,
+}
+
+pub(crate) fn anthropic_provider_options_name(provider_id: &str) -> &str {
+    provider_id.split('.').next().unwrap_or(provider_id)
+}
+
+pub(crate) fn normalize_custom_anthropic_provider_key(key: &str) -> Option<String> {
+    let normalized = anthropic_provider_options_name(key).trim();
+    if normalized.is_empty() || normalized.eq_ignore_ascii_case("anthropic") {
+        None
+    } else {
+        Some(normalized.to_string())
+    }
+}
+
+fn anthropic_provider_options_object<'a>(
+    req: &'a ChatRequest,
+    key: &str,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    req.provider_options_map.get(key)?.as_object()
+}
+
+pub(crate) fn used_custom_anthropic_provider_key(
+    req: &ChatRequest,
+    provider_id: &str,
+) -> Option<String> {
+    let key = normalize_custom_anthropic_provider_key(provider_id)?;
+    anthropic_provider_options_object(req, &key)?;
+    Some(key)
+}
+
+fn merged_anthropic_provider_options(
+    req: &ChatRequest,
+    custom_key: Option<&str>,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let mut merged = serde_json::Map::new();
+
+    if let Some(canonical) = anthropic_provider_options_object(req, "anthropic") {
+        merged.extend(canonical.clone());
+    }
+
+    if let Some(custom_key) = custom_key.and_then(normalize_custom_anthropic_provider_key)
+        && let Some(custom) = anthropic_provider_options_object(req, &custom_key)
+    {
+        merged.extend(custom.clone());
+    }
+
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
+}
+
+fn disable_parallel_tool_use(
+    provider_options: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> bool {
+    provider_options
+        .and_then(|options| {
+            options
+                .get("disableParallelToolUse")
+                .or_else(|| options.get("disable_parallel_tool_use"))
+        })
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+fn structured_output_mode(
+    provider_options: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> StructuredOutputMode {
+    let Some(options) = provider_options else {
+        return StructuredOutputMode::Auto;
+    };
+
+    let mode = options
+        .get("structuredOutputMode")
+        .or_else(|| options.get("structured_output_mode"))
+        .and_then(|value| value.as_str());
+
+    match mode {
+        Some("outputFormat") | Some("output_format") | Some("output-format") => {
+            StructuredOutputMode::OutputFormat
+        }
+        Some("jsonTool") | Some("json_tool") | Some("json-tool") => StructuredOutputMode::JsonTool,
+        _ => StructuredOutputMode::Auto,
+    }
+}
+
+fn send_reasoning(provider_options: Option<&serde_json::Map<String, serde_json::Value>>) -> bool {
+    provider_options
+        .and_then(|options| {
+            options
+                .get("sendReasoning")
+                .or_else(|| options.get("send_reasoning"))
+        })
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true)
+}
+
+pub(crate) fn anthropic_provider_metadata_map(
+    anthropic_meta: std::collections::HashMap<String, serde_json::Value>,
+    custom_key: Option<&str>,
+) -> crate::types::ProviderMetadataMap {
+    anthropic_provider_metadata_map_from_value(
+        serde_json::Value::Object(anthropic_meta.into_iter().collect()),
+        custom_key,
+    )
+}
+
+pub(crate) fn anthropic_provider_metadata_map_from_value(
+    anthropic_meta: serde_json::Value,
+    custom_key: Option<&str>,
+) -> crate::types::ProviderMetadataMap {
+    let mut provider_metadata = crate::types::ProviderMetadataMap::from([(
+        "anthropic".to_string(),
+        anthropic_meta.clone(),
+    )]);
+
+    if let Some(custom_key) = custom_key.and_then(normalize_custom_anthropic_provider_key) {
+        provider_metadata.insert(custom_key, anthropic_meta);
+    }
+
+    provider_metadata
+}
+
 /// Request transformer for Anthropic
 #[derive(Clone, Default)]
 pub struct AnthropicRequestTransformer {
     pub specific: Option<AnthropicSpecificParams>,
+    pub provider_options_key: Option<String>,
 }
 
 impl AnthropicRequestTransformer {
     pub fn new(specific: Option<AnthropicSpecificParams>) -> Self {
-        Self { specific }
+        Self {
+            specific,
+            provider_options_key: None,
+        }
+    }
+
+    pub fn with_provider_options_key(mut self, key: impl Into<String>) -> Self {
+        self.provider_options_key = normalize_custom_anthropic_provider_key(&key.into());
+        self
     }
 }
 
@@ -42,58 +183,6 @@ impl RequestTransformer for AnthropicRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        enum StructuredOutputMode {
-            Auto,
-            OutputFormat,
-            JsonTool,
-        }
-
-        fn disable_parallel_tool_use(req: &ChatRequest) -> bool {
-            req.provider_options_map
-                .get("anthropic")
-                .and_then(|v| v.as_object())
-                .and_then(|o| {
-                    o.get("disableParallelToolUse")
-                        .or_else(|| o.get("disable_parallel_tool_use"))
-                })
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-        }
-
-        fn structured_output_mode(req: &ChatRequest) -> StructuredOutputMode {
-            let Some(v) = req.provider_options_map.get("anthropic") else {
-                return StructuredOutputMode::Auto;
-            };
-            let Some(obj) = v.as_object() else {
-                return StructuredOutputMode::Auto;
-            };
-
-            let mode = obj
-                .get("structuredOutputMode")
-                .or_else(|| obj.get("structured_output_mode"))
-                .and_then(|v| v.as_str());
-
-            match mode {
-                Some("outputFormat") | Some("output_format") | Some("output-format") => {
-                    StructuredOutputMode::OutputFormat
-                }
-                Some("jsonTool") | Some("json_tool") | Some("json-tool") => {
-                    StructuredOutputMode::JsonTool
-                }
-                _ => StructuredOutputMode::Auto,
-            }
-        }
-
-        fn send_reasoning(req: &ChatRequest) -> bool {
-            req.provider_options_map
-                .get("anthropic")
-                .and_then(|v| v.as_object())
-                .and_then(|o| o.get("sendReasoning").or_else(|| o.get("send_reasoning")))
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true)
-        }
-
         fn strip_reasoning_inputs(
             messages: &[crate::types::ChatMessage],
         ) -> Vec<crate::types::ChatMessage> {
@@ -130,16 +219,20 @@ impl RequestTransformer for AnthropicRequestTransformer {
             ));
         }
 
+        let merged_provider_options =
+            merged_anthropic_provider_options(req, self.provider_options_key.as_deref());
+
         // Hooks: build base body, then apply declarative rules
         struct AnthropicChatHooks<'a> {
             specific: Option<&'a AnthropicSpecificParams>,
+            provider_options: Option<&'a serde_json::Map<String, serde_json::Value>>,
         }
         impl<'a> ProviderRequestHooks for AnthropicChatHooks<'a> {
             fn build_base_chat_body(
                 &self,
                 req: &ChatRequest,
             ) -> Result<serde_json::Value, LlmError> {
-                let raw_messages = if send_reasoning(req) {
+                let raw_messages = if send_reasoning(self.provider_options) {
                     req.messages.clone()
                 } else {
                     strip_reasoning_inputs(&req.messages)
@@ -175,7 +268,7 @@ impl RequestTransformer for AnthropicRequestTransformer {
                     body["stop_sequences"] = serde_json::json!(stops);
                 }
 
-                let disable_parallel = disable_parallel_tool_use(req);
+                let disable_parallel = disable_parallel_tool_use(self.provider_options);
                 if let Some(tools) = &req.tools
                     && !matches!(req.tool_choice, Some(crate::types::ToolChoice::None))
                 {
@@ -219,7 +312,7 @@ impl RequestTransformer for AnthropicRequestTransformer {
                             || model.starts_with("claude-haiku-4-5")
                     }
 
-                    let mode = structured_output_mode(req);
+                    let mode = structured_output_mode(self.provider_options);
                     let supports = supports_native_output_format(&req.common_params.model);
                     let use_output_format = match mode {
                         StructuredOutputMode::OutputFormat => true,
@@ -271,6 +364,8 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 if anthropic_request_body_overlays_needed(req) {
                     apply_anthropic_request_body_overlays(req, &mut body);
                 }
+                finalize_anthropic_thinking_body(req, &mut body);
+                cap_max_tokens_for_known_model(&req.common_params.model, &mut body);
                 if req.stream {
                     body["stream"] = serde_json::json!(true);
                 }
@@ -290,6 +385,7 @@ impl RequestTransformer for AnthropicRequestTransformer {
 
         let hooks = AnthropicChatHooks {
             specific: self.specific.as_ref(),
+            provider_options: merged_provider_options.as_ref(),
         };
         let profile = MappingProfile {
             provider_id: "anthropic",
@@ -321,24 +417,27 @@ impl RequestTransformer for AnthropicRequestTransformer {
 
 /// Response transformer for Anthropic
 #[derive(Clone, Default)]
-pub struct AnthropicResponseTransformer;
+pub struct AnthropicResponseTransformer {
+    pub provider_metadata_key: Option<String>,
+}
 
-impl ResponseTransformer for AnthropicResponseTransformer {
-    fn provider_id(&self) -> &str {
-        "anthropic"
+impl AnthropicResponseTransformer {
+    pub fn with_provider_metadata_key(mut self, key: impl Into<String>) -> Self {
+        self.provider_metadata_key = normalize_custom_anthropic_provider_key(&key.into());
+        self
     }
 
-    fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
-        use super::provider_metadata::{
-            AnthropicCitation, AnthropicCitationsBlock, AnthropicSource,
-        };
+    pub(crate) fn transform_chat_response_with_citation_documents(
+        &self,
+        raw: &serde_json::Value,
+        citation_documents: &[crate::standards::anthropic::streaming::AnthropicCitationDocument],
+        params: &AnthropicParams,
+    ) -> Result<ChatResponse, LlmError> {
+        use super::provider_metadata::{AnthropicCitation, AnthropicCitationsBlock};
 
         let response: AnthropicChatResponse = serde_json::from_value(raw.clone())
             .map_err(|e| LlmError::ParseError(format!("Invalid Anthropic response: {e}")))?;
 
-        // Vercel-aligned: when using `responseFormat: { type: "json" }`, Anthropic returns a
-        // reserved `json` tool call with the structured object in `input`. Treat it as the final
-        // text content instead of a tool call.
         let json_tool_input = response
             .content
             .first()
@@ -380,54 +479,68 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             v
         }
 
-        let content = if let Some(input) = json_tool_input {
-            // Vercel-aligned: stable JSON stringification for reserved `json` tool outputs.
+        let super::utils::ParsedAnthropicResponseContent {
+            content,
+            sources: parsed_sources,
+        } = if let Some(input) = json_tool_input {
             let canonical = canonicalize_json(input);
             let text = serde_json::to_string(&canonical).unwrap_or_else(|_| "{}".to_string());
-            MessageContent::Text(text)
+            super::utils::ParsedAnthropicResponseContent {
+                content: MessageContent::Text(text),
+                sources: Vec::new(),
+            }
         } else {
-            parse_response_content_and_tools(&response.content)
+            super::utils::parse_response_content_and_tools_with_context_and_params(
+                &response.content,
+                citation_documents,
+                params,
+            )
         };
 
-        let usage: Option<Usage> = create_usage_from_response(response.usage.clone());
+        let usage: Option<Usage> = create_usage_from_json_value(raw.get("usage"));
         let finish_reason: Option<FinishReason> = if is_json_tool_response {
             Some(FinishReason::Stop)
         } else {
             parse_finish_reason(response.stop_reason.as_deref())
         };
 
-        // Provider metadata (Vercel alignment): match AI SDK `providerMetadata.anthropic` shape.
         let provider_metadata = {
             let mut anthropic_meta: std::collections::HashMap<String, serde_json::Value> =
                 std::collections::HashMap::new();
 
-            // Raw envelope metadata: include nulls when provided by the API.
-            if let Some(v) = raw.get("container")
-                && let Some(mapped) = super::utils::map_container_provider_metadata(v)
-            {
-                anthropic_meta.insert("container".to_string(), mapped);
-            }
-            if let Some(v) = raw.get("context_management")
-                && let Some(mapped) = super::utils::map_context_management_provider_metadata(v)
-            {
-                anthropic_meta.insert("contextManagement".to_string(), mapped);
-            }
-            if let Some(v) = raw.get("stop_sequence") {
-                anthropic_meta.insert("stopSequence".to_string(), v.clone());
-            }
+            anthropic_meta.insert(
+                "container".to_string(),
+                raw.get("container")
+                    .and_then(super::utils::map_container_provider_metadata)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            anthropic_meta.insert(
+                "contextManagement".to_string(),
+                raw.get("context_management")
+                    .and_then(super::utils::map_context_management_provider_metadata)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            anthropic_meta.insert(
+                "stopSequence".to_string(),
+                raw.get("stop_sequence")
+                    .cloned()
+                    .unwrap_or(serde_json::Value::Null),
+            );
 
-            // Usage: keep raw usage object (snake_case) and expose derived cache creation tokens.
-            if let Some(v) = raw.get("usage") {
-                anthropic_meta.insert("usage".to_string(), v.clone());
-
-                let cache_creation = v
+            let usage_value = raw.get("usage").cloned().unwrap_or(serde_json::Value::Null);
+            anthropic_meta.insert("usage".to_string(), usage_value.clone());
+            anthropic_meta.insert(
+                "cacheCreationInputTokens".to_string(),
+                usage_value
                     .get("cache_creation_input_tokens")
                     .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                anthropic_meta.insert("cacheCreationInputTokens".to_string(), cache_creation);
-            }
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            anthropic_meta.insert(
+                "iterations".to_string(),
+                super::utils::map_usage_iterations_provider_metadata(&usage_value),
+            );
 
-            // Content-block citations (best-effort; keep unknown fields)
             let mut blocks: Vec<AnthropicCitationsBlock> = Vec::new();
             for (idx, block) in response.content.iter().enumerate() {
                 let Some(citations) = &block.citations else {
@@ -457,75 +570,16 @@ impl ResponseTransformer for AnthropicResponseTransformer {
                 anthropic_meta.insert("citations".to_string(), v);
             }
 
-            // Vercel-aligned sources: extract from web search tool results.
-            let mut sources: Vec<AnthropicSource> = Vec::new();
-            for block in response.content.iter() {
-                if block.r#type != "web_search_tool_result" {
-                    continue;
-                }
-                let Some(tool_use_id) = &block.tool_use_id else {
-                    continue;
-                };
-                let Some(content) = &block.content else {
-                    continue;
-                };
-                let Some(arr) = content.as_array() else {
-                    continue;
-                };
-
-                for (i, item) in arr.iter().enumerate() {
-                    let Some(obj) = item.as_object() else {
-                        continue;
-                    };
-                    let url = obj
-                        .get("url")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if url.is_empty() {
-                        continue;
-                    }
-                    let title = obj
-                        .get("title")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    let encrypted_content = obj
-                        .get("encrypted_content")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-                    let page_age = obj
-                        .get("page_age")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string());
-
-                    sources.push(AnthropicSource {
-                        id: format!("{tool_use_id}:{i}"),
-                        source_type: "url".to_string(),
-                        url: Some(url),
-                        title,
-                        media_type: None,
-                        filename: None,
-                        page_age,
-                        encrypted_content,
-                        tool_call_id: Some(tool_use_id.clone()),
-                        provider_metadata: None,
-                    });
-                }
-            }
-
-            if !sources.is_empty()
-                && let Ok(v) = serde_json::to_value(sources)
+            if !parsed_sources.is_empty()
+                && let Ok(v) = serde_json::to_value(parsed_sources)
             {
                 anthropic_meta.insert("sources".to_string(), v);
             }
 
-            if anthropic_meta.is_empty() {
-                None
-            } else {
-                let mut all = std::collections::HashMap::new();
-                all.insert("anthropic".to_string(), anthropic_meta);
-                Some(all)
-            }
+            Some(anthropic_provider_metadata_map(
+                anthropic_meta,
+                self.provider_metadata_key.as_deref(),
+            ))
         };
 
         Ok(ChatResponse {
@@ -534,12 +588,23 @@ impl ResponseTransformer for AnthropicResponseTransformer {
             content,
             usage,
             finish_reason,
-            audio: None, // Anthropic doesn't support audio output
+            raw_finish_reason: None,
+            audio: None,
             system_fingerprint: None,
             service_tier: response.usage.as_ref().and_then(|u| u.service_tier.clone()),
             warnings: None,
             provider_metadata,
         })
+    }
+}
+
+impl ResponseTransformer for AnthropicResponseTransformer {
+    fn provider_id(&self) -> &str {
+        "anthropic"
+    }
+
+    fn transform_chat_response(&self, raw: &serde_json::Value) -> Result<ChatResponse, LlmError> {
+        self.transform_chat_response_with_citation_documents(raw, &[], &AnthropicParams::default())
     }
 }
 
@@ -551,7 +616,7 @@ mod tests {
 
     #[test]
     fn captures_thinking_signature_in_provider_metadata() {
-        let tx = AnthropicResponseTransformer;
+        let tx = AnthropicResponseTransformer::default();
         let raw = serde_json::json!({
             "id": "msg_1",
             "type": "message",
@@ -595,7 +660,7 @@ mod tests {
 
     #[test]
     fn captures_redacted_thinking_data_in_provider_metadata() {
-        let tx = AnthropicResponseTransformer;
+        let tx = AnthropicResponseTransformer::default();
         let raw = serde_json::json!({
             "id": "msg_1",
             "type": "message",
@@ -637,8 +702,225 @@ mod tests {
     }
 
     #[test]
+    fn response_provider_metadata_exposes_stop_sequence_and_iterations() {
+        let tx = AnthropicResponseTransformer::default();
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-7-sonnet-latest",
+            "stop_reason": "stop_sequence",
+            "stop_sequence": "STOP",
+            "usage": {
+                "input_tokens": 17,
+                "output_tokens": 2,
+                "cache_creation_input_tokens": 10,
+                "iterations": [
+                    {
+                        "type": "compaction",
+                        "input_tokens": 6,
+                        "output_tokens": 1
+                    },
+                    {
+                        "type": "message",
+                        "input_tokens": 11,
+                        "output_tokens": 1
+                    }
+                ]
+            },
+            "content": [{ "type": "text", "text": "done" }]
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let anthropic_meta = resp
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("anthropic"))
+            .expect("anthropic metadata");
+        assert_eq!(
+            anthropic_meta.get("stopSequence"),
+            Some(&serde_json::json!("STOP"))
+        );
+        assert_eq!(
+            anthropic_meta
+                .get("iterations")
+                .and_then(|iterations| iterations.pointer("/0/inputTokens")),
+            Some(&serde_json::json!(6))
+        );
+        assert_eq!(
+            anthropic_meta
+                .get("iterations")
+                .and_then(|iterations| iterations.pointer("/1/outputTokens")),
+            Some(&serde_json::json!(1))
+        );
+
+        let typed = resp.anthropic_metadata().expect("typed anthropic metadata");
+        assert_eq!(typed.stop_sequence.as_deref(), Some("STOP"));
+        let iterations = typed.iterations.expect("iterations");
+        assert_eq!(iterations.len(), 2);
+        assert_eq!(iterations[0].r#type, "compaction");
+        assert_eq!(iterations[0].input_tokens, 6);
+        assert_eq!(iterations[1].r#type, "message");
+        assert_eq!(iterations[1].output_tokens, 1);
+    }
+
+    #[test]
+    fn response_usage_preserves_full_raw_usage_object() {
+        let tx = AnthropicResponseTransformer::default();
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-7-sonnet-latest",
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 20,
+                "output_tokens": 50,
+                "cache_creation_input_tokens": 10,
+                "cache_read_input_tokens": 5,
+                "cache_creation": {
+                    "ephemeral_5m_input_tokens": 0,
+                    "ephemeral_1h_input_tokens": 10
+                },
+                "inference_geo": "not_available"
+            },
+            "content": [{ "type": "text", "text": "done" }]
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let usage = resp.usage.expect("usage");
+
+        assert_eq!(usage.raw_usage_value(), raw.get("usage").cloned());
+        assert_eq!(usage.normalized_input_tokens().total, Some(35));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(5));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(10));
+        assert_eq!(usage.normalized_output_tokens().total, Some(50));
+    }
+
+    #[test]
+    fn response_provider_metadata_keeps_null_container_and_context_management_fields() {
+        let tx = AnthropicResponseTransformer::default();
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-7-sonnet-latest",
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 17,
+                "output_tokens": 2
+            },
+            "content": [{ "type": "text", "text": "done" }]
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let anthropic_meta = resp
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("anthropic"))
+            .expect("anthropic metadata");
+        assert!(
+            anthropic_meta
+                .get("container")
+                .is_some_and(serde_json::Value::is_null)
+        );
+        assert!(
+            anthropic_meta
+                .get("contextManagement")
+                .is_some_and(serde_json::Value::is_null)
+        );
+        assert!(
+            anthropic_meta
+                .get("stopSequence")
+                .is_some_and(serde_json::Value::is_null)
+        );
+    }
+
+    #[test]
+    fn response_transformer_with_citation_documents_emits_document_source_parts() {
+        let tx = AnthropicResponseTransformer::default();
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-haiku-20240307",
+            "stop_reason": "end_turn",
+            "stop_sequence": null,
+            "usage": {
+                "input_tokens": 4,
+                "output_tokens": 30
+            },
+            "content": [{
+                "type": "text",
+                "text": "Based on the document, the results show positive growth.",
+                "citations": [{
+                    "type": "page_location",
+                    "cited_text": "Revenue increased by 25% year over year",
+                    "document_index": 0,
+                    "document_title": "Financial Report 2023",
+                    "start_page_number": 5,
+                    "end_page_number": 6
+                }]
+            }]
+        });
+
+        let resp = tx
+            .transform_chat_response_with_citation_documents(
+                &raw,
+                &[
+                    crate::standards::anthropic::streaming::AnthropicCitationDocument {
+                        title: "Fallback Title".to_string(),
+                        filename: Some("financial-report.pdf".to_string()),
+                        media_type: "application/pdf".to_string(),
+                    },
+                ],
+                &AnthropicParams::default(),
+            )
+            .expect("transform");
+
+        let MessageContent::MultiModal(parts) = &resp.content else {
+            panic!("expected multimodal content");
+        };
+        assert_eq!(parts.len(), 2);
+
+        let crate::types::ContentPart::Source {
+            id,
+            source,
+            provider_metadata,
+        } = &parts[1]
+        else {
+            panic!("expected source part");
+        };
+        assert_eq!(id, "id-0");
+        assert_eq!(
+            source,
+            &crate::types::SourcePart::Document {
+                media_type: "application/pdf".to_string(),
+                title: "Financial Report 2023".to_string(),
+                filename: Some("financial-report.pdf".to_string()),
+            }
+        );
+        assert_eq!(
+            provider_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("anthropic"))
+                .and_then(|metadata| metadata.get("startPageNumber")),
+            Some(&serde_json::json!(5))
+        );
+
+        let meta = resp.anthropic_metadata().expect("anthropic metadata");
+        let sources = meta.sources.expect("sources");
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].id, "id-0");
+        assert_eq!(sources[0].source_type, "document");
+        assert_eq!(sources[0].title.as_deref(), Some("Financial Report 2023"));
+    }
+
+    #[test]
     fn anthropic_chat_response_maps_tool_use_blocks_into_content_parts() {
-        let tx = AnthropicResponseTransformer;
+        let tx = AnthropicResponseTransformer::default();
         let raw = serde_json::json!({
             "id": "msg_1",
             "type": "message",
@@ -671,7 +953,7 @@ mod tests {
 
     #[test]
     fn reserved_json_tool_response_is_mapped_to_text_and_stop() {
-        let tx = AnthropicResponseTransformer;
+        let tx = AnthropicResponseTransformer::default();
         let raw = serde_json::json!({
             "id": "msg_1",
             "type": "message",
@@ -1014,6 +1296,109 @@ mod tests {
                 .unwrap_or_default()
                 .contains("<thinking>"),
             "expected no <thinking> wrappers when sendReasoning=false"
+        );
+    }
+
+    #[test]
+    fn legacy_specific_thinking_adjusts_max_tokens_and_strips_sampling_settings() {
+        let tx = AnthropicRequestTransformer::new(Some(AnthropicSpecificParams {
+            thinking_config: Some(
+                crate::standards::anthropic::thinking::ThinkingConfig::enabled(1024),
+            ),
+            ..Default::default()
+        }));
+
+        let mut req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()]);
+        req.common_params.model = "claude-sonnet-4-5".to_string();
+        req.common_params.max_tokens = Some(2000);
+        req.common_params.temperature = Some(0.5);
+        req.common_params.top_p = Some(0.7);
+        req.common_params.top_k = Some(1.0);
+
+        let body = tx.transform_chat(&req).expect("transform");
+
+        assert_eq!(
+            body.get("thinking"),
+            Some(&serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 1024
+            }))
+        );
+        assert_eq!(body.get("max_tokens"), Some(&serde_json::json!(3024)));
+        assert!(body.get("temperature").is_none());
+        assert!(body.get("top_p").is_none());
+        assert!(body.get("top_k").is_none());
+    }
+
+    #[test]
+    fn request_transformer_accepts_custom_provider_key_and_overrides_canonical_options() {
+        let tx = AnthropicRequestTransformer::default()
+            .with_provider_options_key("my-custom-anthropic.messages");
+
+        let req = ChatRequest::builder()
+            .model("claude-sonnet-4-5")
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .tools(vec![crate::types::Tool::function(
+                "testFunction",
+                "A test function",
+                serde_json::json!({ "type": "object", "properties": {} }),
+            )])
+            .provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "disableParallelToolUse": false,
+                    "structuredOutputMode": "jsonTool"
+                }),
+            )
+            .provider_option(
+                "my-custom-anthropic",
+                serde_json::json!({
+                    "disableParallelToolUse": true,
+                    "structuredOutputMode": "outputFormat"
+                }),
+            )
+            .response_format(crate::types::chat::ResponseFormat::json_schema(
+                serde_json::json!({"type":"object","properties":{"a":{"type":"string"}}}),
+            ))
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("tool_choice"),
+            Some(&serde_json::json!({
+                "type": "auto",
+                "disable_parallel_tool_use": true
+            }))
+        );
+        assert!(
+            body.get("output_format").is_some(),
+            "custom provider key should override canonical structuredOutputMode"
+        );
+    }
+
+    #[test]
+    fn response_transformer_duplicates_provider_metadata_for_custom_key() {
+        let tx = AnthropicResponseTransformer::default()
+            .with_provider_metadata_key("my-custom-anthropic.messages");
+        let raw = serde_json::json!({
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-3-7-sonnet-latest",
+            "stop_reason": "end_turn",
+            "stop_sequence": "STOP",
+            "usage": { "input_tokens": 1, "output_tokens": 2 },
+            "content": [{ "type": "text", "text": "ok" }]
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let provider_metadata = resp.provider_metadata.as_ref().expect("provider metadata");
+        assert!(provider_metadata.get("anthropic").is_some());
+        assert!(provider_metadata.get("my-custom-anthropic").is_some());
+        assert_eq!(
+            resp.anthropic_metadata_with_key("my-custom-anthropic")
+                .and_then(|meta| meta.stop_sequence),
+            Some("STOP".to_string())
         );
     }
 }

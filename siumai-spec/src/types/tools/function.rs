@@ -11,7 +11,21 @@ pub struct ToolFunction {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
     /// JSON schema for function parameters
+    #[serde(rename = "inputSchema", alias = "parameters", alias = "input_schema")]
     pub parameters: serde_json::Value,
+
+    /// Optional JSON schema for function outputs (AI SDK-aligned user-facing tool metadata).
+    ///
+    /// Provider request converters intentionally do not forward this field as-is today; it is
+    /// stored on the shared stable tool shape so higher-level helpers can keep parity with AI
+    /// SDK's `Tool.outputSchema` contract without changing provider wire payloads.
+    #[serde(
+        default,
+        rename = "outputSchema",
+        alias = "output_schema",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_schema: Option<serde_json::Value>,
 
     /// Tool input examples (Vercel-aligned).
     ///
@@ -20,6 +34,7 @@ pub struct ToolFunction {
     #[serde(
         default,
         rename = "inputExamples",
+        alias = "input_examples",
         skip_serializing_if = "Option::is_none"
     )]
     pub input_examples: Option<Vec<serde_json::Value>>,
@@ -42,4 +57,55 @@ pub struct ToolFunction {
         skip_serializing_if = "crate::types::ProviderOptionsMap::is_empty"
     )]
     pub provider_options_map: crate::types::ProviderOptionsMap,
+}
+
+impl ToolFunction {
+    /// Create a new function-tool schema with the canonical stable storage fields.
+    pub fn new(
+        name: impl Into<String>,
+        description: impl Into<String>,
+        parameters: serde_json::Value,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            parameters,
+            output_schema: None,
+            input_examples: None,
+            strict: None,
+            provider_options_map: crate::types::ProviderOptionsMap::default(),
+        }
+    }
+
+    /// AI SDK-style view over the input schema.
+    pub fn input_schema(&self) -> &serde_json::Value {
+        &self.parameters
+    }
+
+    /// Mutable AI SDK-style view over the input schema.
+    pub fn input_schema_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.parameters
+    }
+
+    /// Replace the input schema using AI SDK naming.
+    pub fn with_input_schema(mut self, input_schema: serde_json::Value) -> Self {
+        self.parameters = input_schema;
+        self
+    }
+
+    /// Optional AI SDK-style output schema metadata.
+    pub fn output_schema(&self) -> Option<&serde_json::Value> {
+        self.output_schema.as_ref()
+    }
+
+    /// Mutable AI SDK-style output schema metadata.
+    pub fn output_schema_mut(&mut self) -> Option<&mut serde_json::Value> {
+        self.output_schema.as_mut()
+    }
+
+    /// Attach AI SDK-style output schema metadata.
+    pub fn with_output_schema(mut self, output_schema: serde_json::Value) -> Self {
+        self.output_schema = Some(output_schema);
+        self
+    }
 }

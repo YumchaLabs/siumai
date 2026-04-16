@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The provider-owned typed surface now exposes AI SDK-style `DeepSeekLanguageModelOptions` with
+  deprecated `DeepSeekChatOptions` migration coverage.
+- The provider-owned public model surface now exposes curated `chat` constants plus
+  `models::ALL_CHAT` / `model_sets` for the stable `deepseek-chat` and `deepseek-reasoner`
+  subset.
+
+### Fixed
+
+- DeepSeek request/response metadata now follows the audited AI SDK custom provider-root contract
+  more closely: request shaping reads provider-owned options from the runtime namespace instead of
+  hardcoded `deepseek`, response metadata stays under that resolved root, and typed helpers now
+  expose keyed metadata accessors for explicit custom-root reads.
+
 ## [0.11.0-beta.5] - 2026-01-15
 
 ### Added

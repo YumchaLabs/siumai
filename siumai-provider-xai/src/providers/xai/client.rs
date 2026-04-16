@@ -10,14 +10,15 @@ use crate::execution::http::transport::HttpTransport;
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    AudioCapability, ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
-    ModelListingCapability, RerankCapability, SpeechCapability, SpeechExtras,
-    TranscriptionCapability, TranscriptionExtras, VideoGenerationCapability,
+    AudioCapability, ChatCapability, EmbeddingCapability, FileManagementCapability, ImageExtras,
+    ImageGenerationCapability, ModelListingCapability, RerankCapability, SpeechCapability,
+    SpeechExtras, TranscriptionCapability, TranscriptionExtras, VideoGenerationCapability,
 };
 use crate::types::{
-    ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse, ImageEditRequest,
-    ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest, ModelInfo,
-    ProviderOptionsMap, RerankRequest, RerankResponse, Tool, VideoGenerationRequest,
+    ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse,
+    FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
+    ImageEditRequest, ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
+    ModelInfo, ProviderOptionsMap, RerankRequest, RerankResponse, Tool, VideoGenerationRequest,
     VideoGenerationResponse, VideoTaskStatusResponse,
 };
 use async_trait::async_trait;
@@ -98,6 +99,16 @@ impl XaiClient {
 
     pub fn http_transport(&self) -> Option<Arc<dyn HttpTransport>> {
         self.inner.http_transport()
+    }
+
+    pub(crate) fn files(&self) -> super::files::XaiFiles {
+        super::files::XaiFiles::new(
+            self.provider_context(),
+            self.http_client(),
+            self.http_transport(),
+            self.http_interceptors(),
+            self.retry_options(),
+        )
     }
 
     pub fn set_retry_options(&mut self, options: Option<RetryOptions>) {
@@ -1010,12 +1021,39 @@ impl ModelListingCapability for XaiClient {
 }
 
 #[async_trait]
+impl FileManagementCapability for XaiClient {
+    async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
+        self.files().upload_file(request).await
+    }
+
+    async fn list_files(&self, query: Option<FileListQuery>) -> Result<FileListResponse, LlmError> {
+        self.files().list_files(query).await
+    }
+
+    async fn retrieve_file(&self, file_id: String) -> Result<FileObject, LlmError> {
+        self.files().retrieve_file(file_id).await
+    }
+
+    async fn delete_file(&self, file_id: String) -> Result<FileDeleteResponse, LlmError> {
+        self.files().delete_file(file_id).await
+    }
+
+    async fn get_file_content(&self, file_id: String) -> Result<Vec<u8>, LlmError> {
+        self.files().get_file_content(file_id).await
+    }
+}
+
+#[async_trait]
 impl ImageGenerationCapability for XaiClient {
     async fn generate_images(
         &self,
         request: ImageGenerationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
         super::image::generate_images(self, request).await
+    }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        Some(3)
     }
 }
 
@@ -1095,6 +1133,7 @@ impl LlmClient for XaiClient {
             .with_vision()
             .with_image_generation()
             .with_speech()
+            .with_file_management()
             .with_custom_feature("video", true)
     }
 
@@ -1143,6 +1182,10 @@ impl LlmClient for XaiClient {
     }
 
     fn as_image_extras(&self) -> Option<&dyn ImageExtras> {
+        Some(self)
+    }
+
+    fn as_file_management_capability(&self) -> Option<&dyn FileManagementCapability> {
         Some(self)
     }
 

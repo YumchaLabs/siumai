@@ -186,6 +186,493 @@ pub mod openrouter {
     }
 }
 
+/// DeepInfra model constants aligned with the audited AI SDK package subset.
+pub mod deepinfra {
+    /// DeepInfra chat/language-model constants.
+    pub mod chat {
+        pub const DEEPSEEK_V3: &str = "deepseek-ai/DeepSeek-V3";
+        pub const LLAMA_V3P3_70B_INSTRUCT: &str = "meta-llama/Llama-3.3-70B-Instruct";
+        pub const LLAMA_V3P1_405B_INSTRUCT: &str = "meta-llama/Meta-Llama-3.1-405B-Instruct";
+        pub const LLAMA_V3P1_70B_INSTRUCT: &str = "meta-llama/Meta-Llama-3.1-70B-Instruct";
+        pub const LLAMA_V3P1_70B_INSTRUCT_TURBO: &str =
+            "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo";
+        pub const LLAMA_V3P1_8B_INSTRUCT: &str = "meta-llama/Meta-Llama-3.1-8B-Instruct";
+        pub const LLAMA_V3P1_8B_INSTRUCT_TURBO: &str =
+            "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
+        pub const LLAMA_V3P2_11B_VISION_INSTRUCT: &str = "meta-llama/Llama-3.2-11B-Vision-Instruct";
+        pub const LLAMA_V4_MAVERICK_17B_128E_INSTRUCT_FP8: &str =
+            "meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8";
+        pub const LLAMA_V4_SCOUT_17B_16E_INSTRUCT: &str =
+            "meta-llama/Llama-4-Scout-17B-16E-Instruct";
+        pub const MIXTRAL_8X22B_INSTRUCT: &str = "mistralai/Mixtral-8x22B-Instruct-v0.1";
+        pub const MIXTRAL_8X7B_INSTRUCT: &str = "mistralai/Mixtral-8x7B-Instruct-v0.1";
+        pub const MINICPM_LLAMA3_V_2_5: &str = "openbmb/MiniCPM-Llama3-V-2_5";
+        pub const QWEN2P5_72B_INSTRUCT: &str = "Qwen/Qwen2.5-72B-Instruct";
+        pub const QWEN2P5_CODER_32B_INSTRUCT: &str = "Qwen/Qwen2.5-Coder-32B-Instruct";
+    }
+
+    /// DeepInfra completion-model constants.
+    pub mod completion {
+        pub const DEEPSEEK_V3: &str = super::chat::DEEPSEEK_V3;
+        pub const LLAMA_V3P3_70B_INSTRUCT: &str = super::chat::LLAMA_V3P3_70B_INSTRUCT;
+        pub const LLAMA_V3P1_405B_INSTRUCT: &str = super::chat::LLAMA_V3P1_405B_INSTRUCT;
+        pub const LLAMA_V3P1_70B_INSTRUCT: &str = super::chat::LLAMA_V3P1_70B_INSTRUCT;
+        pub const LLAMA_V3P1_70B_INSTRUCT_TURBO: &str = super::chat::LLAMA_V3P1_70B_INSTRUCT_TURBO;
+        pub const LLAMA_V3P1_8B_INSTRUCT: &str = super::chat::LLAMA_V3P1_8B_INSTRUCT;
+        pub const LLAMA_V3P1_8B_INSTRUCT_TURBO: &str = super::chat::LLAMA_V3P1_8B_INSTRUCT_TURBO;
+        pub const LLAMA_V4_MAVERICK_17B_128E_INSTRUCT_FP8: &str =
+            super::chat::LLAMA_V4_MAVERICK_17B_128E_INSTRUCT_FP8;
+        pub const LLAMA_V4_SCOUT_17B_16E_INSTRUCT: &str =
+            super::chat::LLAMA_V4_SCOUT_17B_16E_INSTRUCT;
+        pub const MIXTRAL_8X22B_INSTRUCT: &str = super::chat::MIXTRAL_8X22B_INSTRUCT;
+        pub const MIXTRAL_8X7B_INSTRUCT: &str = super::chat::MIXTRAL_8X7B_INSTRUCT;
+        pub const QWEN2P5_72B_INSTRUCT: &str = super::chat::QWEN2P5_72B_INSTRUCT;
+        pub const QWEN2P5_CODER_32B_INSTRUCT: &str = super::chat::QWEN2P5_CODER_32B_INSTRUCT;
+    }
+
+    /// DeepInfra embedding-model constants.
+    pub mod embedding {
+        pub const BGE_BASE_EN_V1_5: &str = "BAAI/bge-base-en-v1.5";
+        pub const BGE_LARGE_EN_V1_5: &str = "BAAI/bge-large-en-v1.5";
+        pub const BGE_M3: &str = "BAAI/bge-m3";
+        pub const E5_BASE_V2: &str = "intfloat/e5-base-v2";
+        pub const E5_LARGE_V2: &str = "intfloat/e5-large-v2";
+        pub const MULTILINGUAL_E5_LARGE: &str = "intfloat/multilingual-e5-large";
+        pub const ALL_MINILM_L12_V2: &str = "sentence-transformers/all-MiniLM-L12-v2";
+        pub const ALL_MINILM_L6_V2: &str = "sentence-transformers/all-MiniLM-L6-v2";
+        pub const ALL_MPNET_BASE_V2: &str = "sentence-transformers/all-mpnet-base-v2";
+        pub const CLIP_VIT_B_32: &str = "sentence-transformers/clip-ViT-B-32";
+        pub const CLIP_VIT_B_32_MULTILINGUAL_V1: &str =
+            "sentence-transformers/clip-ViT-B-32-multilingual-v1";
+        pub const MULTI_QA_MPNET_BASE_DOT_V1: &str =
+            "sentence-transformers/multi-qa-mpnet-base-dot-v1";
+        pub const PARAPHRASE_MINILM_L6_V2: &str = "sentence-transformers/paraphrase-MiniLM-L6-v2";
+        pub const TEXT2VEC_BASE_CHINESE: &str = "shibing624/text2vec-base-chinese";
+        pub const GTE_BASE: &str = "thenlper/gte-base";
+        pub const GTE_LARGE: &str = "thenlper/gte-large";
+    }
+
+    /// DeepInfra image-model constants.
+    pub mod image {
+        pub const SD3_5: &str = "stabilityai/sd3.5";
+        pub const FLUX_1_1_PRO: &str = "black-forest-labs/FLUX-1.1-pro";
+        pub const FLUX_1_SCHNELL: &str = "black-forest-labs/FLUX-1-schnell";
+        pub const FLUX_1_DEV: &str = "black-forest-labs/FLUX-1-dev";
+        pub const FLUX_PRO: &str = "black-forest-labs/FLUX-pro";
+        pub const FLUX_1_KONTEXT_DEV: &str = "black-forest-labs/FLUX.1-Kontext-dev";
+        pub const FLUX_1_KONTEXT_PRO: &str = "black-forest-labs/FLUX.1-Kontext-pro";
+        pub const SD3_5_MEDIUM: &str = "stabilityai/sd3.5-medium";
+        pub const SDXL_TURBO: &str = "stabilityai/sdxl-turbo";
+    }
+
+    pub const CHAT: &str = chat::LLAMA_V3P3_70B_INSTRUCT;
+    pub const COMPLETION: &str = completion::LLAMA_V3P3_70B_INSTRUCT;
+    pub const EMBEDDING: &str = embedding::BGE_BASE_EN_V1_5;
+    pub const IMAGE: &str = image::FLUX_1_SCHNELL;
+
+    pub const ALL_CHAT: &[&str] = &[
+        chat::DEEPSEEK_V3,
+        chat::LLAMA_V3P3_70B_INSTRUCT,
+        chat::LLAMA_V3P1_405B_INSTRUCT,
+        chat::LLAMA_V3P1_70B_INSTRUCT,
+        chat::LLAMA_V3P1_70B_INSTRUCT_TURBO,
+        chat::LLAMA_V3P1_8B_INSTRUCT,
+        chat::LLAMA_V3P1_8B_INSTRUCT_TURBO,
+        chat::LLAMA_V3P2_11B_VISION_INSTRUCT,
+        chat::LLAMA_V4_MAVERICK_17B_128E_INSTRUCT_FP8,
+        chat::LLAMA_V4_SCOUT_17B_16E_INSTRUCT,
+        chat::MIXTRAL_8X22B_INSTRUCT,
+        chat::MIXTRAL_8X7B_INSTRUCT,
+        chat::MINICPM_LLAMA3_V_2_5,
+        chat::QWEN2P5_72B_INSTRUCT,
+        chat::QWEN2P5_CODER_32B_INSTRUCT,
+    ];
+
+    pub const ALL_COMPLETION: &[&str] = &[
+        completion::DEEPSEEK_V3,
+        completion::LLAMA_V3P3_70B_INSTRUCT,
+        completion::LLAMA_V3P1_405B_INSTRUCT,
+        completion::LLAMA_V3P1_70B_INSTRUCT,
+        completion::LLAMA_V3P1_70B_INSTRUCT_TURBO,
+        completion::LLAMA_V3P1_8B_INSTRUCT,
+        completion::LLAMA_V3P1_8B_INSTRUCT_TURBO,
+        completion::LLAMA_V4_MAVERICK_17B_128E_INSTRUCT_FP8,
+        completion::LLAMA_V4_SCOUT_17B_16E_INSTRUCT,
+        completion::MIXTRAL_8X22B_INSTRUCT,
+        completion::MIXTRAL_8X7B_INSTRUCT,
+        completion::QWEN2P5_72B_INSTRUCT,
+        completion::QWEN2P5_CODER_32B_INSTRUCT,
+    ];
+
+    pub const ALL_EMBEDDING: &[&str] = &[
+        embedding::BGE_BASE_EN_V1_5,
+        embedding::BGE_LARGE_EN_V1_5,
+        embedding::BGE_M3,
+        embedding::E5_BASE_V2,
+        embedding::E5_LARGE_V2,
+        embedding::MULTILINGUAL_E5_LARGE,
+        embedding::ALL_MINILM_L12_V2,
+        embedding::ALL_MINILM_L6_V2,
+        embedding::ALL_MPNET_BASE_V2,
+        embedding::CLIP_VIT_B_32,
+        embedding::CLIP_VIT_B_32_MULTILINGUAL_V1,
+        embedding::MULTI_QA_MPNET_BASE_DOT_V1,
+        embedding::PARAPHRASE_MINILM_L6_V2,
+        embedding::TEXT2VEC_BASE_CHINESE,
+        embedding::GTE_BASE,
+        embedding::GTE_LARGE,
+    ];
+
+    pub const ALL_IMAGE: &[&str] = &[
+        image::SD3_5,
+        image::FLUX_1_1_PRO,
+        image::FLUX_1_SCHNELL,
+        image::FLUX_1_DEV,
+        image::FLUX_PRO,
+        image::FLUX_1_KONTEXT_DEV,
+        image::FLUX_1_KONTEXT_PRO,
+        image::SD3_5_MEDIUM,
+        image::SDXL_TURBO,
+    ];
+
+    /// Get all curated DeepInfra models from the audited AI SDK subset.
+    pub fn all_models() -> Vec<String> {
+        let mut models = Vec::new();
+
+        for model in ALL_CHAT
+            .iter()
+            .chain(ALL_COMPLETION.iter())
+            .chain(ALL_EMBEDDING.iter())
+            .chain(ALL_IMAGE.iter())
+        {
+            if !models.iter().any(|existing| existing == model) {
+                models.push((*model).to_string());
+            }
+        }
+
+        models
+    }
+}
+
+/// Vertex MaaS model constants aligned with the audited AI SDK package subset.
+pub mod vertex_maas {
+    /// Vertex MaaS chat/language-model constants.
+    pub mod chat {
+        pub const DEEPSEEK_R1_0528_MAAS: &str = "deepseek-ai/deepseek-r1-0528-maas";
+        pub const DEEPSEEK_V3_1_MAAS: &str = "deepseek-ai/deepseek-v3.1-maas";
+        pub const DEEPSEEK_V3_2_MAAS: &str = "deepseek-ai/deepseek-v3.2-maas";
+        pub const GPT_OSS_120B_MAAS: &str = "openai/gpt-oss-120b-maas";
+        pub const GPT_OSS_20B_MAAS: &str = "openai/gpt-oss-20b-maas";
+        pub const LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS: &str =
+            "meta/llama-4-maverick-17b-128e-instruct-maas";
+        pub const LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS: &str =
+            "meta/llama-4-scout-17b-16e-instruct-maas";
+        pub const MINIMAX_M2_MAAS: &str = "minimax/minimax-m2-maas";
+        pub const QWEN3_CODER_480B_A35B_INSTRUCT_MAAS: &str =
+            "qwen/qwen3-coder-480b-a35b-instruct-maas";
+        pub const QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS: &str = "qwen/qwen3-next-80b-a3b-instruct-maas";
+        pub const QWEN3_NEXT_80B_A3B_THINKING_MAAS: &str = "qwen/qwen3-next-80b-a3b-thinking-maas";
+        pub const KIMI_K2_THINKING_MAAS: &str = "moonshotai/kimi-k2-thinking-maas";
+    }
+
+    /// Vertex MaaS completion-model constants.
+    pub mod completion {
+        pub const DEEPSEEK_R1_0528_MAAS: &str = super::chat::DEEPSEEK_R1_0528_MAAS;
+        pub const DEEPSEEK_V3_1_MAAS: &str = super::chat::DEEPSEEK_V3_1_MAAS;
+        pub const DEEPSEEK_V3_2_MAAS: &str = super::chat::DEEPSEEK_V3_2_MAAS;
+        pub const GPT_OSS_120B_MAAS: &str = super::chat::GPT_OSS_120B_MAAS;
+        pub const GPT_OSS_20B_MAAS: &str = super::chat::GPT_OSS_20B_MAAS;
+        pub const LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS: &str =
+            super::chat::LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS;
+        pub const LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS: &str =
+            super::chat::LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS;
+        pub const MINIMAX_M2_MAAS: &str = super::chat::MINIMAX_M2_MAAS;
+        pub const QWEN3_CODER_480B_A35B_INSTRUCT_MAAS: &str =
+            super::chat::QWEN3_CODER_480B_A35B_INSTRUCT_MAAS;
+        pub const QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS: &str =
+            super::chat::QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS;
+        pub const QWEN3_NEXT_80B_A3B_THINKING_MAAS: &str =
+            super::chat::QWEN3_NEXT_80B_A3B_THINKING_MAAS;
+        pub const KIMI_K2_THINKING_MAAS: &str = super::chat::KIMI_K2_THINKING_MAAS;
+    }
+
+    /// Vertex MaaS embedding-model constants.
+    pub mod embedding {
+        pub const DEEPSEEK_R1_0528_MAAS: &str = super::chat::DEEPSEEK_R1_0528_MAAS;
+        pub const DEEPSEEK_V3_1_MAAS: &str = super::chat::DEEPSEEK_V3_1_MAAS;
+        pub const DEEPSEEK_V3_2_MAAS: &str = super::chat::DEEPSEEK_V3_2_MAAS;
+        pub const GPT_OSS_120B_MAAS: &str = super::chat::GPT_OSS_120B_MAAS;
+        pub const GPT_OSS_20B_MAAS: &str = super::chat::GPT_OSS_20B_MAAS;
+        pub const LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS: &str =
+            super::chat::LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS;
+        pub const LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS: &str =
+            super::chat::LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS;
+        pub const MINIMAX_M2_MAAS: &str = super::chat::MINIMAX_M2_MAAS;
+        pub const QWEN3_CODER_480B_A35B_INSTRUCT_MAAS: &str =
+            super::chat::QWEN3_CODER_480B_A35B_INSTRUCT_MAAS;
+        pub const QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS: &str =
+            super::chat::QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS;
+        pub const QWEN3_NEXT_80B_A3B_THINKING_MAAS: &str =
+            super::chat::QWEN3_NEXT_80B_A3B_THINKING_MAAS;
+        pub const KIMI_K2_THINKING_MAAS: &str = super::chat::KIMI_K2_THINKING_MAAS;
+    }
+
+    pub const CHAT: &str = chat::DEEPSEEK_V3_2_MAAS;
+    pub const COMPLETION: &str = completion::DEEPSEEK_V3_2_MAAS;
+    pub const EMBEDDING: &str = embedding::DEEPSEEK_V3_2_MAAS;
+
+    pub const ALL_CHAT: &[&str] = &[
+        chat::DEEPSEEK_R1_0528_MAAS,
+        chat::DEEPSEEK_V3_1_MAAS,
+        chat::DEEPSEEK_V3_2_MAAS,
+        chat::GPT_OSS_120B_MAAS,
+        chat::GPT_OSS_20B_MAAS,
+        chat::LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS,
+        chat::LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS,
+        chat::MINIMAX_M2_MAAS,
+        chat::QWEN3_CODER_480B_A35B_INSTRUCT_MAAS,
+        chat::QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS,
+        chat::QWEN3_NEXT_80B_A3B_THINKING_MAAS,
+        chat::KIMI_K2_THINKING_MAAS,
+    ];
+
+    pub const ALL_COMPLETION: &[&str] = &[
+        completion::DEEPSEEK_R1_0528_MAAS,
+        completion::DEEPSEEK_V3_1_MAAS,
+        completion::DEEPSEEK_V3_2_MAAS,
+        completion::GPT_OSS_120B_MAAS,
+        completion::GPT_OSS_20B_MAAS,
+        completion::LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS,
+        completion::LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS,
+        completion::MINIMAX_M2_MAAS,
+        completion::QWEN3_CODER_480B_A35B_INSTRUCT_MAAS,
+        completion::QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS,
+        completion::QWEN3_NEXT_80B_A3B_THINKING_MAAS,
+        completion::KIMI_K2_THINKING_MAAS,
+    ];
+
+    pub const ALL_EMBEDDING: &[&str] = &[
+        embedding::DEEPSEEK_R1_0528_MAAS,
+        embedding::DEEPSEEK_V3_1_MAAS,
+        embedding::DEEPSEEK_V3_2_MAAS,
+        embedding::GPT_OSS_120B_MAAS,
+        embedding::GPT_OSS_20B_MAAS,
+        embedding::LLAMA_4_MAVERICK_17B_128E_INSTRUCT_MAAS,
+        embedding::LLAMA_4_SCOUT_17B_16E_INSTRUCT_MAAS,
+        embedding::MINIMAX_M2_MAAS,
+        embedding::QWEN3_CODER_480B_A35B_INSTRUCT_MAAS,
+        embedding::QWEN3_NEXT_80B_A3B_INSTRUCT_MAAS,
+        embedding::QWEN3_NEXT_80B_A3B_THINKING_MAAS,
+        embedding::KIMI_K2_THINKING_MAAS,
+    ];
+
+    /// Get all curated Vertex MaaS models from the audited AI SDK subset.
+    pub fn all_models() -> Vec<String> {
+        let mut models = Vec::new();
+
+        for model in ALL_CHAT
+            .iter()
+            .chain(ALL_COMPLETION.iter())
+            .chain(ALL_EMBEDDING.iter())
+        {
+            if !models.iter().any(|existing| existing == model) {
+                models.push((*model).to_string());
+            }
+        }
+
+        models
+    }
+}
+
+/// Mistral model constants aligned with the audited AI SDK package subset.
+pub mod mistral {
+    /// Mistral chat/language-model constants.
+    pub mod chat {
+        pub const MINISTRAL_3B_LATEST: &str = "ministral-3b-latest";
+        pub const MINISTRAL_8B_LATEST: &str = "ministral-8b-latest";
+        pub const MINISTRAL_14B_LATEST: &str = "ministral-14b-latest";
+        pub const MISTRAL_LARGE_LATEST: &str = "mistral-large-latest";
+        pub const MISTRAL_MEDIUM_LATEST: &str = "mistral-medium-latest";
+        pub const MISTRAL_LARGE_2512: &str = "mistral-large-2512";
+        pub const MISTRAL_MEDIUM_2508: &str = "mistral-medium-2508";
+        pub const MISTRAL_MEDIUM_2505: &str = "mistral-medium-2505";
+        pub const MISTRAL_SMALL_2506: &str = "mistral-small-2506";
+        pub const PIXTRAL_LARGE_LATEST: &str = "pixtral-large-latest";
+        pub const MISTRAL_SMALL_LATEST: &str = "mistral-small-latest";
+        pub const MISTRAL_SMALL_2603: &str = "mistral-small-2603";
+        pub const MAGISTRAL_MEDIUM_LATEST: &str = "magistral-medium-latest";
+        pub const MAGISTRAL_SMALL_LATEST: &str = "magistral-small-latest";
+        pub const MAGISTRAL_MEDIUM_2509: &str = "magistral-medium-2509";
+        pub const MAGISTRAL_SMALL_2509: &str = "magistral-small-2509";
+    }
+
+    /// Mistral embedding-model constants.
+    pub mod embedding {
+        pub const MISTRAL_EMBED: &str = "mistral-embed";
+    }
+
+    pub const CHAT: &str = chat::MISTRAL_LARGE_LATEST;
+    pub const EMBEDDING: &str = embedding::MISTRAL_EMBED;
+
+    pub const ALL_CHAT: &[&str] = &[
+        chat::MINISTRAL_3B_LATEST,
+        chat::MINISTRAL_8B_LATEST,
+        chat::MINISTRAL_14B_LATEST,
+        chat::MISTRAL_LARGE_LATEST,
+        chat::MISTRAL_MEDIUM_LATEST,
+        chat::MISTRAL_LARGE_2512,
+        chat::MISTRAL_MEDIUM_2508,
+        chat::MISTRAL_MEDIUM_2505,
+        chat::MISTRAL_SMALL_2506,
+        chat::PIXTRAL_LARGE_LATEST,
+        chat::MISTRAL_SMALL_LATEST,
+        chat::MISTRAL_SMALL_2603,
+        chat::MAGISTRAL_MEDIUM_LATEST,
+        chat::MAGISTRAL_SMALL_LATEST,
+        chat::MAGISTRAL_MEDIUM_2509,
+        chat::MAGISTRAL_SMALL_2509,
+    ];
+
+    pub const ALL_EMBEDDING: &[&str] = &[embedding::MISTRAL_EMBED];
+}
+
+/// Perplexity model constants aligned with the audited AI SDK package subset.
+pub mod perplexity {
+    /// Perplexity chat/language-model constants.
+    pub mod chat {
+        pub const SONAR_DEEP_RESEARCH: &str = "sonar-deep-research";
+        pub const SONAR_REASONING_PRO: &str = "sonar-reasoning-pro";
+        pub const SONAR_REASONING: &str = "sonar-reasoning";
+        pub const SONAR_PRO: &str = "sonar-pro";
+        pub const SONAR: &str = "sonar";
+    }
+
+    pub const CHAT: &str = chat::SONAR;
+
+    pub const ALL_CHAT: &[&str] = &[
+        chat::SONAR_DEEP_RESEARCH,
+        chat::SONAR_REASONING_PRO,
+        chat::SONAR_REASONING,
+        chat::SONAR_PRO,
+        chat::SONAR,
+    ];
+}
+
+/// Fireworks model constants aligned with the audited AI SDK package subset.
+pub mod fireworks {
+    /// Fireworks chat/language-model constants.
+    pub mod chat {
+        pub const DEEPSEEK_V3: &str = "accounts/fireworks/models/deepseek-v3";
+        pub const LLAMA_V3P3_70B_INSTRUCT: &str =
+            "accounts/fireworks/models/llama-v3p3-70b-instruct";
+        pub const LLAMA_V3P2_3B_INSTRUCT: &str = "accounts/fireworks/models/llama-v3p2-3b-instruct";
+        pub const LLAMA_V3P1_405B_INSTRUCT: &str =
+            "accounts/fireworks/models/llama-v3p1-405b-instruct";
+        pub const LLAMA_V3P1_8B_INSTRUCT: &str = "accounts/fireworks/models/llama-v3p1-8b-instruct";
+        pub const MIXTRAL_8X7B_INSTRUCT: &str = "accounts/fireworks/models/mixtral-8x7b-instruct";
+        pub const MIXTRAL_8X22B_INSTRUCT: &str = "accounts/fireworks/models/mixtral-8x22b-instruct";
+        pub const MIXTRAL_8X7B_INSTRUCT_HF: &str =
+            "accounts/fireworks/models/mixtral-8x7b-instruct-hf";
+        pub const QWEN2P5_CODER_32B_INSTRUCT: &str =
+            "accounts/fireworks/models/qwen2p5-coder-32b-instruct";
+        pub const QWEN2P5_72B_INSTRUCT: &str = "accounts/fireworks/models/qwen2p5-72b-instruct";
+        pub const QWEN_QWQ_32B_PREVIEW: &str = "accounts/fireworks/models/qwen-qwq-32b-preview";
+        pub const QWEN2_VL_72B_INSTRUCT: &str = "accounts/fireworks/models/qwen2-vl-72b-instruct";
+        pub const LLAMA_V3P2_11B_VISION_INSTRUCT: &str =
+            "accounts/fireworks/models/llama-v3p2-11b-vision-instruct";
+        pub const QWQ_32B: &str = "accounts/fireworks/models/qwq-32b";
+        pub const YI_LARGE: &str = "accounts/fireworks/models/yi-large";
+        pub const KIMI_K2_INSTRUCT: &str = "accounts/fireworks/models/kimi-k2-instruct";
+        pub const KIMI_K2_THINKING: &str = "accounts/fireworks/models/kimi-k2-thinking";
+        pub const KIMI_K2P5: &str = "accounts/fireworks/models/kimi-k2p5";
+        pub const MINIMAX_M2: &str = "accounts/fireworks/models/minimax-m2";
+    }
+
+    /// Fireworks completion-model constants.
+    pub mod completion {
+        pub const LLAMA_V3_8B_INSTRUCT: &str = "accounts/fireworks/models/llama-v3-8b-instruct";
+        pub const LLAMA_V2_34B_CODE: &str = "accounts/fireworks/models/llama-v2-34b-code";
+    }
+
+    /// Fireworks embedding-model constants.
+    pub mod embedding {
+        pub const NOMIC_EMBED_TEXT_V1_5: &str = "nomic-ai/nomic-embed-text-v1.5";
+    }
+
+    /// Fireworks image-model constants.
+    pub mod image {
+        pub const FLUX_1_DEV_FP8: &str = "accounts/fireworks/models/flux-1-dev-fp8";
+        pub const FLUX_1_SCHNELL_FP8: &str = "accounts/fireworks/models/flux-1-schnell-fp8";
+        pub const FLUX_KONTEXT_PRO: &str = "accounts/fireworks/models/flux-kontext-pro";
+        pub const FLUX_KONTEXT_MAX: &str = "accounts/fireworks/models/flux-kontext-max";
+        pub const PLAYGROUND_V2_5_1024PX_AESTHETIC: &str =
+            "accounts/fireworks/models/playground-v2-5-1024px-aesthetic";
+        pub const JAPANESE_STABLE_DIFFUSION_XL: &str =
+            "accounts/fireworks/models/japanese-stable-diffusion-xl";
+        pub const PLAYGROUND_V2_1024PX_AESTHETIC: &str =
+            "accounts/fireworks/models/playground-v2-1024px-aesthetic";
+        pub const SSD_1B: &str = "accounts/fireworks/models/SSD-1B";
+        pub const STABLE_DIFFUSION_XL_1024_V1_0: &str =
+            "accounts/fireworks/models/stable-diffusion-xl-1024-v1-0";
+    }
+
+    pub const CHAT: &str = chat::LLAMA_V3P1_8B_INSTRUCT;
+    pub const COMPLETION: &str = completion::LLAMA_V3_8B_INSTRUCT;
+    pub const EMBEDDING: &str = embedding::NOMIC_EMBED_TEXT_V1_5;
+    pub const IMAGE: &str = image::FLUX_1_DEV_FP8;
+
+    pub const ALL_CHAT: &[&str] = &[
+        chat::DEEPSEEK_V3,
+        chat::LLAMA_V3P3_70B_INSTRUCT,
+        chat::LLAMA_V3P2_3B_INSTRUCT,
+        chat::LLAMA_V3P1_405B_INSTRUCT,
+        chat::LLAMA_V3P1_8B_INSTRUCT,
+        chat::MIXTRAL_8X7B_INSTRUCT,
+        chat::MIXTRAL_8X22B_INSTRUCT,
+        chat::MIXTRAL_8X7B_INSTRUCT_HF,
+        chat::QWEN2P5_CODER_32B_INSTRUCT,
+        chat::QWEN2P5_72B_INSTRUCT,
+        chat::QWEN_QWQ_32B_PREVIEW,
+        chat::QWEN2_VL_72B_INSTRUCT,
+        chat::LLAMA_V3P2_11B_VISION_INSTRUCT,
+        chat::QWQ_32B,
+        chat::YI_LARGE,
+        chat::KIMI_K2_INSTRUCT,
+        chat::KIMI_K2_THINKING,
+        chat::KIMI_K2P5,
+        chat::MINIMAX_M2,
+    ];
+
+    pub const ALL_COMPLETION: &[&str] = &[
+        completion::LLAMA_V3_8B_INSTRUCT,
+        completion::LLAMA_V2_34B_CODE,
+    ];
+
+    pub const ALL_EMBEDDING: &[&str] = &[embedding::NOMIC_EMBED_TEXT_V1_5];
+
+    pub const ALL_IMAGE: &[&str] = &[
+        image::FLUX_1_DEV_FP8,
+        image::FLUX_1_SCHNELL_FP8,
+        image::FLUX_KONTEXT_PRO,
+        image::FLUX_KONTEXT_MAX,
+        image::PLAYGROUND_V2_5_1024PX_AESTHETIC,
+        image::JAPANESE_STABLE_DIFFUSION_XL,
+        image::PLAYGROUND_V2_1024PX_AESTHETIC,
+        image::SSD_1B,
+        image::STABLE_DIFFUSION_XL_1024_V1_0,
+    ];
+
+    /// Get all curated Fireworks models from the audited AI SDK subset.
+    pub fn all_models() -> Vec<String> {
+        let mut models = Vec::new();
+        models.extend(ALL_CHAT.iter().map(|&s| s.to_string()));
+        models.extend(ALL_COMPLETION.iter().map(|&s| s.to_string()));
+        models.extend(ALL_EMBEDDING.iter().map(|&s| s.to_string()));
+        models.extend(ALL_IMAGE.iter().map(|&s| s.to_string()));
+        models
+    }
+}
+
 /// xAI model constants
 pub mod xai {
     /// Grok Beta model
@@ -486,19 +973,25 @@ pub mod groq {
     }
 }
 
-/// Moonshot AI model constants
-///
-/// Moonshot AI ("Dark Side of the Moon") provides models with exceptional
-/// long-context capabilities.
-/// Reference: https://platform.moonshot.cn/docs/intro
+/// MoonshotAI model constants aligned with the audited AI SDK package subset.
 pub mod moonshot {
-    /// Kimi K2 0905 Preview - Latest model with enhanced Agentic Coding capabilities
-    /// Context: 256K tokens
-    pub const KIMI_K2_0905_PREVIEW: &str = "kimi-k2-0905-preview";
+    /// Kimi K2.
+    pub const KIMI_K2: &str = "kimi-k2";
 
-    /// Kimi K2 0711 Preview - Previous K2 version
-    /// Context: 256K tokens
-    pub const KIMI_K2_0711_PREVIEW: &str = "kimi-k2-0711-preview";
+    /// Kimi K2 0905.
+    pub const KIMI_K2_0905: &str = "kimi-k2-0905";
+
+    /// Kimi K2 Thinking.
+    pub const KIMI_K2_THINKING: &str = "kimi-k2-thinking";
+
+    /// Kimi K2 Thinking Turbo.
+    pub const KIMI_K2_THINKING_TURBO: &str = "kimi-k2-thinking-turbo";
+
+    /// Kimi K2 Turbo.
+    pub const KIMI_K2_TURBO: &str = "kimi-k2-turbo";
+
+    /// Kimi K2.5.
+    pub const KIMI_K2P5: &str = "kimi-k2.5";
 
     /// Kimi Latest - Auto-updated to the latest Kimi model
     pub const KIMI_LATEST: &str = "kimi-latest";
@@ -529,8 +1022,12 @@ pub mod moonshot {
 
     /// All Moonshot chat models
     pub const ALL_CHAT: &[&str] = &[
-        KIMI_K2_0905_PREVIEW,
-        KIMI_K2_0711_PREVIEW,
+        KIMI_K2,
+        KIMI_K2_0905,
+        KIMI_K2_THINKING,
+        KIMI_K2_THINKING_TURBO,
+        KIMI_K2_TURBO,
+        KIMI_K2P5,
         KIMI_LATEST,
         MOONSHOT_V1_AUTO,
         MOONSHOT_V1_8K,
@@ -558,7 +1055,7 @@ pub mod moonshot {
         use super::*;
 
         /// Best for general chat with latest features
-        pub const CHAT: &str = KIMI_K2_0905_PREVIEW;
+        pub const CHAT: &str = KIMI_K2_0905;
 
         /// Best for long-context processing
         pub const LONG_CONTEXT: &str = MOONSHOT_V1_128K;
@@ -571,15 +1068,23 @@ pub mod moonshot {
     }
 }
 
+/// Canonical AI SDK package-style MoonshotAI model namespace.
+pub mod moonshotai {
+    pub use super::moonshot::*;
+}
+
 /// Get models for a specific provider
 pub fn get_models_for_provider(provider: &str) -> Vec<String> {
     match provider.to_lowercase().as_str() {
         "deepseek" => deepseek::all_models(),
+        "deepinfra" => deepinfra::all_models(),
+        "fireworks" => fireworks::all_models(),
         "openrouter" => openrouter::all_models(),
+        "vertex-maas" => vertex_maas::all_models(),
         "xai" => xai::all_models(),
         "groq" => groq::all_models(),
         "siliconflow" => siliconflow::all_models(),
-        "moonshot" => moonshot::all_models(),
+        "moonshot" | "moonshotai" => moonshot::all_models(),
         _ => vec![],
     }
 }
@@ -643,9 +1148,50 @@ mod tests {
     }
 
     #[test]
+    fn test_deepinfra_models() {
+        let models = deepinfra::all_models();
+        assert!(!models.is_empty());
+        assert!(models.contains(&deepinfra::CHAT.to_string()));
+        assert!(models.contains(&deepinfra::COMPLETION.to_string()));
+        assert!(models.contains(&deepinfra::EMBEDDING.to_string()));
+        assert!(models.contains(&deepinfra::IMAGE.to_string()));
+    }
+
+    #[test]
+    fn test_vertex_maas_models() {
+        let models = vertex_maas::all_models();
+        assert!(!models.is_empty());
+        assert!(models.contains(&vertex_maas::CHAT.to_string()));
+        assert!(models.contains(&vertex_maas::COMPLETION.to_string()));
+        assert!(models.contains(&vertex_maas::EMBEDDING.to_string()));
+    }
+
+    #[test]
+    fn test_fireworks_models() {
+        let models = fireworks::all_models();
+        assert!(!models.is_empty());
+        assert!(models.contains(&fireworks::CHAT.to_string()));
+        assert!(models.contains(&fireworks::COMPLETION.to_string()));
+        assert!(models.contains(&fireworks::EMBEDDING.to_string()));
+        assert!(models.contains(&fireworks::IMAGE.to_string()));
+    }
+
+    #[test]
     fn test_get_models_for_provider() {
         let deepseek_models = get_models_for_provider("deepseek");
         assert!(!deepseek_models.is_empty());
+
+        let deepinfra_models = get_models_for_provider("deepinfra");
+        assert!(deepinfra_models.contains(&deepinfra::chat::LLAMA_V3P3_70B_INSTRUCT.to_string()));
+
+        let vertex_maas_models = get_models_for_provider("vertex-maas");
+        assert!(vertex_maas_models.contains(&vertex_maas::chat::DEEPSEEK_V3_2_MAAS.to_string()));
+
+        let fireworks_models = get_models_for_provider("fireworks");
+        assert!(fireworks_models.contains(&fireworks::chat::DEEPSEEK_V3.to_string()));
+
+        let moonshotai_models = get_models_for_provider("moonshotai");
+        assert!(moonshotai_models.contains(&moonshotai::KIMI_K2_0905.to_string()));
 
         let unknown_models = get_models_for_provider("unknown");
         assert!(unknown_models.is_empty());
@@ -654,6 +1200,19 @@ mod tests {
     #[test]
     fn test_is_model_supported() {
         assert!(is_model_supported("deepseek", "deepseek-chat"));
+        assert!(is_model_supported(
+            "deepinfra",
+            deepinfra::image::FLUX_1_KONTEXT_PRO
+        ));
+        assert!(is_model_supported(
+            "vertex-maas",
+            vertex_maas::chat::QWEN3_NEXT_80B_A3B_THINKING_MAAS
+        ));
+        assert!(is_model_supported(
+            "fireworks",
+            fireworks::image::FLUX_KONTEXT_PRO
+        ));
+        assert!(is_model_supported("moonshotai", moonshotai::KIMI_K2P5));
         assert!(!is_model_supported("deepseek", "unknown-model"));
         assert!(!is_model_supported("unknown", "any-model"));
     }

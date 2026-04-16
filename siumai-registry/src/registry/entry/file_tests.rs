@@ -138,6 +138,7 @@ async fn language_model_handle_delegates_file_management_capability() {
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: HashMap::new(),
+            provider_options: Default::default(),
             http_config: None,
         })
         .await

@@ -7,6 +7,7 @@ pub mod auth;
 pub mod bridge;
 pub mod builder;
 pub mod client;
+pub mod completion;
 pub mod core;
 pub mod custom_provider;
 pub mod defaults;
@@ -31,6 +32,7 @@ pub mod tools;
 pub mod traits;
 pub mod transcription;
 pub mod types;
+pub mod ui;
 pub mod utils;
 
 pub use error::LlmError;

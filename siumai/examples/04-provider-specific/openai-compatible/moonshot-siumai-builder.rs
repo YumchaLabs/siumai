@@ -34,8 +34,8 @@
 //!
 //! // Reads `MOONSHOT_API_KEY` by default.
 //! let client = OpenAiCompatibleClient::from_builtin_env(
-//!     "moonshot",
-//!     Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+//!     "moonshotai",
+//!     Some(models::openai_compatible::moonshotai::KIMI_K2_0905),
 //! )
 //! .await?;
 //! ```
@@ -49,9 +49,10 @@ use siumai::prelude::unified::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Build Moonshot client using Siumai::builder() (unified interface)
     // Note: API key is automatically read from `MOONSHOT_API_KEY`.
+    // Canonical builder shortcut is `.moonshotai()`.
     let client = Siumai::builder()
-        .moonshot()
-        .model(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW)
+        .moonshotai()
+        .model(models::openai_compatible::moonshotai::KIMI_K2_0905)
         .build()
         .await?;
 
@@ -74,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Demonstrate provider abstraction
     println!("Why keep this demo:");
-    println!("- You can switch `.moonshot()` to another compat/provider shortcut");
+    println!("- You can switch `.moonshotai()` to another compat/provider shortcut");
     println!("- The surrounding request code stays almost unchanged");
     println!("- It is useful when comparing migration or convenience flows");
 

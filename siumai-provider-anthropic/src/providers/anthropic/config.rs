@@ -5,8 +5,8 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::provider_options::anthropic::{
-    AnthropicContainerConfig, AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode,
-    ThinkingModeConfig,
+    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort, AnthropicOptions,
+    AnthropicStructuredOutputMode, ThinkingModeConfig,
 };
 use crate::types::{CommonParams, HttpConfig};
 use secrecy::{ExposeSecret, SecretString};
@@ -267,7 +267,10 @@ impl AnthropicConfig {
     }
 
     /// Set Anthropic default context-management options on the config-first surface.
-    pub fn with_anthropic_context_management(self, context_management: serde_json::Value) -> Self {
+    pub fn with_anthropic_context_management(
+        self,
+        context_management: AnthropicContextManagementConfig,
+    ) -> Self {
         self.with_anthropic_options(
             AnthropicOptions::new().with_context_management(context_management),
         )
@@ -295,6 +298,9 @@ mod tests {
 
     use super::*;
     use crate::execution::middleware::LanguageModelMiddleware;
+    use crate::provider_options::anthropic::{
+        AnthropicContextManagementEdit, AnthropicContextManagementInputTokensValue,
+    };
     use secrecy::ExposeSecret;
     use std::{
         collections::HashMap,
@@ -425,10 +431,19 @@ mod tests {
                     .with_structured_output_mode(AnthropicStructuredOutputMode::JsonTool),
             )),
             Arc::new(AnthropicDefaultOptionsMiddleware::new(
-                AnthropicOptions::new().with_context_management(serde_json::json!({
-                    "clear_at_least": 1,
-                    "exclude_tools": ["editor"]
-                })),
+                AnthropicOptions::new().with_context_management(
+                    AnthropicContextManagementConfig::new().with_edit(
+                        AnthropicContextManagementEdit::ClearToolUses20250919 {
+                            trigger: None,
+                            keep: None,
+                            clear_at_least: Some(
+                                AnthropicContextManagementInputTokensValue::input_tokens(1),
+                            ),
+                            clear_tool_inputs: None,
+                            exclude_tools: Some(vec!["editor".to_string()]),
+                        },
+                    ),
+                ),
             )),
             Arc::new(AnthropicDefaultOptionsMiddleware::new(
                 AnthropicOptions::new().with_tool_streaming(false),
@@ -457,8 +472,14 @@ mod tests {
         assert_eq!(
             options.get("context_management"),
             Some(&serde_json::json!({
-                "clear_at_least": 1,
-                "exclude_tools": ["editor"]
+                "edits": [{
+                    "type": "clear_tool_uses_20250919",
+                    "clear_at_least": {
+                        "type": "input_tokens",
+                        "value": 1
+                    },
+                    "exclude_tools": ["editor"]
+                }]
             }))
         );
         assert_eq!(

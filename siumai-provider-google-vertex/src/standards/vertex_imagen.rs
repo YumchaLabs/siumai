@@ -74,13 +74,11 @@ fn vertex_inline_image_input(
 ) -> Result<serde_json::Value, LlmError> {
     match input {
         ImageEditInput::Url { .. } => Err(LlmError::InvalidParameter(format!(
-            "Vertex Imagen image editing does not support URL-backed {label} inputs on this path. Provide file/base64 image data instead."
+            "Vertex Imagen does not support URL-backed {label} inputs on this path. Provide file/base64 image data instead."
         ))),
         ImageEditInput::File { data, .. } => {
             let bytes = data.as_bytes().map_err(|err| {
-                LlmError::InvalidParameter(format!(
-                    "Invalid Vertex Imagen image edit {label} data: {err}"
-                ))
+                LlmError::InvalidParameter(format!("Invalid Vertex Imagen {label} data: {err}"))
             })?;
             Ok(bytes_to_inline_image(&bytes))
         }
@@ -215,6 +213,13 @@ fn vertex_imagen_aspect_ratio(
         }
     }
     None
+}
+
+fn vertex_imagen_prompt(extra_params: &HashMap<String, serde_json::Value>) -> Option<String> {
+    extra_params
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string)
 }
 
 #[derive(Clone)]
@@ -433,6 +438,97 @@ impl RequestTransformer for VertexImagenRequestTransformer {
             if matches!(
                 k.as_str(),
                 "edit"
+                    | "referenceImages"
+                    | "reference_images"
+                    | "negativePrompt"
+                    | "negative_prompt"
+                    | "aspectRatio"
+                    | "aspect_ratio"
+            ) {
+                continue;
+            }
+            parameters.insert(k.clone(), v.clone());
+        }
+
+        Ok(ImageHttpBody::Json(serde_json::json!({
+            "instances": [serde_json::Value::Object(instance)],
+            "parameters": serde_json::Value::Object(parameters),
+        })))
+    }
+
+    fn transform_image_variation(
+        &self,
+        req: &ImageVariationRequest,
+    ) -> Result<ImageHttpBody, LlmError> {
+        let provider_opts = extract_vertex_imagen_options(&req.provider_options_map);
+
+        let mut instance = serde_json::Map::new();
+        if let Some(prompt) = vertex_imagen_prompt(&req.extra_params) {
+            instance.insert("prompt".to_string(), serde_json::json!(prompt));
+        }
+
+        let mut reference_images = vec![serde_json::json!({
+            "referenceId": 1,
+            "referenceType": "REFERENCE_TYPE_RAW",
+            "referenceImage": vertex_inline_image_input(&req.image, "variation image")?,
+        })];
+
+        if let Some(extra_ref) =
+            vertex_imagen_reference_images(&req.extra_params, provider_opts.as_ref())
+        {
+            if let Some(arr) = extra_ref.as_array() {
+                reference_images.extend(arr.iter().cloned());
+            } else {
+                reference_images.push(extra_ref);
+            }
+        }
+
+        instance.insert(
+            "referenceImages".to_string(),
+            serde_json::Value::Array(reference_images),
+        );
+
+        let mut parameters = serde_json::Map::new();
+        if let Some(n) = req.count {
+            parameters.insert("sampleCount".to_string(), serde_json::json!(n));
+        }
+        if let Some(ar) = vertex_imagen_aspect_ratio(
+            req.aspect_ratio.as_deref(),
+            &req.extra_params,
+            provider_opts.as_ref(),
+        ) {
+            parameters.insert("aspectRatio".to_string(), serde_json::json!(ar));
+        }
+        if let Some(seed) = req.seed {
+            parameters.insert("seed".to_string(), serde_json::json!(seed));
+        }
+        if let Some(neg) =
+            vertex_imagen_negative_prompt(None, &req.extra_params, provider_opts.as_ref())
+        {
+            parameters.insert("negativePrompt".to_string(), serde_json::json!(neg));
+        }
+
+        if let Some(opts) = &provider_opts {
+            merge_object_allowlist_skipping(
+                &mut parameters,
+                opts,
+                VERTEX_IMAGEN_PROVIDER_OPTIONS_ALLOWLIST,
+                &[
+                    "edit",
+                    "referenceImages",
+                    "reference_images",
+                    "negativePrompt",
+                    "negative_prompt",
+                    "aspectRatio",
+                    "aspect_ratio",
+                    "prompt",
+                ],
+            );
+        }
+        for (k, v) in &req.extra_params {
+            if matches!(
+                k.as_str(),
+                "prompt"
                     | "referenceImages"
                     | "reference_images"
                     | "negativePrompt"
@@ -837,6 +933,66 @@ mod tests {
                 );
             }
             _ => panic!("expected json image edit body"),
+        }
+    }
+
+    #[test]
+    fn imagen_variation_transformer_maps_shared_variation_surface() {
+        let transformer = VertexImagenRequestTransformer::new("vertex");
+        let mut req = ImageVariationRequest {
+            image: ImageEditInput::file(b"image-one".to_vec()),
+            model: Some("imagen-4.0-generate-001".to_string()),
+            count: Some(2),
+            size: None,
+            aspect_ratio: Some("16:9".to_string()),
+            seed: Some(7),
+            response_format: Some("b64_json".to_string()),
+            extra_params: HashMap::from([
+                (
+                    "prompt".to_string(),
+                    serde_json::json!("keep the subject and explore new backgrounds"),
+                ),
+                ("sampleImageSize".to_string(), serde_json::json!("2K")),
+            ]),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+        req.provider_options_map.insert(
+            "vertex",
+            serde_json::json!({
+                "negativePrompt": "blurry",
+                "addWatermark": false,
+            }),
+        );
+
+        match transformer
+            .transform_image_variation(&req)
+            .expect("transform image variation")
+        {
+            ImageHttpBody::Json(body) => {
+                assert_eq!(
+                    body["instances"][0]["prompt"],
+                    serde_json::json!("keep the subject and explore new backgrounds")
+                );
+                assert_eq!(
+                    body["instances"][0]["referenceImages"][0]["referenceImage"]["bytesBase64Encoded"],
+                    serde_json::json!("aW1hZ2Utb25l")
+                );
+                assert_eq!(body["parameters"]["sampleCount"], serde_json::json!(2));
+                assert_eq!(body["parameters"]["aspectRatio"], serde_json::json!("16:9"));
+                assert_eq!(body["parameters"]["seed"], serde_json::json!(7));
+                assert_eq!(
+                    body["parameters"]["negativePrompt"],
+                    serde_json::json!("blurry")
+                );
+                assert_eq!(
+                    body["parameters"]["sampleImageSize"],
+                    serde_json::json!("2K")
+                );
+                assert_eq!(body["parameters"]["addWatermark"], serde_json::json!(false));
+                assert!(body["parameters"].get("editMode").is_none());
+            }
+            _ => panic!("expected json image variation body"),
         }
     }
 }

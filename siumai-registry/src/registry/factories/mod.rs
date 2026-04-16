@@ -1,4 +1,4 @@
-﻿//! Provider factory implementations
+//! Provider factory implementations
 //!
 //! Each provider implements the ProviderFactory trait to create clients.
 
@@ -10,6 +10,7 @@
     feature = "google",
     feature = "google-vertex",
     feature = "cohere",
+    feature = "deepinfra",
     feature = "togetherai",
     feature = "ollama",
     feature = "deepseek",
@@ -28,6 +29,7 @@ use std::sync::Arc;
     feature = "google",
     feature = "google-vertex",
     feature = "cohere",
+    feature = "deepinfra",
     feature = "togetherai",
     feature = "ollama",
     feature = "deepseek",
@@ -45,6 +47,7 @@ use crate::client::LlmClient;
     feature = "google",
     feature = "google-vertex",
     feature = "cohere",
+    feature = "deepinfra",
     feature = "togetherai",
     feature = "ollama",
     feature = "deepseek",
@@ -66,6 +69,7 @@ use crate::execution::http::client::build_http_client_from_config;
     feature = "google",
     feature = "google-vertex",
     feature = "cohere",
+    feature = "deepinfra",
     feature = "togetherai",
     feature = "ollama",
     feature = "deepseek",
@@ -83,6 +87,7 @@ use crate::registry::entry::ProviderFactory;
     feature = "google",
     feature = "google-vertex",
     feature = "cohere",
+    feature = "deepinfra",
     feature = "togetherai",
     feature = "ollama",
     feature = "deepseek",
@@ -100,6 +105,7 @@ use crate::traits::ProviderCapabilities;
     feature = "google",
     feature = "google-vertex",
     feature = "cohere",
+    feature = "deepinfra",
     feature = "togetherai",
     feature = "ollama",
     feature = "deepseek",
@@ -122,8 +128,12 @@ mod bedrock;
 mod cohere;
 #[cfg(test)]
 mod contract_tests;
+#[cfg(feature = "deepinfra")]
+mod deepinfra;
 #[cfg(feature = "deepseek")]
 mod deepseek;
+#[cfg(feature = "openai")]
+mod fireworks;
 #[cfg(feature = "google")]
 mod gemini;
 #[cfg(feature = "google-vertex")]
@@ -136,12 +146,14 @@ mod minimaxi;
 mod ollama;
 #[cfg(feature = "openai")]
 mod openai;
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
 mod openai_compatible;
 #[cfg(test)]
 mod test;
 #[cfg(feature = "togetherai")]
 mod togetherai;
+#[cfg(feature = "google-vertex")]
+mod vertex_maas;
 #[cfg(feature = "xai")]
 mod xai;
 
@@ -155,8 +167,12 @@ pub use azure::AzureOpenAiProviderFactory;
 pub use bedrock::BedrockProviderFactory;
 #[cfg(feature = "cohere")]
 pub use cohere::CohereProviderFactory;
+#[cfg(feature = "deepinfra")]
+pub use deepinfra::DeepInfraProviderFactory;
 #[cfg(feature = "deepseek")]
 pub use deepseek::DeepSeekProviderFactory;
+#[cfg(feature = "openai")]
+pub use fireworks::FireworksProviderFactory;
 #[cfg(feature = "google")]
 pub use gemini::GeminiProviderFactory;
 #[cfg(feature = "google-vertex")]
@@ -169,11 +185,13 @@ pub use minimaxi::MiniMaxiProviderFactory;
 pub use ollama::OllamaProviderFactory;
 #[cfg(feature = "openai")]
 pub use openai::OpenAIProviderFactory;
-#[cfg(feature = "openai")]
+#[cfg(any(feature = "openai", feature = "togetherai", feature = "deepinfra"))]
 pub use openai_compatible::OpenAICompatibleProviderFactory;
 #[cfg(test)]
 pub use test::TestProviderFactory;
 #[cfg(feature = "togetherai")]
 pub use togetherai::TogetherAiProviderFactory;
+#[cfg(feature = "google-vertex")]
+pub use vertex_maas::VertexMaasProviderFactory;
 #[cfg(feature = "xai")]
 pub use xai::XAIProviderFactory;

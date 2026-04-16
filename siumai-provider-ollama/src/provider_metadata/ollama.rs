@@ -46,9 +46,14 @@ pub trait OllamaChatResponseExt {
 
 impl OllamaChatResponseExt for crate::types::ChatResponse {
     fn ollama_metadata(&self) -> Option<OllamaMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get("ollama")?;
-        OllamaMetadata::from_metadata(meta)
+        let meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, "ollama")
+            })?
+            .clone();
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
     }
 }
 
@@ -74,7 +79,10 @@ mod tests {
         inner.insert("vendor_extra".to_string(), serde_json::json!(true));
 
         let mut outer = HashMap::new();
-        outer.insert("ollama".to_string(), inner);
+        outer.insert(
+            "ollama".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.ollama_metadata().expect("ollama metadata");

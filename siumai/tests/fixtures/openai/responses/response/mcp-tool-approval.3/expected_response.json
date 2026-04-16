@@ -17,7 +17,8 @@
         "toolCallId": "id-0",
         "toolName": "mcp.create_short_url",
         "input": "{\"alias\":\"\",\"description\":\"\",\"max_clicks\":100,\"password\":\"\",\"url\":\"https://ai-sdk.dev/\"}",
-        "providerExecuted": true
+        "providerExecuted": true,
+        "dynamic": true
       },
       {
         "type": "tool-approval-request",

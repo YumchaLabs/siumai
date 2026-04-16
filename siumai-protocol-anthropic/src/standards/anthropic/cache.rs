@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::error::LlmError;
-use crate::types::{ChatMessage, ContentPart, MessageContent};
+use crate::types::{ChatMessage, ContentPart, FilePartSource, MediaSource, MessageContent};
 use base64::Engine;
 
 /// Cache control configuration for Anthropic
@@ -201,18 +201,28 @@ impl CacheAwareMessageBuilder {
                         }
                         ContentPart::Image { source, detail, .. } => {
                             let (media_type, data) = match source {
-                                crate::types::chat::MediaSource::Base64 { data } => {
+                                FilePartSource::Media(MediaSource::Base64 { data }) => {
                                     ("image/jpeg", data.clone())
                                 }
-                                crate::types::chat::MediaSource::Binary { data } => {
+                                FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
                                     ("image/jpeg", encoded)
                                 }
-                                crate::types::chat::MediaSource::Url { url } => {
+                                FilePartSource::Media(MediaSource::Url { url }) => {
                                     content_parts.push(serde_json::json!({
                                         "type": "text",
                                         "text": format!("[Image: {}]", url)
+                                    }));
+                                    continue;
+                                }
+                                FilePartSource::ProviderReference { provider_reference } => {
+                                    content_parts.push(serde_json::json!({
+                                        "type": "image",
+                                        "source": {
+                                            "type": "file",
+                                            "file_id": super::utils::resolve_anthropic_provider_reference(provider_reference)?,
+                                        }
                                     }));
                                     continue;
                                 }
@@ -287,28 +297,38 @@ impl CacheAwareMessageBuilder {
                             source, media_type, ..
                         } => {
                             if media_type == "application/pdf" {
-                                let data = match source {
-                                    crate::types::chat::MediaSource::Base64 { data } => {
-                                        data.clone()
+                                let source_json = match source {
+                                    FilePartSource::Media(MediaSource::Base64 { data }) => {
+                                        serde_json::json!({
+                                            "type": "base64",
+                                            "media_type": media_type,
+                                            "data": data
+                                        })
                                     }
-                                    crate::types::chat::MediaSource::Binary { data } => {
-                                        base64::engine::general_purpose::STANDARD.encode(data)
+                                    FilePartSource::Media(MediaSource::Binary { data }) => {
+                                        serde_json::json!({
+                                            "type": "base64",
+                                            "media_type": media_type,
+                                            "data": base64::engine::general_purpose::STANDARD.encode(data)
+                                        })
                                     }
-                                    crate::types::chat::MediaSource::Url { url } => {
+                                    FilePartSource::Media(MediaSource::Url { url }) => {
                                         content_parts.push(serde_json::json!({
                                             "type": "text",
                                             "text": format!("[PDF: {}]", url)
                                         }));
                                         continue;
                                     }
+                                    FilePartSource::ProviderReference { provider_reference } => {
+                                        serde_json::json!({
+                                            "type": "file",
+                                            "file_id": super::utils::resolve_anthropic_provider_reference(provider_reference)?,
+                                        })
+                                    }
                                 };
                                 content_parts.push(serde_json::json!({
                                     "type": "document",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": media_type,
-                                        "data": data
-                                    }
+                                    "source": source_json
                                 }));
                             } else {
                                 content_parts.push(serde_json::json!({

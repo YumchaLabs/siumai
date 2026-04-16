@@ -2,4 +2,10 @@
 
 pub mod cohere;
 
-pub use cohere::CohereRerankOptions;
+#[allow(deprecated)]
+pub use cohere::{
+    CohereChatModelOptions, CohereChatOptions, CohereEmbeddingInputType,
+    CohereEmbeddingModelOptions, CohereEmbeddingOptions, CohereEmbeddingTruncate,
+    CohereLanguageModelOptions, CohereRerankOptions, CohereRerankingModelOptions,
+    CohereRerankingOptions, CohereThinkingConfig, CohereThinkingType,
+};

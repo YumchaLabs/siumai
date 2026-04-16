@@ -5,6 +5,8 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Default)]
 pub struct ProviderCapabilities {
     pub chat: bool,
+    /// Text completion family (AI SDK-style `completionModel()` / `completion()` surface)
+    pub completion: bool,
     pub audio: bool,
     /// Text-to-speech (Vercel-aligned `SpeechModel`)
     pub speech: bool,
@@ -28,6 +30,10 @@ impl ProviderCapabilities {
 
     pub fn with_chat(mut self) -> Self {
         self.chat = true;
+        self
+    }
+    pub fn with_completion(mut self) -> Self {
+        self.completion = true;
         self
     }
     pub fn with_audio(mut self) -> Self {
@@ -81,6 +87,7 @@ impl ProviderCapabilities {
     pub fn supports(&self, feature: &str) -> bool {
         match feature {
             "chat" => self.chat,
+            "completion" => self.completion,
             // Backward compatible: treat `audio` as aggregate.
             "audio" => {
                 self.audio

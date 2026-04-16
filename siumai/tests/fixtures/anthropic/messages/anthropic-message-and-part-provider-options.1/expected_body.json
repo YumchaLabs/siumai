@@ -1,0 +1,27 @@
+{
+  "max_tokens": 4096,
+  "messages": [
+    {
+      "content": [
+        {
+          "type": "document",
+          "source": {
+            "type": "base64",
+            "media_type": "application/pdf",
+            "data": "Zm9v"
+          },
+          "title": "My Doc",
+          "context": "background",
+          "citations": { "enabled": true }
+        },
+        {
+          "type": "text",
+          "text": "What do the results show?",
+          "cache_control": { "type": "ephemeral" }
+        }
+      ],
+      "role": "user"
+    }
+  ],
+  "model": "claude-3-haiku-20240307"
+}

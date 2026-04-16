@@ -35,11 +35,19 @@ pub mod builder;
 mod client;
 pub mod config;
 pub mod ext;
+mod middleware;
 pub mod models;
 pub mod spec;
 mod transformers;
 mod utils;
+#[allow(deprecated)]
+pub use crate::provider_options::GroqProviderOptions;
+pub use crate::provider_options::{
+    GroqLanguageModelOptions, GroqOptions, GroqReasoningEffort, GroqReasoningFormat,
+    GroqServiceTier, GroqTranscriptionModelOptions,
+};
 pub use builder::GroqBuilder;
 pub use client::GroqClient;
 pub use config::GroqConfig;
+pub use ext::GroqChatRequestExt;
 pub use spec::GroqSpec;

@@ -80,6 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         model: Some("imagen-3.0-edit-001".to_string()),
         count: Some(1),
         size: Some("1024x1024".to_string()),
+        aspect_ratio: None,
+        seed: None,
         response_format: Some("b64_json".to_string()),
         extra_params: Default::default(),
         provider_options_map: Default::default(),

@@ -2,8 +2,8 @@
 
 use siumai_core::bridge::{BridgeReport, BridgeTarget};
 use siumai_core::types::{
-    ChatResponse, ContentPart, FinishReason, MessageContent, ToolResultContentPart,
-    ToolResultOutput,
+    ChatResponse, ContentPart, FinishReason, MessageContent, ProviderMetadataMap,
+    ToolResultContentPart, ToolResultOutput,
 };
 
 use super::target_caps::{
@@ -431,7 +431,18 @@ fn inspect_response_provider_metadata(
     };
 
     for (namespace, metadata) in provider_metadata {
+        let Some(metadata) = metadata.as_object() else {
+            report.record_dropped_field(
+                format!("provider_metadata.{namespace}"),
+                "response bridge expects object-shaped top-level provider metadata",
+            );
+            continue;
+        };
+
         match (caps.provider_metadata_mode, namespace.as_str()) {
+            _ if caps.target == BridgeTarget::OpenAiChatCompletions && namespace == "openai" => {
+                inspect_openai_chat_completions_provider_metadata(metadata, report);
+            }
             (ResponseProviderMetadataMode::OpenAiResponses, "openai") => {
                 inspect_openai_response_provider_metadata(metadata, report);
             }
@@ -457,7 +468,7 @@ fn inspect_response_provider_metadata(
 }
 
 fn inspect_openai_response_provider_metadata(
-    metadata: &std::collections::HashMap<String, serde_json::Value>,
+    metadata: &serde_json::Map<String, serde_json::Value>,
     report: &mut BridgeReport,
 ) {
     for key in metadata.keys() {
@@ -473,6 +484,36 @@ fn inspect_openai_response_provider_metadata(
             _ => report.record_dropped_field(
                 format!("provider_metadata.openai.{key}"),
                 "OpenAI Responses response encoding does not preserve this OpenAI provider metadata field",
+            ),
+        }
+    }
+}
+
+fn inspect_openai_chat_completions_provider_metadata(
+    metadata: &serde_json::Map<String, serde_json::Value>,
+    report: &mut BridgeReport,
+) {
+    for key in metadata.keys() {
+        match key.as_str() {
+            "acceptedPredictionTokens" => report.record_carried_provider_metadata(
+                "provider_metadata.openai.acceptedPredictionTokens",
+                "OpenAI Chat Completions usage encoding preserves accepted prediction tokens through completion_tokens_details",
+            ),
+            "rejectedPredictionTokens" => report.record_carried_provider_metadata(
+                "provider_metadata.openai.rejectedPredictionTokens",
+                "OpenAI Chat Completions usage encoding preserves rejected prediction tokens through completion_tokens_details",
+            ),
+            "sources" => report.record_lossy_field(
+                "provider_metadata.openai.sources",
+                "OpenAI Chat Completions response encoding does not preserve top-level compat sources as a dedicated field",
+            ),
+            "logprobs" => report.record_dropped_field(
+                "provider_metadata.openai.logprobs",
+                "OpenAI Chat Completions response encoding does not preserve compat logprobs content arrays",
+            ),
+            _ => report.record_dropped_field(
+                format!("provider_metadata.openai.{key}"),
+                "OpenAI Chat Completions response encoding does not preserve this OpenAI-compatible provider metadata field",
             ),
         }
     }
@@ -515,7 +556,7 @@ fn inspect_openai_text_part_provider_metadata(
 
 fn inspect_gemini_response_provider_metadata(
     namespace: &str,
-    metadata: &std::collections::HashMap<String, serde_json::Value>,
+    metadata: &serde_json::Map<String, serde_json::Value>,
     report: &mut BridgeReport,
 ) {
     let has_grounding_metadata = metadata.contains_key("groundingMetadata");
@@ -568,7 +609,7 @@ fn inspect_gemini_response_provider_metadata(
 
 fn inspect_anthropic_response_provider_metadata(
     response: &ChatResponse,
-    metadata: &std::collections::HashMap<String, serde_json::Value>,
+    metadata: &serde_json::Map<String, serde_json::Value>,
     report: &mut BridgeReport,
 ) {
     fn citation_payload_groups_from_top_level(
@@ -975,9 +1016,7 @@ fn inspect_anthropic_text_part_provider_metadata(
     }
 }
 
-fn content_part_provider_metadata(
-    part: &ContentPart,
-) -> Option<&std::collections::HashMap<String, serde_json::Value>> {
+fn content_part_provider_metadata(part: &ContentPart) -> Option<&ProviderMetadataMap> {
     match part {
         ContentPart::Text {
             provider_metadata, ..

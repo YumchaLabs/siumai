@@ -250,14 +250,10 @@ impl LlmClient for MinimaxiClient {
     }
 
     fn supported_models(&self) -> Vec<String> {
-        vec![
-            "MiniMax-M2".to_string(),
-            "speech-2.6-hd".to_string(),
-            "speech-2.6-turbo".to_string(),
-            "hailuo-2.3".to_string(),
-            "hailuo-2.3-fast".to_string(),
-            "music-2.0".to_string(),
-        ]
+        super::models::all_models()
+            .into_iter()
+            .map(str::to_string)
+            .collect()
     }
 
     fn capabilities(&self) -> ProviderCapabilities {

@@ -3,7 +3,7 @@
     {
       "role": "user",
       "content": {
-        "MultiModal": [{ "type": "file", "media_type": "image/*", "data": "AAECAw==" }]
+        "MultiModal": [{ "type": "image", "data": "AAECAw==" }]
       },
       "metadata": {}
     }

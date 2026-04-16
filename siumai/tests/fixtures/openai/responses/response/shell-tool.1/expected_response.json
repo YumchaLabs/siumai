@@ -7,6 +7,7 @@
         "toolCallId": "call_udkLUvR8lWvG8cDO2B6GNpvZ",
         "toolName": "shell",
         "input": "{\"action\":{\"commands\":[\"cd ~ && pwd\",\"cd ~/Desktop && pwd\",\"cd ~/Desktop && echo 'THIS WORKS!' > dec1.txt && ls -l dec1.txt && cat dec1.txt\"]}}",
+        "dynamic": true,
         "providerMetadata": {
           "openai": {
             "itemId": "sh_0f0d479976b1e9a600692f61bec0e08197a0864dc5ddf1d38c"

@@ -56,6 +56,7 @@ mod thinking_utils_test;
 // Capability modules
 pub mod files;
 pub mod rerank;
+pub mod skills;
 // NOTE: Expose Responses event converter publicly for fixture-driven tests and
 // compatibility checks. This keeps the client surface unchanged while allowing
 // integration tests to validate SSE parsing behavior directly.
@@ -99,9 +100,16 @@ pub use websocket_transport::OpenAiWebSocketTransport;
 // Provider-owned typed options (kept out of `siumai-core`).
 pub use crate::provider_options::openai::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
-    ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAiOptions, OpenAiWebSearchOptions,
-    PredictionContent, PredictionContentData, ReasoningEffort, ResponsesApiConfig, ServiceTier,
-    TextVerbosity, Truncation, UserLocationWrapper, WebSearchLocation,
+    ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAIEmbeddingModelOptions,
+    OpenAIFilesOptions, OpenAILanguageModelChatOptions, OpenAILanguageModelCompletionOptions,
+    OpenAILanguageModelResponsesOptions, OpenAISpeechModelOptions, OpenAITranscriptionModelOptions,
+    OpenAiOptions, OpenAiWebSearchOptions, PredictionContent, PredictionContentData,
+    ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation,
+    UserLocationWrapper, WebSearchLocation,
+};
+#[allow(deprecated)]
+pub use crate::provider_options::openai::{
+    OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions,
 };
 
 // Typed provider metadata views (protocol-owned; re-exported via this provider for ergonomics).
@@ -119,6 +127,10 @@ pub use files::OpenAiFiles;
 pub use models::OpenAiModels;
 pub use moderation::OpenAiModeration;
 pub use rerank::OpenAiRerank;
+pub use skills::{
+    OpenAiSkillFile, OpenAiSkillFileContent, OpenAiSkillProviderMetadata, OpenAiSkillUploadResult,
+    OpenAiSkills,
+};
 // Responses API client/types are no longer re-exported; use unified OpenAiClient
 
 // Re-export parameter enums for convenience

@@ -12,12 +12,18 @@ pub fn nested_provider_metadata_to_map(
 }
 
 pub fn provider_options_key(provider_id: &str) -> String {
-    provider_id
+    let normalized = provider_id
         .split('.')
         .next()
         .unwrap_or(provider_id)
         .trim()
-        .to_ascii_lowercase()
+        .to_ascii_lowercase();
+
+    match normalized.as_str() {
+        "together" => "togetherai".to_string(),
+        "moonshot" => "moonshotai".to_string(),
+        _ => normalized,
+    }
 }
 
 pub fn to_camel_case(value: &str) -> String {
@@ -39,6 +45,39 @@ pub fn to_camel_case(value: &str) -> String {
     }
 
     out
+}
+
+pub fn provider_options_keys(provider_id: &str) -> Vec<String> {
+    let raw = provider_id
+        .split('.')
+        .next()
+        .unwrap_or(provider_id)
+        .trim()
+        .to_ascii_lowercase();
+    let canonical = provider_options_key(provider_id);
+
+    let mut keys = Vec::new();
+    let mut push_unique = |key: String| {
+        if !key.is_empty() && !keys.iter().any(|existing| existing == &key) {
+            keys.push(key);
+        }
+    };
+
+    push_unique(raw.clone());
+
+    let raw_camel = to_camel_case(&raw);
+    if raw_camel != raw {
+        push_unique(raw_camel);
+    }
+
+    push_unique(canonical.clone());
+
+    let canonical_camel = to_camel_case(&canonical);
+    if canonical_camel != canonical {
+        push_unique(canonical_camel);
+    }
+
+    keys
 }
 
 pub fn resolve_provider_metadata_key(
@@ -286,6 +325,18 @@ pub(super) fn merge_nested_provider_metadata(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_options_keys_keep_alias_and_canonical_forms() {
+        assert_eq!(
+            provider_options_keys("together"),
+            vec!["together".to_string(), "togetherai".to_string()]
+        );
+        assert_eq!(
+            provider_options_keys("moonshot"),
+            vec!["moonshot".to_string(), "moonshotai".to_string()]
+        );
+    }
 
     #[test]
     fn perplexity_metadata_helper_extracts_hosted_search_fields() {

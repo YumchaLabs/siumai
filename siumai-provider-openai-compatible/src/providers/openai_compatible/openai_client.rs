@@ -8,6 +8,7 @@ use crate::core::{ProviderContext, ProviderSpec};
 use crate::error::LlmError;
 use crate::execution::executors::audio::{AudioExecutor, AudioExecutorBuilder, HttpAudioExecutor};
 use crate::execution::executors::chat::{ChatExecutor, ChatExecutorBuilder};
+use crate::execution::executors::common::{HttpBody, HttpExecutionConfig};
 use crate::execution::executors::embedding::{EmbeddingExecutor, HttpEmbeddingExecutor};
 use crate::execution::executors::image::{HttpImageExecutor, ImageExecutor};
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleDeprecatedProviderOptionsWarningMiddleware;
@@ -15,17 +16,19 @@ use crate::providers::openai_compatible::middleware::OpenAiCompatibleStructuredO
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleToolWarningsMiddleware;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
+use crate::standards::openai::utils::{parse_finish_reason, parse_provider_openai_usage_value};
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
-    AudioCapability, ChatCapability, EmbeddingCapability, ImageExtras, ImageGenerationCapability,
-    ModelListingCapability, RerankCapability, SpeechCapability, SpeechExtras,
-    TranscriptionCapability, TranscriptionExtras,
+    AudioCapability, ChatCapability, CompletionCapability, EmbeddingCapability, ImageExtras,
+    ImageGenerationCapability, ModelListingCapability, RerankCapability, SpeechCapability,
+    SpeechExtras, TranscriptionCapability, TranscriptionExtras,
 };
 // use crate::execution::transformers::request::RequestTransformer; // unused
 use crate::types::*;
 use async_trait::async_trait;
+use chrono::TimeZone;
 use serde::{Deserialize, Serialize};
 use siumai_core::traits::ModelMetadata;
 use std::sync::Arc;
@@ -111,6 +114,463 @@ fn model_slot_is_missing(model: Option<&str>) -> bool {
     }
 }
 
+const DEPRECATED_OPENAI_COMPATIBLE_KEY_WARNING: &str =
+    "The 'openai-compatible' key in providerOptions is deprecated. Use 'openaiCompatible' instead.";
+
+fn completion_provider_options_key(provider_id: &str) -> String {
+    siumai_core::standards::openai::compat::metadata::provider_options_key(provider_id)
+}
+
+#[allow(unreachable_patterns)]
+fn completion_message_text(content: &MessageContent, role_name: &str) -> Result<String, LlmError> {
+    match content {
+        MessageContent::Text(text) => Ok(text.clone()),
+        MessageContent::MultiModal(parts) => {
+            let mut text = String::new();
+            for part in parts {
+                match part {
+                    ContentPart::Text {
+                        text: part_text, ..
+                    } => text.push_str(part_text),
+                    ContentPart::ToolCall { .. } => {
+                        return Err(LlmError::UnsupportedOperation(format!(
+                            "Completion prompts do not support tool-call parts in {role_name} messages"
+                        )));
+                    }
+                    ContentPart::ToolResult { .. } => {
+                        return Err(LlmError::UnsupportedOperation(
+                            "Completion prompts do not support tool messages".to_string(),
+                        ));
+                    }
+                    _ => {
+                        return Err(LlmError::UnsupportedOperation(format!(
+                            "Completion prompts only support text content in {role_name} messages"
+                        )));
+                    }
+                }
+            }
+            Ok(text)
+        }
+        _ => Err(LlmError::UnsupportedOperation(format!(
+            "Completion prompts do not support structured JSON content in {role_name} messages"
+        ))),
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CompletionPromptMaterialization {
+    prompt: String,
+    stop_sequences: Vec<String>,
+}
+
+fn materialize_completion_prompt(
+    prompt: &[ChatMessage],
+) -> Result<CompletionPromptMaterialization, LlmError> {
+    if prompt.is_empty() {
+        return Err(LlmError::InvalidParameter(
+            "Completion prompt cannot be empty".to_string(),
+        ));
+    }
+
+    let mut text = String::new();
+    let mut remaining = prompt;
+
+    if let Some(first) = prompt.first()
+        && first.role == MessageRole::System
+    {
+        text.push_str(&completion_message_text(&first.content, "system")?);
+        text.push_str("\n\n");
+        remaining = &prompt[1..];
+    }
+
+    for message in remaining {
+        match message.role {
+            MessageRole::System => {
+                return Err(LlmError::InvalidParameter(
+                    "Unexpected system message in completion prompt".to_string(),
+                ));
+            }
+            MessageRole::Developer => {
+                return Err(LlmError::UnsupportedOperation(
+                    "Completion prompts do not support developer messages".to_string(),
+                ));
+            }
+            MessageRole::Tool => {
+                return Err(LlmError::UnsupportedOperation(
+                    "Completion prompts do not support tool messages".to_string(),
+                ));
+            }
+            MessageRole::User => {
+                text.push_str("user:\n");
+                text.push_str(&completion_message_text(&message.content, "user")?);
+                text.push_str("\n\n");
+            }
+            MessageRole::Assistant => {
+                text.push_str("assistant:\n");
+                text.push_str(&completion_message_text(&message.content, "assistant")?);
+                text.push_str("\n\n");
+            }
+        }
+    }
+
+    text.push_str("assistant:\n");
+
+    Ok(CompletionPromptMaterialization {
+        prompt: text,
+        stop_sequences: vec!["\nuser:".to_string()],
+    })
+}
+
+fn completion_request_id_from_headers(headers: &reqwest::header::HeaderMap) -> Option<String> {
+    for key in ["x-request-id", "request-id"] {
+        if let Some(value) = headers.get(key)
+            && let Ok(value) = value.to_str()
+            && !value.trim().is_empty()
+        {
+            return Some(value.to_string());
+        }
+    }
+
+    None
+}
+
+fn completion_created_at(raw: &serde_json::Value) -> Option<chrono::DateTime<chrono::Utc>> {
+    let created = raw
+        .get("created")
+        .and_then(|value| value.as_i64().or_else(|| value.as_u64().map(|v| v as i64)))?;
+    chrono::Utc.timestamp_opt(created, 0).single()
+}
+
+fn completion_provider_metadata(
+    provider_id: &str,
+    raw: &serde_json::Value,
+) -> Option<ProviderMetadataMap> {
+    let mut metadata = std::collections::HashMap::new();
+
+    if let Some(sources) = raw
+        .get("sources")
+        .filter(|value| !value.is_null())
+        .filter(|value| value.as_array().is_some_and(|arr| !arr.is_empty()))
+    {
+        metadata.insert("sources".to_string(), sources.clone());
+    }
+
+    if let Some(logprobs) = raw
+        .get("choices")
+        .and_then(|value| value.as_array())
+        .and_then(|choices| choices.first())
+        .and_then(|choice| choice.get("logprobs"))
+        .filter(|value| !value.is_null())
+    {
+        metadata.insert("logprobs".to_string(), logprobs.clone());
+    }
+
+    if metadata.is_empty() {
+        None
+    } else {
+        Some(std::collections::HashMap::from([(
+            provider_id.to_string(),
+            serde_json::Value::Object(metadata.into_iter().collect()),
+        )]))
+    }
+}
+
+fn merge_completion_provider_metadata(
+    target: &mut Option<ProviderMetadataMap>,
+    source: Option<ProviderMetadataMap>,
+) {
+    let Some(source) = source else {
+        return;
+    };
+
+    let target = target.get_or_insert_with(std::collections::HashMap::new);
+    merge_provider_metadata(target, source);
+}
+
+fn flatten_completion_stream_provider_metadata(
+    nested: &Option<ProviderMetadataMap>,
+) -> Option<ProviderMetadataMap> {
+    nested.clone()
+}
+
+#[derive(Debug, Clone)]
+struct CompletionStreamState {
+    text: String,
+    id: Option<String>,
+    model: Option<String>,
+    created: Option<chrono::DateTime<chrono::Utc>>,
+    usage: Option<Usage>,
+    finish_reason: Option<FinishReason>,
+    finish_reason_raw: Option<String>,
+    warnings: Vec<Warning>,
+    provider_metadata: Option<ProviderMetadataMap>,
+    stream_start_emitted: bool,
+    response_metadata_emitted: bool,
+    text_started: bool,
+}
+
+impl CompletionStreamState {
+    fn response_metadata(&self, provider: &str) -> ResponseMetadata {
+        ResponseMetadata {
+            id: self.id.clone(),
+            model: self.model.clone(),
+            created: self.created.clone(),
+            provider: provider.to_string(),
+            request_id: None,
+        }
+    }
+
+    fn finish_usage(&self) -> Usage {
+        self.usage.clone().unwrap_or_default()
+    }
+
+    fn finish_part_provider_metadata(&self) -> Option<ProviderMetadataMap> {
+        flatten_completion_stream_provider_metadata(&self.provider_metadata)
+    }
+
+    fn final_response(&self) -> ChatResponse {
+        let mut response = ChatResponse::new(MessageContent::Text(self.text.clone()));
+        response.id = self.id.clone();
+        response.model = self.model.clone();
+        response.usage = self.usage.clone();
+        response.finish_reason = Some(self.finish_reason.clone().unwrap_or(FinishReason::Unknown));
+        response.raw_finish_reason = self.finish_reason_raw.clone();
+        if !self.warnings.is_empty() {
+            response.warnings = Some(self.warnings.clone());
+        }
+        response.provider_metadata = self.provider_metadata.clone();
+        response
+    }
+}
+
+#[derive(Clone)]
+struct CompletionSseConverter {
+    provider_id: String,
+    provider_metadata_key: String,
+    include_raw_chunks: bool,
+    state: Arc<std::sync::Mutex<CompletionStreamState>>,
+}
+
+impl CompletionSseConverter {
+    fn new(
+        provider_id: impl Into<String>,
+        provider_metadata_key: impl Into<String>,
+        warnings: Vec<Warning>,
+        include_raw_chunks: bool,
+    ) -> Self {
+        Self {
+            provider_id: provider_id.into(),
+            provider_metadata_key: provider_metadata_key.into(),
+            include_raw_chunks,
+            state: Arc::new(std::sync::Mutex::new(CompletionStreamState {
+                text: String::new(),
+                id: None,
+                model: None,
+                created: None,
+                usage: None,
+                finish_reason: None,
+                finish_reason_raw: None,
+                warnings,
+                provider_metadata: None,
+                stream_start_emitted: false,
+                response_metadata_emitted: false,
+                text_started: false,
+            })),
+        }
+    }
+}
+
+impl crate::streaming::SseEventConverter for CompletionSseConverter {
+    fn convert_event(
+        &self,
+        event: eventsource_stream::Event,
+    ) -> crate::streaming::SseEventFuture<'_> {
+        let provider_id = self.provider_id.clone();
+        let provider_metadata_key = self.provider_metadata_key.clone();
+        let include_raw_chunks = self.include_raw_chunks;
+        let state = self.state.clone();
+        Box::pin(async move {
+            let raw: serde_json::Value = match serde_json::from_str(&event.data) {
+                Ok(raw) => raw,
+                Err(err) => {
+                    let mut events = Vec::new();
+                    if include_raw_chunks {
+                        let mut state = state.lock().expect("completion stream state");
+                        if !state.stream_start_emitted {
+                            let metadata = state.response_metadata(&provider_id);
+                            events.push(Ok(ChatStreamEvent::StreamStart {
+                                metadata: metadata.clone(),
+                            }));
+                            events.push(Ok(ChatStreamEvent::Part {
+                                part: ChatStreamPart::StreamStart {
+                                    warnings: state.warnings.clone(),
+                                },
+                            }));
+                            state.stream_start_emitted = true;
+                        }
+                        events.push(Ok(ChatStreamEvent::Part {
+                            part: ChatStreamPart::Raw {
+                                raw_value: serde_json::Value::String(event.data.clone()),
+                            },
+                        }));
+                    }
+                    events.push(Err(LlmError::ParseError(format!(
+                        "Failed to parse completion stream event: {err}"
+                    ))));
+                    return events;
+                }
+            };
+
+            let delta = raw
+                .get("choices")
+                .and_then(|value| value.as_array())
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("text"))
+                .and_then(|value| value.as_str())
+                .map(ToString::to_string)
+                .unwrap_or_default();
+            let finish_reason_raw = raw
+                .get("choices")
+                .and_then(|value| value.as_array())
+                .and_then(|choices| choices.first())
+                .and_then(|choice| choice.get("finish_reason"))
+                .and_then(|value| value.as_str())
+                .map(ToString::to_string);
+            let finish_reason = finish_reason_raw
+                .as_deref()
+                .and_then(|value| parse_finish_reason(Some(value)));
+            let usage = raw
+                .get("usage")
+                .and_then(|usage| parse_provider_openai_usage_value(provider_id.as_str(), usage));
+            let provider_metadata = completion_provider_metadata(&provider_metadata_key, &raw);
+            let created = completion_created_at(&raw);
+
+            let mut events = Vec::new();
+            let (metadata, warnings, emit_stream_start, emit_response_metadata, emit_text_start) = {
+                let mut state = state.lock().expect("completion stream state");
+                if let Some(id) = raw.get("id").and_then(|value| value.as_str()) {
+                    state.id = Some(id.to_string());
+                }
+                if let Some(model) = raw.get("model").and_then(|value| value.as_str()) {
+                    state.model = Some(model.to_string());
+                }
+                if let Some(created) = created {
+                    state.created = Some(created);
+                }
+                if let Some(usage) = usage {
+                    state.usage = Some(usage);
+                }
+                if let Some(finish_reason) = finish_reason {
+                    state.finish_reason = Some(finish_reason);
+                }
+                if let Some(raw_reason) = finish_reason_raw.clone() {
+                    state.finish_reason_raw = Some(raw_reason);
+                }
+                merge_completion_provider_metadata(&mut state.provider_metadata, provider_metadata);
+                if !delta.is_empty() {
+                    state.text.push_str(&delta);
+                }
+
+                let metadata = state.response_metadata(&provider_id);
+                let warnings = state.warnings.clone();
+                let emit_stream_start = !state.stream_start_emitted;
+                if emit_stream_start {
+                    state.stream_start_emitted = true;
+                }
+                let emit_response_metadata = !state.response_metadata_emitted;
+                if emit_response_metadata {
+                    state.response_metadata_emitted = true;
+                }
+                let emit_text_start = !delta.is_empty() && !state.text_started;
+                if emit_text_start {
+                    state.text_started = true;
+                }
+
+                (
+                    metadata,
+                    warnings,
+                    emit_stream_start,
+                    emit_response_metadata,
+                    emit_text_start,
+                )
+            };
+
+            if emit_stream_start {
+                events.push(Ok(ChatStreamEvent::StreamStart {
+                    metadata: metadata.clone(),
+                }));
+                events.push(Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::StreamStart { warnings },
+                }));
+            }
+
+            if include_raw_chunks {
+                events.push(Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::Raw { raw_value: raw },
+                }));
+            }
+
+            if emit_response_metadata {
+                events.push(Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::ResponseMetadata(metadata),
+                }));
+            }
+
+            if emit_text_start {
+                events.push(Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextStart {
+                        id: "0".to_string(),
+                        provider_metadata: None,
+                    },
+                }));
+            }
+
+            if !delta.is_empty() {
+                events.push(Ok(ChatStreamEvent::Part {
+                    part: ChatStreamPart::TextDelta {
+                        id: "0".to_string(),
+                        delta: delta.clone(),
+                        provider_metadata: None,
+                    },
+                }));
+                events.push(Ok(ChatStreamEvent::ContentDelta { delta, index: None }));
+            }
+
+            events
+        })
+    }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        let state = self.state.lock().expect("completion stream state");
+        let mut events = Vec::new();
+
+        if state.text_started {
+            events.push(Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextEnd {
+                    id: "0".to_string(),
+                    provider_metadata: None,
+                },
+            }));
+        }
+
+        events.push(Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish {
+                usage: state.finish_usage(),
+                finish_reason: ChatStreamFinishInfo {
+                    unified: state.finish_reason.clone().unwrap_or(FinishReason::Unknown),
+                    raw: state.finish_reason_raw.clone(),
+                },
+                provider_metadata: state.finish_part_provider_metadata(),
+            },
+        }));
+        events.push(Ok(ChatStreamEvent::StreamEnd {
+            response: state.final_response(),
+        }));
+
+        events
+    }
+}
+
 impl std::fmt::Debug for OpenAiCompatibleClient {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OpenAiCompatibleClient")
@@ -140,7 +600,14 @@ fn compat_model_middlewares(
         ));
     }
 
-    middlewares.push(Arc::new(OpenAiCompatibleToolWarningsMiddleware::new()));
+    middlewares.push(Arc::new(
+        OpenAiCompatibleToolWarningsMiddleware::new().with_allowlist(
+            config
+                .provider_defined_tool_warning_allowlist
+                .iter()
+                .cloned(),
+        ),
+    ));
 
     middlewares
 }
@@ -201,7 +668,7 @@ impl OpenAiCompatibleClient {
         ))
     }
 
-    fn build_context(&self) -> ProviderContext {
+    fn build_base_context(&self) -> ProviderContext {
         // Merge custom headers from HttpConfig + config.custom_headers + adapter.custom_headers
         let mut extra_headers: std::collections::HashMap<String, String> =
             self.config.http_config.headers.clone();
@@ -216,9 +683,30 @@ impl OpenAiCompatibleClient {
         ProviderContext::new(
             self.config.provider_id.clone(),
             self.config.base_url.clone(),
-            Some(self.config.api_key.clone()),
+            if self.config.api_key.is_empty() {
+                None
+            } else {
+                Some(self.config.api_key.clone())
+            },
             extra_headers,
         )
+    }
+
+    async fn build_context(&self) -> Result<ProviderContext, LlmError> {
+        let mut ctx = self.build_base_context();
+
+        let has_auth_header = ctx
+            .http_extra_headers
+            .keys()
+            .any(|key| key.eq_ignore_ascii_case("authorization"));
+
+        if !has_auth_header && let Some(token_provider) = &self.config.token_provider {
+            let token = token_provider.token().await?;
+            ctx.http_extra_headers
+                .insert("Authorization".to_string(), format!("Bearer {token}"));
+        }
+
+        Ok(ctx)
     }
 
     fn ensure_chat_surface(&self, stream: bool) -> Result<(), LlmError> {
@@ -243,6 +731,24 @@ impl OpenAiCompatibleClient {
         if !self.config.adapter.capabilities().embedding {
             return Err(LlmError::UnsupportedOperation(format!(
                 "Provider '{}' does not support embeddings",
+                self.config.provider_id
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn ensure_completion_surface(&self, stream: bool) -> Result<(), LlmError> {
+        let caps = self.capabilities();
+        if !caps.supports("completion") {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not support completions",
+                self.config.provider_id
+            )));
+        }
+        if stream && !caps.supports("streaming") {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not support completion streaming",
                 self.config.provider_id
             )));
         }
@@ -283,7 +789,7 @@ impl OpenAiCompatibleClient {
     /// client for chat/embedding/image but need to invoke non-chat executors with the same
     /// HTTP wiring (client, interceptors, retry).
     pub fn provider_context(&self) -> ProviderContext {
-        self.build_context()
+        self.build_base_context()
     }
 
     /// Clone the underlying `reqwest::Client`.
@@ -345,13 +851,326 @@ impl OpenAiCompatibleClient {
         )
     }
 
+    fn prepare_completion_request(
+        &self,
+        mut request: CompletionRequest,
+    ) -> Result<CompletionRequest, LlmError> {
+        self.ensure_completion_surface(false)?;
+        request.common_params = crate::utils::chat_request::merge_common_params(
+            &self.config.common_params,
+            request.common_params,
+        );
+        if request.http_config.is_none() {
+            request.http_config = Some(self.config.http_config.clone());
+        }
+        if request.common_params.model.trim().is_empty() {
+            return Err(LlmError::InvalidParameter(
+                "OpenAI-compatible completion request requires a model".to_string(),
+            ));
+        }
+
+        Ok(request)
+    }
+
+    fn completion_execution_config(
+        &self,
+        spec: Arc<dyn ProviderSpec>,
+        ctx: ProviderContext,
+    ) -> HttpExecutionConfig {
+        HttpExecutionConfig {
+            provider_id: self.config.provider_id.clone(),
+            http_client: self.http_client.clone(),
+            transport: self.config.http_transport.clone(),
+            provider_spec: spec,
+            provider_context: ctx,
+            interceptors: self.http_interceptors.clone(),
+            retry_options: self.retry_options.clone(),
+        }
+    }
+
+    fn completion_url(&self) -> String {
+        let base_url = self.config.adapter.url_for(
+            &self.config.base_url,
+            crate::providers::openai_compatible::RequestType::Completion,
+        );
+        crate::utils::url::with_query_params(&base_url, &self.config.query_params)
+    }
+
+    fn completion_provider_options(
+        &self,
+        request: &CompletionRequest,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let mut merged = serde_json::Map::new();
+
+        for options in [Some("openai-compatible"), Some("openaiCompatible")]
+            .into_iter()
+            .flatten()
+            .filter_map(|key| request.provider_options_map.get_object(key))
+            .chain(
+                siumai_core::standards::openai::compat::metadata::provider_options_keys(
+                    &self.config.provider_id,
+                )
+                .into_iter()
+                .filter_map(|key| request.provider_options_map.get_object(&key)),
+            )
+        {
+            for (key, value) in options {
+                merged.insert(key.clone(), value.clone());
+            }
+        }
+
+        if let Some(logit_bias) = merged.remove("logitBias") {
+            merged.entry("logit_bias".to_string()).or_insert(logit_bias);
+        }
+
+        merged
+    }
+
+    fn build_completion_body(
+        &self,
+        request: &CompletionRequest,
+        stream: bool,
+    ) -> Result<(serde_json::Value, Vec<Warning>), LlmError> {
+        let prompt = materialize_completion_prompt(&request.prompt)?;
+        let mut warnings = Vec::new();
+
+        if request
+            .provider_options_map
+            .get("openai-compatible")
+            .is_some()
+        {
+            warnings.push(Warning::other(DEPRECATED_OPENAI_COMPATIBLE_KEY_WARNING));
+        }
+        if request.common_params.top_k.is_some() {
+            warnings.push(Warning::unsupported("topK", None::<String>));
+        }
+        if request
+            .tools
+            .as_ref()
+            .is_some_and(|tools| !tools.is_empty())
+        {
+            warnings.push(Warning::unsupported("tools", None::<String>));
+        }
+        if request.tool_choice.is_some() {
+            warnings.push(Warning::unsupported("toolChoice", None::<String>));
+        }
+        if request.response_format.is_some() {
+            warnings.push(Warning::unsupported(
+                "responseFormat",
+                Some("JSON response format is not supported."),
+            ));
+        }
+
+        let stop = prompt
+            .stop_sequences
+            .into_iter()
+            .chain(
+                request
+                    .common_params
+                    .stop_sequences
+                    .clone()
+                    .unwrap_or_default(),
+            )
+            .collect::<Vec<_>>();
+
+        let mut body = serde_json::Map::new();
+        body.insert(
+            "model".to_string(),
+            serde_json::Value::String(request.common_params.model.clone()),
+        );
+
+        if let Some(max_tokens) = request
+            .common_params
+            .max_completion_tokens
+            .or(request.common_params.max_tokens)
+        {
+            body.insert("max_tokens".to_string(), serde_json::json!(max_tokens));
+        }
+        if let Some(temperature) = request.common_params.temperature {
+            body.insert("temperature".to_string(), serde_json::json!(temperature));
+        }
+        if let Some(top_p) = request.common_params.top_p {
+            body.insert("top_p".to_string(), serde_json::json!(top_p));
+        }
+        if let Some(frequency_penalty) = request.common_params.frequency_penalty {
+            body.insert(
+                "frequency_penalty".to_string(),
+                serde_json::json!(frequency_penalty),
+            );
+        }
+        if let Some(presence_penalty) = request.common_params.presence_penalty {
+            body.insert(
+                "presence_penalty".to_string(),
+                serde_json::json!(presence_penalty),
+            );
+        }
+        if let Some(seed) = request.common_params.seed {
+            body.insert("seed".to_string(), serde_json::json!(seed));
+        }
+
+        body.extend(self.completion_provider_options(request));
+        body.insert(
+            "prompt".to_string(),
+            serde_json::Value::String(prompt.prompt),
+        );
+        if !stop.is_empty() {
+            body.insert("stop".to_string(), serde_json::json!(stop));
+        }
+        if stream {
+            body.insert("stream".to_string(), serde_json::json!(true));
+            if self.config.include_usage == Some(true) {
+                body.insert(
+                    "stream_options".to_string(),
+                    serde_json::json!({ "include_usage": true }),
+                );
+            }
+        }
+
+        let mut body = serde_json::Value::Object(body);
+        self.config.adapter.transform_request_params(
+            &mut body,
+            &request.common_params.model,
+            crate::providers::openai_compatible::RequestType::Completion,
+        )?;
+        if let Some(transformer) = self.request_settings().request_body_transformer {
+            transformer.transform_request_body(
+                &mut body,
+                &request.common_params.model,
+                crate::providers::openai_compatible::RequestType::Completion,
+            )?;
+        }
+
+        Ok((body, warnings))
+    }
+
+    fn build_completion_response(
+        &self,
+        raw: serde_json::Value,
+        headers: &reqwest::header::HeaderMap,
+        warnings: Vec<Warning>,
+    ) -> CompletionResponse {
+        let provider_metadata_key = completion_provider_options_key(&self.config.provider_id);
+        let text = raw
+            .get("choices")
+            .and_then(|value| value.as_array())
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice.get("text"))
+            .and_then(|value| value.as_str())
+            .map(ToString::to_string)
+            .unwrap_or_default();
+        let finish_reason = raw
+            .get("choices")
+            .and_then(|value| value.as_array())
+            .and_then(|choices| choices.first())
+            .and_then(|choice| choice.get("finish_reason"))
+            .and_then(|value| value.as_str())
+            .and_then(|value| parse_finish_reason(Some(value)));
+
+        CompletionResponse {
+            text,
+            finish_reason,
+            usage: raw.get("usage").and_then(|usage| {
+                parse_provider_openai_usage_value(self.config.provider_id.as_str(), usage)
+            }),
+            response_metadata: Some(ResponseMetadata {
+                id: raw
+                    .get("id")
+                    .and_then(|value| value.as_str())
+                    .map(ToString::to_string),
+                model: raw
+                    .get("model")
+                    .and_then(|value| value.as_str())
+                    .map(ToString::to_string),
+                created: completion_created_at(&raw),
+                provider: self.config.provider_id.clone(),
+                request_id: completion_request_id_from_headers(headers),
+            }),
+            warnings: (!warnings.is_empty()).then_some(warnings),
+            provider_metadata: completion_provider_metadata(&provider_metadata_key, &raw),
+        }
+    }
+
+    async fn completion_request_via_spec(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<CompletionResponse, LlmError> {
+        let request = self.prepare_completion_request(request)?;
+        let (body, warnings) = self.build_completion_body(&request, false)?;
+        let ctx = self.build_context().await?;
+        let spec = Arc::new(self.compat_spec());
+        let config = self.completion_execution_config(spec.clone(), ctx);
+        let url = self.completion_url();
+
+        let result = crate::execution::executors::http_request::execute_json_request(
+            &config,
+            &url,
+            HttpBody::Json(body),
+            request.http_config.as_ref(),
+            false,
+        )
+        .await?;
+
+        Ok(self.build_completion_response(result.json, &result.headers, warnings))
+    }
+
+    async fn completion_stream_request_via_spec(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<ChatStream, LlmError> {
+        self.ensure_completion_surface(true)?;
+        let request = self.prepare_completion_request(request)?;
+        let (body, warnings) = self.build_completion_body(&request, true)?;
+        let disable_compression = request
+            .http_config
+            .as_ref()
+            .map(|config| config.stream_disable_compression)
+            .unwrap_or(false);
+        let ctx = self.build_context().await?;
+        let spec = Arc::new(self.compat_spec());
+        let headers_base = spec.build_headers(&ctx)?;
+        let url = self.completion_url();
+        let request_id = crate::execution::http::interceptor::generate_request_id();
+        let converter = crate::streaming::InterceptingConverter {
+            interceptors: self.http_interceptors.clone(),
+            ctx: crate::execution::http::interceptor::HttpRequestContext {
+                request_id: request_id.clone(),
+                provider_id: self.config.provider_id.clone(),
+                url: url.clone(),
+                stream: true,
+            },
+            convert: CompletionSseConverter::new(
+                self.config.provider_id.clone(),
+                completion_provider_options_key(&self.config.provider_id),
+                warnings,
+                request.stream_options.include_raw_chunks,
+            ),
+        };
+
+        crate::execution::executors::stream_sse::execute_sse_stream_request_with_headers(
+            &self.http_client,
+            &self.config.provider_id,
+            Some(spec.as_ref()),
+            &url,
+            request_id,
+            headers_base,
+            body,
+            &self.http_interceptors,
+            self.retry_options.clone(),
+            request.http_config,
+            converter,
+            disable_compression,
+            self.config.http_transport.clone(),
+        )
+        .await
+    }
+
     /// Build a chat executor with an explicit provider spec.
-    pub fn build_chat_executor_with_spec(
+    pub async fn build_chat_executor_with_spec(
         &self,
         request: &ChatRequest,
         spec: Arc<dyn ProviderSpec>,
-    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
-        let ctx = self.build_context();
+    ) -> Result<Arc<crate::execution::executors::chat::HttpChatExecutor>, LlmError> {
+        let ctx = self.build_context().await?;
         let bundle = spec.choose_chat_transformers(request, &ctx);
 
         let mut builder =
@@ -372,15 +1191,15 @@ impl OpenAiCompatibleClient {
             builder = builder.with_retry_options(retry);
         }
 
-        builder.build()
+        Ok(builder.build())
     }
 
-    fn build_chat_executor(
+    async fn build_chat_executor(
         &self,
         request: &ChatRequest,
-    ) -> Arc<crate::execution::executors::chat::HttpChatExecutor> {
+    ) -> Result<Arc<crate::execution::executors::chat::HttpChatExecutor>, LlmError> {
         let spec = Arc::new(self.compat_spec());
-        self.build_chat_executor_with_spec(request, spec)
+        self.build_chat_executor_with_spec(request, spec).await
     }
     fn prepare_chat_request(
         &self,
@@ -401,10 +1220,13 @@ impl OpenAiCompatibleClient {
         }
         Ok(request)
     }
-    fn build_embedding_executor(&self, request: &EmbeddingRequest) -> Arc<HttpEmbeddingExecutor> {
+    async fn build_embedding_executor(
+        &self,
+        request: &EmbeddingRequest,
+    ) -> Result<Arc<HttpEmbeddingExecutor>, LlmError> {
         use crate::execution::executors::embedding::EmbeddingExecutorBuilder;
 
-        let ctx = self.build_context();
+        let ctx = self.build_context().await?;
         let spec = Arc::new(self.compat_spec());
         let mut builder = EmbeddingExecutorBuilder::new(
             self.config.provider_id.clone(),
@@ -422,13 +1244,16 @@ impl OpenAiCompatibleClient {
             builder = builder.with_retry_options(retry);
         }
 
-        builder.build_for_request(request)
+        Ok(builder.build_for_request(request))
     }
 
-    fn build_image_executor(&self, request: &ImageGenerationRequest) -> Arc<HttpImageExecutor> {
+    async fn build_image_executor(
+        &self,
+        request: &ImageGenerationRequest,
+    ) -> Result<Arc<HttpImageExecutor>, LlmError> {
         use crate::execution::executors::image::ImageExecutorBuilder;
 
-        let ctx = self.build_context();
+        let ctx = self.build_context().await?;
         let spec = Arc::new(self.compat_spec());
         let mut builder =
             ImageExecutorBuilder::new(self.config.provider_id.clone(), self.http_client.clone())
@@ -444,11 +1269,11 @@ impl OpenAiCompatibleClient {
             builder = builder.with_retry_options(retry);
         }
 
-        builder.build_for_request(request)
+        Ok(builder.build_for_request(request))
     }
 
-    fn build_audio_executor(&self) -> Arc<HttpAudioExecutor> {
-        let ctx = self.build_context();
+    async fn build_audio_executor(&self) -> Result<Arc<HttpAudioExecutor>, LlmError> {
+        let ctx = self.build_context().await?;
         let spec = Arc::new(self.compat_spec());
 
         let mut builder =
@@ -465,7 +1290,7 @@ impl OpenAiCompatibleClient {
             builder = builder.with_retry_options(retry);
         }
 
-        builder.build()
+        Ok(builder.build())
     }
 
     /// Execute a non-stream chat via an explicit ProviderSpec.
@@ -475,7 +1300,7 @@ impl OpenAiCompatibleClient {
         spec: Arc<dyn ProviderSpec>,
     ) -> Result<ChatResponse, LlmError> {
         let request = self.prepare_chat_request(request, false)?;
-        let exec = self.build_chat_executor_with_spec(&request, spec);
+        let exec = self.build_chat_executor_with_spec(&request, spec).await?;
         ChatExecutor::execute(&*exec, request).await
     }
 
@@ -486,13 +1311,13 @@ impl OpenAiCompatibleClient {
         spec: Arc<dyn ProviderSpec>,
     ) -> Result<ChatStream, LlmError> {
         let request = self.prepare_chat_request(request, true)?;
-        let exec = self.build_chat_executor_with_spec(&request, spec);
+        let exec = self.build_chat_executor_with_spec(&request, spec).await?;
         ChatExecutor::execute_stream(&*exec, request).await
     }
 
     /// Execute a non-stream chat via ProviderSpec.
     async fn chat_request_via_spec(&self, request: ChatRequest) -> Result<ChatResponse, LlmError> {
-        let exec = self.build_chat_executor(&request);
+        let exec = self.build_chat_executor(&request).await?;
         ChatExecutor::execute(&*exec, request).await
     }
 
@@ -501,7 +1326,7 @@ impl OpenAiCompatibleClient {
         &self,
         request: ChatRequest,
     ) -> Result<ChatStream, LlmError> {
-        let exec = self.build_chat_executor(&request);
+        let exec = self.build_chat_executor(&request).await?;
         ChatExecutor::execute_stream(&*exec, request).await
     }
     /// Create a new OpenAI compatible client
@@ -744,6 +1569,17 @@ impl ChatCapability for OpenAiCompatibleClient {
 }
 
 #[async_trait]
+impl CompletionCapability for OpenAiCompatibleClient {
+    async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse, LlmError> {
+        self.completion_request_via_spec(request).await
+    }
+
+    async fn complete_stream(&self, request: CompletionRequest) -> Result<ChatStream, LlmError> {
+        self.completion_stream_request_via_spec(request).await
+    }
+}
+
+#[async_trait]
 impl EmbeddingCapability for OpenAiCompatibleClient {
     async fn embed(&self, texts: Vec<String>) -> Result<EmbeddingResponse, LlmError> {
         self.ensure_embedding_surface()?;
@@ -751,7 +1587,7 @@ impl EmbeddingCapability for OpenAiCompatibleClient {
         if let Some(model) = self.resolve_embedding_model_default() {
             req.model = Some(model);
         }
-        let exec = self.build_embedding_executor(&req);
+        let exec = self.build_embedding_executor(&req).await?;
         EmbeddingExecutor::execute(&*exec, req).await
     }
 
@@ -776,7 +1612,7 @@ impl crate::traits::EmbeddingExtensions for OpenAiCompatibleClient {
             request.model = self.resolve_embedding_model_default();
         }
 
-        let exec = self.build_embedding_executor(&request);
+        let exec = self.build_embedding_executor(&request).await?;
         EmbeddingExecutor::execute(&*exec, request).await
     }
 }
@@ -794,7 +1630,7 @@ impl RerankCapability for OpenAiCompatibleClient {
             request.model = model;
         }
 
-        let ctx = self.build_context();
+        let ctx = self.build_context().await?;
         let spec = std::sync::Arc::new(self.compat_spec());
 
         let mut builder =
@@ -820,7 +1656,7 @@ impl OpenAiCompatibleClient {
     /// List available models from the provider
     async fn list_models_internal(&self) -> Result<Vec<ModelInfo>, LlmError> {
         let spec = std::sync::Arc::new(self.compat_spec());
-        let ctx = self.build_context();
+        let ctx = self.build_context().await?;
         let url = spec.models_url(&ctx);
         let config = self.http_wiring(ctx).config(spec);
 
@@ -901,7 +1737,7 @@ impl OpenAiCompatibleClient {
         // Best-effort: prefer the dedicated retrieve endpoint when the provider supports it,
         // then fallback to the list endpoint, and finally a synthetic ModelInfo.
         let spec = std::sync::Arc::new(self.compat_spec());
-        let ctx = self.build_context();
+        let ctx = self.build_context().await?;
         let url = spec.model_url(&model_id, &ctx);
         let config = self.http_wiring(ctx).config(spec);
 
@@ -1036,7 +1872,7 @@ impl AudioCapability for OpenAiCompatibleClient {
         } else {
             request
         };
-        let exec = self.build_audio_executor();
+        let exec = self.build_audio_executor().await?;
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
 
         Ok(TtsResponse {
@@ -1057,7 +1893,7 @@ impl AudioCapability for OpenAiCompatibleClient {
         } else {
             request
         };
-        let exec = self.build_audio_executor();
+        let exec = self.build_audio_executor().await?;
         let result = AudioExecutor::stt(&*exec, request).await?;
         let raw = result.raw;
 
@@ -1127,8 +1963,15 @@ impl ImageGenerationCapability for OpenAiCompatibleClient {
         if model_slot_is_missing(request.model.as_deref()) {
             request.model = self.resolve_image_model_default();
         }
-        let exec = self.build_image_executor(&request);
+        let exec = self.build_image_executor(&request).await?;
         ImageExecutor::execute(&*exec, request).await
+    }
+
+    fn max_images_per_call(&self) -> Option<u32> {
+        match self.config.provider_id.as_str() {
+            "deepinfra" | "fireworks" | "together" | "togetherai" => Some(1),
+            _ => Some(10),
+        }
     }
 }
 
@@ -1145,7 +1988,9 @@ impl ImageExtras for OpenAiCompatibleClient {
             )));
         }
 
-        let exec = self.build_image_executor(&ImageGenerationRequest::default());
+        let exec = self
+            .build_image_executor(&ImageGenerationRequest::default())
+            .await?;
         ImageExecutor::execute_edit(&*exec, request).await
     }
 
@@ -1160,7 +2005,9 @@ impl ImageExtras for OpenAiCompatibleClient {
             )));
         }
 
-        let exec = self.build_image_executor(&ImageGenerationRequest::default());
+        let exec = self
+            .build_image_executor(&ImageGenerationRequest::default())
+            .await?;
         ImageExecutor::execute_variation(&*exec, request).await
     }
 
@@ -1201,6 +2048,9 @@ impl LlmClient for OpenAiCompatibleClient {
 
         if adapter_caps.chat {
             caps = caps.with_chat();
+        }
+        if adapter_caps.completion {
+            caps = caps.with_completion();
         }
         if adapter_caps.streaming {
             caps = caps.with_streaming();
@@ -1255,6 +2105,14 @@ impl LlmClient for OpenAiCompatibleClient {
 
     fn as_embedding_capability(&self) -> Option<&dyn EmbeddingCapability> {
         if self.config.adapter.capabilities().embedding {
+            Some(self)
+        } else {
+            None
+        }
+    }
+
+    fn as_completion_capability(&self) -> Option<&dyn CompletionCapability> {
+        if self.capabilities().supports("completion") {
             Some(self)
         } else {
             None
@@ -1348,15 +2206,20 @@ mod tests {
         HttpTransportStreamBody, HttpTransportStreamResponse,
     };
     use crate::provider_options::{
-        OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchContextSize,
-        PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
+        FireworksChatOptions, FireworksReasoningHistory, FireworksThinkingConfig,
+        FireworksThinkingType, MoonshotAIChatOptions, MoonshotAIReasoningHistory,
+        MoonshotAIThinkingConfig, MoonshotAIThinkingType, OpenRouterOptions, OpenRouterTransform,
+        PerplexityOptions, PerplexitySearchContextSize, PerplexitySearchMode,
+        PerplexitySearchRecencyFilter, PerplexityUserLocation,
     };
     use crate::providers::openai_compatible::ext::{
-        OpenRouterChatRequestExt, PerplexityChatRequestExt, PerplexityChatResponseExt,
+        FireworksChatRequestExt, MoonshotAIChatRequestExt, OpenRouterChatRequestExt,
+        PerplexityChatRequestExt, PerplexityChatResponseExt,
     };
     use crate::standards::openai::compat::provider_registry::{
         ConfigurableAdapter, ProviderConfig, ProviderFieldMappings,
     };
+    use crate::types::ChatStreamPart;
     use async_trait::async_trait;
     use futures_util::StreamExt;
     use reqwest::header::{ACCEPT, CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -1366,6 +2229,16 @@ mod tests {
     struct NoopInterceptor;
 
     impl crate::execution::http::interceptor::HttpInterceptor for NoopInterceptor {}
+
+    fn normalize_multipart_body(req: &HttpTransportMultipartRequest) -> String {
+        let mut body = String::from_utf8_lossy(&req.body).into_owned();
+        if let Some(content_type) = req.headers.get(CONTENT_TYPE).and_then(|v| v.to_str().ok())
+            && let Some(boundary) = content_type.split("boundary=").nth(1)
+        {
+            body = body.replace(boundary.trim(), "<BOUNDARY>");
+        }
+        body
+    }
 
     fn make_audio_adapter() -> Arc<ConfigurableAdapter> {
         Arc::new(ConfigurableAdapter::new(ProviderConfig {
@@ -1547,6 +2420,20 @@ mod tests {
                 "tools".to_string(),
             ],
             default_model: Some("compat-default-model".to_string()),
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }))
+    }
+
+    fn make_completion_adapter() -> Arc<ConfigurableAdapter> {
+        Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "openrouter".to_string(),
+            name: "OpenRouter".to_string(),
+            base_url: "https://openrouter.ai/api/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["completion".to_string(), "streaming".to_string()],
+            default_model: Some("openai/gpt-3.5-turbo-instruct".to_string()),
             supports_reasoning: false,
             api_key_env: None,
             api_key_env_aliases: vec![],
@@ -2158,6 +3045,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn edit_image_runtime_together_materializes_data_url_inputs_before_multipart_transform() {
+        let transport = MultipartResponseTransport::new(serde_json::json!({
+            "created": 123,
+            "data": [{ "b64_json": "image-1" }]
+        }));
+        let cfg = OpenAiCompatibleConfig::new(
+            "together",
+            "test-key",
+            "https://api.together.xyz/v1",
+            make_together_image_adapter(),
+        )
+        .with_model("black-forest-labs/FLUX.1-schnell")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ImageEditRequest {
+            images: vec![ImageEditInput::url("data:image/png;base64,aW1hZ2Utb25l")],
+            mask: Some(ImageEditInput::url("data:image/png;base64,bWFzay1vbmU=")),
+            prompt: "replace the background with a neon skyline".to_string(),
+            model: Some("black-forest-labs/FLUX.1-schnell".to_string()),
+            count: Some(1),
+            size: Some("1024x1024".to_string()),
+            aspect_ratio: None,
+            seed: None,
+            response_format: Some("b64_json".to_string()),
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        let response = client
+            .edit_image(request)
+            .await
+            .expect("image edit response");
+        assert_eq!(response.images[0].b64_json.as_deref(), Some("image-1"));
+
+        let captured = transport.take().expect("captured multipart request");
+        assert_eq!(captured.url, "https://api.together.xyz/v1/images/edits");
+        assert!(
+            captured
+                .headers
+                .get(CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok())
+                .is_some_and(|value| value.starts_with("multipart/form-data; boundary="))
+        );
+
+        let body_text = normalize_multipart_body(&captured);
+        assert!(body_text.contains("name=\"model\""));
+        assert!(body_text.contains("black-forest-labs/FLUX.1-schnell"));
+        assert!(body_text.contains("name=\"prompt\""));
+        assert!(body_text.contains("replace the background with a neon skyline"));
+        assert!(body_text.contains("name=\"response_format\""));
+        assert!(body_text.contains("b64_json"));
+        assert!(body_text.contains("name=\"image\""));
+        assert!(body_text.contains("filename=\"image-0\""));
+        assert!(body_text.contains("name=\"mask\""));
+        assert!(body_text.contains("filename=\"mask\""));
+        assert!(body_text.contains("Content-Type: image/png"));
+        assert!(body_text.contains("image-one"));
+        assert!(body_text.contains("mask-one"));
+    }
+
+    #[tokio::test]
     async fn openai_compatible_client_together_tts_uses_default_audio_base_with_custom_transport() {
         let transport = BytesResponseTransport::new(vec![1, 2, 3, 4], "audio/mpeg");
 
@@ -2655,7 +3608,7 @@ mod tests {
             })
             .with_provider_option("deepseek", serde_json::json!({ "my_custom": 1 }));
 
-        let exec = client.build_chat_executor(&req);
+        let exec = client.build_chat_executor(&req).await.unwrap();
         assert!(exec.policy.before_send.is_none());
         assert!(
             exec.provider_spec
@@ -3206,6 +4159,142 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn chat_request_runtime_fireworks_provider_options_normalize_to_wire_shape() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "fireworks".to_string(),
+            name: "Fireworks".to_string(),
+            base_url: "https://api.fireworks.ai/inference/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "fireworks",
+            "test-key",
+            "https://api.fireworks.ai/inference/v1",
+            adapter,
+        )
+        .with_model("accounts/fireworks/models/llama-v3p1-8b-instruct")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("accounts/fireworks/models/llama-v3p1-8b-instruct")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option(
+                "fireworks",
+                serde_json::json!({ "reasoningEffort": "minimal" }),
+            )
+            .with_fireworks_options(
+                FireworksChatOptions::new()
+                    .with_thinking(
+                        FireworksThinkingConfig::new()
+                            .with_type(FireworksThinkingType::Enabled)
+                            .with_budget_tokens(2048),
+                    )
+                    .with_reasoning_history(FireworksReasoningHistory::Interleaved),
+            );
+
+        let _ = client.chat_request(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(captured.body["reasoning_effort"], serde_json::json!("low"));
+        assert_eq!(
+            captured.body["reasoning_history"],
+            serde_json::json!("interleaved")
+        );
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+        assert!(captured.body.get("reasoningHistory").is_none());
+        assert!(captured.body["thinking"].get("budgetTokens").is_none());
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_moonshotai_provider_options_normalize_to_wire_shape() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "moonshotai".to_string(),
+            name: "Moonshot AI".to_string(),
+            base_url: "https://api.moonshot.ai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec![
+                "chat".to_string(),
+                "streaming".to_string(),
+                "tools".to_string(),
+                "reasoning".to_string(),
+            ],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: Some("MOONSHOT_API_KEY".to_string()),
+            api_key_env_aliases: vec![],
+        }));
+        let transport = CaptureTransport::default();
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "moonshotai",
+            "test-key",
+            "https://api.moonshot.ai/v1",
+            adapter,
+        )
+        .with_model("kimi-k2-thinking")
+        .with_http_transport(Arc::new(transport.clone()));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let request = ChatRequest::builder()
+            .model("kimi-k2-thinking")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_provider_option("moonshotai", serde_json::json!({ "user": "compat-user-7" }))
+            .with_moonshotai_options(
+                MoonshotAIChatOptions::new()
+                    .with_thinking(
+                        MoonshotAIThinkingConfig::new()
+                            .with_type(MoonshotAIThinkingType::Enabled)
+                            .with_budget_tokens(2048),
+                    )
+                    .with_reasoning_history(MoonshotAIReasoningHistory::Interleaved),
+            );
+
+        let _ = client.chat_request(request).await;
+        let captured = transport.take().expect("captured request");
+
+        assert_eq!(captured.body["user"], serde_json::json!("compat-user-7"));
+        assert_eq!(
+            captured.body["reasoning_history"],
+            serde_json::json!("interleaved")
+        );
+        assert_eq!(
+            captured.body["thinking"],
+            serde_json::json!({
+                "type": "enabled",
+                "budget_tokens": 2048
+            })
+        );
+        assert!(captured.body.get("reasoningHistory").is_none());
+        assert!(captured.body["thinking"].get("budgetTokens").is_none());
+    }
+
+    #[tokio::test]
     async fn chat_request_runtime_provider_defined_tools_emit_ai_sdk_warning() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
             id: "deepseek".to_string(),
@@ -3725,6 +4814,16 @@ mod tests {
                 schema.clone(),
             ))
             .build()
+            .with_provider_option(
+                "perplexity",
+                serde_json::json!({
+                    "search_mode": "web",
+                    "return_images": false,
+                    "web_search_options": {
+                        "search_context_size": "low"
+                    }
+                }),
+            )
             .with_perplexity_options(
                 PerplexityOptions::new()
                     .with_search_mode(PerplexitySearchMode::Academic)
@@ -3757,6 +4856,9 @@ mod tests {
             serde_json::json!("US")
         );
         assert_eq!(captured.body["someVendorParam"], serde_json::json!(true));
+        assert!(captured.body.get("searchMode").is_none());
+        assert!(captured.body.get("returnImages").is_none());
+        assert!(captured.body.get("webSearchOptions").is_none());
         assert_eq!(
             captured.body["response_format"],
             serde_json::json!({
@@ -3912,7 +5014,13 @@ mod tests {
                 "total_tokens": 28,
                 "citation_tokens": 7,
                 "num_search_queries": 2,
-                "reasoning_tokens": 3
+                "reasoning_tokens": 3,
+                "cost": {
+                    "input_tokens_cost": 0.12,
+                    "output_tokens_cost": 0.34,
+                    "request_cost": 0.01,
+                    "total_cost": 0.47
+                }
             }
         }));
 
@@ -3971,6 +5079,14 @@ mod tests {
             meta.usage.as_ref().and_then(|usage| usage.reasoning_tokens),
             Some(3)
         );
+        assert_eq!(
+            meta.cost.as_ref().and_then(|cost| cost.request_cost),
+            Some(0.01)
+        );
+        assert_eq!(
+            meta.cost.as_ref().and_then(|cost| cost.total_cost),
+            Some(0.47)
+        );
         assert_eq!(meta.extra.get("citations"), None);
     }
 
@@ -3994,7 +5110,7 @@ mod tests {
         let transport = SseResponseTransport::new(
             br#"data: {"id":"1","model":"sonar","created":1718345013,"citations":["https://example.com/rust"],"choices":[{"index":0,"delta":{"content":"Rust","role":"assistant"},"finish_reason":null}]}
 
-data: {"id":"1","model":"sonar","created":1718345013,"choices":[{"index":0,"delta":{"content":" ecosystem","role":null},"finish_reason":"stop"}],"images":[{"image_url":"https://images.example.com/rust.png","origin_url":"https://example.com/rust","height":900,"width":1600}],"usage":{"prompt_tokens":11,"completion_tokens":17,"total_tokens":28,"citation_tokens":7,"num_search_queries":2,"reasoning_tokens":3}}
+data: {"id":"1","model":"sonar","created":1718345013,"choices":[{"index":0,"delta":{"content":" ecosystem","role":null},"finish_reason":"stop"}],"images":[{"image_url":"https://images.example.com/rust.png","origin_url":"https://example.com/rust","height":900,"width":1600}],"usage":{"prompt_tokens":11,"completion_tokens":17,"total_tokens":28,"citation_tokens":7,"num_search_queries":2,"reasoning_tokens":3,"cost":{"input_tokens_cost":0.12,"output_tokens_cost":0.34,"request_cost":0.01,"total_cost":0.47}}}
 
 data: [DONE]
 
@@ -4059,6 +5175,14 @@ data: [DONE]
         assert_eq!(
             meta.usage.as_ref().and_then(|usage| usage.reasoning_tokens),
             Some(3)
+        );
+        assert_eq!(
+            meta.cost.as_ref().and_then(|cost| cost.request_cost),
+            Some(0.01)
+        );
+        assert_eq!(
+            meta.cost.as_ref().and_then(|cost| cost.total_cost),
+            Some(0.47)
         );
         assert_eq!(meta.extra.get("citations"), None);
     }
@@ -4685,7 +5809,7 @@ data: [DONE]
             .with_model("text-embedding-3-small")
             .with_provider_option("deepseek", serde_json::json!({ "my_custom": 1 }));
 
-        let exec = client.build_embedding_executor(&req);
+        let exec = client.build_embedding_executor(&req).await.unwrap();
         assert_eq!(exec.policy.interceptors.len(), 1);
         assert!(exec.policy.before_send.is_none());
         assert!(
@@ -4712,7 +5836,7 @@ data: [DONE]
             .unwrap()
             .with_http_interceptors(vec![Arc::new(NoopInterceptor)]);
 
-        let exec = client.build_audio_executor();
+        let exec = client.build_audio_executor().await.unwrap();
 
         assert_eq!(exec.policy.interceptors.len(), 1);
         assert!(exec.policy.transport.is_some());
@@ -4825,6 +5949,305 @@ data: [DONE]
     }
 
     #[tokio::test]
+    async fn completion_request_runtime_routes_to_completions_and_materializes_prompt() {
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "cmpl_1",
+            "model": "compat-model",
+            "created": 1718345013u64,
+            "choices": [{
+                "text": "done",
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 7,
+                "completion_tokens": 2,
+                "total_tokens": 9
+            }
+        }));
+
+        let config = OpenAiCompatibleConfig::new(
+            "compat-chat",
+            "test-key",
+            "https://api.test.com/v1",
+            make_text_streaming_adapter(),
+        )
+        .with_model("compat-model")
+        .with_http_transport(Arc::new(transport.clone()));
+        let client = OpenAiCompatibleClient::new(config).await.unwrap();
+
+        let request = CompletionRequest::from_prompt(vec![
+            ChatMessage::system("Be terse.").build(),
+            ChatMessage::user("Hello").build(),
+            ChatMessage::assistant("Hi").build(),
+            ChatMessage::user("Continue").build(),
+        ])
+        .with_model("compat-model");
+
+        let response = crate::traits::CompletionCapability::complete(&client, request)
+            .await
+            .unwrap();
+
+        assert_eq!(response.text(), "done");
+        assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(
+            response
+                .usage
+                .as_ref()
+                .and_then(|usage| usage.total_tokens()),
+            Some(9)
+        );
+        assert_eq!(
+            response
+                .response_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.model.as_deref()),
+            Some("compat-model")
+        );
+
+        let captured = transport.take().expect("captured completion request");
+        assert_eq!(captured.url, "https://api.test.com/v1/completions");
+        assert_eq!(captured.body["model"], serde_json::json!("compat-model"));
+        assert_eq!(
+            captured.body["prompt"],
+            serde_json::json!(
+                "Be terse.\n\nuser:\nHello\n\nassistant:\nHi\n\nuser:\nContinue\n\nassistant:\n"
+            )
+        );
+        assert_eq!(captured.body["stop"], serde_json::json!(["\nuser:"]));
+    }
+
+    #[tokio::test]
+    async fn completion_request_runtime_emits_alignment_warnings_and_merges_provider_options() {
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "cmpl_2",
+            "model": "compat-model",
+            "created": 1718345013u64,
+            "choices": [{
+                "text": "ok",
+                "finish_reason": "stop"
+            }]
+        }));
+
+        let config = OpenAiCompatibleConfig::new(
+            "compat-chat",
+            "test-key",
+            "https://api.test.com/v1",
+            make_text_streaming_adapter(),
+        )
+        .with_model("compat-model")
+        .with_http_transport(Arc::new(transport.clone()));
+        let client = OpenAiCompatibleClient::new(config).await.unwrap();
+
+        let request = CompletionRequest::new("hi")
+            .with_model("compat-model")
+            .with_top_k(20.0)
+            .with_tools(vec![Tool::function(
+                "lookup",
+                "lookup",
+                serde_json::json!({ "type": "object" }),
+            )])
+            .with_tool_choice(ToolChoice::Required)
+            .with_response_format(ResponseFormat::json_schema(serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "answer": { "type": "string" }
+                }
+            })))
+            .with_provider_option(
+                "openaiCompatible",
+                serde_json::json!({
+                    "echo": true,
+                    "suffix": " after"
+                }),
+            )
+            .with_provider_option(
+                "compat-chat",
+                serde_json::json!({
+                    "user": "provider-user",
+                    "logitBias": {
+                        "42": 1.5
+                    }
+                }),
+            );
+
+        let response = crate::traits::CompletionCapability::complete(&client, request)
+            .await
+            .unwrap();
+        let warnings = response.warnings.expect("completion warnings");
+        let unsupported_features = warnings
+            .into_iter()
+            .filter_map(|warning| match warning {
+                Warning::Unsupported { feature, .. } => Some(feature),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            unsupported_features,
+            vec![
+                "topK".to_string(),
+                "tools".to_string(),
+                "toolChoice".to_string(),
+                "responseFormat".to_string()
+            ]
+        );
+
+        let captured = transport.take().expect("captured completion request");
+        assert_eq!(captured.body["echo"], serde_json::json!(true));
+        assert_eq!(captured.body["suffix"], serde_json::json!(" after"));
+        assert_eq!(captured.body["user"], serde_json::json!("provider-user"));
+        assert_eq!(captured.body["logit_bias"]["42"], serde_json::json!(1.5));
+        assert!(captured.body.get("tools").is_none());
+        assert!(captured.body.get("tool_choice").is_none());
+        assert!(captured.body.get("response_format").is_none());
+        assert!(captured.body.get("top_k").is_none());
+    }
+
+    #[tokio::test]
+    async fn completion_stream_request_runtime_routes_to_completions_and_emits_stream_end() {
+        let transport = SseResponseTransport::new(
+            br#"data: {"id":"cmpl_3","model":"compat-model","choices":[{"text":"Hel","finish_reason":null}]}
+
+data: {"id":"cmpl_3","model":"compat-model","choices":[{"text":"lo","finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+
+data: [DONE]
+
+"#,
+        );
+
+        let config = OpenAiCompatibleConfig::new(
+            "compat-chat",
+            "test-key",
+            "https://api.test.com/v1",
+            make_text_streaming_adapter(),
+        )
+        .with_model("compat-model")
+        .with_include_usage(true)
+        .with_http_transport(Arc::new(transport.clone()));
+        let client = OpenAiCompatibleClient::new(config).await.unwrap();
+
+        let request = CompletionRequest::new("hi").with_model("compat-model");
+        let mut stream = crate::traits::CompletionCapability::complete_stream(&client, request)
+            .await
+            .unwrap();
+
+        let mut text = String::new();
+        let mut end = None;
+        while let Some(event) = stream.next().await {
+            match event.unwrap() {
+                ChatStreamEvent::ContentDelta { delta, .. } => text.push_str(&delta),
+                ChatStreamEvent::StreamEnd { response } => end = Some(response),
+                _ => {}
+            }
+        }
+
+        assert_eq!(text, "Hello");
+        let end = end.expect("stream end response");
+        assert_eq!(end.id.as_deref(), Some("cmpl_3"));
+        assert_eq!(end.model.as_deref(), Some("compat-model"));
+        assert_eq!(end.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(
+            end.usage.as_ref().and_then(|usage| usage.total_tokens()),
+            Some(3)
+        );
+        assert_eq!(end.content_text(), Some("Hello"));
+
+        let captured = transport.take_stream().expect("captured completion stream");
+        assert_eq!(captured.url, "https://api.test.com/v1/completions");
+        assert_eq!(captured.body["stream"], serde_json::json!(true));
+        assert_eq!(
+            captured.body["stream_options"],
+            serde_json::json!({ "include_usage": true })
+        );
+    }
+
+    #[tokio::test]
+    async fn completion_stream_request_runtime_emits_raw_chunks_on_part_lane() {
+        let transport = SseResponseTransport::new(
+            br#"data: {"id":"cmpl_4","model":"compat-model","created":1718345013,"choices":[{"text":"Hel","finish_reason":null}]}
+
+data: {"id":"cmpl_4","model":"compat-model","created":1718345013,"choices":[{"text":"lo","finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}}
+
+data: [DONE]
+
+"#,
+        );
+
+        let config = OpenAiCompatibleConfig::new(
+            "compat-chat",
+            "test-key",
+            "https://api.test.com/v1",
+            make_text_streaming_adapter(),
+        )
+        .with_model("compat-model")
+        .with_include_usage(true)
+        .with_http_transport(Arc::new(transport.clone()));
+        let client = OpenAiCompatibleClient::new(config).await.unwrap();
+
+        let request = CompletionRequest::new("hi")
+            .with_model("compat-model")
+            .with_include_raw_chunks(true);
+        let mut stream = crate::traits::CompletionCapability::complete_stream(&client, request)
+            .await
+            .unwrap();
+
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(event.unwrap());
+        }
+
+        assert!(matches!(
+            events.first(),
+            Some(ChatStreamEvent::StreamStart { metadata })
+                if metadata.id.as_deref() == Some("cmpl_4")
+        ));
+
+        let parts = events
+            .iter()
+            .filter_map(|event| match event {
+                ChatStreamEvent::Part { part } => Some(part),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(matches!(
+            parts.first(),
+            Some(ChatStreamPart::StreamStart { .. })
+        ));
+        assert!(matches!(
+            parts.get(1),
+            Some(ChatStreamPart::Raw { raw_value })
+                if raw_value["id"] == serde_json::json!("cmpl_4")
+        ));
+        assert!(matches!(
+            parts.get(2),
+            Some(ChatStreamPart::ResponseMetadata(metadata))
+                if metadata.id.as_deref() == Some("cmpl_4")
+        ));
+        assert!(matches!(
+            parts.get(3),
+            Some(ChatStreamPart::TextStart { id, .. }) if id == "0"
+        ));
+        assert!(matches!(
+            parts.get(4),
+            Some(ChatStreamPart::TextDelta { id, delta, .. })
+                if id == "0" && delta == "Hel"
+        ));
+        assert!(parts.iter().any(|part| {
+            matches!(
+                part,
+                ChatStreamPart::TextEnd { id, .. } if id == "0"
+            )
+        }));
+        assert!(parts.iter().any(|part| {
+            matches!(
+                part,
+                ChatStreamPart::Finish { finish_reason, .. }
+                    if finish_reason.unified == FinishReason::Stop
+            )
+        }));
+    }
+
+    #[tokio::test]
     async fn test_client_creation() {
         let provider_config = crate::standards::openai::compat::provider_registry::ProviderConfig {
             id: "test".to_string(),
@@ -4851,6 +6274,58 @@ data: [DONE]
         let client = OpenAiCompatibleClient::new(config).await.unwrap();
         assert_eq!(client.provider_id(), "test");
         assert_eq!(client.model(), "test-model");
+    }
+
+    #[tokio::test]
+    async fn completion_response_preserves_raw_logprobs_metadata() {
+        let client = OpenAiCompatibleClient::new(
+            OpenAiCompatibleConfig::new(
+                "openrouter",
+                "test-key",
+                "https://openrouter.ai/api/v1",
+                make_completion_adapter(),
+            )
+            .with_model("openai/gpt-3.5-turbo-instruct"),
+        )
+        .await
+        .expect("build completion client");
+
+        let response = client.build_completion_response(
+            serde_json::json!({
+                "id": "cmpl_compat_1",
+                "object": "text_completion",
+                "created": 1_718_345_013,
+                "model": "openai/gpt-3.5-turbo-instruct",
+                "choices": [
+                    {
+                        "text": "hello",
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "logprobs": {
+                            "tokens": ["hello"],
+                            "token_logprobs": [-0.2],
+                            "top_logprobs": [{"hello": -0.2}]
+                        }
+                    }
+                ]
+            }),
+            &HeaderMap::new(),
+            Vec::new(),
+        );
+
+        assert_eq!(response.text(), "hello");
+        assert_eq!(
+            response
+                .provider_metadata
+                .as_ref()
+                .and_then(|root| root.get("openrouter"))
+                .and_then(|meta| meta.get("logprobs")),
+            Some(&serde_json::json!({
+                "tokens": ["hello"],
+                "token_logprobs": [-0.2],
+                "top_logprobs": [{"hello": -0.2}]
+            }))
+        );
     }
 
     #[tokio::test]

@@ -1,0 +1,34 @@
+{
+  "id": "chatcmpl-google-thought-signature",
+  "model": "google/gemini-2.0-flash-001",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_google_weather",
+            "type": "function",
+            "function": {
+              "name": "get_weather",
+              "arguments": "{\"city\":\"Tokyo\"}"
+            },
+            "extra_content": {
+              "google": {
+                "thought_signature": "<Signature A>"
+              }
+            }
+          }
+        ]
+      },
+      "finish_reason": "tool_calls"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 8,
+    "completion_tokens": 4,
+    "total_tokens": 12
+  }
+}

@@ -24,9 +24,14 @@ impl AzureChatResponseExt for crate::types::ChatResponse {
     }
 
     fn azure_metadata_with_key(&self, key: &str) -> Option<AzureMetadata> {
-        use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?.get(key)?;
-        AzureMetadata::from_metadata(meta)
+        let meta = self
+            .provider_metadata
+            .as_ref()
+            .and_then(|metadata| {
+                crate::types::provider_metadata::provider_metadata_object(metadata, key)
+            })?
+            .clone();
+        serde_json::from_value(serde_json::Value::Object(meta)).ok()
     }
 }
 
@@ -132,8 +137,14 @@ mod tests {
         custom_inner.insert("service_tier".to_string(), serde_json::json!("priority"));
 
         let mut outer = HashMap::new();
-        outer.insert("azure".to_string(), default_inner);
-        outer.insert("openai".to_string(), custom_inner);
+        outer.insert(
+            "azure".to_string(),
+            serde_json::Value::Object(default_inner.into_iter().collect()),
+        );
+        outer.insert(
+            "openai".to_string(),
+            serde_json::Value::Object(custom_inner.into_iter().collect()),
+        );
         response.provider_metadata = Some(outer);
 
         assert_eq!(

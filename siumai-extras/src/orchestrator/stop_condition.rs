@@ -288,12 +288,42 @@ pub fn has_no_tool_calls() -> Box<dyn StopCondition> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use siumai::prelude::unified::{ChatMessage, ProviderOptionsMap};
+    use crate::orchestrator::{OrchestratorContext, StepModelInfo};
+    use siumai::prelude::unified::{
+        ChatMessage, ChatRequest, ChatResponse, MessageContent, ProviderOptionsMap,
+    };
+
+    fn test_step_model() -> StepModelInfo {
+        StepModelInfo {
+            provider: "mock-provider".to_string(),
+            model_id: "mock-model".to_string(),
+        }
+    }
 
     fn create_step_with_tools(tool_names: Vec<&str>) -> StepResult {
         use siumai::prelude::unified::ContentPart;
 
         StepResult {
+            call_id: "call-stop".to_string(),
+            step_number: 0,
+            model: test_step_model(),
+            request: ChatRequest::default(),
+            response: ChatResponse::new(MessageContent::Text(String::new())),
+            raw_finish_reason: None,
+            function_id: None,
+            metadata: None,
+            context: OrchestratorContext::default(),
+            content: tool_names
+                .iter()
+                .map(|name| {
+                    ContentPart::tool_call(
+                        format!("call_{}", name),
+                        *name,
+                        serde_json::json!({}),
+                        None,
+                    )
+                })
+                .collect(),
             messages: vec![],
             finish_reason: None,
             usage: None,
@@ -316,6 +346,16 @@ mod tests {
 
     fn create_step_without_tools() -> StepResult {
         StepResult {
+            call_id: "call-stop".to_string(),
+            step_number: 0,
+            model: test_step_model(),
+            request: ChatRequest::default(),
+            response: ChatResponse::new(MessageContent::Text("Final answer".to_string())),
+            raw_finish_reason: None,
+            function_id: None,
+            metadata: None,
+            context: OrchestratorContext::default(),
+            content: vec![ContentPart::text("Final answer")],
             messages: vec![ChatMessage::assistant("Final answer").build()],
             finish_reason: None,
             usage: None,
@@ -406,6 +446,16 @@ mod tests {
 
         // Step with no tool results
         let step_no_results = StepResult {
+            call_id: "call-stop".to_string(),
+            step_number: 0,
+            model: test_step_model(),
+            request: ChatRequest::default(),
+            response: ChatResponse::new(MessageContent::Text(String::new())),
+            raw_finish_reason: None,
+            function_id: None,
+            metadata: None,
+            context: OrchestratorContext::default(),
+            content: vec![],
             messages: vec![],
             finish_reason: None,
             usage: None,
@@ -419,6 +469,20 @@ mod tests {
 
         // Step with tool results
         let step_with_results = StepResult {
+            call_id: "call-stop".to_string(),
+            step_number: 0,
+            model: test_step_model(),
+            request: ChatRequest::default(),
+            response: ChatResponse::new(MessageContent::Text(String::new())),
+            raw_finish_reason: None,
+            function_id: None,
+            metadata: None,
+            context: OrchestratorContext::default(),
+            content: vec![ContentPart::Text {
+                text: "result".to_string(),
+                provider_metadata: None,
+                provider_options: ProviderOptionsMap::default(),
+            }],
             messages: vec![],
             finish_reason: None,
             usage: None,
@@ -449,6 +513,16 @@ mod tests {
 
         // Step with no tool calls
         let step_no_calls = StepResult {
+            call_id: "call-stop".to_string(),
+            step_number: 0,
+            model: test_step_model(),
+            request: ChatRequest::default(),
+            response: ChatResponse::new(MessageContent::Text(String::new())),
+            raw_finish_reason: None,
+            function_id: None,
+            metadata: None,
+            context: OrchestratorContext::default(),
+            content: vec![],
             messages: vec![],
             finish_reason: None,
             usage: None,

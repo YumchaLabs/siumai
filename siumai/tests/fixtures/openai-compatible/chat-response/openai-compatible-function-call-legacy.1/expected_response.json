@@ -20,6 +20,7 @@
     "total_tokens": 3
   },
   "finish_reason": "tool_calls",
+  "raw_finish_reason": "function_call",
   "audio": null
 }
 

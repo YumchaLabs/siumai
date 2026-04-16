@@ -135,12 +135,44 @@ fn normalize_gemini_provider_options_json(value: &serde_json::Value) -> serde_js
     inner(value)
 }
 
-pub(super) fn gemini_options_from_request(req: &ChatRequest) -> Option<GeminiProviderOptions> {
-    let value = req
-        .provider_options_map
-        .get("gemini")
-        .or_else(|| req.provider_options_map.get("google"))
-        .or_else(|| req.provider_options_map.get("vertex"));
+pub(super) fn gemini_provider_options_namespace(config: &GeminiConfig) -> &'static str {
+    if config
+        .provider_metadata_key
+        .as_deref()
+        .is_some_and(|key| key.eq_ignore_ascii_case("vertex"))
+    {
+        return "vertex";
+    }
+
+    if config.base_url.contains("aiplatform.googleapis.com") || config.base_url.contains("vertex") {
+        "vertex"
+    } else {
+        "google"
+    }
+}
+
+pub(super) fn gemini_provider_options_value<'a>(
+    provider_options_map: &'a crate::types::ProviderOptionsMap,
+    config: &GeminiConfig,
+) -> Option<&'a serde_json::Value> {
+    let primary = gemini_provider_options_namespace(config);
+    let secondary = if primary == "vertex" {
+        "google"
+    } else {
+        "vertex"
+    };
+
+    provider_options_map
+        .get(primary)
+        .or_else(|| provider_options_map.get(secondary))
+        .or_else(|| provider_options_map.get("gemini"))
+}
+
+pub(super) fn gemini_options_from_request(
+    req: &ChatRequest,
+    config: &GeminiConfig,
+) -> Option<GeminiProviderOptions> {
+    let value = gemini_provider_options_value(&req.provider_options_map, config);
 
     if let Some(value) = value {
         let normalized = normalize_gemini_provider_options_json(value);

@@ -1,6 +1,8 @@
 #![cfg(feature = "google-vertex")]
+#![allow(deprecated)]
 
 use siumai::Provider;
+use siumai::prelude::unified::*;
 use std::sync::Arc;
 
 #[test]
@@ -24,6 +26,23 @@ fn provider_anthropic_vertex_builder_requires_model_id() {
     let msg = result.err().unwrap().to_string();
     assert!(
         msg.contains("requires a non-empty model id"),
+        "unexpected error: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn siumai_builder_anthropic_vertex_requires_explicit_model_id() {
+    let result = Siumai::builder()
+        .anthropic_vertex()
+        .base_url("https://custom.example.com")
+        .http_header("Authorization", "Bearer test-token")
+        .build()
+        .await;
+    assert!(result.is_err(), "missing model should be an error");
+
+    let msg = result.err().unwrap().to_string();
+    assert!(
+        msg.contains("Anthropic on Vertex requires an explicit model id"),
         "unexpected error: {msg}"
     );
 }

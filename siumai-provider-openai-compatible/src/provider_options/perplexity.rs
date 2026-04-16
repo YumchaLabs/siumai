@@ -48,6 +48,7 @@ pub enum PerplexitySearchContextSize {
 
 /// User location hint for hosted web search.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PerplexityUserLocation {
     /// Approximate latitude.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -91,12 +92,21 @@ impl PerplexityUserLocation {
 
 /// Nested hosted web-search options.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PerplexityWebSearchOptions {
     /// Search context size.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "search_context_size"
+    )]
     pub search_context_size: Option<PerplexitySearchContextSize>,
     /// Optional user location hint.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "user_location"
+    )]
     pub user_location: Option<PerplexityUserLocation>,
 }
 
@@ -121,54 +131,115 @@ impl PerplexityWebSearchOptions {
 
 /// Perplexity-specific options.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PerplexityOptions {
     /// Search mode.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "search_mode"
+    )]
     pub search_mode: Option<PerplexitySearchMode>,
     /// Search recency filter.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "search_recency_filter"
+    )]
     pub search_recency_filter: Option<PerplexitySearchRecencyFilter>,
     /// Whether to return related questions.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "return_related_questions"
+    )]
     pub return_related_questions: Option<bool>,
     /// Whether to return images.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "return_images"
+    )]
     pub return_images: Option<bool>,
     /// Whether to disable hosted search.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "disable_search"
+    )]
     pub disable_search: Option<bool>,
     /// Whether to enable the search classifier.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "enable_search_classifier"
+    )]
     pub enable_search_classifier: Option<bool>,
     /// Allowed domains for hosted search.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "search_domain_filter"
+    )]
     pub search_domain_filter: Option<Vec<String>>,
     /// Allowed languages for hosted search.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "search_language_filter"
+    )]
     pub search_language_filter: Option<Vec<String>>,
     /// Restrict search results after this date.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "search_after_date_filter"
+    )]
     pub search_after_date_filter: Option<String>,
     /// Restrict search results before this date.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "search_before_date_filter"
+    )]
     pub search_before_date_filter: Option<String>,
     /// Restrict results updated after this date.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "last_updated_after_filter"
+    )]
     pub last_updated_after_filter: Option<String>,
     /// Restrict results updated before this date.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "last_updated_before_filter"
+    )]
     pub last_updated_before_filter: Option<String>,
     /// Restrict image domains.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "image_domain_filter"
+    )]
     pub image_domain_filter: Option<Vec<String>>,
     /// Restrict image formats.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "image_format_filter"
+    )]
     pub image_format_filter: Option<Vec<String>>,
     /// Nested web-search settings.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        alias = "web_search_options"
+    )]
     pub web_search_options: Option<PerplexityWebSearchOptions>,
     /// Additional Perplexity-specific parameters.
-    #[serde(flatten)]
+    #[serde(default, flatten)]
     pub extra_params: HashMap<String, serde_json::Value>,
 }
 
@@ -301,18 +372,93 @@ mod tests {
         )
         .expect("options serialize");
 
-        assert_eq!(value["search_mode"], serde_json::json!("academic"));
-        assert_eq!(value["search_recency_filter"], serde_json::json!("month"));
-        assert_eq!(value["return_images"], serde_json::json!(true));
-        assert_eq!(value["return_related_questions"], serde_json::json!(true));
+        assert_eq!(value["searchMode"], serde_json::json!("academic"));
+        assert_eq!(value["searchRecencyFilter"], serde_json::json!("month"));
+        assert_eq!(value["returnImages"], serde_json::json!(true));
+        assert_eq!(value["returnRelatedQuestions"], serde_json::json!(true));
         assert_eq!(
-            value["web_search_options"]["search_context_size"],
+            value["webSearchOptions"]["searchContextSize"],
             serde_json::json!("high")
         );
         assert_eq!(
-            value["web_search_options"]["user_location"]["country"],
+            value["webSearchOptions"]["userLocation"]["country"],
             serde_json::json!("US")
         );
         assert_eq!(value["someVendorParam"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn perplexity_options_accept_snake_case_aliases() {
+        let options: PerplexityOptions = serde_json::from_value(serde_json::json!({
+            "search_mode": "academic",
+            "search_recency_filter": "month",
+            "return_related_questions": true,
+            "return_images": true,
+            "disable_search": false,
+            "enable_search_classifier": true,
+            "search_domain_filter": ["example.com"],
+            "search_language_filter": ["en"],
+            "search_after_date_filter": "2026-01-01",
+            "search_before_date_filter": "2026-02-01",
+            "last_updated_after_filter": "2026-01-15",
+            "last_updated_before_filter": "2026-02-15",
+            "image_domain_filter": ["images.example.com"],
+            "image_format_filter": ["png"],
+            "web_search_options": {
+                "search_context_size": "high",
+                "user_location": {
+                    "country": "US",
+                    "timezone": "America/New_York"
+                }
+            }
+        }))
+        .expect("options deserialize");
+
+        assert_eq!(options.search_mode, Some(PerplexitySearchMode::Academic));
+        assert_eq!(
+            options.search_recency_filter,
+            Some(PerplexitySearchRecencyFilter::Month)
+        );
+        assert_eq!(options.return_related_questions, Some(true));
+        assert_eq!(options.return_images, Some(true));
+        assert_eq!(options.disable_search, Some(false));
+        assert_eq!(options.enable_search_classifier, Some(true));
+        assert_eq!(
+            options.search_domain_filter,
+            Some(vec!["example.com".to_string()])
+        );
+        assert_eq!(options.search_language_filter, Some(vec!["en".to_string()]));
+        assert_eq!(
+            options.search_after_date_filter.as_deref(),
+            Some("2026-01-01")
+        );
+        assert_eq!(
+            options.search_before_date_filter.as_deref(),
+            Some("2026-02-01")
+        );
+        assert_eq!(
+            options.last_updated_after_filter.as_deref(),
+            Some("2026-01-15")
+        );
+        assert_eq!(
+            options.last_updated_before_filter.as_deref(),
+            Some("2026-02-15")
+        );
+        assert_eq!(
+            options.image_domain_filter,
+            Some(vec!["images.example.com".to_string()])
+        );
+        assert_eq!(options.image_format_filter, Some(vec!["png".to_string()]));
+
+        let web_search = options
+            .web_search_options
+            .expect("web search options present");
+        assert_eq!(
+            web_search.search_context_size,
+            Some(PerplexitySearchContextSize::High)
+        );
+        let user_location = web_search.user_location.expect("user location present");
+        assert_eq!(user_location.country.as_deref(), Some("US"));
+        assert_eq!(user_location.timezone.as_deref(), Some("America/New_York"));
     }
 }

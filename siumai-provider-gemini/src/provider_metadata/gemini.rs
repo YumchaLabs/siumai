@@ -269,6 +269,20 @@ impl crate::types::provider_metadata::FromMetadata for GeminiMetadata {
     }
 }
 
+fn gemini_provider_metadata(
+    provider_metadata: &crate::types::ProviderMetadataMap,
+) -> Option<HashMap<String, serde_json::Value>> {
+    ["google", "vertex", "gemini"]
+        .into_iter()
+        .find_map(|provider_id| {
+            crate::types::provider_metadata::provider_metadata_object(
+                provider_metadata,
+                provider_id,
+            )
+        })
+        .map(|meta| meta.clone().into_iter().collect())
+}
+
 /// Typed helper for Gemini metadata extraction from `ChatResponse`.
 pub trait GeminiChatResponseExt {
     fn gemini_metadata(&self) -> Option<GeminiMetadata>;
@@ -277,12 +291,9 @@ pub trait GeminiChatResponseExt {
 impl GeminiChatResponseExt for crate::types::ChatResponse {
     fn gemini_metadata(&self) -> Option<GeminiMetadata> {
         use crate::types::provider_metadata::FromMetadata;
-        let meta = self.provider_metadata.as_ref()?;
-        let inner = meta
-            .get("google")
-            .or_else(|| meta.get("vertex"))
-            .or_else(|| meta.get("gemini"))?;
-        GeminiMetadata::from_metadata(inner)
+
+        let inner = gemini_provider_metadata(self.provider_metadata.as_ref()?)?;
+        GeminiMetadata::from_metadata(&inner)
     }
 }
 
@@ -328,11 +339,8 @@ impl GeminiContentPartExt for crate::types::ContentPart {
             | ContentPart::ToolApprovalRequest { .. } => return None,
         };
 
-        let inner = provider_metadata
-            .get("google")
-            .or_else(|| provider_metadata.get("vertex"))
-            .or_else(|| provider_metadata.get("gemini"))?;
-        serde_json::from_value(inner.clone()).ok()
+        let inner = gemini_provider_metadata(provider_metadata)?;
+        serde_json::from_value(serde_json::to_value(inner).ok()?).ok()
     }
 }
 
@@ -359,7 +367,10 @@ mod tests {
         );
 
         let mut outer = HashMap::new();
-        outer.insert("google".to_string(), inner);
+        outer.insert(
+            "google".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
         resp.provider_metadata = Some(outer);
 
         let meta = resp.gemini_metadata().expect("gemini metadata");

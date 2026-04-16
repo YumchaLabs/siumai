@@ -38,5 +38,8 @@ pub use client::DeepSeekClient;
 pub use config::DeepSeekConfig;
 
 // Provider-owned typed options live at the crate root; re-export them under the provider path.
-pub use crate::provider_options::DeepSeekOptions;
+#[allow(deprecated)]
+pub use crate::provider_options::{
+    DeepSeekChatOptions, DeepSeekLanguageModelOptions, DeepSeekOptions,
+};
 pub use spec::DeepSeekSpec;

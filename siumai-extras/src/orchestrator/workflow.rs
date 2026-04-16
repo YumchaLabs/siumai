@@ -18,7 +18,10 @@ use serde_json::{Map, Value, json};
 
 use siumai::prelude::unified::*;
 
-use super::{PrepareStepFn, StepResult, ToolApproval, ToolChoice, ToolLoopAgent, ToolResolver};
+use super::{
+    OrchestratorContext, OrchestratorFinishEvent, PrepareStepFn, StepResult, ToolApproval,
+    ToolChoice, ToolExecutionResult, ToolLoopAgent, ToolResolver,
+};
 use crate::structured_output::{OutputDecodeConfig, decode_typed};
 
 use super::{Orchestrator, OrchestratorBuilder};
@@ -33,7 +36,7 @@ pub const WORKER_RESEARCHER: &str = "researcher";
 /// Per-worker wrapper that ties an agent to a worker identifier.
 pub struct Worker<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     /// Worker identifier (e.g. "planner", "coder").
     pub id: String,
@@ -43,7 +46,7 @@ where
 
 impl<M> Worker<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     /// Create a new worker from an ID and a `ToolLoopAgent`.
     pub fn new(id: impl Into<String>, agent: ToolLoopAgent<M>) -> Self {
@@ -135,7 +138,7 @@ impl WorkflowMemory for InMemoryWorkflowMemory {
 /// via `worker:<id>` tools.
 pub struct WorkflowBuilder<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     model: M,
     tools: Vec<Tool>,
@@ -146,7 +149,7 @@ where
 
 impl<M> WorkflowBuilder<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     /// Create a new workflow builder from a model and tools.
     pub fn new(model: M, tools: Vec<Tool>) -> Self {
@@ -186,10 +189,10 @@ where
         self
     }
 
-    /// Final finish callback with all steps (non-stream).
+    /// Final finish callback with the final response, steps, and aggregated usage.
     pub fn on_finish<F>(mut self, cb: F) -> Self
     where
-        F: Fn(&[StepResult]) + Send + Sync + 'static,
+        F: Fn(&OrchestratorFinishEvent) + Send + Sync + 'static,
     {
         self.builder = self.builder.on_finish(cb);
         self
@@ -218,6 +221,12 @@ where
     /// Prepare-step callback for dynamic tool/message selection (non-stream).
     pub fn prepare_step(mut self, f: PrepareStepFn) -> Self {
         self.builder = self.builder.prepare_step(f);
+        self
+    }
+
+    /// Set the initial orchestration context for both non-stream and stream variants.
+    pub fn context(mut self, context: OrchestratorContext) -> Self {
+        self.builder = self.builder.context(context);
         self
     }
 
@@ -326,7 +335,7 @@ where
 /// High-level workflow that coordinates an orchestrator and multiple workers.
 pub struct Workflow<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     orchestrator: Orchestrator<M>,
     workers: HashMap<String, Worker<M>>,
@@ -335,7 +344,7 @@ where
 
 impl<M> Workflow<M>
 where
-    M: ChatCapability + Send + Sync + 'static,
+    M: LanguageModel + Send + Sync + 'static,
 {
     /// Create a new workflow from an orchestrator.
     ///
@@ -427,7 +436,7 @@ where
         // worker agent, and delegates others to the base resolver.
         struct WorkflowToolResolver<'a, M>
         where
-            M: ChatCapability + Send + Sync + 'static,
+            M: LanguageModel + Send + Sync + 'static,
         {
             workers: &'a HashMap<String, Worker<M>>,
             base: Option<&'a dyn ToolResolver>,
@@ -437,7 +446,7 @@ where
         #[async_trait::async_trait]
         impl<'a, M> ToolResolver for WorkflowToolResolver<'a, M>
         where
-            M: ChatCapability + Send + Sync + 'static,
+            M: LanguageModel + Send + Sync + 'static,
         {
             async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, LlmError> {
                 // Worker tools: "worker:<id>"
@@ -490,6 +499,81 @@ where
                         "No ToolResolver available for tool: {name}"
                     )))
                 }
+            }
+
+            async fn call_tool_with_context(
+                &self,
+                name: &str,
+                arguments: Value,
+                context: &OrchestratorContext,
+            ) -> Result<Value, LlmError> {
+                if let Some(worker_id) = name.strip_prefix("worker:") {
+                    let worker = self.workers.get(worker_id).ok_or_else(|| {
+                        LlmError::ToolCallError(format!("Unknown worker: {}", worker_id))
+                    })?;
+
+                    let input = arguments
+                        .get("input")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+
+                    let msgs = vec![ChatMessage::user(input).build()];
+                    let base = self.base.ok_or_else(|| {
+                        LlmError::ConfigurationError(
+                            "Workflow worker requires a base ToolResolver for nested tools".into(),
+                        )
+                    })?;
+
+                    let result = worker.agent.generate(msgs, base).await?;
+
+                    if let Some(output) = &result.output {
+                        let mut guard = self.state.lock().unwrap();
+                        let worker_key = worker_id.to_string();
+                        guard
+                            .worker_outputs
+                            .insert(worker_key.clone(), output.clone());
+                        let entry = guard.worker_steps.entry(worker_key).or_default();
+                        entry.extend(result.steps.clone());
+                    }
+
+                    Ok(json!({
+                        "worker_id": worker_id,
+                        "text": result.text(),
+                        "output": result.output,
+                    }))
+                } else if let Some(base) = self.base {
+                    base.call_tool_with_context(name, arguments, context).await
+                } else {
+                    Err(LlmError::ConfigurationError(format!(
+                        "No ToolResolver available for tool: {name}"
+                    )))
+                }
+            }
+
+            async fn call_tool_stream_with_context(
+                &self,
+                name: &str,
+                arguments: Value,
+                context: &OrchestratorContext,
+            ) -> Result<
+                futures::stream::BoxStream<'static, Result<ToolExecutionResult, LlmError>>,
+                LlmError,
+            > {
+                if let Some(base) = self.base
+                    && name.strip_prefix("worker:").is_none()
+                {
+                    return base
+                        .call_tool_stream_with_context(name, arguments, context)
+                        .await;
+                }
+
+                let value = self
+                    .call_tool_with_context(name, arguments, context)
+                    .await?;
+                Ok(Box::pin(futures::stream::once(async move {
+                    Ok(ToolExecutionResult::final_result(value))
+                })))
             }
         }
 

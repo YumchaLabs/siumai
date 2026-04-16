@@ -60,19 +60,7 @@ impl OpenAiResponsesStreamPartsBridge {
             return out;
         }
 
-        match event_type.as_str() {
-            // Gemini: multiplexed custom events
-            "gemini:tool" => self.bridge_tool_like_custom_event(&data),
-            // Legacy Gemini: split tool events (kept for backward compatibility)
-            "gemini:tool-call" | "gemini:tool-result" => self.bridge_tool_like_custom_event(&data),
-            "gemini:reasoning" => self.bridge_reasoning_multiplexed_custom_event(&data),
-
-            // Anthropic legacy reasoning hints may still arrive without a full v3 payload.
-            "anthropic:reasoning-start" => self.bridge_anthropic_reasoning_start_end(true, &data),
-            "anthropic:reasoning-end" => self.bridge_anthropic_reasoning_start_end(false, &data),
-
-            _ => vec![ChatStreamEvent::Custom { event_type, data }],
-        }
+        vec![ChatStreamEvent::Custom { event_type, data }]
     }
 
     fn bridge_v3_custom_event(&mut self, data: &serde_json::Value) -> Option<Vec<ChatStreamEvent>> {
@@ -104,89 +92,6 @@ impl OpenAiResponsesStreamPartsBridge {
             | LanguageModelV3StreamPart::Custom(_)
             | LanguageModelV3StreamPart::File(_)
             | LanguageModelV3StreamPart::ReasoningFile(_) => None,
-        }
-    }
-
-    fn bridge_reasoning_multiplexed_custom_event(
-        &self,
-        data: &serde_json::Value,
-    ) -> Vec<ChatStreamEvent> {
-        if let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) {
-            return vec![part.to_part_event()];
-        }
-
-        let tpe = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let id = data.get("id").and_then(|v| v.as_str()).unwrap_or("");
-
-        let part = match tpe {
-            "reasoning-start" => LanguageModelV3StreamPart::ReasoningStart {
-                id: id.to_string(),
-                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
-            },
-            "reasoning-delta" => LanguageModelV3StreamPart::ReasoningDelta {
-                id: id.to_string(),
-                delta: data
-                    .get("delta")
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default()
-                    .to_string(),
-                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
-            },
-            "reasoning-end" => LanguageModelV3StreamPart::ReasoningEnd {
-                id: id.to_string(),
-                provider_metadata: provider_metadata_from_value(data.get("providerMetadata")),
-            },
-            _ => {
-                return vec![ChatStreamEvent::Custom {
-                    event_type: "gemini:reasoning".to_string(),
-                    data: data.clone(),
-                }];
-            }
-        };
-
-        vec![part.to_part_event()]
-    }
-
-    fn bridge_anthropic_reasoning_start_end(
-        &self,
-        is_start: bool,
-        data: &serde_json::Value,
-    ) -> Vec<ChatStreamEvent> {
-        if let Some(part) = LanguageModelV3StreamPart::parse_loose_json(data) {
-            return vec![part.to_part_event()];
-        }
-
-        let idx = data
-            .get("contentBlockIndex")
-            .and_then(|v| v.as_u64())
-            .map(|v| v.to_string())
-            .unwrap_or_default();
-
-        let provider_metadata = provider_metadata_from_value(data.get("providerMetadata"));
-        let part = if is_start {
-            LanguageModelV3StreamPart::ReasoningStart {
-                id: idx,
-                provider_metadata,
-            }
-        } else {
-            LanguageModelV3StreamPart::ReasoningEnd {
-                id: idx,
-                provider_metadata,
-            }
-        };
-
-        vec![part.to_part_event()]
-    }
-
-    fn bridge_tool_like_custom_event(&mut self, data: &serde_json::Value) -> Vec<ChatStreamEvent> {
-        let tpe = data.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        match tpe {
-            "tool-call" => self.bridge_tool_call_custom_event(data),
-            "tool-result" => self.bridge_tool_result_custom_event(data),
-            _ => vec![ChatStreamEvent::Custom {
-                event_type: "gemini:tool".to_string(),
-                data: data.clone(),
-            }],
         }
     }
 

@@ -1505,17 +1505,17 @@ impl OpenAiResponsesEventConverter {
                         };
                         let title = obj.get("title").and_then(|v| v.as_str());
 
-                        extra_events.push(crate::streaming::ChatStreamEvent::Custom {
-                            event_type: "openai:source".to_string(),
-                            data: serde_json::json!({
-                                "type": "source",
-                                "sourceType": "url",
-                                "id": format!("{tool_call_id}:{i}"),
-                                "url": url,
-                                "title": title,
-                                "toolCallId": tool_call_id,
-                            }),
-                        });
+                        extra_events.push(
+                            crate::streaming::LanguageModelV3StreamPart::Source(
+                                crate::streaming::LanguageModelV3Source::Url {
+                                    id: format!("{tool_call_id}:{i}"),
+                                    url: url.to_string(),
+                                    title: title.map(ToString::to_string),
+                                    provider_metadata: None,
+                                },
+                            )
+                            .to_part_event(),
+                        );
                     }
                 }
 

@@ -6,6 +6,7 @@ use super::transformers::CompatResponseTransformer;
 use crate::execution::transformers::response::ResponseTransformer;
 use crate::streaming::StreamProcessor;
 use crate::streaming::{ChatStreamEvent, SseEventConverter, SseStreamExt};
+use crate::types::ChatStreamPart;
 use eventsource_stream::Event;
 use futures_util::StreamExt;
 use std::sync::Arc;
@@ -33,6 +34,7 @@ async fn streaming_tool_calls_match_non_streaming_tool_calls() {
     let tx = CompatResponseTransformer {
         config: cfg,
         adapter,
+        provider_metadata_key: None,
     };
 
     let raw = serde_json::json!({
@@ -151,6 +153,7 @@ async fn xai_runtime_provider_streaming_tool_calls_match_non_streaming_tool_call
     let tx = CompatResponseTransformer {
         config: cfg,
         adapter,
+        provider_metadata_key: None,
     };
 
     let raw = serde_json::json!({
@@ -269,6 +272,7 @@ async fn deepseek_runtime_provider_streaming_tool_calls_match_non_streaming_tool
     let tx = CompatResponseTransformer {
         config: cfg,
         adapter,
+        provider_metadata_key: None,
     };
 
     let raw = serde_json::json!({
@@ -854,7 +858,7 @@ async fn parser_defers_response_metadata_until_model_router_chunk_has_real_metad
         first_events.first(),
         Some(ChatStreamEvent::StreamStart { metadata })
             if metadata.id.is_none()
-                && metadata.model.is_none()
+                && metadata.model.as_deref() == Some("gpt-4o-mini")
                 && metadata.created.is_none()
     ));
     assert!(
@@ -1195,4 +1199,102 @@ async fn end_to_end_sse_multi_event_flow() {
         matches!(events.last(), Some(ChatStreamEvent::StreamEnd { .. })),
         "last should be StreamEnd"
     );
+}
+
+#[tokio::test]
+async fn compat_stream_finish_keeps_requested_provider_metadata_key_even_without_extra_fields() {
+    let base = "https://api.example.com/v1".to_string();
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "test-provider".to_string(),
+        name: "Test Provider".to_string(),
+        base_url: base.clone(),
+        field_mappings: Default::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: None,
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+    let cfg = OpenAiCompatibleConfig::new("test-provider", "sk-test", &base, adapter.clone())
+        .with_model("test-model");
+    let conv = OpenAiCompatibleEventConverter::new(cfg, adapter)
+        .with_provider_metadata_key("testProvider");
+
+    let finish_event = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chatcmpl_1","model":"test-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let events = conv.convert_event(finish_event).await;
+    let finish = events
+        .into_iter()
+        .flatten()
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::Finish {
+                        provider_metadata, ..
+                    },
+            } => provider_metadata,
+            _ => None,
+        })
+        .expect("finish provider metadata");
+
+    assert!(finish.get("testProvider").is_some());
+    assert!(finish.get("test-provider").is_none());
+}
+
+#[tokio::test]
+async fn compat_stream_tool_call_carries_thought_signature_under_requested_metadata_key() {
+    let base = "https://api.example.com/v1".to_string();
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+        id: "test-provider".to_string(),
+        name: "Test Provider".to_string(),
+        base_url: base.clone(),
+        field_mappings: Default::default(),
+        capabilities: vec![
+            "chat".to_string(),
+            "streaming".to_string(),
+            "tools".to_string(),
+        ],
+        default_model: None,
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    }));
+    let cfg = OpenAiCompatibleConfig::new("test-provider", "sk-test", &base, adapter.clone())
+        .with_model("test-model");
+    let conv = OpenAiCompatibleEventConverter::new(cfg, adapter)
+        .with_provider_metadata_key("testProvider");
+
+    let start_event = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chatcmpl_1","model":"test-model","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"rust\"}"},"extra_content":{"google":{"thought_signature":"<Sig>"}}}]}}]}"#
+            .to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let events = conv.convert_event(start_event).await;
+    let tool_call_metadata = events
+        .into_iter()
+        .flatten()
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::ToolCall(tool_call),
+            } => tool_call.provider_metadata,
+            _ => None,
+        })
+        .expect("tool call provider metadata");
+
+    assert_eq!(
+        tool_call_metadata
+            .get("testProvider")
+            .and_then(|value| value.get("thoughtSignature")),
+        Some(&serde_json::json!("<Sig>"))
+    );
+    assert!(tool_call_metadata.get("test-provider").is_none());
 }

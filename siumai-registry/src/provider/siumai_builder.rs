@@ -9,8 +9,8 @@ use crate::retry_api::RetryOptions;
 use crate::types::{CommonParams, HttpConfig, ProviderType};
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::provider_options::anthropic::{
-    AnthropicContainerConfig, AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode,
-    ThinkingModeConfig,
+    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort, AnthropicOptions,
+    AnthropicStructuredOutputMode, ThinkingModeConfig,
 };
 #[cfg(feature = "deepseek")]
 use siumai_provider_deepseek::provider_options::deepseek::DeepSeekOptions;
@@ -302,6 +302,7 @@ pub struct SiumaiBuilder {
     pub(crate) http_config: HttpConfig,
     pub(crate) organization: Option<String>,
     pub(crate) project: Option<String>,
+    pub(crate) location: Option<String>,
     pub(crate) tracing_config: Option<crate::observability::tracing::TracingConfig>,
     // Unified reasoning configuration
     pub(crate) reasoning_enabled: Option<bool>,
@@ -340,6 +341,7 @@ impl SiumaiBuilder {
             http_config: HttpConfig::default(),
             organization: None,
             project: None,
+            location: None,
             tracing_config: None,
             reasoning_enabled: None,
             reasoning_budget: None,
@@ -461,6 +463,12 @@ impl SiumaiBuilder {
         self
     }
 
+    /// Set location/region (for Google Vertex family providers such as Vertex MaaS).
+    pub fn location<S: Into<String>>(mut self, location: S) -> Self {
+        self.location = Some(location.into());
+        self
+    }
+
     /// Enable a specific capability
     pub fn with_capability<S: Into<String>>(mut self, capability: S) -> Self {
         self.capabilities.push(capability.into());
@@ -534,7 +542,10 @@ impl SiumaiBuilder {
 
     #[cfg(feature = "anthropic")]
     /// Set Anthropic default context-management options on the shared builder.
-    pub fn with_anthropic_context_management(self, context_management: serde_json::Value) -> Self {
+    pub fn with_anthropic_context_management(
+        self,
+        context_management: AnthropicContextManagementConfig,
+    ) -> Self {
         self.with_anthropic_options(
             AnthropicOptions::new().with_context_management(context_management),
         )
@@ -912,6 +923,13 @@ impl SiumaiBuilder {
     /// Build a Google Vertex provider base URL aligned with Vercel AI SDK (`v1beta1`).
     pub fn base_url_for_google_vertex(mut self, project: &str, location: &str) -> Self {
         let base = crate::utils::vertex::google_vertex_base_url(project, location);
+        self.base_url = Some(base);
+        self
+    }
+
+    /// Build a Google Vertex MaaS provider base URL aligned with AI SDK.
+    pub fn base_url_for_vertex_maas(mut self, project: &str, location: &str) -> Self {
+        let base = crate::utils::vertex::google_vertex_maas_base_url(project, location);
         self.base_url = Some(base);
         self
     }

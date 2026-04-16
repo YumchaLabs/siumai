@@ -161,7 +161,12 @@ async fn build_openai_client_with_mode(
     Ok(Arc::new(client))
 }
 
-#[cfg(feature = "openai")]
+#[cfg(any(
+    feature = "openai",
+    feature = "togetherai",
+    feature = "deepinfra",
+    feature = "google-vertex"
+))]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_openai_compatible_typed_client(
     provider_id: String,
@@ -172,6 +177,7 @@ pub async fn build_openai_compatible_typed_client(
     reasoning_enabled: Option<bool>,
     reasoning_budget: Option<i32>,
     http_config: HttpConfig,
+    token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
     _provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
@@ -188,7 +194,7 @@ pub async fn build_openai_compatible_typed_client(
         let mut guard = registry
             .write()
             .map_err(|_| LlmError::InternalError("Registry lock poisoned".to_string()))?;
-        // Ensure provider is registered
+        // Ensure provider adapter is registered without clobbering native metadata/capabilities.
         let _ = guard.register_openai_compatible(&provider_id);
         let rec = guard.resolve(&provider_id).cloned().ok_or_else(|| {
             LlmError::ConfigurationError(format!(
@@ -223,6 +229,9 @@ pub async fn build_openai_compatible_typed_client(
             crate::utils::model_alias::normalize_model_id(&resolved_id, &common_params.model)
         })
         .with_http_config(http_config.clone());
+    if let Some(token_provider) = token_provider {
+        config = config.with_token_provider(token_provider);
+    }
     if let Some(enabled) = reasoning_enabled {
         config = config.with_reasoning(enabled);
     }
@@ -273,7 +282,12 @@ pub async fn build_openai_compatible_typed_client(
     Ok(client)
 }
 
-#[cfg(feature = "openai")]
+#[cfg(any(
+    feature = "openai",
+    feature = "togetherai",
+    feature = "deepinfra",
+    feature = "google-vertex"
+))]
 #[allow(clippy::too_many_arguments)]
 pub async fn build_openai_compatible_client(
     provider_id: String,
@@ -284,6 +298,7 @@ pub async fn build_openai_compatible_client(
     reasoning_enabled: Option<bool>,
     reasoning_budget: Option<i32>,
     http_config: HttpConfig,
+    token_provider: Option<std::sync::Arc<dyn crate::auth::TokenProvider>>,
     provider_params: Option<()>, // Removed ProviderParams
     tracing_config: Option<crate::observability::tracing::TracingConfig>,
     retry_options: Option<RetryOptions>,
@@ -300,6 +315,7 @@ pub async fn build_openai_compatible_client(
         reasoning_enabled,
         reasoning_budget,
         http_config,
+        token_provider,
         provider_params,
         tracing_config,
         retry_options,

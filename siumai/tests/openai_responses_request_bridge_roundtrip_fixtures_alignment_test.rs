@@ -101,7 +101,12 @@ fn openai_responses_request_bridge_roundtrip_fixture_exact_cases_match() {
         "structured-output-json-schema",
         "system-mode-system",
         "tool-message-content-file-id-mixed",
+        "user-image-file-id",
+        "user-image-file-id-assistant-prefix",
         "user-text",
+        "user-multiple-file-id-prefixes",
+        "user-pdf-file-id",
+        "user-pdf-file-id-assistant-prefix",
         "user-image-detail-openai-low",
     ];
 
@@ -125,6 +130,10 @@ fn openai_responses_request_bridge_ignores_assistant_tool_call_legacy_metadata_i
                 tool_name: "weather".to_string(),
                 arguments: json!({ "city": "Tokyo" }),
                 provider_executed: None,
+                dynamic: None,
+                invalid: None,
+                error: None,
+                title: None,
                 provider_options: Default::default(),
                 provider_metadata: Some(std::collections::HashMap::from([(
                     "openai".to_string(),

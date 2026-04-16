@@ -17,9 +17,12 @@ impl AnthropicToolWarningsMiddleware {
         matches!(
             id,
             crate::tools::anthropic::WEB_SEARCH_20250305_ID
+                | crate::tools::anthropic::WEB_SEARCH_20260209_ID
                 | crate::tools::anthropic::WEB_FETCH_20250910_ID
+                | crate::tools::anthropic::WEB_FETCH_20260209_ID
                 | crate::tools::anthropic::COMPUTER_20250124_ID
                 | crate::tools::anthropic::COMPUTER_20241022_ID
+                | crate::tools::anthropic::COMPUTER_20251124_ID
                 | crate::tools::anthropic::TEXT_EDITOR_20250124_ID
                 | crate::tools::anthropic::TEXT_EDITOR_20241022_ID
                 | crate::tools::anthropic::TEXT_EDITOR_20250429_ID
@@ -30,6 +33,7 @@ impl AnthropicToolWarningsMiddleware {
                 | crate::tools::anthropic::TOOL_SEARCH_BM25_20251119_ID
                 | crate::tools::anthropic::CODE_EXECUTION_20250522_ID
                 | crate::tools::anthropic::CODE_EXECUTION_20250825_ID
+                | crate::tools::anthropic::CODE_EXECUTION_20260120_ID
                 | crate::tools::anthropic::MEMORY_20250818_ID
         )
     }
@@ -62,38 +66,52 @@ impl AnthropicToolWarningsMiddleware {
         // Settings / thinking-mode warnings (Vercel-aligned)
         // --------------------------------------------------------------------
         #[derive(Debug, Clone, Copy)]
+        enum ThinkingKind {
+            Disabled,
+            Enabled,
+            Adaptive,
+        }
+
+        #[derive(Debug, Clone, Copy)]
         struct ThinkingState {
-            enabled: bool,
+            kind: ThinkingKind,
             budget_tokens: Option<u32>,
+        }
+
+        impl ThinkingState {
+            fn is_enabled(self) -> bool {
+                !matches!(self.kind, ThinkingKind::Disabled)
+            }
         }
 
         fn thinking_state(req: &ChatRequest) -> ThinkingState {
             let Some(v) = req.provider_options_map.get("anthropic") else {
                 return ThinkingState {
-                    enabled: false,
+                    kind: ThinkingKind::Disabled,
                     budget_tokens: None,
                 };
             };
             let Some(obj) = v.as_object() else {
                 return ThinkingState {
-                    enabled: false,
+                    kind: ThinkingKind::Disabled,
                     budget_tokens: None,
                 };
             };
 
             // Vercel-style: `thinking: { type: "enabled", budgetTokens? }`
             if let Some(t) = obj.get("thinking").and_then(|v| v.as_object()) {
-                let enabled = t
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .is_some_and(|s| s == "enabled");
+                let kind = match t.get("type").and_then(|v| v.as_str()) {
+                    Some("enabled") => ThinkingKind::Enabled,
+                    Some("adaptive") => ThinkingKind::Adaptive,
+                    _ => ThinkingKind::Disabled,
+                };
                 let budget = t
                     .get("budgetTokens")
                     .or_else(|| t.get("budget_tokens"))
                     .and_then(|v| v.as_u64())
                     .and_then(|v| u32::try_from(v).ok());
                 return ThinkingState {
-                    enabled,
+                    kind,
                     budget_tokens: budget,
                 };
             }
@@ -111,22 +129,25 @@ impl AnthropicToolWarningsMiddleware {
                     .and_then(|v| v.as_u64())
                     .and_then(|v| u32::try_from(v).ok());
                 return ThinkingState {
-                    enabled,
+                    kind: if enabled {
+                        ThinkingKind::Enabled
+                    } else {
+                        ThinkingKind::Disabled
+                    },
                     budget_tokens: budget,
                 };
             }
 
             ThinkingState {
-                enabled: false,
+                kind: ThinkingKind::Disabled,
                 budget_tokens: None,
             }
         }
 
         let thinking = thinking_state(req);
-        let thinking_budget = if thinking.enabled {
-            thinking.budget_tokens.or(Some(1024))
-        } else {
-            None
+        let thinking_budget = match thinking.kind {
+            ThinkingKind::Enabled => thinking.budget_tokens.or(Some(1024)),
+            ThinkingKind::Adaptive | ThinkingKind::Disabled => None,
         };
 
         // Vercel-aligned: unsupported standardized settings (ignored by Anthropic).
@@ -163,8 +184,8 @@ impl AnthropicToolWarningsMiddleware {
             }
         }
 
-        if thinking.enabled {
-            if thinking.budget_tokens.is_none() {
+        if thinking.is_enabled() {
+            if matches!(thinking.kind, ThinkingKind::Enabled) && thinking.budget_tokens.is_none() {
                 warnings.push(Warning::unsupported_setting(
                     "extended thinking",
                     Some(

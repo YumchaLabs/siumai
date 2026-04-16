@@ -22,6 +22,9 @@
 //!
 //! cargo run --example moonshot-long-context --features openai
 //! ```
+//!
+//! Canonical built-in compat id: `moonshotai`
+//! Legacy compat alias: `moonshot` (hidden migration bridge only)
 
 use siumai::models;
 use siumai::prelude::*;
@@ -31,9 +34,10 @@ use siumai::provider_ext::openai_compatible::OpenAiCompatibleClient;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Use Kimi K2 for maximum context window (256K tokens).
     // Note: API key is automatically read from `MOONSHOT_API_KEY`.
+    // Canonical built-in compat id is `moonshotai`.
     let client = OpenAiCompatibleClient::from_builtin_env(
-        "moonshot",
-        Some(models::openai_compatible::moonshot::KIMI_K2_0905_PREVIEW),
+        "moonshotai",
+        Some(models::openai_compatible::moonshotai::KIMI_K2_0905),
     )
     .await?;
 
@@ -195,7 +199,7 @@ ensure responsible development, and work towards AI systems that benefit all of 
         qa_response.content_text().unwrap_or_default()
     );
     println!("Notes:");
-    println!("- Moonshot handles long Chinese and English documents well");
+    println!("- MoonshotAI handles long Chinese and English documents well");
     println!("- Use Kimi K2 for the maximum context window");
     println!("- Long context helps with multi-document analysis and follow-up Q&A");
     println!("- This pattern works well for research or technical documentation");

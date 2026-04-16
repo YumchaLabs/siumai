@@ -117,8 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }))
-        .on_finish(std::sync::Arc::new(|steps| {
-            println!("  ✓ Agent finished in {} steps", steps.len());
+        .on_finish(std::sync::Arc::new(|event| {
+            println!("  ✓ Agent finished in {} steps", event.steps.len());
         }));
 
     // Create resolver
