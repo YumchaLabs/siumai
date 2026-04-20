@@ -28,8 +28,15 @@ pub struct TtsRequest {
     pub voice: Option<String>,
     /// Audio format (mp3, wav, etc.)
     pub format: Option<String>,
+    /// Instructions for the speech generation.
+    pub instructions: Option<String>,
     /// Speech speed (0.25 to 4.0)
     pub speed: Option<f32>,
+    /// Optional language hint for speech generation.
+    ///
+    /// Provider support varies. Providers that do not support explicit language
+    /// selection may ignore this field or emit a warning.
+    pub language: Option<String>,
     /// Audio quality/model
     pub model: Option<String>,
     /// Open provider options map (Vercel-aligned).
@@ -47,7 +54,9 @@ impl TtsRequest {
             text,
             voice: None,
             format: None,
+            instructions: None,
             speed: None,
+            language: None,
             model: None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
@@ -67,9 +76,26 @@ impl TtsRequest {
         self
     }
 
+    /// AI SDK-style alias for setting the audio format.
+    pub fn with_output_format(self, format: impl Into<String>) -> Self {
+        self.with_format(format.into())
+    }
+
+    /// Set speech generation instructions.
+    pub fn with_instructions(mut self, instructions: impl Into<String>) -> Self {
+        self.instructions = Some(instructions.into());
+        self
+    }
+
     /// Set the speech speed
     pub const fn with_speed(mut self, speed: f32) -> Self {
         self.speed = Some(speed);
+        self
+    }
+
+    /// Set an optional language hint for speech generation.
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = Some(language.into());
         self
     }
 

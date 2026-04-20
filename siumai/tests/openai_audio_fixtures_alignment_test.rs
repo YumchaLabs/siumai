@@ -4,7 +4,7 @@
 use serde::de::DeserializeOwned;
 use siumai::extensions::TranscriptionExtras;
 use siumai::prelude::unified::{
-    ProviderOptionsMap, Siumai, SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest,
+    Siumai, SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest,
 };
 use std::path::{Path, PathBuf};
 use wiremock::matchers::{
@@ -60,14 +60,6 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
         .await
         .expect("build ok");
 
-    let mut provider_options_map = ProviderOptionsMap::default();
-    provider_options_map.insert(
-        "openai",
-        serde_json::json!({
-            "instructions": "speak clearly"
-        }),
-    );
-
     let resp = client
         .tts(
             TtsRequest::new("hello".to_string())
@@ -75,13 +67,23 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
                 .with_voice("alloy".to_string())
                 .with_format("wav".to_string())
                 .with_speed(1.0)
-                .with_provider_options_map(provider_options_map),
+                .with_instructions("speak clearly")
+                .with_language("en"),
         )
         .await
         .expect("tts ok");
 
     assert_eq!(resp.format, "wav");
     assert_eq!(resp.audio_data, b"RIFF....WAVE".to_vec());
+    assert_eq!(
+        resp.warnings,
+        Some(vec![siumai::types::Warning::unsupported(
+            "language",
+            Some(
+                "OpenAI speech models do not support language selection. Language parameter \"en\" was ignored."
+            )
+        )])
+    );
 }
 
 #[tokio::test]

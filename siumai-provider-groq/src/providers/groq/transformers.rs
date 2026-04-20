@@ -12,6 +12,7 @@ impl GroqAudioTransformer {
             tts_voice: std::borrow::Cow::Borrowed("Fritz-PlayAI"),
             tts_format: std::borrow::Cow::Borrowed("wav"),
             tts_speed: Some(1.0),
+            tts_include_language: false,
             stt_model: std::borrow::Cow::Borrowed("whisper-large-v3"),
             stt_file_name: std::borrow::Cow::Borrowed("audio.wav"),
             stt_response_format: None,

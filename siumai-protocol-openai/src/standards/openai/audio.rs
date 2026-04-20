@@ -16,6 +16,7 @@ pub struct OpenAiAudioDefaults {
     pub tts_voice: Cow<'static, str>,
     pub tts_format: Cow<'static, str>,
     pub tts_speed: Option<f32>,
+    pub tts_include_language: bool,
 
     pub stt_model: Cow<'static, str>,
     pub stt_file_name: Cow<'static, str>,
@@ -31,6 +32,7 @@ impl Default for OpenAiAudioDefaults {
             tts_voice: Cow::Borrowed("alloy"),
             tts_format: Cow::Borrowed("mp3"),
             tts_speed: None,
+            tts_include_language: false,
             stt_model: Cow::Borrowed("whisper-1"),
             stt_file_name: Cow::Borrowed("audio.mp3"),
             stt_response_format: Some(Cow::Borrowed("json")),
@@ -100,6 +102,26 @@ fn build_tts_body_impl(
             .map(|v| v as f32)
         })
         .or(defaults.tts_speed);
+    let instructions = req.instructions.clone().or_else(|| {
+        lookup_extra(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            "instructions",
+        )
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
+    });
+    let language = req.language.clone().or_else(|| {
+        lookup_extra_any(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            &["language"],
+        )
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
+    });
     let mut json = serde_json::json!({
         "model": model,
         "input": req.text,
@@ -109,15 +131,13 @@ fn build_tts_body_impl(
     if let Some(s) = speed {
         json["speed"] = serde_json::json!(s);
     }
-    if let Some(instr) = lookup_extra(
-        provider_id,
-        &req.provider_options_map,
-        &req.extra_params,
-        "instructions",
-    )
-    .and_then(|v| v.as_str())
-    {
+    if let Some(instr) = instructions {
         json["instructions"] = serde_json::json!(instr);
+    }
+    if defaults.tts_include_language
+        && let Some(language) = language
+    {
+        json["language"] = serde_json::json!(language);
     }
     Ok(AudioHttpBody::Json(json))
 }
@@ -407,6 +427,7 @@ mod tests {
     fn configurable_defaults_apply_speed_and_stt_options() {
         let defaults = OpenAiAudioDefaults {
             tts_speed: Some(1.2),
+            tts_include_language: false,
             stt_response_format: None,
             stt_include_language: false,
             stt_include_timestamp_granularities: false,
@@ -434,6 +455,38 @@ mod tests {
             AudioHttpBody::Json(j) => {
                 let speed = j["speed"].as_f64().expect("speed should be a number");
                 assert!((speed - 1.5).abs() < 1e-6);
+            }
+            _ => panic!("expected JSON body"),
+        }
+    }
+
+    #[test]
+    fn tts_unified_instructions_override_provider_options() {
+        let tx = OpenAiAudioTransformer;
+        let req = TtsRequest::new("hello".to_string())
+            .with_instructions("speak calmly")
+            .with_provider_option("openai", serde_json::json!({ "instructions": "ignored" }));
+
+        match tx.build_tts_body(&req).unwrap() {
+            AudioHttpBody::Json(j) => {
+                assert_eq!(j["instructions"], "speak calmly");
+            }
+            _ => panic!("expected JSON body"),
+        }
+    }
+
+    #[test]
+    fn tts_language_serializes_only_when_provider_defaults_enable_it() {
+        let defaults = OpenAiAudioDefaults {
+            tts_include_language: true,
+            ..Default::default()
+        };
+        let tx = OpenAiAudioTransformerWithProviderId::with_defaults("compat", defaults);
+        let req = TtsRequest::new("hello".to_string()).with_language("en");
+
+        match tx.build_tts_body(&req).unwrap() {
+            AudioHttpBody::Json(j) => {
+                assert_eq!(j["language"], "en");
             }
             _ => panic!("expected JSON body"),
         }

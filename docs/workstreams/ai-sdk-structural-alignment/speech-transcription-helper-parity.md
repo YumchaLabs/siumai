@@ -24,6 +24,10 @@ Upstream reference:
   `provider_metadata`, which makes the shared Rust provider contract much closer to AI SDK
   `SpeechModelV4Result` / `TranscriptionModelV4Result` instead of forcing every high-level helper
   to invent those slots ad hoc.
+- The stable `TtsRequest` surface now also carries AI SDK-auditable speech call-option fields
+  directly instead of forcing callers through provider-owned escape hatches for common cases:
+  `instructions` and `language` are first-class request fields, and
+  `with_output_format(...)` is now available as an AI SDK-style alias for `with_format(...)`.
 - The shared `AudioExecutor` now captures response headers plus model identity for successful TTS
   and STT calls instead of dropping that information below the provider boundary.
 - OpenAI, OpenAI-compatible, Azure, Groq, xAI, and MiniMaxi audio paths now all preserve that
@@ -67,6 +71,9 @@ Reasoning:
   high-level result shape while the lower-level raw provider responses remain available through the
   family traits (`SpeechModel::synthesize` / `TranscriptionModel::transcribe`) and
   `into_tts_response()` / `into_stt_response()` conversions on the helper results.
+- Provider-owned audio option helpers remain as compatibility escape hatches, but common speech
+  request fields no longer need to be tunneled through `providerOptions` just to reach the shared
+  request contract.
 - Providers that do not use the shared audio executor can still populate `response` manually, but
   the current audited providers now inherit the stable behavior from the executor path directly.
 - Audio translation still uses the same stable `SttResponse` shape, so provider-owned translation

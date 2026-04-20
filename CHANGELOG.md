@@ -155,6 +155,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   Rust fields. Successful-but-empty `siumai::speech::synthesize(...)` /
   `siumai::transcription::transcribe(...)` calls now also return `LlmError::NoSpeechGenerated` /
   `LlmError::NoTranscriptGenerated` instead of silently returning empty audio/text.
+- Stable speech request typing now also closes the last obvious AI SDK shared call-option gap:
+  `TtsRequest` carries first-class `instructions` and `language`, exposes
+  `with_output_format(...)` as an AI SDK-style alias for `with_format(...)`, and the shared
+  OpenAI-family audio transformer now consumes unified `instructions` directly instead of requiring
+  provider-owned `providerOptions` for that common speech field.
 - DeepInfra now has a dedicated workstream under
   `docs/workstreams/deepinfra-unified-provider-surface/`, documenting the chosen first-class
   provider architecture and remaining follow-up audit scope.

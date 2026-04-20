@@ -2,7 +2,7 @@ use super::OpenAiClient;
 use crate::error::LlmError;
 use crate::traits::AudioCapability;
 use crate::types::{
-    AudioStream, AudioStreamEvent, AudioTranslationRequest, SttRequest, TtsRequest,
+    AudioStream, AudioStreamEvent, AudioTranslationRequest, SttRequest, TtsRequest, Warning,
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -16,6 +16,23 @@ fn headers_to_map(headers: &HeaderMap) -> HashMap<String, String> {
             Some((key.as_str().to_string(), value.to_str().ok()?.to_string()))
         })
         .collect()
+}
+
+fn openai_tts_warnings(request: &TtsRequest) -> Option<Vec<Warning>> {
+    let mut warnings = Vec::new();
+
+    if let Some(language) = request.language.as_deref()
+        && !language.trim().is_empty()
+    {
+        warnings.push(Warning::unsupported(
+            "language",
+            Some(format!(
+                "OpenAI speech models do not support language selection. Language parameter \"{language}\" was ignored."
+            )),
+        ));
+    }
+
+    (!warnings.is_empty()).then_some(warnings)
 }
 
 #[async_trait]
@@ -36,6 +53,7 @@ impl AudioCapability for OpenAiClient {
         let mut request = request;
         request.model = Some(self.resolved_tts_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
+        let warnings = openai_tts_warnings(&request);
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
 
         Ok(crate::types::TtsResponse {
@@ -44,7 +62,7 @@ impl AudioCapability for OpenAiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
-            warnings: None,
+            warnings,
             provider_metadata: None,
             response: result.response,
         })

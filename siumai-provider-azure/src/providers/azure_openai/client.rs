@@ -29,7 +29,7 @@ use crate::types::{
     AudioFeature, ChatMessage, ChatRequest, ChatResponse, EmbeddingRequest, EmbeddingResponse,
     FileDeleteResponse, FileListQuery, FileListResponse, FileObject, FileUploadRequest,
     ImageGenerationRequest, ImageGenerationResponse, SttRequest, SttResponse, Tool, TtsRequest,
-    TtsResponse,
+    TtsResponse, Warning,
 };
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -385,6 +385,17 @@ impl AudioCapability for AzureOpenAiClient {
     async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         let exec = self.build_audio_executor();
         let request = request.with_model_if_missing(self.config.common_params.model.clone());
+        let warnings = request.language.as_deref().and_then(|language| {
+            let language = language.trim();
+            (!language.is_empty()).then(|| {
+                vec![Warning::unsupported(
+                    "language",
+                    Some(format!(
+                        "Azure OpenAI speech models do not support language selection. Language parameter \"{language}\" was ignored."
+                    )),
+                )]
+            })
+        });
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
         Ok(TtsResponse {
             audio_data: result.audio_data,
@@ -392,7 +403,7 @@ impl AudioCapability for AzureOpenAiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: HashMap::new(),
-            warnings: None,
+            warnings,
             provider_metadata: None,
             response: result.response,
         })
