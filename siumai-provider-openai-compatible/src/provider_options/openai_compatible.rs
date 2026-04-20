@@ -158,16 +158,38 @@ impl OpenAiCompatibleEmbeddingModelOptions {
     }
 }
 
+/// AI SDK-exact-case alias for generic OpenAI-compatible chat options.
+pub type OpenAICompatibleLanguageModelChatOptions = OpenAiCompatibleLanguageModelChatOptions;
+
+/// AI SDK-exact-case alias for generic OpenAI-compatible completion options.
+pub type OpenAICompatibleLanguageModelCompletionOptions =
+    OpenAiCompatibleLanguageModelCompletionOptions;
+
+/// AI SDK-exact-case alias for generic OpenAI-compatible embedding options.
+pub type OpenAICompatibleEmbeddingModelOptions = OpenAiCompatibleEmbeddingModelOptions;
+
+/// Deprecated AI SDK-exact-case alias for generic OpenAI-compatible chat options.
+#[deprecated(note = "Use OpenAICompatibleLanguageModelChatOptions instead.")]
+pub type OpenAICompatibleProviderOptions = OpenAICompatibleLanguageModelChatOptions;
+
+/// Deprecated AI SDK-exact-case alias for generic OpenAI-compatible completion options.
+#[deprecated(note = "Use OpenAICompatibleLanguageModelCompletionOptions instead.")]
+pub type OpenAICompatibleCompletionProviderOptions = OpenAICompatibleLanguageModelCompletionOptions;
+
+/// Deprecated AI SDK-exact-case alias for generic OpenAI-compatible embedding options.
+#[deprecated(note = "Use OpenAICompatibleEmbeddingModelOptions instead.")]
+pub type OpenAICompatibleEmbeddingProviderOptions = OpenAICompatibleEmbeddingModelOptions;
+
 /// Deprecated AI SDK-compatible alias for generic OpenAI-compatible chat options.
-#[deprecated(note = "Use OpenAiCompatibleLanguageModelChatOptions instead.")]
+#[deprecated(note = "Use OpenAICompatibleLanguageModelChatOptions instead.")]
 pub type OpenAiCompatibleProviderOptions = OpenAiCompatibleLanguageModelChatOptions;
 
 /// Deprecated AI SDK-compatible alias for generic OpenAI-compatible completion options.
-#[deprecated(note = "Use OpenAiCompatibleLanguageModelCompletionOptions instead.")]
+#[deprecated(note = "Use OpenAICompatibleLanguageModelCompletionOptions instead.")]
 pub type OpenAiCompatibleCompletionProviderOptions = OpenAiCompatibleLanguageModelCompletionOptions;
 
 /// Deprecated AI SDK-compatible alias for generic OpenAI-compatible embedding options.
-#[deprecated(note = "Use OpenAiCompatibleEmbeddingModelOptions instead.")]
+#[deprecated(note = "Use OpenAICompatibleEmbeddingModelOptions instead.")]
 pub type OpenAiCompatibleEmbeddingProviderOptions = OpenAiCompatibleEmbeddingModelOptions;
 
 #[cfg(test)]
@@ -284,6 +306,16 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn openai_compatible_option_aliases_remain_available() {
+        let _: OpenAICompatibleLanguageModelChatOptions =
+            OpenAiCompatibleLanguageModelChatOptions::new();
+        let _: OpenAICompatibleProviderOptions = OpenAiCompatibleLanguageModelChatOptions::new();
+        let _: OpenAICompatibleLanguageModelCompletionOptions =
+            OpenAiCompatibleLanguageModelCompletionOptions::new();
+        let _: OpenAICompatibleCompletionProviderOptions =
+            OpenAiCompatibleLanguageModelCompletionOptions::new();
+        let _: OpenAICompatibleEmbeddingModelOptions = OpenAiCompatibleEmbeddingModelOptions::new();
+        let _: OpenAICompatibleEmbeddingProviderOptions =
+            OpenAiCompatibleEmbeddingModelOptions::new();
         let _: OpenAiCompatibleLanguageModelChatOptions =
             OpenAiCompatibleLanguageModelChatOptions::new();
         let _: OpenAiCompatibleProviderOptions = OpenAiCompatibleLanguageModelChatOptions::new();

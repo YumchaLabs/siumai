@@ -382,8 +382,11 @@ fn public_surface_openai_provider_ext_compiles() {
 fn public_surface_openai_compatible_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::openai_compatible::{
-        ConfigurableAdapter, MetadataExtractor, OpenAiCompatibleChatModelId,
-        OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
+        ConfigurableAdapter, MetadataExtractor, OpenAICompatibleChatModelId,
+        OpenAICompatibleClient, OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
+        OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData, OpenAICompatibleImageModelId,
+        OpenAICompatibleRequestSettings, OpenAiCompatibleChatModelId, OpenAiCompatibleClient,
+        OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
         OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData, OpenAiCompatibleImageModelId,
         OpenAiCompatibleRequestSettings, ProviderAdapter, ProviderCompatibility, ProviderConfig,
         ProviderErrorStructure, RequestBodyTransformer, ResponseMetadataExtractor, deepinfra,
@@ -392,6 +395,14 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     };
     use std::sync::Arc;
 
+    let _ = size_of::<OpenAICompatibleChatModelId>();
+    let _ = size_of::<OpenAICompatibleClient>();
+    let _ = size_of::<OpenAICompatibleCompletionModelId>();
+    let _ = size_of::<OpenAICompatibleConfig>();
+    let _ = size_of::<OpenAICompatibleEmbeddingModelId>();
+    let _ = size_of::<OpenAICompatibleErrorData>();
+    let _ = size_of::<OpenAICompatibleImageModelId>();
+    let _ = size_of::<OpenAICompatibleRequestSettings>();
     let _ = size_of::<OpenAiCompatibleChatModelId>();
     let _ = size_of::<OpenAiCompatibleClient>();
     let _ = size_of::<OpenAiCompatibleCompletionModelId>();
@@ -400,6 +411,15 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let _ = size_of::<OpenAiCompatibleErrorData>();
     let _ = size_of::<OpenAiCompatibleImageModelId>();
     let _ = size_of::<ProviderErrorStructure<OpenAiCompatibleErrorData>>();
+    let _ = size_of::<OpenAICompatibleLanguageModelChatOptions>();
+    let _ = size_of::<OpenAICompatibleLanguageModelCompletionOptions>();
+    let _ = size_of::<OpenAICompatibleEmbeddingModelOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<OpenAICompatibleProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<OpenAICompatibleCompletionProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<OpenAICompatibleEmbeddingProviderOptions>();
     let _ = size_of::<OpenAiCompatibleLanguageModelChatOptions>();
     let _ = size_of::<OpenAiCompatibleLanguageModelCompletionOptions>();
     let _ = size_of::<OpenAiCompatibleEmbeddingModelOptions>();
@@ -434,7 +454,7 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let request_body_transformer: Arc<dyn RequestBodyTransformer> =
         Arc::new(NoopRequestBodyTransformer);
     _accept_request_body_transformer(request_body_transformer);
-    let _request_settings = OpenAiCompatibleRequestSettings {
+    let _request_settings = OpenAICompatibleRequestSettings {
         query_params: std::collections::BTreeMap::from([(
             "api-version".to_string(),
             "2025-04-01".to_string(),
@@ -461,7 +481,7 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
         })
     });
     _accept_metadata_extractor_alias(extractor_alias);
-    let error_structure = ProviderErrorStructure::<OpenAiCompatibleErrorData>::serde_json(|data| {
+    let error_structure = ProviderErrorStructure::<OpenAICompatibleErrorData>::serde_json(|data| {
         data.error.message.clone()
     })
     .with_is_retryable(|status, _| {
@@ -500,21 +520,21 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let _ = xai::GROK_BETA;
 
     let _ = ChatRequest::new(vec![user!("hi")]).with_openai_compatible_options(
-        OpenAiCompatibleLanguageModelChatOptions::new()
+        OpenAICompatibleLanguageModelChatOptions::new()
             .with_user("user-123")
             .with_reasoning_effort("high")
             .with_text_verbosity("medium")
             .with_strict_json_schema(true),
     );
     let _ = CompletionRequest::new("hi").with_openai_compatible_options(
-        OpenAiCompatibleLanguageModelCompletionOptions::new()
+        OpenAICompatibleLanguageModelCompletionOptions::new()
             .with_echo(true)
             .with_logit_bias_token("42", 1.5)
             .with_suffix(" after")
             .with_user("user-456"),
     );
     let _ = EmbeddingRequest::single("hello").with_openai_compatible_options(
-        OpenAiCompatibleEmbeddingModelOptions::new()
+        OpenAICompatibleEmbeddingModelOptions::new()
             .with_dimensions(256)
             .with_user("user-789"),
     );

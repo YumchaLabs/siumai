@@ -14958,7 +14958,7 @@ mod openai_compatible_audio_public_path {
         MoonshotAIThinkingConfig, MoonshotAIThinkingType,
     };
     use siumai::provider_ext::openai_compatible::{
-        OpenAiCompatibleChatRequestExt, OpenAiCompatibleLanguageModelChatOptions,
+        OpenAICompatibleLanguageModelChatOptions, OpenAiCompatibleChatRequestExt,
     };
     use siumai::provider_ext::openrouter::{
         OpenRouterChatRequestExt, OpenRouterChatResponseExt, OpenRouterOptions,
@@ -21351,7 +21351,7 @@ data: [DONE]
             .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
             .build()
             .with_openai_compatible_options(
-                OpenAiCompatibleLanguageModelChatOptions::new()
+                OpenAICompatibleLanguageModelChatOptions::new()
                     .with_user("compat-user-123")
                     .with_reasoning_effort("high")
                     .with_text_verbosity("medium")

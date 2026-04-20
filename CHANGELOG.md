@@ -200,6 +200,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - TogetherAI now also exposes `TogetherAIErrorData` on the provider-owned/public facade boundary,
   aligning the audited package-level error envelope without widening the Rust surface to
   TypeScript-only `ProviderSettings` or `VERSION` exports.
+- OpenAI-compatible package alignment now also exposes exact-case `OpenAICompatible*` public
+  aliases alongside the existing `OpenAiCompatible*` Rust spellings, so the shared compat facade
+  matches `repo-ref/ai/packages/openai-compatible/src/index.ts` more directly without breaking
+  existing imports.
 - xAI, Groq, and Amazon Bedrock now also expose AI SDK-style provider-option aliases on the
   provider-owned/public facade boundary, including upstream-style deprecated migration aliases
   where the audited AI SDK packages still export them.

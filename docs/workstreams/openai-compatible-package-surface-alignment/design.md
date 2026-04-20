@@ -1,6 +1,6 @@
 # OpenAI-Compatible Package Surface Alignment - Design
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Problem
 
@@ -11,6 +11,9 @@ shared OpenAI-compatible runtime, but the package boundary still drifted in a fe
   the provider-owned/public Rust facade
 - generic package-level error helpers such as `OpenAICompatibleErrorData` and
   `ProviderErrorStructure<T>` had no comparable Rust names
+- even after the first pass, the public Rust facade still only exposed Rust-style
+  `OpenAiCompatible*` names for the shared package surface, while the audited upstream package
+  exports `OpenAICompatible*` exact-case names
 - the shared `providerOptions.openaiCompatible` helper lane was incomplete because only chat had a
   first-class typed request-ext path on the public facade
 - the audited upstream package also exports `OpenAICompatibleImageModelId`, while Siumai only had
@@ -29,6 +32,7 @@ The result was not a single runtime bug. It was a package-shape and data-structu
 - Audit `repo-ref/ai/packages/openai-compatible/src/index.ts` as a package boundary, not just as a
   shared transport/runtime implementation.
 - Expose the audited generic typed surface on the provider-owned/public Rust facade:
+  exact-case `OpenAICompatible*` aliases plus the existing Rust-style names for compatibility,
   `OpenAiCompatibleLanguageModel{Chat,Completion}Options`,
   `OpenAiCompatibleEmbeddingModelOptions`,
   `OpenAiCompatible{Chat,Completion,Embedding,Image}ModelId`,
@@ -55,6 +59,7 @@ The result was not a single runtime bug. It was a package-shape and data-structu
 The provider-owned/public Rust compat facade now carries the main generic names expected from the
 audited AI SDK package:
 
+- exact-case `OpenAICompatible*` aliases for the main package-owned public names
 - `OpenAiCompatibleLanguageModelChatOptions`
 - `OpenAiCompatibleLanguageModelCompletionOptions`
 - `OpenAiCompatibleEmbeddingModelOptions`
@@ -65,7 +70,8 @@ audited AI SDK package:
 - `MetadataExtractor`
 
 This keeps `provider_ext::openai_compatible::{options::*, *}` much easier to compare one-to-one
-against `repo-ref/ai/packages/openai-compatible/src/index.ts`.
+against `repo-ref/ai/packages/openai-compatible/src/index.ts`, without breaking existing Rust code
+that already imports the older `OpenAiCompatible*` spellings.
 
 ### 2. Carry the shared `openaiCompatible` helper lane across the real request families
 
@@ -112,7 +118,8 @@ types just for naming parity.
 This workstream currently closes the following shared compat package-surface gaps:
 
 - `provider_ext::openai_compatible::{options::*, *}` now exposes the audited generic typed option,
-  error, extractor, and model-id names
+  error, extractor, and model-id names, including exact-case `OpenAICompatible*` aliases for the
+  main package-owned public data structures
 - the shared `openaiCompatible` request-helper lane now exists across chat, completion, and
   embedding requests
 - the generic compat image surface now also exposes `OpenAiCompatibleImageModelId`

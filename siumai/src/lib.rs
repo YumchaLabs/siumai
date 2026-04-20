@@ -416,9 +416,12 @@ pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai_compatible {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            ConfigurableAdapter, MetadataExtractor, OpenAiCompatibleChatModelId,
-            OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
-            OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
+            ConfigurableAdapter, MetadataExtractor, OpenAICompatibleChatModelId,
+            OpenAICompatibleClient, OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
+            OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData,
+            OpenAICompatibleImageModelId, OpenAICompatibleRequestSettings,
+            OpenAiCompatibleChatModelId, OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId,
+            OpenAiCompatibleConfig, OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
             OpenAiCompatibleImageModelId, OpenAiCompatibleRequestSettings, ProviderAdapter,
             ProviderCompatibility, ProviderConfig, ProviderErrorStructure, RequestBodyTransformer,
             ResponseMetadataExtractor, deepinfra, deepseek, fireworks, get_provider_config, groq,
@@ -430,6 +433,9 @@ pub mod provider_ext {
         pub mod options {
             #[allow(deprecated)]
             pub use siumai_provider_openai_compatible::provider_options::{
+                OpenAICompatibleCompletionProviderOptions, OpenAICompatibleEmbeddingModelOptions,
+                OpenAICompatibleEmbeddingProviderOptions, OpenAICompatibleLanguageModelChatOptions,
+                OpenAICompatibleLanguageModelCompletionOptions, OpenAICompatibleProviderOptions,
                 OpenAiCompatibleCompletionProviderOptions, OpenAiCompatibleEmbeddingModelOptions,
                 OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleLanguageModelChatOptions,
                 OpenAiCompatibleLanguageModelCompletionOptions, OpenAiCompatibleProviderOptions,
@@ -442,6 +448,9 @@ pub mod provider_ext {
 
         #[allow(deprecated)]
         pub use options::{
+            OpenAICompatibleCompletionProviderOptions, OpenAICompatibleEmbeddingModelOptions,
+            OpenAICompatibleEmbeddingProviderOptions, OpenAICompatibleLanguageModelChatOptions,
+            OpenAICompatibleLanguageModelCompletionOptions, OpenAICompatibleProviderOptions,
             OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionProviderOptions,
             OpenAiCompatibleCompletionRequestExt, OpenAiCompatibleEmbeddingModelOptions,
             OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleEmbeddingRequestExt,

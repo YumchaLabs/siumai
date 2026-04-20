@@ -72,16 +72,19 @@ pub use crate::provider_options::{
     FireworksThinkingConfig, FireworksThinkingType, MistralChatOptions,
     MistralLanguageModelOptions, MistralReasoningEffort, MoonshotAIChatOptions,
     MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
-    MoonshotAIThinkingType, OpenAiCompatibleEmbeddingModelOptions,
-    OpenAiCompatibleLanguageModelChatOptions, OpenAiCompatibleLanguageModelCompletionOptions,
-    OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchContextSize,
-    PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
-    PerplexityWebSearchOptions,
+    MoonshotAIThinkingType, OpenAICompatibleEmbeddingModelOptions,
+    OpenAICompatibleLanguageModelChatOptions, OpenAICompatibleLanguageModelCompletionOptions,
+    OpenAiCompatibleEmbeddingModelOptions, OpenAiCompatibleLanguageModelChatOptions,
+    OpenAiCompatibleLanguageModelCompletionOptions, OpenRouterOptions, OpenRouterTransform,
+    PerplexityOptions, PerplexitySearchContextSize, PerplexitySearchMode,
+    PerplexitySearchRecencyFilter, PerplexityUserLocation, PerplexityWebSearchOptions,
 };
 #[allow(deprecated)]
 pub use crate::provider_options::{
-    MoonshotAIProviderOptions, OpenAiCompatibleCompletionProviderOptions,
-    OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleProviderOptions,
+    MoonshotAIProviderOptions, OpenAICompatibleCompletionProviderOptions,
+    OpenAICompatibleEmbeddingProviderOptions, OpenAICompatibleProviderOptions,
+    OpenAiCompatibleCompletionProviderOptions, OpenAiCompatibleEmbeddingProviderOptions,
+    OpenAiCompatibleProviderOptions,
 };
 pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
@@ -115,6 +118,9 @@ pub use types::{FieldMappings, ModelConfig, RequestType};
 pub struct OpenAiCompatibleErrorData {
     pub error: OpenAiCompatibleErrorPayload,
 }
+
+/// AI SDK-exact-case alias for OpenAI-compatible error envelopes.
+pub type OpenAICompatibleErrorData = OpenAiCompatibleErrorData;
 
 /// AI SDK-style generic error-structure helper for OpenAI-compatible providers.
 ///
@@ -214,20 +220,41 @@ pub type DeepInfraErrorData = OpenAiCompatibleErrorData;
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type OpenAiCompatibleChatModelId = String;
 
+/// AI SDK-exact-case OpenAI-compatible chat model id alias.
+pub type OpenAICompatibleChatModelId = OpenAiCompatibleChatModelId;
+
 /// AI SDK-style OpenAI-compatible completion model id alias.
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type OpenAiCompatibleCompletionModelId = String;
+
+/// AI SDK-exact-case OpenAI-compatible completion model id alias.
+pub type OpenAICompatibleCompletionModelId = OpenAiCompatibleCompletionModelId;
 
 /// AI SDK-style OpenAI-compatible embedding model id alias.
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type OpenAiCompatibleEmbeddingModelId = String;
 
+/// AI SDK-exact-case OpenAI-compatible embedding model id alias.
+pub type OpenAICompatibleEmbeddingModelId = OpenAiCompatibleEmbeddingModelId;
+
 /// AI SDK-style OpenAI-compatible image model id alias.
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type OpenAiCompatibleImageModelId = String;
+
+/// AI SDK-exact-case OpenAI-compatible image model id alias.
+pub type OpenAICompatibleImageModelId = OpenAiCompatibleImageModelId;
+
+/// AI SDK-exact-case alias for generic OpenAI-compatible request settings.
+pub type OpenAICompatibleRequestSettings = OpenAiCompatibleRequestSettings;
+
+/// AI SDK-exact-case alias for OpenAI-compatible clients.
+pub type OpenAICompatibleClient = OpenAiCompatibleClient;
+
+/// AI SDK-exact-case alias for OpenAI-compatible configs.
+pub type OpenAICompatibleConfig = OpenAiCompatibleConfig;
 
 /// AI SDK-style provider-scoped alias for Mistral compat clients.
 pub type MistralClient = openai_client::OpenAiCompatibleClient;
@@ -274,7 +301,12 @@ pub type MoonshotAIChatModelId = String;
 mod tests {
     pub mod base_url_tests;
 
-    use super::{FireworksErrorData, OpenAiCompatibleErrorData, ProviderErrorStructure};
+    use super::{
+        FireworksErrorData, OpenAICompatibleChatModelId, OpenAICompatibleClient,
+        OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
+        OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData, OpenAICompatibleImageModelId,
+        OpenAICompatibleRequestSettings, OpenAiCompatibleErrorData, ProviderErrorStructure,
+    };
 
     #[test]
     fn openai_compatible_error_data_deserializes_ai_sdk_shape() {
@@ -304,6 +336,26 @@ mod tests {
         .expect("error data should deserialize");
 
         assert_eq!(data.error, "rate limit exceeded");
+    }
+
+    #[test]
+    fn openai_compatible_exact_case_aliases_remain_available() {
+        let _: OpenAICompatibleChatModelId = "gpt-4o".to_string();
+        let _: OpenAICompatibleCompletionModelId = "gpt-4o-mini-instruct".to_string();
+        let _: OpenAICompatibleEmbeddingModelId = "text-embedding-3-small".to_string();
+        let _: OpenAICompatibleImageModelId = "black-forest-labs/FLUX.1-schnell".to_string();
+        let _ = std::mem::size_of::<OpenAICompatibleClient>();
+        let _ = std::mem::size_of::<OpenAICompatibleConfig>();
+        let _ = std::mem::size_of::<OpenAICompatibleRequestSettings>();
+
+        let data: OpenAICompatibleErrorData = serde_json::from_value(serde_json::json!({
+            "error": {
+                "message": "bad request"
+            }
+        }))
+        .expect("exact-case error alias should deserialize");
+
+        assert_eq!(data.error.message, "bad request");
     }
 
     #[test]

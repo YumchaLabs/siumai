@@ -21,6 +21,9 @@ pub use moonshotai::{
 };
 #[allow(deprecated)]
 pub use openai_compatible::{
+    OpenAICompatibleCompletionProviderOptions, OpenAICompatibleEmbeddingModelOptions,
+    OpenAICompatibleEmbeddingProviderOptions, OpenAICompatibleLanguageModelChatOptions,
+    OpenAICompatibleLanguageModelCompletionOptions, OpenAICompatibleProviderOptions,
     OpenAiCompatibleCompletionProviderOptions, OpenAiCompatibleEmbeddingModelOptions,
     OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleLanguageModelChatOptions,
     OpenAiCompatibleLanguageModelCompletionOptions, OpenAiCompatibleProviderOptions,

@@ -1,6 +1,6 @@
 # OpenAI-Compatible Package Surface Alignment - TODO
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 Status legend:
 
@@ -22,6 +22,8 @@ Status legend:
   the provider-owned/public compat facade.
 - [x] Re-export the AI SDK-style `MetadataExtractor` alias on the provider-owned/public compat
   facade.
+- [x] Add exact-case `OpenAICompatible*` compatibility aliases for the main audited package names
+  while keeping the existing Rust-style `OpenAiCompatible*` names available.
 
 ## Track B - Shared helper parity
 
