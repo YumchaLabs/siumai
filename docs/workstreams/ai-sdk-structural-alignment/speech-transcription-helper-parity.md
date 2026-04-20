@@ -28,6 +28,10 @@ Upstream reference:
   directly instead of forcing callers through provider-owned escape hatches for common cases:
   `instructions` and `language` are first-class request fields, and
   `with_output_format(...)` is now available as an AI SDK-style alias for `with_format(...)`.
+- The native OpenAI/Azure speech paths now also mirror the audited AI SDK warning semantics more
+  closely for shared speech request fields: unsupported `outputFormat` values warn and fall back
+  to `mp3`, while `language` stays out of the wire payload and surfaces an explicit warning
+  instead of being silently dropped.
 - The shared `AudioExecutor` now captures response headers plus model identity for successful TTS
   and STT calls instead of dropping that information below the provider boundary.
 - OpenAI, OpenAI-compatible, Azure, Groq, xAI, and MiniMaxi audio paths now all preserve that

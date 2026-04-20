@@ -159,7 +159,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `TtsRequest` carries first-class `instructions` and `language`, exposes
   `with_output_format(...)` as an AI SDK-style alias for `with_format(...)`, and the shared
   OpenAI-family audio transformer now consumes unified `instructions` directly instead of requiring
-  provider-owned `providerOptions` for that common speech field.
+  provider-owned `providerOptions` for that common speech field. Native OpenAI/Azure speech also
+  now warns and falls back to `mp3` for unsupported `outputFormat` values, while `language`
+  surfaces an explicit warning instead of being silently dropped.
 - DeepInfra now has a dedicated workstream under
   `docs/workstreams/deepinfra-unified-provider-surface/`, documenting the chosen first-class
   provider architecture and remaining follow-up audit scope.

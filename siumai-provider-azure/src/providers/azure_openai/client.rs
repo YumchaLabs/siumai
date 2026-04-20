@@ -385,17 +385,38 @@ impl AudioCapability for AzureOpenAiClient {
     async fn text_to_speech(&self, request: TtsRequest) -> Result<TtsResponse, LlmError> {
         let exec = self.build_audio_executor();
         let request = request.with_model_if_missing(self.config.common_params.model.clone());
-        let warnings = request.language.as_deref().and_then(|language| {
-            let language = language.trim();
-            (!language.is_empty()).then(|| {
-                vec![Warning::unsupported(
-                    "language",
-                    Some(format!(
-                        "Azure OpenAI speech models do not support language selection. Language parameter \"{language}\" was ignored."
-                    )),
-                )]
-            })
-        });
+        let (request, warnings) = {
+            const SUPPORTED_FORMATS: &[&str] = &["mp3", "opus", "aac", "flac", "wav", "pcm"];
+            let mut request = request;
+            let mut warnings = Vec::new();
+
+            if let Some(format) = request.format.as_deref() {
+                let normalized = format.trim().to_ascii_lowercase();
+                if !normalized.is_empty() && !SUPPORTED_FORMATS.contains(&normalized.as_str()) {
+                    warnings.push(Warning::unsupported(
+                        "outputFormat",
+                        Some(format!(
+                            "Unsupported output format: {format}. Using mp3 instead."
+                        )),
+                    ));
+                    request.format = Some("mp3".to_string());
+                }
+            }
+
+            if let Some(language) = request.language.as_deref() {
+                let language = language.trim();
+                if !language.is_empty() {
+                    warnings.push(Warning::unsupported(
+                        "language",
+                        Some(format!(
+                            "Azure OpenAI speech models do not support language selection. Language parameter \"{language}\" was ignored."
+                        )),
+                    ));
+                }
+            }
+
+            (request, (!warnings.is_empty()).then_some(warnings))
+        };
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
         Ok(TtsResponse {
             audio_data: result.audio_data,

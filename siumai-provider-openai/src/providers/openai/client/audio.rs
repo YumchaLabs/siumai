@@ -18,8 +18,23 @@ fn headers_to_map(headers: &HeaderMap) -> HashMap<String, String> {
         .collect()
 }
 
-fn openai_tts_warnings(request: &TtsRequest) -> Option<Vec<Warning>> {
+const OPENAI_TTS_SUPPORTED_FORMATS: &[&str] = &["mp3", "opus", "aac", "flac", "wav", "pcm"];
+
+fn normalize_openai_tts_request(mut request: TtsRequest) -> (TtsRequest, Option<Vec<Warning>>) {
     let mut warnings = Vec::new();
+
+    if let Some(format) = request.format.as_deref() {
+        let normalized = format.trim().to_ascii_lowercase();
+        if !normalized.is_empty() && !OPENAI_TTS_SUPPORTED_FORMATS.contains(&normalized.as_str()) {
+            warnings.push(Warning::unsupported(
+                "outputFormat",
+                Some(format!(
+                    "Unsupported output format: {format}. Using mp3 instead."
+                )),
+            ));
+            request.format = Some("mp3".to_string());
+        }
+    }
 
     if let Some(language) = request.language.as_deref()
         && !language.trim().is_empty()
@@ -32,7 +47,7 @@ fn openai_tts_warnings(request: &TtsRequest) -> Option<Vec<Warning>> {
         ));
     }
 
-    (!warnings.is_empty()).then_some(warnings)
+    (request, (!warnings.is_empty()).then_some(warnings))
 }
 
 #[async_trait]
@@ -53,7 +68,7 @@ impl AudioCapability for OpenAiClient {
         let mut request = request;
         request.model = Some(self.resolved_tts_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
-        let warnings = openai_tts_warnings(&request);
+        let (request, warnings) = normalize_openai_tts_request(request);
         let result = AudioExecutor::tts(&*exec, request.clone()).await?;
 
         Ok(crate::types::TtsResponse {

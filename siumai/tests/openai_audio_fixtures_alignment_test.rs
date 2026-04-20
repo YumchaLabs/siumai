@@ -87,6 +87,60 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
 }
 
 #[tokio::test]
+async fn openai_tts_unsupported_output_format_warns_and_falls_back_to_mp3() {
+    let server = MockServer::start().await;
+
+    let expected = serde_json::json!({
+        "model": "gpt-4o-mini-tts",
+        "input": "hello",
+        "voice": "alloy",
+        "response_format": "mp3",
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/audio/speech"))
+        .and(header("authorization", "Bearer test-api-key"))
+        .and(body_json(expected))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(b"ID3".to_vec())
+                .insert_header("content-type", "audio/mpeg"),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = Siumai::builder()
+        .openai()
+        .api_key("test-api-key")
+        .base_url(format!("{}/v1", server.uri()))
+        .model("gpt-4o")
+        .build()
+        .await
+        .expect("build ok");
+
+    let resp = client
+        .tts(
+            TtsRequest::new("hello".to_string())
+                .with_model("gpt-4o-mini-tts".to_string())
+                .with_voice("alloy".to_string())
+                .with_output_format("ogg"),
+        )
+        .await
+        .expect("tts ok");
+
+    assert_eq!(resp.format, "mp3");
+    assert_eq!(resp.audio_data, b"ID3".to_vec());
+    assert_eq!(
+        resp.warnings,
+        Some(vec![siumai::types::Warning::unsupported(
+            "outputFormat",
+            Some("Unsupported output format: ogg. Using mp3 instead.")
+        )])
+    );
+}
+
+#[tokio::test]
 async fn openai_stt_sends_multipart_and_maps_metadata() {
     let server = MockServer::start().await;
     let stt_body: serde_json::Value = read_json(fixtures_dir().join("stt_response.json"));
