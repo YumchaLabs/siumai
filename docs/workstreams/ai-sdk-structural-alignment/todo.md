@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - TODO
 
-Last updated: 2026-04-13
+Last updated: 2026-04-20
 
 Status legend:
 
@@ -328,6 +328,12 @@ Status legend:
     by not inferring those metadata fields unless the provider adapter opts in
 - [x] Add a public OpenAI-compatible response metadata extractor hook on the config/builder surface.
   - `ResponseMetadataExtractor` now models the AI SDK-style extension point directly
+  - the public compat package surface now also mirrors the upstream export name through
+    `MetadataExtractor`, so facade/package audits no longer have to special-case the Rust-only
+    trait name
+  - the same package surface now also exposes a generic `ProviderErrorStructure<T>` helper for
+    AI SDK-style provider error decoding/message extraction instead of leaving that exported data
+    structure unrepresented on the Rust side
   - `OpenAiCompatibleConfig::with_metadata_extractor(...)` wraps the current adapter instead of
     forcing users to replace it
   - `OpenAiCompatibleBuilder::with_metadata_extractor(...)` and the public `siumai` facade
@@ -488,6 +494,17 @@ Status legend:
       `providerOptions["minimaxi"]`
     - MiniMaxi video request/body shaping and public provider-owned builder helpers were updated to
       use that provider-owned lane instead of shared top-level fields
+  - [x] Promote video to a formal family-model / registry surface instead of leaving it on
+    extension-only handles.
+    - `siumai-core` now exposes task-oriented `VideoModelV3` / `VideoModelV4` / `VideoModel`
+    - `siumai-registry` now exposes dedicated `video_model_family_with_ctx(...)`,
+      `ProviderRegistryHandle::video_model(...)`, and `VideoModelHandle`
+    - `siumai::video::{create_task, query_task}` now provides the stable facade helper lane
+    - `siumai::video::{wait_for_task, generate}` now also provides a Rust-first polling helper
+      lane above the same task-oriented contract
+    - the older `LanguageModelHandle` video capability remains as a compatibility bridge, and the
+      remaining AI SDK gap is now `maxVideosPerCall` plus final-result/download materialization
+      rather than model construction or basic auto-polling
   - [x] Refactor the shared transcription/audio-input surface toward AI SDK V4.
     - shared STT and audio-translation requests now use canonical
       `audio + mediaType + providerOptions`

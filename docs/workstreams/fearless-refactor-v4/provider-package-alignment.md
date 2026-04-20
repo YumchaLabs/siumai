@@ -1,6 +1,6 @@
 # Fearless Refactor V4 - Provider Package Alignment
 
-Last updated: 2026-04-11
+Last updated: 2026-04-20
 
 ## Purpose
 
@@ -133,10 +133,12 @@ Public facade audit status:
 - `google_vertex` remains a focused wrapper rather than a full-spectrum native package, but its
   unique public helpers now include both Vertex-owned request/tool surfaces and a narrow typed
   metadata facade bound to the `vertex` namespace
-- `google_vertex` now also exposes AI SDK-style embedding/image typed option aliases on that same
-  public boundary (`GoogleVertexEmbeddingModelOptions`, `GoogleVertexImageModelOptions`, and the
-  deprecated `GoogleVertexImageProviderOptions`), while intentionally deferring AI SDK video names
-  until the native provider crate owns a real Vertex video runtime surface
+- `google_vertex` now also exposes AI SDK-style embedding/image/video typed option names on that
+  same public boundary (`GoogleVertexEmbeddingModelOptions`,
+  `GoogleVertexImageModelOptions`, deprecated `GoogleVertexImageProviderOptions`,
+  `GoogleVertexReferenceImage`, `GoogleVertexVideoModelOptions`, deprecated
+  `GoogleVertexVideoProviderOptions`, and `GoogleVertexVideoModelId`) because the native provider
+  crate now owns a real Vertex video task runtime rather than a naming-only shim
 
 ## Native / wrapper providers already in good shape
 
@@ -155,6 +157,13 @@ These are the reference shape for a rich provider package:
   `OpenAIEmbeddingModelOptions`, `OpenAISpeechModelOptions`,
   `OpenAITranscriptionModelOptions`, `OpenAIFilesOptions`) while keeping historical Rust-first
   types such as `OpenAiOptions` and `ResponsesApiConfig` as the implementation anchor
+- Gemini's Google-branded facade layer is now also explicit rather than incidental:
+  `provider_ext::google` exposes the main audited `@ai-sdk/google` typed names
+  (`GoogleLanguageModelOptions`, `GoogleEmbeddingModelOptions`, `GoogleVideoModelOptions`,
+  `GoogleVideoModelId`, `GoogleFilesUploadOptions`, `GoogleProviderMetadata`, `GoogleErrorData`)
+  on top of the provider-owned Gemini implementation, and the dedicated
+  `docs/workstreams/google-package-surface-alignment/` record now captures the remaining honest
+  deferrals around TypeScript-only provider factory/settings exports and task-based video polling
 
 ### xAI / Groq / DeepSeek / Ollama / MiniMaxi
 
@@ -168,6 +177,9 @@ These providers already follow the intended V4 direction closely enough:
 - DeepSeek now also exposes AI SDK-style `DeepSeekLanguageModelOptions` plus a curated
   `provider_ext::deepseek::{chat, model_sets}` model surface, and provider catalog output reuses
   the same `models::ALL_CHAT` source instead of restating the stable ids by hand
+- DeepSeek now also exposes `DeepSeekErrorData` on the provider-owned/public facade boundary,
+  matching the audited `@ai-sdk/deepseek` package export without widening the native package into
+  unsupported non-text families
 - Ollama and MiniMaxi now also expose provider-owned curated `models` modules on the public
   facade, and their provider catalogs/default helpers now reuse the same provider-owned model
   sources instead of handwritten arrays
@@ -175,6 +187,12 @@ These providers already follow the intended V4 direction closely enough:
   (`XaiLanguageModelChatOptions`, `XaiLanguageModelResponsesOptions`,
   `GroqLanguageModelOptions`, plus the same deprecated migration aliases that upstream still
   exports), reducing package-surface drift against `repo-ref/ai`
+- xAI's remaining audited package-surface drift is now also largely closed: the provider-owned
+  package surface carries `XaiFilesOptions`, `XaiErrorData`, and `XaiVideoModelId`, the public
+  `providerOptions.xai` typed structs now serialize the AI SDK-facing camelCase shape across
+  chat / responses / search / video / files while still accepting snake_case compatibility aliases,
+  and the provider-owned xAI video runtime now covers both `/videos/extensions` and
+  reference-to-video request shaping on the real public path
 
 The remaining work here is mostly **depth completion**, not **surface redesign**.
 
@@ -195,12 +213,19 @@ Audit result:
 - the public facade now also exposes provider-owned curated model constants for the audited
   Vertex and Anthropic-on-Vertex subsets, and registry catalog wiring reuses those same constant
   sets instead of maintaining a second handwritten model list
-- public-path parity already covers chat, chat stream, embedding, image generation, and
-  image edit construction paths
+- public-path parity already covers chat, chat stream, embedding, image generation, image edit,
+  and provider-owned video task create/query construction paths
 - the visible response metadata now has a clearly separate Vertex-owned contract on the public
   surface: response/content-part extraction binds strictly to `provider_metadata["vertex"]`
   without falling back to shared Google/Gemini alias semantics, while custom stream events stay
   raw and namespace-scoped
+- the provider-owned video runtime also stays honest about the Rust contract boundary:
+  Veo task creation/status is first-class, but the crate does not invent a fake TypeScript-style
+  callable provider function or auto-polling model object
+- the stable family-model story now also covers that provider-owned runtime directly:
+  `registry.video_model("vertex:...")` and `siumai::video::{create_task, query_task}` are now the
+  preferred public task-oriented lane, while `language_model(...).create_video_task(...)` remains
+  only as a compatibility bridge
 - there is no obvious provider-owned resource surface yet that is mature enough to justify a
   `resources` module matching OpenAI or Anthropic
 
@@ -237,6 +262,8 @@ Recommendation:
 
 - keep `provider_ext::togetherai` as the focused native typed rerank package plus the
   TogetherAI-specific typed image-option/request helper surface
+- keep `TogetherAIErrorData` on that same public boundary, because it is a stable audited data
+  structure rather than a TypeScript-only callable provider/settings export
 - keep the canonical public story on unified `Provider::togetherai()` /
   `Siumai::builder().togetherai()`, where chat/completion/embedding/speech/transcription stay on
   the shared compat runtime and image/rerank stay provider-owned

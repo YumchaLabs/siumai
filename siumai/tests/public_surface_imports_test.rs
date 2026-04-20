@@ -384,7 +384,7 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     use siumai::provider_ext::openai_compatible::{
         ConfigurableAdapter, MetadataExtractor, OpenAiCompatibleChatModelId,
         OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
-        OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
+        OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData, OpenAiCompatibleImageModelId,
         OpenAiCompatibleRequestSettings, ProviderAdapter, ProviderCompatibility, ProviderConfig,
         ProviderErrorStructure, RequestBodyTransformer, ResponseMetadataExtractor, deepinfra,
         fireworks, get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter,
@@ -398,6 +398,7 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let _ = size_of::<OpenAiCompatibleConfig>();
     let _ = size_of::<OpenAiCompatibleEmbeddingModelId>();
     let _ = size_of::<OpenAiCompatibleErrorData>();
+    let _ = size_of::<OpenAiCompatibleImageModelId>();
     let _ = size_of::<ProviderErrorStructure<OpenAiCompatibleErrorData>>();
     let _ = size_of::<OpenAiCompatibleLanguageModelChatOptions>();
     let _ = size_of::<OpenAiCompatibleLanguageModelCompletionOptions>();
@@ -1002,7 +1003,7 @@ fn public_surface_google_provider_ext_compiles() {
             .with_task_type(siumai::types::EmbeddingTaskType::SemanticSimilarity),
     );
     let _ = siumai::image::GenerateImageRequest::new("draw a robot").with_google_image_options(
-        GeminiImageOptions::new()
+        GoogleImageModelOptions::new()
             .with_aspect_ratio("1:1")
             .with_person_generation("allow_all"),
     );

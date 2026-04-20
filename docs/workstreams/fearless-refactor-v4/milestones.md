@@ -6,7 +6,7 @@
 
 
 
-Last updated: 2026-03-20
+Last updated: 2026-04-20
 
 
 
@@ -515,8 +515,8 @@ Notes:
 - MiniMaxi top-level registry override precedence is now also pinned on the file-management public path: `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` drives `language_model("minimaxi:...").upload_file(...)` onto the provider-scoped host/auth lane instead of falling back to the registry-global defaults.
 - MiniMaxi now also has the matching lower contract for that file-management override lane inside `siumai-registry`, so provider-scoped `language_model("minimaxi:...")` file operations are guarded at both the public facade and the factory/handle boundary.
 - MiniMaxi file-management override precedence now also extends across `list_files`, `retrieve_file`, `get_file_content`, and `delete_file`, so the rest of `/v1/files/*` now keeps the same provider-scoped host/auth lane at both the public facade and lower contract layers instead of only `upload_file`.
-- MiniMaxi video-generation override precedence is now also pinned at both the public facade and lower contract layers, so `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` keeps `language_model("minimaxi:...").create_video_task(...)` on the provider-scoped host/auth lane through `/v1/video_generation` normalization instead of falling back to registry-global defaults.
-- MiniMaxi query-video override precedence is now also pinned at both the public facade and lower contract layers, so `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` keeps `language_model("minimaxi:...").query_video_task(...)` on the provider-scoped host/auth lane through `/v1/query/video_generation` normalization instead of falling back to registry-global defaults.
+- MiniMaxi video-generation override precedence is now also pinned at both the public facade and lower contract layers, so `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` keeps both the compatibility `language_model("minimaxi:...").create_video_task(...)` lane and the stable `video_model("minimaxi:...").create_task(...)` lane on the provider-scoped host/auth path through `/v1/video_generation` normalization instead of falling back to registry-global defaults.
+- MiniMaxi query-video override precedence is now also pinned at both the public facade and lower contract layers, so `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` keeps both the compatibility `language_model("minimaxi:...").query_video_task(...)` lane and the stable `video_model("minimaxi:...").query_task(...)` lane on the provider-scoped host/auth path through `/v1/query/video_generation` normalization instead of falling back to registry-global defaults.
 - MiniMaxi music-generation override precedence is now also pinned at both the public facade and lower contract layers, so `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` keeps `language_model("minimaxi:...").generate_music(...)` on the provider-scoped host/auth lane through `/v1/music_generation` normalization instead of falling back to registry-global defaults.
 - MiniMaxi image-generation override precedence is now also pinned at both the public facade and lower contract layers, so `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` keeps `registry.image_model("minimaxi:...")` on the provider-scoped host/auth lane through `/v1/image_generation` normalization instead of falling back to registry-global defaults.
 - MiniMaxi speech-generation override precedence is now also pinned at both the public facade and lower contract layers, so `RegistryBuilder::with_provider_build_overrides("minimaxi", ...)` keeps `registry.speech_model("minimaxi:...")` on the provider-scoped host/auth lane through `/v1/t2a_v2` normalization instead of falling back to registry-global defaults.
@@ -542,7 +542,7 @@ Notes:
 - MiniMaxi file-management public paths now also lock the provider-specific base-URL normalization rule: even when public construction starts from `.../anthropic/v1`, file endpoints converge back to `/v1/files/*` on the API root consistently across builder/provider/config-first clients, including metadata retrieval and raw-content download paths.
 - MiniMaxi top-level public-path parity now also covers provider-owned video and music escape hatches: `create_video_task`, `query_video_task`, and `generate_music` converge across builder/provider/config-first construction, with typed `MinimaxiVideoRequestBuilder` / `MinimaxiMusicRequestBuilder` request shaping locked at the final transport boundary.
 - MiniMaxi OpenAI-style non-chat endpoint normalization is now fixed at the root: when callers start from a custom `.../anthropic/v1` base URL, image/speech/video/music paths preserve the caller host and normalize only the path to `/v1/...` instead of silently hardcoding the production `api.minimaxi.com` domain.
-- Registry `LanguageModelHandle` now also forwards provider-specific extension capability calls for surfaces without a stable family handle, and the handle-level regression set now covers `file_management` in addition to MiniMaxi’s already-anchored video-task creation, video-task query, and music generation routes, so provider-owned extension surfaces no longer get silently truncated at the generic registry boundary.
+- Registry `LanguageModelHandle` now also forwards provider-specific extension capability calls for surfaces without a stable family handle, and the handle-level regression set now covers `file_management` plus the legacy MiniMaxi video/music compatibility delegation routes. Video itself now also has a dedicated `VideoModelHandle` stable lane, so provider-owned extension surfaces no longer get silently truncated at the generic registry boundary while the compatibility escape hatch remains intact.
 - Registry build overrides now also flow all the way into handle-driven provider construction: `api_key`, `base_url`, `http_client`, `http_transport`, and `http_config` are no longer stranded on builder/config-first paths, that layer now supports per-provider precedence through `ProviderBuildOverrides`, provider-scoped `http_config` now merges over registry-global defaults instead of replacing them wholesale, and the handle-level regression set plus new MiniMaxi / Bedrock / Anthropic-Vertex no-network registry contracts now lock that provider-owned construction surface directly.
 - The same `http_config` merge rule is now also covered below the transport boundary: `registry::entry::ProviderBuildOverrides::merged_with()` has a dedicated field-level unit test for timeout/connect-timeout/header/proxy/user-agent/compression precedence, so the root helper cannot regress silently even if provider-specific end-to-end anchors still pass.
 - The same provider-scoped override lane is now anchored on text-family public handles too: OpenAI, Anthropic, Gemini, Google Vertex, Ollama, DeepSeek, xAI, Groq, OpenRouter, and Perplexity now all have no-network `language_model(...)` chat contracts proving provider-specific auth, base-URL, and transport precedence at the final request boundary instead of relying only on factory-level `BuildContext` tests, with OpenAI `/responses`, Anthropic `/v1/messages`, Groq's root-base `.../openai/v1` normalization, Vertex express `?key=...`, and OpenRouter/Perplexity vendor-parameter merges all locked on the public handle path as well.
@@ -1257,6 +1257,46 @@ Acceptance criteria:
 - High-traffic example READMEs such as `examples/README.md` and `examples/04-provider-specific/minimaxi/README.md` have now also been cleaned up to remove mojibake and duplicated navigation text, improving outward-facing docs quality without changing example behavior.
 - `examples/04-provider-specific/google/README.md` and `examples/04-provider-specific/openai-compatible/README.md` now also follow the same cleaned package-tier narrative, so the most visible provider README entry points present a consistent story without encoding artifacts.
 - Public-surface compile guards now also cover `provider_ext::openai_compatible`, `provider_ext::azure`, `provider_ext::google`, `provider_ext::anthropic_vertex`, and `provider_ext::deepseek`, closing the most obvious remaining export-surface holes before deeper provider feature alignment work resumes.
+- Google package-surface audit now also has a dedicated workstream under
+  `docs/workstreams/google-package-surface-alignment/`, and the stable `provider_ext::google`
+  facade now exposes the main audited `@ai-sdk/google` typed names
+  (`GoogleLanguageModelOptions`, `GoogleEmbeddingModelOptions`, `GoogleVideoModelOptions`,
+  `GoogleVideoModelId`, `GoogleFilesUploadOptions`, `GoogleProviderMetadata`, `GoogleErrorData`)
+  plus Google-branded request/upload helpers that lower onto the real provider-owned Gemini runtime
+  for `serviceTier`, `streamFunctionCallArguments`, embedding `outputDimensionality` / `taskType` /
+  positional multimodal `content`, and video `negativePrompt` / `personGeneration` /
+  `referenceImages`; the current Rust task-based video helper still keeps `pollIntervalMs` /
+  `pollTimeoutMs` as an intentional public-but-deferred boundary instead of pretending to own AI
+  SDK-style internal polling already.
+- Public provider wrapper exports are now also more uniform on the audited first-class surface:
+  `provider_ext::{openai,anthropic,gemini,google_vertex,cohere,togetherai,deepseek,xai,ollama,minimaxi}`
+  compile guards now pin the native `*Builder` re-export alongside `*Client` / `*Config`, so
+  package-level Rust entry points stay closer to the audited AI SDK provider indices instead of
+  drifting toward config-only wrapper parity.
+- Compat vendor-view data-structure parity is now tighter too: `provider_ext::openai_compatible`
+  now exports generic `OpenAiCompatible{Chat,Completion,Embedding}ModelId`, generic typed option
+  structs plus deprecated migration aliases for the shared `openaiCompatible` namespace,
+  `OpenAiCompatibleErrorData`, and `with_openai_compatible_options(...)`; `provider_ext::deepinfra`
+  re-exports `DeepInfraErrorData`, `provider_ext::fireworks` re-exports `FireworksErrorData` plus
+  `FireworksEmbeddingModelId` / `FireworksImageModelId`, and `provider_ext::moonshotai`
+  re-exports `MoonshotAIChatModelId`. Public compile guards now pin those names directly on the
+  top-level facade while Rust keeps the model ids as stable `String` aliases instead of widening
+  the curated constant catalogs into frozen enums, and the JS generic provider-function/settings
+  exports remain intentionally represented by the Rust `OpenAiCompatibleBuilder` /
+  `OpenAiCompatibleConfig` / `OpenAiCompatibleClient` surface instead of a fake callable provider
+  type. The shared generic helper lane now reaches all three relevant request families as well:
+  chat/completion/embedding all have typed request helpers under `providerOptions.openaiCompatible`,
+  and the generic chat-option lane now also has no-network builder/provider/config/registry parity
+  on the real OpenRouter public path, so this namespace is no longer guarded only by lower
+  compat-runtime tests and compile-surface coverage.
+- xAI package-surface alignment now also closes the remaining public `providerOptions.xai` naming
+  drift: `XaiChatOptions`, `XaiResponsesOptions`, `XaiSearchParameters`, and search-source
+  structs now serialize the AI SDK-facing camelCase fields while still accepting snake_case
+  compatibility aliases, `XaiVideoOptions` now also covers `mode` / `referenceImageUrls`, and
+  no-network builder/provider/config/registry guards now pin both
+  `extend-video -> /videos/extensions` and
+  `reference-to-video -> /videos/generations + reference_images[]` on the provider-owned xAI
+  runtime instead of leaving that route split as an untyped provider-local detail.
 - Top-level compat preset guards now also lock the shared-registry construction path for `Provider::openai().{siliconflow,together,fireworks}()`, including aligned default `base_url` + `model` resolution, together with the intended audio capability split: `siliconflow` and `together` remain speech+transcription capable, while `fireworks` remains transcription-only on audio. A matching `mistral` public guard now also pins the config-only fallback lane, and `jina` / `voyageai` now pin the non-chat preset primary-default lane, so compat shortcuts resolve the documented provider default model even when the preset is embedding/rerank-led instead of chat-led. The underlying source-of-truth split is now tighter too: compat primary defaults plus family defaults now resolve from static config-owned maps first, while `default_models.rs` is only the compatibility read facade, so preset default-model lookup no longer duplicates the whole compat catalog or rebuilds the provider map on every lookup.
 - The compat runtime behavior now closes the remaining model-default drift under that same source-of-truth: missing request-level `model` fields on embedding/image/rerank/speech/transcription calls now resolve from config-owned family defaults rather than blindly reusing the primary/chat default, while explicit non-default `config.model` overrides still win. Provider-local transport-boundary regressions now pin both the family-default branch and the explicit-override branch on representative vendors (`together`, `jina`, `fireworks`), and a focused public-path boundary test now carries that guarantee outward onto the real `Siumai::builder()` / `Provider::openai()` / config-first compat construction story for `together` embedding/image/TTS, `jina` rerank, and `fireworks` STT.
 - OpenAI-compatible image generation now also has top-level public-path parity anchors for both `siliconflow` and `together`, locking that builder, provider, and config-first construction still converge on the same `/images/generations` request shape instead of drifting between convenience layers.

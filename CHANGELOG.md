@@ -221,7 +221,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   merges into existing `providerOptions.azure` objects instead of replacing sibling raw fields.
 - OpenAI-compatible vendor-view public data structures now also align more closely with the
   audited AI SDK package indices: `provider_ext::openai_compatible` now exposes generic
-  `OpenAiCompatible{Chat,Completion,Embedding}ModelId`, generic typed option structs for
+  `OpenAiCompatible{Chat,Completion,Embedding,Image}ModelId`, generic typed option structs for
   chat/completion/embedding, the deprecated AI SDK migration aliases for those generic options,
   `OpenAiCompatibleErrorData`, and `with_openai_compatible_options(...)` for the shared
   `providerOptions.openaiCompatible` namespace. `provider_ext::deepinfra` re-exports
@@ -260,6 +260,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `@ai-sdk/google` package boundary, the Google-branded typed surface layered on top of the
   provider-owned Gemini implementation, and the intentional Rust-side deferrals for TypeScript-only
   provider factory/settings exports plus task-based video polling ownership.
+- OpenAI-compatible package-surface parity now also has a dedicated workstream under
+  `docs/workstreams/openai-compatible-package-surface-alignment/`, documenting the audited
+  `@ai-sdk/openai-compatible` package boundary and the intentional Rust-side deferrals for
+  TypeScript-only provider factory/settings exports plus callable image-model wrappers.
 - The provider-owned/public Google facade is now much closer to the audited `@ai-sdk/google`
   package surface: `provider_ext::google::{options::*, metadata::*, *}` now exposes
   `GoogleLanguageModelOptions`, `GoogleEmbeddingModelOptions`, `GoogleVideoModelOptions`,

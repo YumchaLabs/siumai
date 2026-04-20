@@ -3,6 +3,7 @@
 pub mod fireworks;
 pub mod mistral;
 pub mod moonshotai;
+pub mod openai_compatible;
 pub mod openrouter;
 pub mod perplexity;
 
@@ -17,6 +18,12 @@ pub use mistral::{MistralChatOptions, MistralLanguageModelOptions, MistralReason
 pub use moonshotai::{
     MoonshotAIChatOptions, MoonshotAILanguageModelOptions, MoonshotAIProviderOptions,
     MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType,
+};
+#[allow(deprecated)]
+pub use openai_compatible::{
+    OpenAiCompatibleCompletionProviderOptions, OpenAiCompatibleEmbeddingModelOptions,
+    OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleLanguageModelChatOptions,
+    OpenAiCompatibleLanguageModelCompletionOptions, OpenAiCompatibleProviderOptions,
 };
 pub use openrouter::{OpenRouterOptions, OpenRouterTransform};
 pub use perplexity::{

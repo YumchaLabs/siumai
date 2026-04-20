@@ -121,6 +121,17 @@ impl UploadFileOptions {
         self
     }
 
+    /// Attach typed Google upload options to `provider_options["google"]`.
+    #[cfg(feature = "google")]
+    pub fn with_google_upload_options(
+        mut self,
+        options: siumai_provider_gemini::provider_options::gemini::GoogleFilesUploadOptions,
+    ) -> Self {
+        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
+        self.provider_options.insert("google", value);
+        self
+    }
+
     /// Set the per-request HTTP config.
     pub fn with_http_config(mut self, http_config: HttpConfig) -> Self {
         self.http_config = Some(http_config);

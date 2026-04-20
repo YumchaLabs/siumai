@@ -261,6 +261,31 @@ impl RequestTransformer for GeminiRequestTransformer {
                         body["labels"] = serde_json::json!(labels);
                     }
 
+                    let is_vertex_provider =
+                        super::options::gemini_provider_options_namespace(&self.0) == "vertex";
+
+                    if req.stream
+                        && is_vertex_provider
+                        && opts.stream_function_call_arguments.unwrap_or(false)
+                    {
+                        if body.get("toolConfig").and_then(|v| v.as_object()).is_none() {
+                            body["toolConfig"] = serde_json::json!({});
+                        }
+                        if let Some(tool_config) =
+                            body.get_mut("toolConfig").and_then(|v| v.as_object_mut())
+                        {
+                            let function_calling_config = tool_config
+                                .entry("functionCallingConfig".to_string())
+                                .or_insert_with(|| serde_json::json!({}));
+                            if let Some(obj) = function_calling_config.as_object_mut() {
+                                obj.insert(
+                                    "streamFunctionCallArguments".to_string(),
+                                    serde_json::Value::Bool(true),
+                                );
+                            }
+                        }
+                    }
+
                     // retrievalConfig is nested under toolConfig (top-level).
                     if let Some(retrieval) = &opts.retrieval_config {
                         if body.get("toolConfig").and_then(|v| v.as_object()).is_none() {
@@ -274,6 +299,20 @@ impl RequestTransformer for GeminiRequestTransformer {
                                 denormalize_retrieval_config(retrieval),
                             );
                         }
+                    }
+
+                    if let Some(service_tier) = &opts.service_tier {
+                        let mapped = if is_vertex_provider {
+                            match service_tier.as_str() {
+                                "standard" => "SERVICE_TIER_STANDARD",
+                                "flex" => "SERVICE_TIER_FLEX",
+                                "priority" => "SERVICE_TIER_PRIORITY",
+                                other => other,
+                            }
+                        } else {
+                            service_tier.as_str()
+                        };
+                        body["serviceTier"] = serde_json::json!(mapped);
                     }
 
                     #[allow(deprecated)]
@@ -478,8 +517,21 @@ impl RequestTransformer for GeminiRequestTransformer {
             ) -> Result<serde_json::Value, LlmError> {
                 // Map to Gemini embedContent / batchEmbedContents request model
                 #[derive(serde::Serialize)]
-                struct GeminiPart {
-                    text: String,
+                #[serde(untagged)]
+                enum GeminiPart {
+                    Text {
+                        text: String,
+                    },
+                    InlineData {
+                        #[serde(rename = "inlineData")]
+                        inline_data: GeminiInlineData,
+                    },
+                }
+                #[derive(serde::Serialize)]
+                struct GeminiInlineData {
+                    #[serde(rename = "mimeType")]
+                    mime_type: String,
+                    data: String,
                 }
                 #[derive(serde::Serialize)]
                 struct GeminiContent {
@@ -507,39 +559,146 @@ impl RequestTransformer for GeminiRequestTransformer {
                     requests: Vec<GeminiEmbeddingRequest>,
                 }
 
-                let mut task_type = req.task_type.as_ref().map(|tt| match tt {
-                    crate::types::EmbeddingTaskType::RetrievalQuery => {
-                        "RETRIEVAL_QUERY".to_string()
+                fn map_task_type(task_type: &crate::types::EmbeddingTaskType) -> String {
+                    match task_type {
+                        crate::types::EmbeddingTaskType::RetrievalQuery => {
+                            "RETRIEVAL_QUERY".to_string()
+                        }
+                        crate::types::EmbeddingTaskType::RetrievalDocument => {
+                            "RETRIEVAL_DOCUMENT".to_string()
+                        }
+                        crate::types::EmbeddingTaskType::SemanticSimilarity => {
+                            "SEMANTIC_SIMILARITY".to_string()
+                        }
+                        crate::types::EmbeddingTaskType::Classification => {
+                            "CLASSIFICATION".to_string()
+                        }
+                        crate::types::EmbeddingTaskType::Clustering => "CLUSTERING".to_string(),
+                        crate::types::EmbeddingTaskType::QuestionAnswering => {
+                            "QUESTION_ANSWERING".to_string()
+                        }
+                        crate::types::EmbeddingTaskType::FactVerification => {
+                            "FACT_VERIFICATION".to_string()
+                        }
+                        crate::types::EmbeddingTaskType::CodeRetrievalQuery => {
+                            "CODE_RETRIEVAL_QUERY".to_string()
+                        }
+                        crate::types::EmbeddingTaskType::Unspecified => {
+                            "TASK_TYPE_UNSPECIFIED".to_string()
+                        }
                     }
-                    crate::types::EmbeddingTaskType::RetrievalDocument => {
-                        "RETRIEVAL_DOCUMENT".to_string()
+                }
+
+                fn provider_multimodal_parts(
+                    provider_options: Option<&serde_json::Map<String, serde_json::Value>>,
+                    input_len: usize,
+                    index: usize,
+                ) -> Result<Vec<GeminiPart>, LlmError> {
+                    let Some(provider_options) = provider_options else {
+                        return Ok(Vec::new());
+                    };
+
+                    let content_value = provider_options
+                        .get("content")
+                        .or_else(|| provider_options.get("contents"));
+                    let Some(content_value) = content_value else {
+                        return Ok(Vec::new());
+                    };
+
+                    let entries = content_value.as_array().ok_or_else(|| {
+                        LlmError::InvalidParameter(
+                            "Google embedding provider option `content` must be an array."
+                                .to_string(),
+                        )
+                    })?;
+
+                    if entries.len() != input_len {
+                        return Err(LlmError::InvalidParameter(format!(
+                            "Google embedding provider option `content` must have exactly {input_len} entries, but received {}.",
+                            entries.len()
+                        )));
                     }
-                    crate::types::EmbeddingTaskType::SemanticSimilarity => {
-                        "SEMANTIC_SIMILARITY".to_string()
+
+                    let Some(entry) = entries.get(index) else {
+                        return Ok(Vec::new());
+                    };
+                    if entry.is_null() {
+                        return Ok(Vec::new());
                     }
-                    crate::types::EmbeddingTaskType::Classification => "CLASSIFICATION".to_string(),
-                    crate::types::EmbeddingTaskType::Clustering => "CLUSTERING".to_string(),
-                    crate::types::EmbeddingTaskType::QuestionAnswering => {
-                        "QUESTION_ANSWERING".to_string()
-                    }
-                    crate::types::EmbeddingTaskType::FactVerification => {
-                        "FACT_VERIFICATION".to_string()
-                    }
-                    crate::types::EmbeddingTaskType::CodeRetrievalQuery => {
-                        "CODE_RETRIEVAL_QUERY".to_string()
-                    }
-                    crate::types::EmbeddingTaskType::Unspecified => {
-                        "TASK_TYPE_UNSPECIFIED".to_string()
-                    }
-                });
+
+                    let parts = entry.as_array().ok_or_else(|| {
+                        LlmError::InvalidParameter(
+                            "Each Google embedding provider `content` entry must be null or an array of parts."
+                                .to_string(),
+                        )
+                    })?;
+
+                    parts
+                        .iter()
+                        .map(|part| {
+                            let obj = part.as_object().ok_or_else(|| {
+                                LlmError::InvalidParameter(
+                                    "Google embedding provider content parts must be objects."
+                                        .to_string(),
+                                )
+                            })?;
+
+                            if let Some(text) = obj.get("text").and_then(|value| value.as_str()) {
+                                return Ok(GeminiPart::Text {
+                                    text: text.to_string(),
+                                });
+                            }
+
+                            let inline_data = obj
+                                .get("inlineData")
+                                .or_else(|| obj.get("inline_data"))
+                                .and_then(|value| value.as_object())
+                                .ok_or_else(|| {
+                                    LlmError::InvalidParameter(
+                                        "Google embedding provider content parts must contain either `text` or `inlineData`."
+                                            .to_string(),
+                                    )
+                                })?;
+
+                            let mime_type = inline_data
+                                .get("mimeType")
+                                .or_else(|| inline_data.get("mime_type"))
+                                .and_then(|value| value.as_str())
+                                .ok_or_else(|| {
+                                    LlmError::InvalidParameter(
+                                        "Google embedding inlineData parts must contain `mimeType`."
+                                            .to_string(),
+                                    )
+                                })?;
+                            let data = inline_data
+                                .get("data")
+                                .and_then(|value| value.as_str())
+                                .ok_or_else(|| {
+                                    LlmError::InvalidParameter(
+                                        "Google embedding inlineData parts must contain `data`."
+                                            .to_string(),
+                                    )
+                                })?;
+
+                            Ok(GeminiPart::InlineData {
+                                inline_data: GeminiInlineData {
+                                    mime_type: mime_type.to_string(),
+                                    data: data.to_string(),
+                                },
+                            })
+                        })
+                        .collect()
+                }
+
+                let mut task_type = req.task_type.as_ref().map(map_task_type);
                 let title = req.title.clone();
                 let mut output_dimensionality = req.dimensions;
+                let provider_options =
+                    gemini_provider_options_value(&req.provider_options_map, &self.0)
+                        .and_then(|value| value.as_object());
 
                 // Vercel-aligned: allow providerOptions.google.taskType/outputDimensionality.
-                if let Some(opts) =
-                    gemini_provider_options_value(&req.provider_options_map, &self.0)
-                    && let Some(obj) = opts.as_object()
-                {
+                if let Some(obj) = provider_options {
                     if task_type.is_none()
                         && let Some(tt) = obj.get("taskType").and_then(|v| v.as_str())
                     {
@@ -562,12 +721,15 @@ impl RequestTransformer for GeminiRequestTransformer {
                 }
 
                 if req.input.len() == 1 {
-                    let content = GeminiContent {
-                        role: None,
-                        parts: vec![GeminiPart {
-                            text: req.input[0].clone(),
-                        }],
-                    };
+                    let mut parts = vec![GeminiPart::Text {
+                        text: req.input[0].clone(),
+                    }];
+                    parts.extend(provider_multimodal_parts(
+                        provider_options,
+                        req.input.len(),
+                        0,
+                    )?);
+                    let content = GeminiContent { role: None, parts };
                     let body = GeminiEmbeddingRequest {
                         model: Some(format!("models/{}", self.0.model)),
                         content,
@@ -581,20 +743,27 @@ impl RequestTransformer for GeminiRequestTransformer {
                     let requests: Vec<GeminiEmbeddingRequest> = req
                         .input
                         .iter()
-                        .map(|text| {
+                        .enumerate()
+                        .map(|(index, text)| {
+                            let mut parts = vec![GeminiPart::Text { text: text.clone() }];
+                            parts.extend(provider_multimodal_parts(
+                                provider_options,
+                                req.input.len(),
+                                index,
+                            )?);
                             let content = GeminiContent {
                                 role: Some("user".to_string()),
-                                parts: vec![GeminiPart { text: text.clone() }],
+                                parts,
                             };
-                            GeminiEmbeddingRequest {
+                            Ok(GeminiEmbeddingRequest {
                                 model: Some(format!("models/{}", self.0.model)),
                                 content,
                                 task_type: task_type.clone(),
                                 title: title.clone(),
                                 output_dimensionality,
-                            }
+                            })
                         })
-                        .collect();
+                        .collect::<Result<_, LlmError>>()?;
                     let batch = GeminiBatchEmbeddingRequest { requests };
                     serde_json::to_value(batch)
                         .map_err(|e| LlmError::ParseError(format!("Serialize request failed: {e}")))

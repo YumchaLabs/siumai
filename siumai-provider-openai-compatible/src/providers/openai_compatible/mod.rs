@@ -67,20 +67,26 @@ pub use providers::models::{
 };
 
 // Re-export new adapter system
-#[allow(deprecated)]
-pub use crate::provider_options::MoonshotAIProviderOptions;
 pub use crate::provider_options::{
     FireworksChatOptions, FireworksLanguageModelOptions, FireworksReasoningHistory,
     FireworksThinkingConfig, FireworksThinkingType, MistralChatOptions,
     MistralLanguageModelOptions, MistralReasoningEffort, MoonshotAIChatOptions,
     MoonshotAILanguageModelOptions, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
-    MoonshotAIThinkingType, OpenRouterOptions, OpenRouterTransform, PerplexityOptions,
-    PerplexitySearchContextSize, PerplexitySearchMode, PerplexitySearchRecencyFilter,
-    PerplexityUserLocation, PerplexityWebSearchOptions,
+    MoonshotAIThinkingType, OpenAiCompatibleEmbeddingModelOptions,
+    OpenAiCompatibleLanguageModelChatOptions, OpenAiCompatibleLanguageModelCompletionOptions,
+    OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchContextSize,
+    PerplexitySearchMode, PerplexitySearchRecencyFilter, PerplexityUserLocation,
+    PerplexityWebSearchOptions,
+};
+#[allow(deprecated)]
+pub use crate::provider_options::{
+    MoonshotAIProviderOptions, OpenAiCompatibleCompletionProviderOptions,
+    OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleProviderOptions,
 };
 pub use crate::standards::openai::compat::provider_registry::{
     ConfigurableAdapter, ProviderConfig,
 };
+pub use adapter::ResponseMetadataExtractor as MetadataExtractor;
 pub use adapter::{
     MetadataExtractingAdapter, OpenAiCompatibleRequestSettings, ProviderAdapter,
     ProviderCompatibility, RequestBodyTransformer, RequestTransformingAdapter,
@@ -92,15 +98,136 @@ pub use config::{
 };
 pub use ext::{
     FireworksChatRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
-    OpenRouterChatRequestExt, OpenRouterChatResponseExt, OpenRouterContentPartExt,
-    OpenRouterContentPartMetadata, OpenRouterMetadata, OpenRouterSource, OpenRouterSourceExt,
-    OpenRouterSourceMetadata, PerplexityChatRequestExt, PerplexityChatResponseExt, PerplexityCost,
-    PerplexityImage, PerplexityMetadata, PerplexityUsage,
+    OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
+    OpenAiCompatibleEmbeddingRequestExt, OpenRouterChatRequestExt, OpenRouterChatResponseExt,
+    OpenRouterContentPartExt, OpenRouterContentPartMetadata, OpenRouterMetadata, OpenRouterSource,
+    OpenRouterSourceExt, OpenRouterSourceMetadata, PerplexityChatRequestExt,
+    PerplexityChatResponseExt, PerplexityCost, PerplexityImage, PerplexityMetadata,
+    PerplexityUsage,
 };
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use types::{FieldMappings, ModelConfig, RequestType};
+
+/// AI SDK-aligned OpenAI-compatible error envelope.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OpenAiCompatibleErrorData {
+    pub error: OpenAiCompatibleErrorPayload,
+}
+
+/// AI SDK-style generic error-structure helper for OpenAI-compatible providers.
+///
+/// TypeScript exports `ProviderErrorStructure<T>` as a small public contract for provider-owned
+/// error decoding plus message extraction. Rust keeps the same concept as a serde-based helper
+/// without forcing callers to replace the compat adapter/runtime.
+#[derive(Clone)]
+pub struct ProviderErrorStructure<T> {
+    deserialize_error:
+        std::sync::Arc<dyn Fn(&serde_json::Value) -> serde_json::Result<T> + Send + Sync>,
+    error_to_message: std::sync::Arc<dyn Fn(&T) -> String + Send + Sync>,
+    is_retryable:
+        Option<std::sync::Arc<dyn Fn(reqwest::StatusCode, Option<&T>) -> bool + Send + Sync>>,
+}
+
+impl<T> std::fmt::Debug for ProviderErrorStructure<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProviderErrorStructure")
+            .field("has_is_retryable", &self.is_retryable.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl<T> ProviderErrorStructure<T> {
+    /// Create a custom provider error structure from decode and formatting callbacks.
+    pub fn new<D, M>(deserialize_error: D, error_to_message: M) -> Self
+    where
+        D: Fn(&serde_json::Value) -> serde_json::Result<T> + Send + Sync + 'static,
+        M: Fn(&T) -> String + Send + Sync + 'static,
+    {
+        Self {
+            deserialize_error: std::sync::Arc::new(deserialize_error),
+            error_to_message: std::sync::Arc::new(error_to_message),
+            is_retryable: None,
+        }
+    }
+
+    /// Create a serde-based provider error structure for a deserializable error envelope.
+    pub fn serde_json<M>(error_to_message: M) -> Self
+    where
+        T: serde::de::DeserializeOwned + 'static,
+        M: Fn(&T) -> String + Send + Sync + 'static,
+    {
+        Self::new(|raw| serde_json::from_value(raw.clone()), error_to_message)
+    }
+
+    /// Attach an optional retryability predicate.
+    pub fn with_is_retryable<P>(mut self, predicate: P) -> Self
+    where
+        P: Fn(reqwest::StatusCode, Option<&T>) -> bool + Send + Sync + 'static,
+    {
+        self.is_retryable = Some(std::sync::Arc::new(predicate));
+        self
+    }
+
+    /// Decode a provider error envelope from parsed JSON.
+    pub fn deserialize(&self, raw: &serde_json::Value) -> serde_json::Result<T> {
+        (self.deserialize_error)(raw)
+    }
+
+    /// Convert a decoded provider error into a message string.
+    pub fn message(&self, error: &T) -> String {
+        (self.error_to_message)(error)
+    }
+
+    /// Evaluate retryability when a predicate has been configured.
+    pub fn is_retryable(&self, status: reqwest::StatusCode, error: Option<&T>) -> Option<bool> {
+        self.is_retryable
+            .as_ref()
+            .map(|predicate| predicate(status, error))
+    }
+}
+
+/// AI SDK-aligned OpenAI-compatible error payload.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct OpenAiCompatibleErrorPayload {
+    pub message: String,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub error_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub param: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<serde_json::Value>,
+}
+
+/// AI SDK-aligned Fireworks error envelope.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FireworksErrorData {
+    pub error: String,
+}
+
+/// AI SDK-style alias for DeepInfra compat error envelopes.
+pub type DeepInfraErrorData = OpenAiCompatibleErrorData;
+
+/// AI SDK-style OpenAI-compatible chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type OpenAiCompatibleChatModelId = String;
+
+/// AI SDK-style OpenAI-compatible completion model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type OpenAiCompatibleCompletionModelId = String;
+
+/// AI SDK-style OpenAI-compatible embedding model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type OpenAiCompatibleEmbeddingModelId = String;
+
+/// AI SDK-style OpenAI-compatible image model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type OpenAiCompatibleImageModelId = String;
 
 /// AI SDK-style provider-scoped alias for Mistral compat clients.
 pub type MistralClient = openai_client::OpenAiCompatibleClient;
@@ -117,6 +244,16 @@ pub type FireworksClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for Fireworks compat text-family configs.
 pub type FireworksConfig = openai_config::OpenAiCompatibleConfig;
 
+/// AI SDK-style Fireworks embedding model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type FireworksEmbeddingModelId = String;
+
+/// AI SDK-style Fireworks image model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type FireworksImageModelId = String;
+
 /// AI SDK-style provider-scoped alias for DeepInfra compat text-family clients.
 pub type DeepInfraClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for DeepInfra compat text-family configs.
@@ -127,8 +264,74 @@ pub type MoonshotAIClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for MoonshotAI compat language-model configs.
 pub type MoonshotAIConfig = openai_config::OpenAiCompatibleConfig;
 
+/// AI SDK-style MoonshotAI chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type MoonshotAIChatModelId = String;
+
 // Test modules
 #[cfg(test)]
 mod tests {
     pub mod base_url_tests;
+
+    use super::{FireworksErrorData, OpenAiCompatibleErrorData, ProviderErrorStructure};
+
+    #[test]
+    fn openai_compatible_error_data_deserializes_ai_sdk_shape() {
+        let data: OpenAiCompatibleErrorData = serde_json::from_value(serde_json::json!({
+            "error": {
+                "message": "bad request",
+                "type": "invalid_request_error",
+                "param": null,
+                "code": "invalid_prompt"
+            }
+        }))
+        .expect("error data should deserialize");
+
+        assert_eq!(data.error.message, "bad request");
+        assert_eq!(
+            data.error.error_type.as_deref(),
+            Some("invalid_request_error")
+        );
+        assert_eq!(data.error.code, Some(serde_json::json!("invalid_prompt")));
+    }
+
+    #[test]
+    fn fireworks_error_data_deserializes_ai_sdk_shape() {
+        let data: FireworksErrorData = serde_json::from_value(serde_json::json!({
+            "error": "rate limit exceeded"
+        }))
+        .expect("error data should deserialize");
+
+        assert_eq!(data.error, "rate limit exceeded");
+    }
+
+    #[test]
+    fn provider_error_structure_deserializes_formats_and_marks_retryable() {
+        let structure = ProviderErrorStructure::<OpenAiCompatibleErrorData>::serde_json(|data| {
+            data.error.message.clone()
+        })
+        .with_is_retryable(|status, _| {
+            status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+        });
+
+        let data = structure
+            .deserialize(&serde_json::json!({
+                "error": {
+                    "message": "rate limited",
+                    "type": "rate_limit_error"
+                }
+            }))
+            .expect("deserialize provider error structure");
+
+        assert_eq!(structure.message(&data), "rate limited");
+        assert_eq!(
+            structure.is_retryable(reqwest::StatusCode::BAD_REQUEST, Some(&data)),
+            Some(false)
+        );
+        assert_eq!(
+            structure.is_retryable(reqwest::StatusCode::TOO_MANY_REQUESTS, Some(&data)),
+            Some(true)
+        );
+    }
 }

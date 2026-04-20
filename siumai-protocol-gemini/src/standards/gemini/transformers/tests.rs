@@ -157,4 +157,97 @@ mod embeddings_tests {
             assert!(item.get("embeddingConfig").is_none());
         }
     }
+
+    #[test]
+    fn test_transform_embedding_request_google_provider_content_merges_multimodal_parts() {
+        let tx = GeminiRequestTransformer { config: cfg() };
+        let req = crate::types::EmbeddingRequest::new(vec!["A".to_string(), "B".to_string()])
+            .with_provider_option(
+                "google",
+                serde_json::json!({
+                    "taskType": "SEMANTIC_SIMILARITY",
+                    "outputDimensionality": 64,
+                    "content": [
+                        [
+                            {
+                                "inlineData": {
+                                    "mimeType": "image/png",
+                                    "data": "Zm9v"
+                                }
+                            }
+                        ],
+                        null
+                    ]
+                }),
+            );
+
+        let body = tx.transform_embedding(&req).expect("serialize request");
+
+        let requests = body["requests"].as_array().expect("requests array");
+        assert_eq!(
+            requests[0]["taskType"],
+            serde_json::json!("SEMANTIC_SIMILARITY")
+        );
+        assert_eq!(requests[0]["outputDimensionality"], serde_json::json!(64));
+        assert_eq!(
+            requests[0]["content"]["parts"][0]["text"],
+            serde_json::json!("A")
+        );
+        assert_eq!(
+            requests[0]["content"]["parts"][1]["inlineData"]["mimeType"],
+            serde_json::json!("image/png")
+        );
+        assert_eq!(
+            requests[1]["content"]["parts"][0]["text"],
+            serde_json::json!("B")
+        );
+        assert_eq!(
+            requests[1]["content"]["parts"]
+                .as_array()
+                .map(|parts| parts.len()),
+            Some(1)
+        );
+    }
+}
+
+#[cfg(test)]
+mod chat_tests {
+    use super::*;
+    use crate::execution::transformers::request::RequestTransformer;
+
+    fn cfg() -> GeminiConfig {
+        use secrecy::SecretString;
+        GeminiConfig {
+            api_key: SecretString::from("x".to_string()),
+            base_url: "https://example.com".into(),
+            model: "gemini-2.5-flash".into(),
+            common_params: crate::types::CommonParams::default(),
+            generation_config: None,
+            safety_settings: None,
+            timeout: Some(30),
+            http_config: crate::types::HttpConfig::default(),
+            token_provider: None,
+            http_transport: None,
+            provider_metadata_key: None,
+            http_interceptors: Vec::new(),
+            model_middlewares: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_transform_chat_request_google_provider_service_tier_is_top_level() {
+        let tx = GeminiRequestTransformer { config: cfg() };
+        let req =
+            crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+                .with_model("gemini-2.5-flash")
+                .with_provider_option(
+                    "google",
+                    serde_json::json!({
+                        "serviceTier": "flex"
+                    }),
+                );
+
+        let body = tx.transform_chat(&req).expect("serialize request");
+        assert_eq!(body["serviceTier"], serde_json::json!("flex"));
+    }
 }

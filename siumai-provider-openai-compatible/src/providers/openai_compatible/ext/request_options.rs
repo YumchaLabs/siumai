@@ -1,13 +1,12 @@
 use crate::types::ChatRequest;
 
-fn merge_provider_option_object(
-    mut request: ChatRequest,
+fn merge_provider_option_object_for(
+    map: &mut crate::types::ProviderOptionsMap,
     provider_id: &str,
     value: serde_json::Value,
-) -> ChatRequest {
+) {
     if let serde_json::Value::Object(new_options) = value {
-        let mut merged = request
-            .provider_options_map
+        let mut merged = map
             .get(provider_id)
             .and_then(|value| value.as_object())
             .cloned()
@@ -17,12 +16,68 @@ fn merge_provider_option_object(
             merged.insert(key, value);
         }
 
-        request
-            .provider_options_map
-            .insert(provider_id, serde_json::Value::Object(merged));
-        request
+        map.insert(provider_id, serde_json::Value::Object(merged));
     } else {
-        request.with_provider_option(provider_id, value)
+        map.insert(provider_id, value);
+    }
+}
+
+fn merge_provider_option_object(
+    mut request: ChatRequest,
+    provider_id: &str,
+    value: serde_json::Value,
+) -> ChatRequest {
+    merge_provider_option_object_for(&mut request.provider_options_map, provider_id, value);
+    request
+}
+
+/// Generic OpenAI-compatible request option helpers for `ChatRequest`.
+///
+/// This targets the shared `provider_options_map["openaiCompatible"]` namespace.
+pub trait OpenAiCompatibleChatRequestExt {
+    /// Convenience: attach generic OpenAI-compatible options to
+    /// `provider_options_map["openaiCompatible"]`.
+    fn with_openai_compatible_options<T: serde::Serialize>(self, options: T) -> Self;
+}
+
+impl OpenAiCompatibleChatRequestExt for ChatRequest {
+    fn with_openai_compatible_options<T: serde::Serialize>(self, options: T) -> Self {
+        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
+        merge_provider_option_object(self, "openaiCompatible", value)
+    }
+}
+
+/// Generic OpenAI-compatible request option helpers for `CompletionRequest`.
+///
+/// This targets the shared `provider_options_map["openaiCompatible"]` namespace.
+pub trait OpenAiCompatibleCompletionRequestExt {
+    /// Convenience: attach generic OpenAI-compatible options to
+    /// `provider_options_map["openaiCompatible"]`.
+    fn with_openai_compatible_options<T: serde::Serialize>(self, options: T) -> Self;
+}
+
+impl OpenAiCompatibleCompletionRequestExt for crate::types::CompletionRequest {
+    fn with_openai_compatible_options<T: serde::Serialize>(mut self, options: T) -> Self {
+        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
+        merge_provider_option_object_for(&mut self.provider_options_map, "openaiCompatible", value);
+        self
+    }
+}
+
+/// Generic OpenAI-compatible request option helpers for `EmbeddingRequest`.
+///
+/// This targets the shared `provider_options_map["openaiCompatible"]` namespace.
+pub trait OpenAiCompatibleEmbeddingRequestExt {
+    /// Convenience: attach generic OpenAI-compatible options to
+    /// `provider_options_map["openaiCompatible"]`.
+    fn with_openai_compatible_options<T: serde::Serialize>(self, options: T) -> Self;
+}
+
+impl OpenAiCompatibleEmbeddingRequestExt for crate::types::EmbeddingRequest {
+    fn with_openai_compatible_options<T: serde::Serialize>(mut self, options: T) -> Self {
+        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
+        merge_provider_option_object_for(&mut self.provider_options_map, "openaiCompatible", value);
+        self
     }
 }
 
@@ -118,9 +173,81 @@ mod tests {
         FireworksChatOptions, FireworksReasoningHistory, FireworksThinkingConfig,
         FireworksThinkingType, MistralChatOptions, MistralReasoningEffort, MoonshotAIChatOptions,
         MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType,
-        OpenRouterOptions, OpenRouterTransform, PerplexityOptions, PerplexitySearchMode,
+        OpenAiCompatibleEmbeddingModelOptions, OpenAiCompatibleLanguageModelChatOptions,
+        OpenAiCompatibleLanguageModelCompletionOptions, OpenRouterOptions, OpenRouterTransform,
+        PerplexityOptions, PerplexitySearchMode,
     };
-    use crate::types::ChatMessage;
+    use crate::types::{ChatMessage, CompletionRequest, EmbeddingRequest};
+
+    #[test]
+    fn chat_request_ext_attaches_openai_compatible_options() {
+        let request = ChatRequest::new(vec![ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "openaiCompatible",
+                serde_json::json!({ "existing": true, "textVerbosity": "low" }),
+            )
+            .with_openai_compatible_options(
+                OpenAiCompatibleLanguageModelChatOptions::new()
+                    .with_user("user-123")
+                    .with_reasoning_effort("high")
+                    .with_strict_json_schema(true),
+            );
+
+        let value = request
+            .provider_options_map
+            .get("openaiCompatible")
+            .expect("openai-compatible options present");
+        assert_eq!(value["existing"], serde_json::json!(true));
+        assert_eq!(value["user"], serde_json::json!("user-123"));
+        assert_eq!(value["reasoningEffort"], serde_json::json!("high"));
+        assert_eq!(value["textVerbosity"], serde_json::json!("low"));
+        assert_eq!(value["strictJsonSchema"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn completion_request_ext_attaches_openai_compatible_options() {
+        let request = CompletionRequest::new("hi")
+            .with_provider_option(
+                "openaiCompatible",
+                serde_json::json!({ "existing": true, "echo": false }),
+            )
+            .with_openai_compatible_options(
+                OpenAiCompatibleLanguageModelCompletionOptions::new()
+                    .with_echo(true)
+                    .with_logit_bias_token("42", 1.5)
+                    .with_suffix(" after")
+                    .with_user("user-456"),
+            );
+
+        let value = request
+            .provider_options_map
+            .get("openaiCompatible")
+            .expect("openai-compatible options present");
+        assert_eq!(value["existing"], serde_json::json!(true));
+        assert_eq!(value["echo"], serde_json::json!(true));
+        assert_eq!(value["logitBias"]["42"], serde_json::json!(1.5));
+        assert_eq!(value["suffix"], serde_json::json!(" after"));
+        assert_eq!(value["user"], serde_json::json!("user-456"));
+    }
+
+    #[test]
+    fn embedding_request_ext_attaches_openai_compatible_options() {
+        let request = EmbeddingRequest::single("hello")
+            .with_provider_option("openaiCompatible", serde_json::json!({ "existing": true }))
+            .with_openai_compatible_options(
+                OpenAiCompatibleEmbeddingModelOptions::new()
+                    .with_dimensions(256)
+                    .with_user("user-789"),
+            );
+
+        let value = request
+            .provider_options_map
+            .get("openaiCompatible")
+            .expect("openai-compatible options present");
+        assert_eq!(value["existing"], serde_json::json!(true));
+        assert_eq!(value["dimensions"], serde_json::json!(256));
+        assert_eq!(value["user"], serde_json::json!("user-789"));
+    }
 
     #[test]
     fn chat_request_ext_attaches_mistral_options() {

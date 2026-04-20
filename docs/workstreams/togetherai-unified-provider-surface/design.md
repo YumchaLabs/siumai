@@ -127,7 +127,8 @@ without forcing the canonical image family back onto the generic compat image ru
 native builder.
 
 The provider-owned native typed rerank surface still exists under `provider_ext::togetherai`.
-The same extension module now also exposes typed TogetherAI image options/request helpers.
+The same extension module now also exposes typed TogetherAI image options/request helpers plus the
+audited `TogetherAIErrorData` error envelope.
 
 This preserves both stories:
 
@@ -148,6 +149,8 @@ This preserves both stories:
   rejects `mask` edits before transport
 - public `TogetherAiImageOptions` now mirrors the audited AI SDK image option lane under
   `providerOptions.togetherai`
+- `provider_ext::togetherai` now also exposes `TogetherAIErrorData`, so TogetherAI package-surface
+  audits no longer have to fall back to generic compat error types just to decode provider errors
 - registry metadata for `togetherai` now advertises the full AI SDK-style capability set instead of
   rerank only
 

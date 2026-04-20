@@ -1,9 +1,11 @@
-use crate::provider_options::gemini::GeminiImageOptions;
+use crate::provider_options::gemini::{GeminiImageOptions, GoogleImageModelOptions};
 use crate::types::{
     GenerateImageRequest, ImageEditRequest, ImageGenerationRequest, ImageVariationRequest,
 };
 
-use super::request_options::{denormalize_gemini_options_json, merge_provider_option_object};
+use super::request_options::{
+    denormalize_gemini_options_json, merge_provider_option_object, merge_provider_option_object_for,
+};
 
 /// Gemini image request helpers for stable image request families.
 pub trait GeminiImageRequestExt {
@@ -11,11 +13,26 @@ pub trait GeminiImageRequestExt {
     fn with_gemini_image_options(self, options: GeminiImageOptions) -> Self;
 }
 
+/// Google image request helpers for stable image request families.
+pub trait GoogleImageRequestExt {
+    /// Convenience: attach Google image options to `provider_options_map["google"]`.
+    fn with_google_image_options(self, options: GoogleImageModelOptions) -> Self;
+}
+
 impl GeminiImageRequestExt for ImageGenerationRequest {
     fn with_gemini_image_options(mut self, options: GeminiImageOptions) -> Self {
         let value = serde_json::to_value(options).expect("serialize GeminiImageOptions");
         let value = denormalize_gemini_options_json(&value);
         merge_provider_option_object(&mut self.provider_options_map, value);
+        self
+    }
+}
+
+impl GoogleImageRequestExt for ImageGenerationRequest {
+    fn with_google_image_options(mut self, options: GoogleImageModelOptions) -> Self {
+        let value = serde_json::to_value(options).expect("serialize GoogleImageModelOptions");
+        let value = denormalize_gemini_options_json(&value);
+        merge_provider_option_object_for("google", &mut self.provider_options_map, value);
         self
     }
 }
@@ -29,6 +46,15 @@ impl GeminiImageRequestExt for ImageEditRequest {
     }
 }
 
+impl GoogleImageRequestExt for ImageEditRequest {
+    fn with_google_image_options(mut self, options: GoogleImageModelOptions) -> Self {
+        let value = serde_json::to_value(options).expect("serialize GoogleImageModelOptions");
+        let value = denormalize_gemini_options_json(&value);
+        merge_provider_option_object_for("google", &mut self.provider_options_map, value);
+        self
+    }
+}
+
 impl GeminiImageRequestExt for ImageVariationRequest {
     fn with_gemini_image_options(mut self, options: GeminiImageOptions) -> Self {
         let value = serde_json::to_value(options).expect("serialize GeminiImageOptions");
@@ -38,11 +64,29 @@ impl GeminiImageRequestExt for ImageVariationRequest {
     }
 }
 
+impl GoogleImageRequestExt for ImageVariationRequest {
+    fn with_google_image_options(mut self, options: GoogleImageModelOptions) -> Self {
+        let value = serde_json::to_value(options).expect("serialize GoogleImageModelOptions");
+        let value = denormalize_gemini_options_json(&value);
+        merge_provider_option_object_for("google", &mut self.provider_options_map, value);
+        self
+    }
+}
+
 impl GeminiImageRequestExt for GenerateImageRequest {
     fn with_gemini_image_options(mut self, options: GeminiImageOptions) -> Self {
         let value = serde_json::to_value(options).expect("serialize GeminiImageOptions");
         let value = denormalize_gemini_options_json(&value);
         merge_provider_option_object(&mut self.provider_options_map, value);
+        self
+    }
+}
+
+impl GoogleImageRequestExt for GenerateImageRequest {
+    fn with_google_image_options(mut self, options: GoogleImageModelOptions) -> Self {
+        let value = serde_json::to_value(options).expect("serialize GoogleImageModelOptions");
+        let value = denormalize_gemini_options_json(&value);
+        merge_provider_option_object_for("google", &mut self.provider_options_map, value);
         self
     }
 }
@@ -93,6 +137,22 @@ mod tests {
             .get("gemini")
             .expect("gemini image options present");
         assert_eq!(value["existing"], serde_json::json!(true));
+        assert_eq!(value["aspectRatio"], serde_json::json!("16:9"));
+        assert_eq!(value["personGeneration"], serde_json::json!("allow_all"));
+    }
+
+    #[test]
+    fn generate_image_request_ext_attaches_google_image_options() {
+        let request = GenerateImageRequest::new("draw a robot").with_google_image_options(
+            GoogleImageModelOptions::new()
+                .with_aspect_ratio("16:9")
+                .with_person_generation("allow_all"),
+        );
+
+        let value = request
+            .provider_options_map
+            .get("google")
+            .expect("google image options present");
         assert_eq!(value["aspectRatio"], serde_json::json!("16:9"));
         assert_eq!(value["personGeneration"], serde_json::json!("allow_all"));
     }

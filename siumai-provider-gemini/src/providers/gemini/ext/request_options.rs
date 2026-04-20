@@ -1,3 +1,4 @@
+use crate::provider_options::gemini::GoogleLanguageModelOptions;
 use crate::types::ChatRequest;
 
 /// Gemini request option helpers for `ChatRequest`.
@@ -6,6 +7,12 @@ use crate::types::ChatRequest;
 pub trait GeminiChatRequestExt {
     /// Convenience: attach Gemini-specific options to `provider_options_map["gemini"]`.
     fn with_gemini_options<T: serde::Serialize>(self, options: T) -> Self;
+}
+
+/// Google request option helpers for `ChatRequest`.
+pub trait GoogleChatRequestExt {
+    /// Convenience: attach Google-specific options to `provider_options_map["google"]`.
+    fn with_google_options(self, options: GoogleLanguageModelOptions) -> Self;
 }
 
 fn denormalize_gemini_option_key(key: &str) -> Option<&'static str> {
@@ -21,16 +28,29 @@ fn denormalize_gemini_option_key(key: &str) -> Option<&'static str> {
         "image_config" => "imageConfig",
         "response_logprobs" => "responseLogprobs",
         "retrieval_config" => "retrievalConfig",
+        "stream_function_call_arguments" => "streamFunctionCallArguments",
         "structured_outputs" => "structuredOutputs",
         "code_execution" => "codeExecution",
         "search_grounding" => "searchGrounding",
         "file_search" => "fileSearch",
+        "service_tier" => "serviceTier",
         "dynamic_retrieval_config" => "dynamicRetrievalConfig",
         "dynamic_threshold" => "dynamicThreshold",
         "lat_lng" => "latLng",
         "file_search_store_names" => "fileSearchStoreNames",
         "aspect_ratio" => "aspectRatio",
         "image_size" => "imageSize",
+        "output_dimensionality" => "outputDimensionality",
+        "inline_data" => "inlineData",
+        "mime_type" => "mimeType",
+        "display_name" => "displayName",
+        "poll_interval_ms" => "pollIntervalMs",
+        "poll_timeout_ms" => "pollTimeoutMs",
+        "person_generation" => "personGeneration",
+        "negative_prompt" => "negativePrompt",
+        "reference_images" => "referenceImages",
+        "bytes_base64_encoded" => "bytesBase64Encoded",
+        "gcs_uri" => "gcsUri",
         _ => return None,
     })
 }
@@ -50,7 +70,10 @@ pub(crate) fn denormalize_gemini_options_json(value: &serde_json::Value) -> serd
                 Some(serde_json::Value::Object(out))
             }
             serde_json::Value::Array(values) => Some(serde_json::Value::Array(
-                values.iter().filter_map(inner).collect(),
+                values
+                    .iter()
+                    .map(|value| inner(value).unwrap_or(serde_json::Value::Null))
+                    .collect(),
             )),
             other => Some(other.clone()),
         }
@@ -59,13 +82,14 @@ pub(crate) fn denormalize_gemini_options_json(value: &serde_json::Value) -> serd
     inner(value).unwrap_or(serde_json::Value::Null)
 }
 
-pub(crate) fn merge_provider_option_object(
+pub(crate) fn merge_provider_option_object_for(
+    provider_id: &str,
     map: &mut crate::types::ProviderOptionsMap,
     value: serde_json::Value,
 ) {
     if let serde_json::Value::Object(new_options) = value {
         let mut merged = map
-            .get("gemini")
+            .get(provider_id)
             .and_then(|value| value.as_object())
             .cloned()
             .unwrap_or_default();
@@ -74,10 +98,17 @@ pub(crate) fn merge_provider_option_object(
             merged.insert(key, value);
         }
 
-        map.insert("gemini", serde_json::Value::Object(merged));
+        map.insert(provider_id, serde_json::Value::Object(merged));
     } else {
-        map.insert("gemini", value);
+        map.insert(provider_id, value);
     }
+}
+
+pub(crate) fn merge_provider_option_object(
+    map: &mut crate::types::ProviderOptionsMap,
+    value: serde_json::Value,
+) {
+    merge_provider_option_object_for("gemini", map, value);
 }
 
 impl GeminiChatRequestExt for ChatRequest {
@@ -89,11 +120,21 @@ impl GeminiChatRequestExt for ChatRequest {
     }
 }
 
+impl GoogleChatRequestExt for ChatRequest {
+    fn with_google_options(mut self, options: GoogleLanguageModelOptions) -> Self {
+        let value = serde_json::to_value(options).unwrap_or(serde_json::Value::Null);
+        let value = denormalize_gemini_options_json(&value);
+        merge_provider_option_object_for("google", &mut self.provider_options_map, value);
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::provider_options::gemini::{
-        GeminiImageConfig, GeminiLatLng, GeminiOptions, GeminiRetrievalConfig, GeminiThinkingConfig,
+        GeminiImageConfig, GeminiLatLng, GeminiOptions, GeminiRetrievalConfig,
+        GeminiThinkingConfig, GoogleLanguageModelOptions,
     };
     use crate::types::{ChatMessage, ChatRequest};
 
@@ -198,5 +239,44 @@ mod tests {
             serde_json::json!("application/json")
         );
         assert_eq!(options["structuredOutputs"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn with_google_options_serializes_google_runtime_fields() {
+        let req = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_google_options(
+            GoogleLanguageModelOptions::new()
+                .with_service_tier("flex")
+                .with_stream_function_call_arguments(true),
+        );
+
+        let options = req
+            .provider_option("google")
+            .expect("google provider options");
+
+        assert_eq!(options["serviceTier"], serde_json::json!("flex"));
+        assert_eq!(
+            options["streamFunctionCallArguments"],
+            serde_json::json!(true)
+        );
+    }
+
+    #[test]
+    fn denormalize_gemini_options_json_preserves_null_array_entries() {
+        let value = denormalize_gemini_options_json(&serde_json::json!({
+            "content": [
+                [{"inline_data": {"mime_type": "image/png", "data": "Zm9v"}}],
+                null
+            ]
+        }));
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "content": [
+                    [{"inlineData": {"mimeType": "image/png", "data": "Zm9v"}}],
+                    null
+                ]
+            })
+        );
     }
 }

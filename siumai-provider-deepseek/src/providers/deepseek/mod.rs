@@ -36,6 +36,7 @@ pub mod spec;
 pub use builder::DeepSeekBuilder;
 pub use client::DeepSeekClient;
 pub use config::DeepSeekConfig;
+pub use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleErrorData as DeepSeekErrorData;
 
 // Provider-owned typed options live at the crate root; re-export them under the provider path.
 #[allow(deprecated)]
@@ -43,3 +44,27 @@ pub use crate::provider_options::{
     DeepSeekChatOptions, DeepSeekLanguageModelOptions, DeepSeekOptions,
 };
 pub use spec::DeepSeekSpec;
+
+#[cfg(test)]
+mod tests {
+    use super::DeepSeekErrorData;
+
+    #[test]
+    fn deepseek_error_data_deserializes_ai_sdk_shape() {
+        let data: DeepSeekErrorData = serde_json::from_value(serde_json::json!({
+            "error": {
+                "message": "rate limit exceeded",
+                "type": "rate_limit_error",
+                "code": "too_many_requests"
+            }
+        }))
+        .expect("deepseek error data should deserialize");
+
+        assert_eq!(data.error.message, "rate limit exceeded");
+        assert_eq!(data.error.error_type.as_deref(), Some("rate_limit_error"));
+        assert_eq!(
+            data.error.code,
+            Some(serde_json::json!("too_many_requests"))
+        );
+    }
+}

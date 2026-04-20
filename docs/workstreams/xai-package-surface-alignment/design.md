@@ -1,6 +1,6 @@
 # xAI Package Surface Alignment - Design
 
-Last updated: 2026-04-15
+Last updated: 2026-04-20
 
 ## Problem
 
@@ -12,19 +12,27 @@ provider-owned xAI wrapper surface:
 - provider-owned tool factories
 - provider-owned config/client wrapper construction
 
-What was still drifting was the package boundary around xAI-specific non-text data structures and
-the file-upload lane:
+What was still drifting was the package boundary around xAI-specific non-text data structures, the
+file-upload lane, part of the video-options surface, and the public naming contract of
+`providerOptions.xai` on chat/responses/search:
 
 - `XaiFilesOptions` was exported upstream but missing on the Rust provider/facade surface
 - `XaiErrorData` and `XaiVideoModelId` were exported upstream but had no comparable Rust names
 - the high-level Rust `siumai::files::upload(...)` helper routed `xai` like an OpenAI-like file
   provider, but the native `XaiClient` wrapper itself did not expose a provider-owned files lane
+- `XaiVideoModelOptions` existed, but it still trailed the upstream type/runtime contract for
+  `mode`, `referenceImageUrls`, and the dedicated `/videos/extensions` route
+- `XaiChatOptions`, `XaiResponsesOptions`, `XaiSearchParameters`, and discriminated search-source
+  structs still serialized their public Rust shape mostly as snake_case even though the audited
+  AI SDK package presents those options to callers in camelCase
 
 That left the public Rust surface in an awkward middle state:
 
 - the shared upload helper knew about `xai`
 - the provider-owned wrapper did not actually implement file management
 - the audited upstream package still had a couple of missing public data structures
+- the provider-owned video path still only covered generation plus edit-by-`videoUrl`, not the
+  fuller upstream video-options contract
 
 ## Goals
 
@@ -34,6 +42,8 @@ That left the public Rust surface in an awkward middle state:
   `XaiFilesOptions`, `XaiErrorData`, and `XaiVideoModelId`.
 - Make the Rust high-level upload helper work on the provider-owned `XaiClient` path instead of
   relying on a stale shared assumption.
+- Close the remaining audited `XaiVideoModelOptions` gap around `mode`,
+  `referenceImageUrls`, and route selection.
 - Keep the Rust public surface aligned with the upstream package without inventing unrelated xAI
   exports.
 
@@ -88,7 +98,26 @@ The Rust upload lane also forwards `filePath -> file_path`. This is a deliberate
 compatibility choice: the field is already part of the upstream exported type surface even though
 the current AI SDK upload helper mainly exercises `teamId`.
 
-### 4. Keep non-package surfaces deferred
+### 4. Finish the upstream video-options contract on the provider-owned xAI path
+
+The provider-owned xAI video surface now also closes the remaining upstream package/runtime drift:
+
+- `XaiVideoOptions` now carries `mode` plus `referenceImageUrls`
+- the public typed provider-option surface now serializes the audited AI SDK-facing camelCase
+  fields across chat/responses/search/video/files, including `reasoningEffort`,
+  `searchParameters`, `previousResponseId`, `pollIntervalMs`, `pollTimeoutMs`, `videoUrl`,
+  `referenceImageUrls`, `teamId`, and `filePath`
+- the provider-owned Rust runtime now routes `mode = "extend-video"` to `/videos/extensions`
+- the provider-owned Rust runtime now routes `mode = "reference-to-video"` through the normal
+  generation endpoint while lowering typed `referenceImageUrls` onto `reference_images`
+
+The runtime still preserves Rust-side compatibility:
+
+- legacy snake_case provider-option keys continue to deserialize
+- `request.video` still works as a stable Rust input and defaults to edit-video when no explicit
+  xAI mode is provided
+
+### 5. Keep non-package surfaces deferred
 
 The package audit stays strict about deferrals:
 
@@ -109,6 +138,12 @@ This workstream currently closes the following xAI package-surface gaps:
   `siumai::files::upload(...)`
 - the xAI upload lane is locked by no-network multipart regression tests on both the provider crate
   and top-level facade/helper path
+- `XaiVideoOptions` now also covers upstream `mode` and `referenceImageUrls`
+- the public xAI options surface now serializes the audited AI SDK-facing camelCase fields across
+  chat / responses / search / video / files while still accepting the older snake_case
+  compatibility aliases
+- the provider-owned xAI video runtime now covers the audited `/videos/extensions` and
+  reference-to-video route split
 
 ## Validation
 
@@ -116,9 +151,12 @@ The current slice is locked by:
 
 - provider-option tests in `siumai-provider-xai/src/provider_options/xai.rs`
 - provider-local files tests in `siumai-provider-xai/src/providers/xai/files.rs`
+- provider-local xAI video route tests in `siumai-provider-xai/src/providers/xai/video.rs`
 - public surface compile guards in `siumai/tests/public_surface_imports_test.rs`
 - top-level upload-helper regression tests in
   `siumai/tests/xai_files_upload_alignment_test.rs`
+- top-level xAI video public-path parity tests in
+  `siumai/tests/provider_public_path_parity_test.rs`
 
 ## Remaining follow-up
 
@@ -128,3 +166,5 @@ The current slice is locked by:
   analogue across providers, instead of deciding that ad hoc on xAI alone.
 - Re-check whether the upstream AI SDK starts actively lowering `filePath` in its own upload helper,
   so the Rust/provider-native behavior and audited TypeScript runtime stay fully converged.
+- Re-audit whether upstream `@ai-sdk/xai` adds more public typed names or provider-owned helpers
+  that deserve direct Rust mirrors without widening the provider-owned capability surface

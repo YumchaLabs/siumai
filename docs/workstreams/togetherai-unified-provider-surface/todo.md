@@ -66,11 +66,12 @@ Status legend:
   - DeepInfra is now closed
   - Vertex MaaS is now closed
   - Cohere is now closed
-- [-] Mirror TypeScript-only package exports such as `TogetherAIProviderSettings`,
-  `TogetherAIErrorData`, or `VERSION` one-for-one on the Rust side.
-  - deferred intentionally because the Rust provider facade uses `Config` / `Builder` /
-    `Provider::togetherai()` as the stable constructor/settings story, and other aligned provider
-    packages do not expose separate TS-style settings/error-data wrapper aliases either
+- [~] Mirror the audited non-callable TogetherAI package exports where they are stable data
+  structures rather than TS-only callable provider settings.
+  - [x] `TogetherAIErrorData` is now exposed on `provider_ext::togetherai`
+  - [-] `TogetherAIProviderSettings` and `VERSION` remain intentionally deferred because the Rust
+    provider facade uses `Config` / `Builder` / `Provider::togetherai()` as the stable
+    constructor/settings story
 - [ ] Decide whether the remaining low-level `together` compatibility lookup should be deleted
   entirely after downstream migration.
 - [ ] Decide whether the unified TogetherAI wrapper should eventually move into a provider-owned

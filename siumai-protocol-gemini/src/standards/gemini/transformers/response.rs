@@ -694,6 +694,16 @@ impl ResponseTransformer for GeminiResponseTransformer {
             | types::FinishReason::Other
             | types::FinishReason::Unknown => FinishReason::Other("other".to_string()),
         });
+        let service_tier = raw
+            .get("serviceTier")
+            .or_else(|| raw.get("service_tier"))
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
+        let finish_message = raw
+            .get("finishMessage")
+            .or_else(|| raw.get("finish_message"))
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
 
         // Provider metadata (Vercel alignment): expose grounding/url_context and safety ratings.
         let provider_metadata = {
@@ -728,6 +738,14 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 && let Ok(v) = serde_json::to_value(m)
             {
                 google_meta.insert("usageMetadata".to_string(), v);
+            }
+
+            if let Some(message) = &finish_message {
+                google_meta.insert("finishMessage".to_string(), serde_json::json!(message));
+            }
+
+            if let Some(service_tier) = &service_tier {
+                google_meta.insert("serviceTier".to_string(), serde_json::json!(service_tier));
             }
 
             if let Some(avg) = candidate.avg_logprobs {
@@ -783,7 +801,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
             raw_finish_reason: None,
             audio: None, // Gemini doesn't support audio output in this format
             system_fingerprint: None,
-            service_tier: None,
+            service_tier,
             warnings: None,
             provider_metadata,
         })

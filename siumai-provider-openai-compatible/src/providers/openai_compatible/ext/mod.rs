@@ -11,5 +11,6 @@ pub use metadata::{
 };
 pub use request_options::{
     FireworksChatRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
-    OpenRouterChatRequestExt, PerplexityChatRequestExt,
+    OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
+    OpenAiCompatibleEmbeddingRequestExt, OpenRouterChatRequestExt, PerplexityChatRequestExt,
 };
