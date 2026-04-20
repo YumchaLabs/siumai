@@ -18,6 +18,7 @@ impl crate::traits::TranscriptionCapability for BridgeTranscriptionClient {
             words: None,
             duration: None,
             metadata: HashMap::new(),
+            response: None,
         })
     }
 }
@@ -171,6 +172,7 @@ async fn provider_factory_native_transcription_family_path_works() {
                 words: None,
                 duration: None,
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }
@@ -257,6 +259,7 @@ async fn transcription_model_handle_uses_native_family_path_when_available() {
                 words: None,
                 duration: None,
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }
@@ -341,6 +344,7 @@ async fn transcription_model_handle_reuses_cached_family_model() {
                 words: None,
                 duration: None,
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }

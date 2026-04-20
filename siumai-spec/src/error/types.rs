@@ -58,6 +58,27 @@ pub enum LlmError {
         responses: Vec<crate::types::HttpResponseInfo>,
     },
 
+    /// Image generation completed successfully but produced no final image.
+    #[error("No image generated.")]
+    NoImageGenerated {
+        /// Best-effort final response metadata for each generation call.
+        responses: Vec<crate::types::HttpResponseInfo>,
+    },
+
+    /// Speech synthesis completed successfully but produced no final audio bytes.
+    #[error("No speech audio generated.")]
+    NoSpeechGenerated {
+        /// Best-effort final response metadata for each generation call.
+        responses: Vec<crate::types::HttpResponseInfo>,
+    },
+
+    /// Transcription completed successfully but produced no final transcript text.
+    #[error("No transcript generated.")]
+    NoTranscriptGenerated {
+        /// Best-effort final response metadata for each generation call.
+        responses: Vec<crate::types::HttpResponseInfo>,
+    },
+
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),
@@ -377,6 +398,16 @@ impl LlmError {
             Self::ApiError {
                 code: 500..=599, ..
             } => "The service is temporarily unavailable. Please try again later.".to_string(),
+            Self::NoImageGenerated { .. } => {
+                "The provider completed the image request but returned no final image.".to_string()
+            }
+            Self::NoSpeechGenerated { .. } => {
+                "The provider completed the speech request but returned no audio.".to_string()
+            }
+            Self::NoTranscriptGenerated { .. } => {
+                "The provider completed the transcription request but returned no transcript."
+                    .to_string()
+            }
             Self::NoVideoGenerated { .. } => {
                 "The provider completed the video request but returned no final video.".to_string()
             }
@@ -457,6 +488,30 @@ impl LlmError {
                     "Refer to the API documentation for valid formats".to_string(),
                 ]
             }
+            Self::NoImageGenerated { .. } => {
+                vec![
+                    "Check provider response metadata to confirm final images were produced"
+                        .to_string(),
+                    "Retry the request or simplify prompt/options if the provider returned an empty image list".to_string(),
+                    "Inspect provider-specific metadata or moderation signals for filtered image outputs".to_string(),
+                ]
+            }
+            Self::NoSpeechGenerated { .. } => {
+                vec![
+                    "Check provider response metadata to confirm speech audio bytes were produced"
+                        .to_string(),
+                    "Retry the request or simplify synthesis options if the provider returned empty audio".to_string(),
+                    "Inspect provider-specific metadata for filtered or unsupported speech output".to_string(),
+                ]
+            }
+            Self::NoTranscriptGenerated { .. } => {
+                vec![
+                    "Check provider response metadata to confirm transcript text was produced"
+                        .to_string(),
+                    "Retry the request or simplify transcription options if the provider returned empty text".to_string(),
+                    "Inspect provider-specific metadata for filtering, language mismatch, or unsupported audio formats".to_string(),
+                ]
+            }
             Self::NoVideoGenerated { .. } => {
                 vec![
                     "Check provider task metadata to confirm final video assets were produced"
@@ -523,6 +578,60 @@ mod tests {
                 .recovery_suggestions()
                 .iter()
                 .any(|tip| tip.contains("provider task metadata"))
+        );
+    }
+
+    #[test]
+    fn no_image_generated_error_uses_specialized_message_and_guidance() {
+        let error = LlmError::NoImageGenerated {
+            responses: Vec::new(),
+        };
+
+        assert_eq!(
+            error.user_message(),
+            "The provider completed the image request but returned no final image."
+        );
+        assert!(
+            error
+                .recovery_suggestions()
+                .iter()
+                .any(|tip| tip.contains("final images"))
+        );
+    }
+
+    #[test]
+    fn no_speech_generated_error_uses_specialized_message_and_guidance() {
+        let error = LlmError::NoSpeechGenerated {
+            responses: Vec::new(),
+        };
+
+        assert_eq!(
+            error.user_message(),
+            "The provider completed the speech request but returned no audio."
+        );
+        assert!(
+            error
+                .recovery_suggestions()
+                .iter()
+                .any(|tip| tip.contains("empty audio"))
+        );
+    }
+
+    #[test]
+    fn no_transcript_generated_error_uses_specialized_message_and_guidance() {
+        let error = LlmError::NoTranscriptGenerated {
+            responses: Vec::new(),
+        };
+
+        assert_eq!(
+            error.user_message(),
+            "The provider completed the transcription request but returned no transcript."
+        );
+        assert!(
+            error
+                .recovery_suggestions()
+                .iter()
+                .any(|tip| tip.contains("empty text"))
         );
     }
 }

@@ -268,6 +268,22 @@ fn merge_batched_image_responses(
     }
 }
 
+fn ensure_images_generated(
+    results: Vec<ImageGenerationResponse>,
+    call_image_counts: Vec<u32>,
+) -> Result<ImageGenerationResponse, LlmError> {
+    let responses = results
+        .iter()
+        .filter_map(|result| result.response.clone())
+        .collect::<Vec<_>>();
+
+    if results.iter().all(|result| result.images.is_empty()) {
+        return Err(LlmError::NoImageGenerated { responses });
+    }
+
+    Ok(merge_batched_image_responses(results, call_image_counts))
+}
+
 fn has_prompt(prompt: Option<&str>) -> bool {
     prompt.is_some_and(|value| !value.trim().is_empty())
 }
@@ -508,7 +524,7 @@ pub async fn generate<M: ImageModelV3 + ?Sized>(
     }))
     .await?;
 
-    Ok(merge_batched_image_responses(results, call_image_counts))
+    ensure_images_generated(results, call_image_counts)
 }
 
 /// Edit or inpaint images through the provider-owned image-extras lane.
@@ -537,7 +553,7 @@ pub async fn edit<M: ImageModelV3 + ImageExtras + ?Sized>(
     }))
     .await?;
 
-    Ok(merge_batched_image_responses(results, call_image_counts))
+    ensure_images_generated(results, call_image_counts)
 }
 
 /// Create image variations through the provider-owned image-extras lane.
@@ -566,7 +582,7 @@ pub async fn variation<M: ImageModelV3 + ImageExtras + ?Sized>(
     }))
     .await?;
 
-    Ok(merge_batched_image_responses(results, call_image_counts))
+    ensure_images_generated(results, call_image_counts)
 }
 
 /// AI SDK-style unified image helper.
@@ -612,7 +628,7 @@ pub async fn generate_image<M: ImageModelV4 + ImageExtras + ?Sized>(
     }))
     .await?;
 
-    Ok(merge_batched_image_responses(results, call_image_counts))
+    ensure_images_generated(results, call_image_counts)
 }
 
 #[cfg(test)]
@@ -629,6 +645,7 @@ mod tests {
         variation_requests: Mutex<Vec<ImageVariationRequest>>,
         supports_variation: bool,
         max_images_per_call: Option<u32>,
+        forced_image_count: Option<u32>,
     }
 
     impl FakeImageModel {
@@ -677,7 +694,9 @@ mod tests {
             route: &'static str,
             call_index: usize,
             image_count: u32,
+            forced_image_count: Option<u32>,
         ) -> ImageGenerationResponse {
+            let image_count = forced_image_count.unwrap_or(image_count);
             ImageGenerationResponse {
                 images: (0..image_count)
                     .map(|image_index| siumai_core::types::GeneratedImage {
@@ -724,7 +743,12 @@ mod tests {
         ) -> Result<ImageGenerationResponse, LlmError> {
             self.push_route("generate");
             let call_index = self.record_generation_request(&request);
-            Ok(Self::build_response("generate", call_index, request.count))
+            Ok(Self::build_response(
+                "generate",
+                call_index,
+                request.count,
+                self.forced_image_count,
+            ))
         }
 
         fn max_images_per_call(&self) -> Option<u32> {
@@ -744,6 +768,7 @@ mod tests {
                 "edit",
                 call_index,
                 normalize_optional_generation_count(request.count),
+                self.forced_image_count,
             ))
         }
 
@@ -758,6 +783,7 @@ mod tests {
                     "variation",
                     call_index,
                     normalize_optional_generation_count(request.count),
+                    self.forced_image_count,
                 ))
             } else {
                 Err(LlmError::UnsupportedOperation(
@@ -1045,6 +1071,62 @@ mod tests {
             responses[2].get("modelId").and_then(|value| value.as_str()),
             Some("generate-2")
         );
+    }
+
+    #[tokio::test]
+    async fn generate_returns_no_image_generated_error_when_all_calls_are_empty() {
+        let model = FakeImageModel {
+            forced_image_count: Some(0),
+            ..Default::default()
+        };
+
+        let err = generate(
+            &model,
+            ImageGenerationRequest {
+                prompt: "empty".to_string(),
+                count: 2,
+                ..Default::default()
+            },
+            GenerateOptions {
+                max_images_per_call: Some(1),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+
+        match err {
+            LlmError::NoImageGenerated { responses } => {
+                assert_eq!(responses.len(), 2);
+                assert_eq!(responses[0].model_id.as_deref(), Some("generate-0"));
+                assert_eq!(responses[1].model_id.as_deref(), Some("generate-1"));
+            }
+            other => panic!("expected NoImageGenerated error, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn unified_generate_image_returns_no_image_generated_error_when_empty() {
+        let model = FakeImageModel {
+            forced_image_count: Some(0),
+            ..Default::default()
+        };
+
+        let err = generate_image(
+            &model,
+            GenerateImageRequest::new("empty image result"),
+            Default::default(),
+        )
+        .await
+        .unwrap_err();
+
+        match err {
+            LlmError::NoImageGenerated { responses } => {
+                assert_eq!(responses.len(), 1);
+                assert_eq!(responses[0].model_id.as_deref(), Some("generate-0"));
+            }
+            other => panic!("expected NoImageGenerated error, got {other:?}"),
+        }
     }
 
     #[tokio::test]

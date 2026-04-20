@@ -170,6 +170,9 @@ fn extract_raw_message(err: &LlmError) -> String {
         | LlmError::ParseError(msg)
         | LlmError::InvalidParameter(msg)
         | LlmError::InvalidInput(msg) => msg.clone(),
+        LlmError::NoImageGenerated { .. } => "No image generated.".to_string(),
+        LlmError::NoSpeechGenerated { .. } => "No speech audio generated.".to_string(),
+        LlmError::NoTranscriptGenerated { .. } => "No transcript generated.".to_string(),
         LlmError::NoVideoGenerated { .. } => "No video generated.".to_string(),
         _ => err.to_string(),
     }

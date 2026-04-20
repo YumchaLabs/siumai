@@ -61,6 +61,7 @@ mod tests {
                 words: None,
                 duration: None,
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }

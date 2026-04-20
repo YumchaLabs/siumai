@@ -3,7 +3,9 @@
 use crate::error::LlmError;
 use crate::execution::ExecutionPolicy;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
-use crate::types::{SttRequest, TtsRequest};
+use crate::types::{HttpResponseInfo, SttRequest, TtsRequest};
+use reqwest::header::HeaderMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// TTS execution result with audio data and metadata
@@ -15,6 +17,8 @@ pub struct TtsExecutionResult {
     pub duration: Option<f32>,
     /// Sample rate in Hz (if available)
     pub sample_rate: Option<u32>,
+    /// Best-effort HTTP response metadata for the final request.
+    pub response: Option<HttpResponseInfo>,
 }
 
 /// STT execution result with transcript and raw provider payload
@@ -24,6 +28,8 @@ pub struct SttExecutionResult {
     pub text: String,
     /// Raw JSON payload returned by the provider (best-effort)
     pub raw: serde_json::Value,
+    /// Best-effort HTTP response metadata for the final request.
+    pub response: Option<HttpResponseInfo>,
 }
 
 #[async_trait::async_trait]
@@ -124,6 +130,26 @@ impl AudioExecutorBuilder {
     }
 }
 
+fn headers_to_map(headers: &HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(key, value)| {
+            Some((key.as_str().to_string(), value.to_str().ok()?.to_string()))
+        })
+        .collect()
+}
+
+fn build_response_info(headers: &HeaderMap, model_id: Option<&str>) -> HttpResponseInfo {
+    HttpResponseInfo {
+        timestamp: chrono::Utc::now(),
+        model_id: model_id
+            .map(str::trim)
+            .filter(|model_id| !model_id.is_empty())
+            .map(ToOwned::to_owned),
+        headers: headers_to_map(headers),
+    }
+}
+
 #[async_trait::async_trait]
 impl AudioExecutor for HttpAudioExecutor {
     async fn tts(&self, req: TtsRequest) -> Result<TtsExecutionResult, LlmError> {
@@ -178,20 +204,19 @@ impl AudioExecutor for HttpAudioExecutor {
 
                 let body = transformer.build_tts_body(&req)?;
 
-                let raw_bytes = match body {
+                let result = match body {
                     AudioHttpBody::Json(mut json) => {
                         // Apply before_send if present
                         if let Some(cb) = &before_send {
                             json = cb(&json)?;
                         }
-                        let result = crate::execution::executors::common::execute_bytes_request(
+                        crate::execution::executors::common::execute_bytes_request(
                             &config,
                             &url,
                             crate::execution::executors::common::HttpBody::Json(json),
                             req.http_config.as_ref(),
                         )
-                        .await?;
-                        result.bytes
+                        .await?
                     }
                     AudioHttpBody::Multipart(_) => {
                         // Multipart bodies are not cloneable; rebuild per request attempt.
@@ -205,17 +230,17 @@ impl AudioExecutor for HttpAudioExecutor {
                                 )),
                             };
 
-                        let result =
-                            crate::execution::executors::common::execute_multipart_bytes_request(
-                                &config,
-                                &url,
-                                build_form,
-                                req.http_config.as_ref(),
-                            )
-                            .await?;
-                        result.bytes
+                        crate::execution::executors::common::execute_multipart_bytes_request(
+                            &config,
+                            &url,
+                            build_form,
+                            req.http_config.as_ref(),
+                        )
+                        .await?
                     }
                 };
+                let response = Some(build_response_info(&result.headers, req.model.as_deref()));
+                let raw_bytes = result.bytes;
 
                 // Parse response using transformer
                 // This allows providers to handle different response formats
@@ -238,6 +263,7 @@ impl AudioExecutor for HttpAudioExecutor {
                     audio_data,
                     duration,
                     sample_rate,
+                    response,
                 })
             }
         };
@@ -336,6 +362,7 @@ impl AudioExecutor for HttpAudioExecutor {
                 Ok(SttExecutionResult {
                     text,
                     raw: result.json,
+                    response: Some(build_response_info(&result.headers, req.model.as_deref())),
                 })
             }
         };

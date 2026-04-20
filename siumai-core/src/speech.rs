@@ -59,6 +59,7 @@ mod tests {
                 duration: None,
                 sample_rate: None,
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }

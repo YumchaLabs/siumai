@@ -392,6 +392,7 @@ impl AudioCapability for AzureOpenAiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: HashMap::new(),
+            response: result.response,
         })
     }
 
@@ -399,6 +400,7 @@ impl AudioCapability for AzureOpenAiClient {
         let exec = self.build_audio_executor();
         let request = request.with_model_if_missing(self.config.common_params.model.clone());
         let result = AudioExecutor::stt(&*exec, request).await?;
+        let response = result.response;
         let raw = result.raw;
 
         let language = raw
@@ -428,6 +430,7 @@ impl AudioCapability for AzureOpenAiClient {
             words: None,
             duration,
             metadata,
+            response,
         })
     }
 }

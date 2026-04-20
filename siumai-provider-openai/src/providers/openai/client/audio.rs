@@ -6,7 +6,17 @@ use crate::types::{
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
+use reqwest::header::HeaderMap;
 use std::collections::HashMap;
+
+fn headers_to_map(headers: &HeaderMap) -> HashMap<String, String> {
+    headers
+        .iter()
+        .filter_map(|(key, value)| {
+            Some((key.as_str().to_string(), value.to_str().ok()?.to_string()))
+        })
+        .collect()
+}
 
 #[async_trait]
 impl AudioCapability for OpenAiClient {
@@ -34,6 +44,7 @@ impl AudioCapability for OpenAiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
+            response: result.response,
         })
     }
 
@@ -52,6 +63,7 @@ impl AudioCapability for OpenAiClient {
         request.model = Some(self.resolved_stt_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let result = AudioExecutor::stt(&*exec, request).await?;
+        let response = result.response;
         let raw = result.raw;
 
         let language = raw
@@ -98,6 +110,7 @@ impl AudioCapability for OpenAiClient {
             words,
             duration,
             metadata,
+            response,
         })
     }
 
@@ -286,6 +299,11 @@ impl AudioCapability for OpenAiClient {
         let res =
             execute_multipart_bytes_request(&config, &url, build_form, req.http_config.as_ref())
                 .await?;
+        let response = Some(crate::types::HttpResponseInfo {
+            timestamp: chrono::Utc::now(),
+            model_id: req.model.clone().filter(|model| !model.is_empty()),
+            headers: headers_to_map(&res.headers),
+        });
 
         let mut metadata = std::collections::HashMap::new();
 
@@ -324,6 +342,7 @@ impl AudioCapability for OpenAiClient {
                     .and_then(|v| v.as_f64())
                     .map(|d| d as f32),
                 metadata,
+                response,
             });
         }
 
@@ -338,6 +357,7 @@ impl AudioCapability for OpenAiClient {
             words: None,
             duration: None,
             metadata,
+            response,
         })
     }
 }

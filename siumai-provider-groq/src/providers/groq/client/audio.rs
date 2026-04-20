@@ -44,6 +44,7 @@ impl AudioCapability for GroqClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
+            response: result.response,
         })
     }
 
@@ -73,6 +74,7 @@ impl AudioCapability for GroqClient {
         let exec = builder.build();
         let result = AudioExecutor::stt(&*exec, request).await?;
         let text = result.text;
+        let response = result.response;
         let raw = result.raw;
         let language = raw
             .get("language")
@@ -112,6 +114,7 @@ impl AudioCapability for GroqClient {
             words,
             duration,
             metadata,
+            response,
         })
     }
 }

@@ -226,6 +226,7 @@ impl AudioCapability for XaiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
+            response: result.response,
         })
     }
 

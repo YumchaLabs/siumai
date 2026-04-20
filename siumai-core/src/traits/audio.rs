@@ -131,6 +131,7 @@ mod tests {
                 words: None,
                 duration: None,
                 metadata: Default::default(),
+                response: None,
             })
         }
 
@@ -146,6 +147,7 @@ mod tests {
                 words: None,
                 duration: None,
                 metadata: Default::default(),
+                response: None,
             })
         }
     }

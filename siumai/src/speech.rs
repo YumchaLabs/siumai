@@ -55,7 +55,7 @@ pub async fn synthesize<M: SpeechModel + ?Sized>(
     options: SynthesizeOptions,
 ) -> Result<TtsResponse, LlmError> {
     let request = apply_tts_call_options(request, options.timeout, options.headers);
-    if let Some(retry) = options.retry {
+    let response = if let Some(retry) = options.retry {
         retry_with(
             || {
                 let req = request.clone();
@@ -66,5 +66,70 @@ pub async fn synthesize<M: SpeechModel + ?Sized>(
         .await
     } else {
         model.synthesize(request).await
+    }?;
+
+    if response.audio_data.is_empty() {
+        return Err(LlmError::NoSpeechGenerated {
+            responses: response.response.clone().into_iter().collect(),
+        });
+    }
+
+    Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use siumai_core::traits::ModelMetadata;
+    use siumai_core::types::HttpResponseInfo;
+
+    struct EmptySpeechModel;
+
+    impl ModelMetadata for EmptySpeechModel {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "empty-speech-model"
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl SpeechModelV3 for EmptySpeechModel {
+        async fn synthesize(&self, _request: TtsRequest) -> Result<TtsResponse, LlmError> {
+            Ok(TtsResponse {
+                audio_data: Vec::new(),
+                format: "mp3".to_string(),
+                duration: None,
+                sample_rate: None,
+                metadata: HashMap::new(),
+                response: Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some("empty-speech-model".to_string()),
+                    headers: HashMap::from([("x-test".to_string(), "1".to_string())]),
+                }),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn synthesize_returns_no_speech_generated_with_response_metadata() {
+        let err = synthesize(
+            &EmptySpeechModel,
+            TtsRequest::new("hello".to_string()),
+            SynthesizeOptions::default(),
+        )
+        .await
+        .expect_err("empty audio should fail");
+
+        match err {
+            LlmError::NoSpeechGenerated { responses } => {
+                assert_eq!(responses.len(), 1);
+                assert_eq!(responses[0].model_id.as_deref(), Some("empty-speech-model"));
+                assert_eq!(responses[0].headers.get("x-test"), Some(&"1".to_string()));
+            }
+            other => panic!("expected NoSpeechGenerated error, got {other:?}"),
+        }
     }
 }

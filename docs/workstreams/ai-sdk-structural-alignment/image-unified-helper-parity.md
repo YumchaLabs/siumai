@@ -1,6 +1,6 @@
 # Image Unified Helper Parity
 
-Last updated: 2026-04-13
+Last updated: 2026-04-20
 
 ## Goal
 
@@ -80,6 +80,9 @@ So the stable Rust shape is now explicit:
   field, multi-call helper batching stores the full per-call response envelopes and metadata under
   `metadata._siumai.{responses,metadata}` and emits a compatibility warning instead of pretending
   the batched result was one provider call.
+- Successful-but-empty helper runs now return `LlmError::NoImageGenerated` with best-effort final
+  response metadata, matching AI SDK `NoImageGeneratedError` semantics more closely than silently
+  returning an empty `images[]` list.
 
 ## Remaining Follow-up
 

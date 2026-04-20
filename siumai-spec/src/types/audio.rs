@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::types::{HttpConfig, ProviderOptionsMap};
+use crate::types::{HttpConfig, HttpResponseInfo, ProviderOptionsMap};
 use base64::Engine;
 
 fn should_fill_model_slot(slot: Option<&str>, fallback: &str) -> bool {
@@ -122,6 +122,8 @@ pub struct TtsResponse {
     pub sample_rate: Option<u32>,
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Best-effort HTTP response envelope (timestamp, model id, headers).
+    pub response: Option<HttpResponseInfo>,
 }
 
 /// Audio input payload for transcription and audio translation requests.
@@ -285,6 +287,8 @@ pub struct SttResponse {
     pub duration: Option<f32>,
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Best-effort HTTP response envelope (timestamp, model id, headers).
+    pub response: Option<HttpResponseInfo>,
 }
 
 /// Word-level timestamp information

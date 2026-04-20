@@ -18,6 +18,7 @@ impl crate::traits::SpeechCapability for BridgeSpeechClient {
             duration: None,
             sample_rate: None,
             metadata: HashMap::new(),
+            response: None,
         })
     }
 }
@@ -165,6 +166,7 @@ async fn provider_factory_native_speech_family_path_works() {
                 duration: None,
                 sample_rate: Some(16_000),
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }
@@ -245,6 +247,7 @@ async fn speech_model_handle_uses_native_family_path_when_available() {
                 duration: None,
                 sample_rate: Some(24_000),
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }
@@ -323,6 +326,7 @@ async fn speech_model_handle_reuses_cached_family_model() {
                 duration: None,
                 sample_rate: None,
                 metadata: HashMap::new(),
+                response: None,
             })
         }
     }

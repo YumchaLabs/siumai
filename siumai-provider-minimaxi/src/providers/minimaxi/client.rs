@@ -419,6 +419,7 @@ impl AudioCapability for MinimaxiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: Default::default(),
+            response: result.response,
         })
     }
 

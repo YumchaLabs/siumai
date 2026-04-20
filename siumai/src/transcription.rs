@@ -55,7 +55,7 @@ pub async fn transcribe<M: TranscriptionModel + ?Sized>(
     options: TranscribeOptions,
 ) -> Result<SttResponse, LlmError> {
     let request = apply_stt_call_options(request, options.timeout, options.headers);
-    if let Some(retry) = options.retry {
+    let response = if let Some(retry) = options.retry {
         retry_with(
             || {
                 let req = request.clone();
@@ -66,5 +66,74 @@ pub async fn transcribe<M: TranscriptionModel + ?Sized>(
         .await
     } else {
         model.transcribe(request).await
+    }?;
+
+    if response.text.trim().is_empty() {
+        return Err(LlmError::NoTranscriptGenerated {
+            responses: response.response.clone().into_iter().collect(),
+        });
+    }
+
+    Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use siumai_core::traits::ModelMetadata;
+    use siumai_core::types::HttpResponseInfo;
+
+    struct EmptyTranscriptionModel;
+
+    impl ModelMetadata for EmptyTranscriptionModel {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "empty-transcription-model"
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TranscriptionModelV3 for EmptyTranscriptionModel {
+        async fn transcribe(&self, _request: SttRequest) -> Result<SttResponse, LlmError> {
+            Ok(SttResponse {
+                text: "   ".to_string(),
+                language: None,
+                confidence: None,
+                words: None,
+                duration: None,
+                metadata: HashMap::new(),
+                response: Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some("empty-transcription-model".to_string()),
+                    headers: HashMap::from([("x-test".to_string(), "1".to_string())]),
+                }),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_returns_no_transcript_generated_with_response_metadata() {
+        let err = transcribe(
+            &EmptyTranscriptionModel,
+            SttRequest::from_audio(Vec::new(), "audio/wav"),
+            TranscribeOptions::default(),
+        )
+        .await
+        .expect_err("blank transcript should fail");
+
+        match err {
+            LlmError::NoTranscriptGenerated { responses } => {
+                assert_eq!(responses.len(), 1);
+                assert_eq!(
+                    responses[0].model_id.as_deref(),
+                    Some("empty-transcription-model")
+                );
+                assert_eq!(responses[0].headers.get("x-test"), Some(&"1".to_string()));
+            }
+            other => panic!("expected NoTranscriptGenerated error, got {other:?}"),
+        }
     }
 }

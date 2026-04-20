@@ -77,7 +77,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::image::GenerateOptions` now accepts `max_images_per_call`, and
   `siumai::image::{generate, edit, variation, generate_image}` split larger `count` requests
   across explicit limits or audited provider defaults while preserving per-call metadata and
-  response envelopes under `metadata._siumai` for multi-call aggregation.
+  response envelopes under `metadata._siumai` for multi-call aggregation. Successful-but-empty
+  helper runs now also return `LlmError::NoImageGenerated` with final response metadata instead of
+  silently returning an empty image list.
 - Image provider-option parity now has a dedicated workstream under
   `docs/workstreams/ai-sdk-structural-alignment/image-provider-option-surface-parity.md`,
   covering Gemini/Google image aliases, unified image request-ext coverage, and merge semantics on
@@ -143,6 +145,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Shared transcription and audio-translation typing now uses a canonical `audio` input plus
   `mediaType` / `providerOptions`, replacing the older stable `audio_data | file_path` split and
   bringing the request surface much closer to AI SDK `TranscriptionModelV4CallOptions`.
+- Stable speech/transcription helper semantics now align more closely with AI SDK
+  `generateSpeech()` / `transcribe()`: `TtsResponse` and `SttResponse` now preserve best-effort
+  final `response` metadata, the shared audio executor carries that envelope across the audited
+  provider paths, and successful-but-empty `siumai::speech::synthesize(...)` /
+  `siumai::transcription::transcribe(...)` calls now return `LlmError::NoSpeechGenerated` /
+  `LlmError::NoTranscriptGenerated` instead of silently returning empty audio/text.
 - DeepInfra now has a dedicated workstream under
   `docs/workstreams/deepinfra-unified-provider-surface/`, documenting the chosen first-class
   provider architecture and remaining follow-up audit scope.

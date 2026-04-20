@@ -1881,6 +1881,7 @@ impl AudioCapability for OpenAiCompatibleClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
+            response: result.response,
         })
     }
 
@@ -1895,6 +1896,7 @@ impl AudioCapability for OpenAiCompatibleClient {
         };
         let exec = self.build_audio_executor().await?;
         let result = AudioExecutor::stt(&*exec, request).await?;
+        let response = result.response;
         let raw = result.raw;
 
         let language = raw
@@ -1944,6 +1946,7 @@ impl AudioCapability for OpenAiCompatibleClient {
             words,
             duration,
             metadata,
+            response,
         })
     }
 }
