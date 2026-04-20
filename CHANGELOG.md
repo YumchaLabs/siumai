@@ -125,7 +125,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `VideoGenerationCapability` / `VideoModelV3` / registry video handles, audited defaults are
   exposed for Gemini/Vertex/xAI/MiniMaxi, and Gemini/Vertex polling metadata now keeps provider-
   owned `videos[]` entries so the facade can recover multi-video final assets instead of exposing
-  only raw task responses.
+  only raw task responses. Successful-but-empty video runs now also return
+  `LlmError::NoVideoGenerated` with final response metadata instead of collapsing that case into a
+  generic parse failure, and aggregated video `provider_metadata` now preserves provider-root
+  fields beyond `videos[]` / `tasks[]` during multi-call merges.
 - Shared video request typing now also aligns more closely with AI SDK `GenerateVideoPrompt`:
   `VideoGenerationRequest.prompt` is now optional, `VideoGenerationRequest::new_without_prompt(...)`
   supports image-only flows on the stable surface, Gemini/Vertex accept prompt-less image-to-video

@@ -137,7 +137,12 @@ This workstream now closes more than just model construction. The stable video l
 - a stable `GenerateVideoResult` that separates final `videos` from underlying `tasks`
 - explicit `GeneratedVideo::materialize(...)` / `GenerateVideoResult::materialize_*` helpers for
   byte/base64 materialization of final assets
-- per-call `responses[*].provider_metadata` plus aggregated `provider_metadata`
+- a specialized `LlmError::NoVideoGenerated` result when completed tasks expose no final assets,
+  carrying best-effort final response metadata instead of collapsing that case into a generic parse
+  failure
+- per-call `responses[*].provider_metadata` plus aggregated `provider_metadata`, including
+  provider-root fields beyond `videos[]` / `tasks[]` when providers return additional metadata on
+  the audited task-query path
 - provider-side multi-video metadata preservation on the audited Gemini and Vertex paths
 - a shared `VideoGenerationRequest.prompt: Option<String>` shape that can represent AI SDK-style
   image-only video prompts on the stable Rust request surface

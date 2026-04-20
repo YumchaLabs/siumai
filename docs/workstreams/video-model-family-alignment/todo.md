@@ -80,6 +80,8 @@ Status legend:
   `prompt` can be omitted.
 - [x] Add a stable AI SDK-style prompt union shape (`VideoGenerationPrompt` /
   `GenerateVideoPrompt`) plus request constructors/helpers built on that union.
+- [x] Return a specialized empty-result video error (`LlmError::NoVideoGenerated`) with final
+  response metadata instead of treating successful-but-empty video runs as generic parse failures.
 - [ ] Decide whether high-level `generate(...)` should auto-materialize URL-backed final videos by
   default instead of keeping that step explicit.
 - [ ] Decide whether provider-reference-only assets should eventually expose provider-owned download

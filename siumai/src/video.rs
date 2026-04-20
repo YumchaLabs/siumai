@@ -793,27 +793,35 @@ fn extract_generated_videos(
         return Ok(metadata_videos);
     }
 
-    generated_video_fallback(provider_id, response)
+    Ok(generated_video_fallback(provider_id, response)
         .map(|video| vec![video])
-        .ok_or_else(|| {
-            LlmError::ParseError(format!(
-                "Video task '{}' succeeded but did not expose a final video asset",
-                response.task_id
-            ))
-        })
+        .unwrap_or_default())
 }
 
 fn build_call_provider_metadata(
     provider_id: &str,
     task_entry: serde_json::Value,
     videos: &[GeneratedVideo],
+    create_metadata: &HashMap<String, serde_json::Value>,
+    query_metadata: &HashMap<String, serde_json::Value>,
 ) -> GenerateVideoProviderMetadata {
     let video_entries = videos
         .iter()
         .map(|video| metadata_value(&video.metadata))
         .collect::<Vec<_>>();
 
-    let mut provider_root = serde_json::Map::new();
+    let mut provider_root = create_metadata
+        .get(provider_id)
+        .and_then(|value| value.as_object())
+        .cloned()
+        .unwrap_or_default();
+    if let Some(query_provider_root) = query_metadata
+        .get(provider_id)
+        .and_then(|value| value.as_object())
+        .cloned()
+    {
+        merge_provider_metadata_object(&mut provider_root, query_provider_root);
+    }
     provider_root.insert(
         "tasks".to_string(),
         serde_json::Value::Array(vec![task_entry]),
@@ -917,6 +925,9 @@ pub async fn wait_for_task<M: VideoModelV3 + ?Sized>(
 /// - task creation and task polling remain explicit under the hood
 /// - larger `count` values are batched using stable `max_videos_per_call` metadata when available
 /// - the final result exposes generated video assets plus the underlying completed tasks
+///
+/// When all tasks complete successfully but no final assets can be recovered, the helper returns
+/// `LlmError::NoVideoGenerated` with best-effort final response metadata.
 pub async fn generate<M: VideoModelV4 + ?Sized>(
     model: &M,
     request: VideoGenerationRequest,
@@ -971,8 +982,13 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
             "createMetadata": created.metadata.clone(),
             "queryMetadata": queried.metadata.clone(),
         });
-        let call_provider_metadata =
-            build_call_provider_metadata(model.provider_id(), task_entry, &generated_videos);
+        let call_provider_metadata = build_call_provider_metadata(
+            model.provider_id(),
+            task_entry,
+            &generated_videos,
+            &created.metadata,
+            &queried.metadata,
+        );
         merge_provider_metadata(&mut provider_metadata, call_provider_metadata.clone());
 
         responses.push(GenerateVideoResponseMetadata {
@@ -986,9 +1002,18 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
     }
 
     if videos.is_empty() {
-        return Err(LlmError::ParseError(
-            "Video generation completed without any final video assets".to_string(),
-        ));
+        let error_responses = responses
+            .iter()
+            .filter_map(|response| {
+                response
+                    .query_response
+                    .clone()
+                    .or_else(|| response.create_response.clone())
+            })
+            .collect();
+        return Err(LlmError::NoVideoGenerated {
+            responses: error_responses,
+        });
     }
 
     Ok(GenerateVideoResult {
@@ -1084,6 +1109,9 @@ mod tests {
     #[derive(Clone, Default)]
     struct FakeInlineMaterializedVideoModel;
 
+    #[derive(Clone, Default)]
+    struct FakeNoAssetsVideoModel;
+
     async fn spawn_video_download_server(
         body: Vec<u8>,
         content_type: &str,
@@ -1168,6 +1196,16 @@ mod tests {
         }
     }
 
+    impl ModelMetadata for FakeNoAssetsVideoModel {
+        fn provider_id(&self) -> &str {
+            "empty-video"
+        }
+
+        fn model_id(&self) -> &str {
+            "empty-video-model"
+        }
+    }
+
     #[async_trait::async_trait]
     impl VideoModelV3 for FakeGenerateVideoModel {
         async fn create_task(
@@ -1188,6 +1226,12 @@ mod tests {
                     (
                         "requestedCount".to_string(),
                         serde_json::json!(request.count.unwrap_or(1)),
+                    ),
+                    (
+                        "fake-video".to_string(),
+                        serde_json::json!({
+                            "createId": format!("create-{task_number}"),
+                        }),
                     ),
                 ]),
                 warnings: Some(vec![Warning::compatibility(
@@ -1296,6 +1340,7 @@ mod tests {
                     "fake-video".to_string(),
                     serde_json::json!({
                         "videos": video_entries,
+                        "jobType": "predictLongRunning",
                     }),
                 )]),
                 response: Some(HttpResponseInfo {
@@ -1348,6 +1393,49 @@ mod tests {
                     }),
                 )]),
                 response: None,
+            })
+        }
+
+        fn max_videos_per_call(&self) -> Option<u32> {
+            Some(1)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl VideoModelV3 for FakeNoAssetsVideoModel {
+        async fn create_task(
+            &self,
+            request: VideoGenerationRequest,
+        ) -> Result<VideoGenerationResponse, LlmError> {
+            Ok(VideoGenerationResponse {
+                task_id: format!("empty-task:{}", request.model),
+                base_resp: None,
+                metadata: HashMap::new(),
+                warnings: None,
+                response: Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some(request.model),
+                    headers: HashMap::from([("x-create".to_string(), "1".to_string())]),
+                }),
+            })
+        }
+
+        async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+            Ok(VideoTaskStatusResponse {
+                task_id: task_id.to_string(),
+                status: VideoTaskStatus::Success,
+                file_id: None,
+                video_url: None,
+                duration: Some(4.0),
+                video_width: Some(1280),
+                video_height: Some(720),
+                base_resp: None,
+                metadata: HashMap::new(),
+                response: Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some("empty-video-model".to_string()),
+                    headers: HashMap::from([("x-query".to_string(), "1".to_string())]),
+                }),
             })
         }
 
@@ -1445,6 +1533,18 @@ mod tests {
         );
 
         let provider_metadata = result.provider_metadata.get("fake-video").unwrap();
+        assert_eq!(
+            provider_metadata
+                .get("createId")
+                .and_then(|value| value.as_str()),
+            Some("create-2")
+        );
+        assert_eq!(
+            provider_metadata
+                .get("jobType")
+                .and_then(|value| value.as_str()),
+            Some("predictLongRunning")
+        );
         let task_entries = provider_metadata
             .get("tasks")
             .and_then(|value| value.as_array())
@@ -1472,6 +1572,34 @@ mod tests {
             video_entries[2].get("url").and_then(|value| value.as_str()),
             Some("https://example.com/task-2.mp4")
         );
+    }
+
+    #[tokio::test]
+    async fn generate_returns_no_video_generated_error_with_final_response_metadata() {
+        let model = FakeNoAssetsVideoModel;
+        let err = generate(
+            &model,
+            VideoGenerationRequest::new("empty-video-model", "empty result"),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(20)),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap_err();
+
+        match err {
+            LlmError::NoVideoGenerated { responses } => {
+                assert_eq!(responses.len(), 1);
+                assert_eq!(responses[0].model_id.as_deref(), Some("empty-video-model"));
+                assert_eq!(
+                    responses[0].headers.get("x-query").map(String::as_str),
+                    Some("1")
+                );
+            }
+            other => panic!("expected NoVideoGenerated error, got {other:?}"),
+        }
     }
 
     #[tokio::test]

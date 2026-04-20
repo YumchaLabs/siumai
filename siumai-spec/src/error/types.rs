@@ -51,6 +51,13 @@ pub enum LlmError {
     #[error("Parse error: {0}")]
     ParseError(String),
 
+    /// Video generation completed successfully at the task layer but produced no final video.
+    #[error("No video generated.")]
+    NoVideoGenerated {
+        /// Best-effort final response metadata for each generation call.
+        responses: Vec<crate::types::HttpResponseInfo>,
+    },
+
     /// Invalid input error
     #[error("Invalid input: {0}")]
     InvalidInput(String),
@@ -370,6 +377,9 @@ impl LlmError {
             Self::ApiError {
                 code: 500..=599, ..
             } => "The service is temporarily unavailable. Please try again later.".to_string(),
+            Self::NoVideoGenerated { .. } => {
+                "The provider completed the video request but returned no final video.".to_string()
+            }
             _ => self.to_string(),
         }
     }
@@ -447,6 +457,14 @@ impl LlmError {
                     "Refer to the API documentation for valid formats".to_string(),
                 ]
             }
+            Self::NoVideoGenerated { .. } => {
+                vec![
+                    "Check provider task metadata to confirm final video assets were produced"
+                        .to_string(),
+                    "Retry the request or reduce prompt/options complexity if the provider returned an empty result".to_string(),
+                    "Inspect provider-specific metadata or task responses for moderation/processing filters".to_string(),
+                ]
+            }
             _ => vec![
                 "Check the error details and documentation".to_string(),
                 "Contact support if the issue persists".to_string(),
@@ -485,3 +503,26 @@ impl LlmError {
 
 /// Result type alias.
 pub type Result<T> = std::result::Result<T, LlmError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_video_generated_error_uses_specialized_message_and_guidance() {
+        let error = LlmError::NoVideoGenerated {
+            responses: Vec::new(),
+        };
+
+        assert_eq!(
+            error.user_message(),
+            "The provider completed the video request but returned no final video."
+        );
+        assert!(
+            error
+                .recovery_suggestions()
+                .iter()
+                .any(|tip| tip.contains("provider task metadata"))
+        );
+    }
+}

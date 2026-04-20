@@ -24,6 +24,10 @@ Last updated: 2026-04-20
 - Added explicit `GeneratedVideo::materialize(...)` and result-level materialization helpers so
   URL-backed assets can be downloaded into byte/base64-backed files without collapsing the task
   model.
+- Added a specialized `LlmError::NoVideoGenerated` path so successful-but-empty multi-task video
+  runs now preserve final response metadata instead of surfacing only a generic parse failure.
+- Tightened aggregated `provider_metadata` merging so provider-root fields beyond `videos[]` /
+  `tasks[]` are preserved across create/query task metadata on the audited video lanes.
 - Updated the shared `VideoGenerationRequest` shape so `prompt` is optional, matching AI SDK's
   image-only generate-video prompt model more closely on the stable Rust request surface.
 - Added a stable `VideoGenerationPrompt` shape plus `GenerateVideoPrompt` alias and request
