@@ -7,7 +7,7 @@
 pub use siumai_core::client::LlmClient;
 pub use siumai_core::{
     LlmError, custom_provider, embedding, error, hosted_tools, image, retry_api, streaming, text,
-    traits, types,
+    traits, types, video,
 };
 
 // Internal aliases for registry implementation (not part of the public API).

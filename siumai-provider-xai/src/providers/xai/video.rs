@@ -1,7 +1,7 @@
 use super::XaiClient;
 use super::http::{build_http_execution_config, headers_to_map};
 use crate::error::LlmError;
-use crate::provider_options::{XaiVideoOptions, XaiVideoResolution};
+use crate::provider_options::{XaiVideoMode, XaiVideoOptions, XaiVideoResolution};
 use crate::types::video::{
     VideoGenerationInput, VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus,
     VideoTaskStatusResponse,
@@ -58,6 +58,34 @@ fn u64_from_extra(
     })
 }
 
+fn string_list_from_extra(
+    extra_params: Option<&HashMap<String, serde_json::Value>>,
+    primary: &str,
+    alias: &str,
+) -> Result<Option<Vec<String>>, LlmError> {
+    let value = extra_params.and_then(|params| params.get(primary).or_else(|| params.get(alias)));
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let Some(values) = value.as_array() else {
+        return Err(LlmError::InvalidParameter(format!(
+            "xAI video extra param '{primary}' must be an array of strings when provided"
+        )));
+    };
+
+    let mut parsed = Vec::with_capacity(values.len());
+    for entry in values {
+        let Some(entry) = entry.as_str() else {
+            return Err(LlmError::InvalidParameter(format!(
+                "xAI video extra param '{primary}' must contain only strings"
+            )));
+        };
+        parsed.push(entry.to_string());
+    }
+
+    Ok(Some(parsed))
+}
+
 fn input_to_url(input: &VideoGenerationInput, default_mime: &str) -> Result<String, LlmError> {
     match input {
         VideoGenerationInput::Url { url, .. } => Ok(url.clone()),
@@ -101,8 +129,17 @@ fn resolve_xai_video_options(
     {
         options.resolution = Some(XaiVideoResolution::from(value));
     }
+    if options.mode.is_none()
+        && let Some(value) = string_from_extra(extra_params, "mode", "mode")?
+    {
+        options.mode = Some(XaiVideoMode::from(value));
+    }
     if options.video_url.is_none() {
         options.video_url = string_from_extra(extra_params, "video_url", "videoUrl")?;
+    }
+    if options.reference_image_urls.is_none() {
+        options.reference_image_urls =
+            string_list_from_extra(extra_params, "reference_image_urls", "referenceImageUrls")?;
     }
 
     Ok(options)
@@ -132,17 +169,56 @@ fn status_from_wire(status: Option<&str>, has_video_url: bool) -> VideoTaskStatu
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum XaiVideoCreateRoute {
+    Generation,
+    Edit,
+    Extension,
+}
+
+fn resolve_video_mode(
+    request: &VideoGenerationRequest,
+    options: &XaiVideoOptions,
+) -> Option<XaiVideoMode> {
+    options.mode.clone().or_else(|| {
+        if options.video_url.is_some() || request.video.is_some() {
+            Some(XaiVideoMode::EditVideo)
+        } else if options
+            .reference_image_urls
+            .as_ref()
+            .is_some_and(|urls| !urls.is_empty())
+        {
+            Some(XaiVideoMode::ReferenceToVideo)
+        } else {
+            None
+        }
+    })
+}
+
 fn build_create_body(
     request: &VideoGenerationRequest,
-) -> Result<(serde_json::Value, bool, Vec<Warning>), LlmError> {
+) -> Result<(serde_json::Value, XaiVideoCreateRoute, Vec<Warning>), LlmError> {
     let xai_options = resolve_xai_video_options(request)?;
     let mut warnings = Vec::new();
     let mut body = serde_json::Map::new();
+    let prompt = request
+        .prompt
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            LlmError::InvalidParameter("xAI video requests require a non-empty prompt".to_string())
+        })?;
     body.insert("model".to_string(), serde_json::json!(request.model));
-    body.insert("prompt".to_string(), serde_json::json!(request.prompt));
+    body.insert("prompt".to_string(), serde_json::json!(prompt));
 
     let provider_video_url = xai_options.video_url.clone();
-    let is_edit = provider_video_url.is_some() || request.video.is_some();
+    let effective_mode = resolve_video_mode(request, &xai_options);
+    let is_edit = matches!(effective_mode.as_ref(), Some(XaiVideoMode::EditVideo));
+    let is_extension = matches!(effective_mode.as_ref(), Some(XaiVideoMode::ExtendVideo));
+    let has_reference_images = matches!(
+        effective_mode.as_ref(),
+        Some(XaiVideoMode::ReferenceToVideo)
+    );
 
     if request.count.unwrap_or(1) > 1 {
         push_warning(
@@ -188,10 +264,31 @@ fn build_create_body(
                 "xAI video editing does not support custom resolutions.",
             );
         }
-    } else {
-        if let Some(duration) = request.duration {
-            body.insert("duration".to_string(), serde_json::json!(duration));
+    } else if is_extension {
+        if request.aspect_ratio.is_some() {
+            push_warning(
+                &mut warnings,
+                "aspect_ratio",
+                "xAI video extension does not support custom aspect ratios.",
+            );
         }
+        if request.resolution.is_some() || xai_options.resolution.is_some() {
+            push_warning(
+                &mut warnings,
+                "resolution",
+                "xAI video extension does not support custom resolutions.",
+            );
+        }
+    }
+
+    let allow_duration = !is_edit;
+    let allow_aspect_ratio = !is_edit && !is_extension;
+    let allow_resolution = !is_edit && !is_extension;
+
+    if allow_duration && let Some(duration) = request.duration {
+        body.insert("duration".to_string(), serde_json::json!(duration));
+    }
+    if allow_aspect_ratio {
         if let Some(aspect_ratio) = request.aspect_ratio.as_ref().cloned().or_else(|| {
             string_from_extra(request.extra_params.as_ref(), "aspect_ratio", "aspectRatio")
                 .ok()
@@ -199,7 +296,9 @@ fn build_create_body(
         }) {
             body.insert("aspect_ratio".to_string(), serde_json::json!(aspect_ratio));
         }
+    }
 
+    if allow_resolution {
         if let Some(resolution) = xai_options.resolution {
             body.insert(
                 "resolution".to_string(),
@@ -218,27 +317,44 @@ fn build_create_body(
         }
     }
 
-    if let Some(video_url) = provider_video_url {
-        if request.video.is_some() {
-            warnings.push(Warning::compatibility(
-                "video",
-                Some(
-                    "providerOptions.xai.videoUrl takes precedence over `request.video` on the xAI provider-owned path.",
-                ),
-            ));
+    if is_edit || is_extension {
+        if let Some(video_url) = provider_video_url {
+            if request.video.is_some() {
+                warnings.push(Warning::compatibility(
+                    "video",
+                    Some(
+                        "providerOptions.xai.videoUrl takes precedence over `request.video` on the xAI provider-owned path.",
+                    ),
+                ));
+            }
+            body.insert("video".to_string(), serde_json::json!({ "url": video_url }));
+        } else if let Some(video) = request.video.as_ref() {
+            body.insert(
+                "video".to_string(),
+                serde_json::json!({ "url": input_to_url(video, "video/mp4")? }),
+            );
         }
-        body.insert("video".to_string(), serde_json::json!({ "url": video_url }));
-    } else if let Some(video) = request.video.as_ref() {
-        body.insert(
-            "video".to_string(),
-            serde_json::json!({ "url": input_to_url(video, "video/mp4")? }),
-        );
     }
 
     if let Some(image) = request.image.as_ref() {
         body.insert(
             "image".to_string(),
             serde_json::json!({ "url": input_to_url(image, "image/png")? }),
+        );
+    }
+
+    if has_reference_images
+        && let Some(reference_image_urls) = xai_options.reference_image_urls.as_ref()
+    {
+        body.insert(
+            "reference_images".to_string(),
+            serde_json::Value::Array(
+                reference_image_urls
+                    .iter()
+                    .cloned()
+                    .map(|url| serde_json::json!({ "url": url }))
+                    .collect(),
+            ),
         );
     }
 
@@ -255,8 +371,11 @@ fn build_create_body(
                     | "poll_timeout_ms"
                     | "pollTimeoutMs"
                     | "resolution"
+                    | "mode"
                     | "video_url"
                     | "videoUrl"
+                    | "reference_image_urls"
+                    | "referenceImageUrls"
                     | "aspect_ratio"
                     | "aspectRatio"
             ) {
@@ -266,7 +385,15 @@ fn build_create_body(
         }
     }
 
-    Ok((serde_json::Value::Object(body), is_edit, warnings))
+    let route = if is_extension {
+        XaiVideoCreateRoute::Extension
+    } else if is_edit {
+        XaiVideoCreateRoute::Edit
+    } else {
+        XaiVideoCreateRoute::Generation
+    };
+
+    Ok((serde_json::Value::Object(body), route, warnings))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -316,12 +443,16 @@ pub(super) async fn create_video_task(
     mut request: VideoGenerationRequest,
 ) -> Result<VideoGenerationResponse, LlmError> {
     client.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
-    let (body, is_edit, warnings) = build_create_body(&request)?;
+    let (body, route, warnings) = build_create_body(&request)?;
     let config = build_http_execution_config(client);
     let url = format!(
         "{}/videos/{}",
         client.base_url().trim_end_matches('/'),
-        if is_edit { "edits" } else { "generations" }
+        match route {
+            XaiVideoCreateRoute::Generation => "generations",
+            XaiVideoCreateRoute::Edit => "edits",
+            XaiVideoCreateRoute::Extension => "extensions",
+        }
     );
     let result = crate::execution::executors::common::execute_json_request(
         &config,
@@ -438,4 +569,90 @@ pub(super) fn supported_resolutions(_model: &str) -> Vec<String> {
 
 pub(super) fn supported_durations(_model: &str) -> Vec<u32> {
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::provider_options::XaiVideoMode;
+
+    #[test]
+    fn build_create_body_routes_extend_video_requests_to_extensions_endpoint() {
+        let request = VideoGenerationRequest::new("grok-imagine-video", "extend the clip")
+            .with_duration(6)
+            .with_aspect_ratio("16:9")
+            .with_xai_video_options(
+                XaiVideoOptions::new()
+                    .with_mode(XaiVideoMode::ExtendVideo)
+                    .with_video_url("https://example.com/input.mp4")
+                    .with_resolution("720p"),
+            );
+
+        let (body, route, warnings) = build_create_body(&request).expect("build body");
+
+        assert_eq!(route, XaiVideoCreateRoute::Extension);
+        assert_eq!(body["duration"], serde_json::json!(6));
+        assert_eq!(
+            body["video"]["url"],
+            serde_json::json!("https://example.com/input.mp4")
+        );
+        assert!(body.get("aspect_ratio").is_none());
+        assert!(body.get("resolution").is_none());
+        assert_eq!(
+            warnings,
+            vec![
+                Warning::unsupported(
+                    "aspect_ratio",
+                    Some("xAI video extension does not support custom aspect ratios."),
+                ),
+                Warning::unsupported(
+                    "resolution",
+                    Some("xAI video extension does not support custom resolutions."),
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_create_body_routes_reference_to_video_requests_with_reference_images() {
+        let request = VideoGenerationRequest::new("grok-imagine-video", "animate this style")
+            .with_duration(4)
+            .with_aspect_ratio("16:9")
+            .with_xai_video_options(
+                XaiVideoOptions::new()
+                    .with_mode(XaiVideoMode::ReferenceToVideo)
+                    .with_resolution("720p")
+                    .with_reference_image_urls([
+                        "https://example.com/ref-1.png",
+                        "https://example.com/ref-2.png",
+                    ]),
+            );
+
+        let (body, route, warnings) = build_create_body(&request).expect("build body");
+
+        assert_eq!(route, XaiVideoCreateRoute::Generation);
+        assert_eq!(body["duration"], serde_json::json!(4));
+        assert_eq!(body["aspect_ratio"], serde_json::json!("16:9"));
+        assert_eq!(body["resolution"], serde_json::json!("720p"));
+        assert_eq!(
+            body["reference_images"],
+            serde_json::json!([
+                { "url": "https://example.com/ref-1.png" },
+                { "url": "https://example.com/ref-2.png" }
+            ])
+        );
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn build_create_body_rejects_promptless_requests() {
+        let request = VideoGenerationRequest::new_without_prompt("grok-imagine-video").with_image(
+            VideoGenerationInput::file_with_media_type(vec![1, 2, 3], "image/png"),
+        );
+
+        let err = build_create_body(&request).unwrap_err();
+        assert!(
+            matches!(err, LlmError::InvalidParameter(message) if message.contains("require a non-empty prompt"))
+        );
+    }
 }

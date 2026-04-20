@@ -569,6 +569,10 @@ impl VideoGenerationCapability for MinimaxiClient {
         .await
     }
 
+    fn max_videos_per_call(&self) -> Option<u32> {
+        Some(1)
+    }
+
     fn get_supported_models(&self) -> Vec<String> {
         super::video::get_supported_video_models()
     }

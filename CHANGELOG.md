@@ -102,6 +102,41 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   of the older raw `seed_image` / `seed_video` byte fields.
 - Shared video input typing now also exposes per-input `providerOptions` on typed file/url inputs,
   bringing the stable `VideoGenerationInput` shape closer to AI SDK `VideoModelV4File`.
+- Task-oriented video model family support is now available on the public Rust surface:
+  `siumai-core` now exposes `VideoModelV3` / `VideoModelV4` / `VideoModel`,
+  `siumai-registry` now exposes dedicated `video_model(...)` construction plus `VideoModelHandle`
+  with native build-context propagation and LRU/TTL caching, and `siumai::video::{create_task,
+  query_task}` provides the stable facade helper lane while the older `LanguageModelHandle` video
+  capability remains as a compatibility bridge.
+- The public Rust video facade now also exposes high-level polling helpers:
+  `siumai::video::wait_for_task(...)` polls task-based providers to completion, and
+  `siumai::video::generate(...)` submits and polls one or more video tasks while preserving
+  Rust-first task semantics. The helper now batches by explicit or model-default
+  `max_videos_per_call`, returns final `GeneratedVideo` assets separately from completed task
+  responses, and preserves per-call plus aggregated provider metadata for multi-call execution.
+- Final generated-video assets now also have explicit materialization helpers closer in role to AI
+  SDK `GeneratedFile`: `GeneratedVideo::materialize(...)` and
+  `GenerateVideoResult::{materialize_video,materialize_videos,into_materialized}` plus
+  `siumai::video::generate_materialized(...)` download URL-backed videos on demand, preserve
+  byte/base64 accessors on the materialized file representation, and keep provider-reference-only
+  assets as an explicit unsupported path instead of pretending they are generically downloadable.
+- Video-family batching and result shaping now align more closely with AI SDK
+  `experimental_generateVideo()`: object-safe `max_videos_per_call()` metadata now lives on
+  `VideoGenerationCapability` / `VideoModelV3` / registry video handles, audited defaults are
+  exposed for Gemini/Vertex/xAI/MiniMaxi, and Gemini/Vertex polling metadata now keeps provider-
+  owned `videos[]` entries so the facade can recover multi-video final assets instead of exposing
+  only raw task responses.
+- Shared video request typing now also aligns more closely with AI SDK `GenerateVideoPrompt`:
+  `VideoGenerationRequest.prompt` is now optional, `VideoGenerationRequest::new_without_prompt(...)`
+  supports image-only flows on the stable surface, Gemini/Vertex accept prompt-less image-to-video
+  requests on their provider-owned runtimes, xAI/MiniMaxi now fail fast when callers omit a
+  prompt on routes that still require one, and the stable public surface now exposes
+  `VideoGenerationPrompt` plus the AI SDK-auditable alias `GenerateVideoPrompt` for the same
+  text-or-image prompt union.
+- Video model family alignment now also has a dedicated workstream under
+  `docs/workstreams/video-model-family-alignment/`, documenting the deliberate Rust-first
+  task-based contract and the remaining gap against AI SDK `experimental_generateVideo()` default
+  URL materialization plus provider-reference download semantics.
 - Shared transcription and audio-translation typing now uses a canonical `audio` input plus
   `mediaType` / `providerOptions`, replacing the older stable `audio_data | file_path` split and
   bringing the request surface much closer to AI SDK `TranscriptionModelV4CallOptions`.
@@ -126,6 +161,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   model_sets}`, and `provider_ext::minimaxi::{chat, speech, video, music, image, model_sets}`.
 - DeepSeek now also exposes AI SDK-style `DeepSeekLanguageModelOptions` with deprecated
   `DeepSeekChatOptions` migration coverage on the provider-owned typed surface.
+- DeepSeek now also exposes `DeepSeekErrorData` on the provider-owned/public facade boundary,
+  matching the audited `@ai-sdk/deepseek` package export instead of leaving provider error
+  envelopes accessible only through the generic OpenAI-compatible layer.
+- TogetherAI now also exposes `TogetherAIErrorData` on the provider-owned/public facade boundary,
+  aligning the audited package-level error envelope without widening the Rust surface to
+  TypeScript-only `ProviderSettings` or `VERSION` exports.
 - xAI, Groq, and Amazon Bedrock now also expose AI SDK-style provider-option aliases on the
   provider-owned/public facade boundary, including upstream-style deprecated migration aliases
   where the audited AI SDK packages still export them.
@@ -145,6 +186,23 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `OpenAILanguageModel{Chat,Responses}Options` plus deprecated
   `OpenAI{ChatLanguageModelOptions,ResponsesProviderOptions}`. `with_azure_options(...)` now also
   merges into existing `providerOptions.azure` objects instead of replacing sibling raw fields.
+- OpenAI-compatible vendor-view public data structures now also align more closely with the
+  audited AI SDK package indices: `provider_ext::openai_compatible` now exposes generic
+  `OpenAiCompatible{Chat,Completion,Embedding}ModelId`, generic typed option structs for
+  chat/completion/embedding, the deprecated AI SDK migration aliases for those generic options,
+  `OpenAiCompatibleErrorData`, and `with_openai_compatible_options(...)` for the shared
+  `providerOptions.openaiCompatible` namespace. `provider_ext::deepinfra` re-exports
+  `DeepInfraErrorData`, `provider_ext::fireworks` re-exports `FireworksErrorData` plus
+  `FireworksEmbeddingModelId` / `FireworksImageModelId`, and `provider_ext::moonshotai`
+  re-exports `MoonshotAIChatModelId`. Rust intentionally keeps those model ids as stable
+  `String` aliases instead of inventing a larger frozen enum surface beyond the curated model
+  constants, and the generic JS provider-function/settings exports remain represented by the
+  existing Rust `OpenAiCompatibleBuilder` / `OpenAiCompatibleConfig` / `OpenAiCompatibleClient`
+  story rather than a fake callable provider type. The shared generic helper lane now reaches all
+  three relevant request families: chat/completion/embedding all have typed request helpers under
+  the same `openaiCompatible` namespace, and the generic chat options also have no-network
+  builder/provider/config/registry parity on the real OpenRouter public path, so this surface is
+  no longer compile-only on the top-level facade.
 - Groq now also exposes AI SDK-style `GroqTranscriptionModelOptions` on the provider-owned/public
   facade boundary. The provider-owned transcription helper surface now accepts
   `language` / `responseFormat` / `timestampGranularities`, and Groq STT requests and responses
@@ -156,11 +214,34 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `OpenAIEmbeddingModelOptions`, `OpenAISpeechModelOptions`,
   `OpenAITranscriptionModelOptions`, `OpenAIFilesOptions`, plus the upstream deprecated
   migration aliases `OpenAIChatLanguageModelOptions` and `OpenAIResponsesProviderOptions`.
-- Google Vertex now also exposes the safe AI SDK-style typed option alias subset on the
-  provider-owned/public facade boundary:
-  `GoogleVertexEmbeddingModelOptions`, `GoogleVertexImageModelOptions`, and deprecated
-  `GoogleVertexImageProviderOptions`. Vertex video aliases remain intentionally deferred because
-  the native provider crate does not yet implement a provider-owned video runtime surface.
+- Google Vertex now also exposes the audited AI SDK-style typed option surface on the
+  provider-owned/public facade boundary: `GoogleVertexEmbeddingModelOptions`,
+  `GoogleVertexImageModelOptions`, deprecated `GoogleVertexImageProviderOptions`,
+  `GoogleVertexReferenceImage`, `GoogleVertexVideoModelOptions`, deprecated
+  `GoogleVertexVideoProviderOptions`, and `GoogleVertexVideoModelId`. The native Vertex package
+  now also owns a real Veo task runtime on `:predictLongRunning` / `:fetchPredictOperation`,
+  public/path and lower-contract tests lock video create/query parity, and the provider catalog
+  plus native provider metadata now advertise Vertex video support and curated `veo-*` model ids.
+- Google now also has a dedicated package-alignment workstream under
+  `docs/workstreams/google-package-surface-alignment/`, documenting the audited
+  `@ai-sdk/google` package boundary, the Google-branded typed surface layered on top of the
+  provider-owned Gemini implementation, and the intentional Rust-side deferrals for TypeScript-only
+  provider factory/settings exports plus task-based video polling ownership.
+- The provider-owned/public Google facade is now much closer to the audited `@ai-sdk/google`
+  package surface: `provider_ext::google::{options::*, metadata::*, *}` now exposes
+  `GoogleLanguageModelOptions`, `GoogleEmbeddingModelOptions`, `GoogleVideoModelOptions`,
+  `GoogleVideoModelId`, `GoogleFilesUploadOptions`, `GoogleProviderMetadata`, and
+  `GoogleErrorData` plus the upstream deprecated aliases; Google-branded request/upload helpers
+  now lower `serviceTier`, `streamFunctionCallArguments`, embedding `outputDimensionality` /
+  `taskType` / positional multimodal `content`, and video `negativePrompt` /
+  `personGeneration` / `referenceImages` onto the real provider-owned runtime; response metadata
+  now also keeps typed `promptFeedback` alongside `usageMetadata`, `finishMessage`, and
+  `serviceTier`; and Gemini option normalization now preserves `null` entries inside Google
+  embedding `content[]` instead of collapsing text-only positions.
+- Provider-owned public wrapper surfaces are now also more structurally uniform: the audited
+  first-class `provider_ext::<provider>` paths now consistently re-export their native
+  `*Builder` types alongside `*Client` / `*Config`, making the Rust facade closer to the audited
+  AI SDK package entry-point shape and easier to diff against `repo-ref/ai`.
 - MoonshotAI now also has a dedicated package-alignment workstream under
   `docs/workstreams/moonshotai-package-surface-alignment/`, documenting the canonical `moonshotai`
   wrapper contract and the intentional chat-only boundary inherited from `repo-ref/ai`.
@@ -174,6 +255,18 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `docs/workstreams/xai-package-surface-alignment/`, documenting the audited `@ai-sdk/xai`
   export boundary, provider-owned file-upload lane, and the intentional Rust-side deferrals for
   TypeScript-only factory/settings exports.
+- xAI package-surface parity now also closes the remaining audited video/files option drift:
+  `XaiVideoOptions` now covers upstream `mode` and `referenceImageUrls`, the public xAI
+  video/files option structs now serialize the AI SDK-facing camelCase shape while still accepting
+  legacy snake_case aliases, and the provider-owned xAI video runtime now routes
+  `mode = "extend-video"` to `/videos/extensions` while lowering
+  `mode = "reference-to-video"` onto the normal generation path with `reference_images`.
+- xAI package-surface parity now also closes the remaining public `providerOptions.xai` naming
+  drift on the text/search lanes: `XaiChatOptions`, `XaiResponsesOptions`,
+  `XaiSearchParameters`, and discriminated search-source structs now serialize the audited
+  AI SDK-facing camelCase fields while still accepting legacy snake_case aliases, and the
+  provider-owned xAI config/runtime path keeps lowering those public shapes onto native snake_case
+  wire keys.
 - Amazon Bedrock embedding parity now also has a dedicated workstream under
   `docs/workstreams/bedrock-embedding-alignment/`, documenting the audited AI SDK embedding
   export/runtime contract, provider-owned embedding standard, and registry/public-path parity
@@ -779,6 +872,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - OpenAI-compatible response metadata extraction now follows an AI SDK-style provider-owned policy instead of a shared compat-layer whitelist: `OpenAiStandardAdapter` / `ConfigurableAdapter` opt specific providers into `sources` / `logprobs` / prediction-token metadata, Perplexity keeps its hosted-search extras as a provider-specific special case, and generic OpenAI-compatible providers no longer infer those metadata fields by default.
 - OpenAI-compatible chat request/response shaping now also matches the audited AI SDK raw/camelCase provider-key contract more closely: provider-owned passthrough options merge raw + camelCase keys with camelCase taking precedence, non-stream and stream-finish provider metadata keep the resolved request-side namespace key with an explicit provider root, and Gemini-compatible `extra_content.google.thought_signature` now survives on compat tool calls as `providerMetadata.{provider}.thoughtSignature`.
 - OpenAI-compatible public config/builder surfaces now also expose an AI SDK-style response `metadataExtractor` hook through `ResponseMetadataExtractor`, `OpenAiCompatibleConfig::with_metadata_extractor(...)`, and `OpenAiCompatibleBuilder::with_metadata_extractor(...)`, so callers can extend provider metadata without reimplementing the whole compat adapter.
+- OpenAI-compatible public package/facade exports now also mirror the audited AI SDK names more
+  closely: `provider_ext::openai_compatible` now re-exports `MetadataExtractor` alongside the
+  existing Rust-named `ResponseMetadataExtractor`, and also exposes a generic
+  `ProviderErrorStructure<T>` helper for serde-based provider error decoding, message extraction,
+  and optional retryability predicates.
 - OpenAI-compatible provider-level request settings now align more closely with AI SDK `openai-compatible`: chat streaming omits `stream_options.include_usage` by default unless callers opt in through `OpenAiCompatibleConfig::with_include_usage(true)` / `OpenAiCompatibleBuilder::with_include_usage(true)`, public `queryParams`-style URL settings now flow through compat chat / embeddings / image generation-edit-variation / audio / rerank / model-listing routes, and the final compat chat body can now be customized through a public `RequestBodyTransformer` hook that mirrors AI SDK `transformRequestBody`.
 - OpenAI-compatible public config/builder/runtime surfaces now also expose an explicit provider-level `supportsStructuredOutputs` policy aligned with AI SDK semantics: compat chat now defaults to downgrading JSON Schema outputs to `response_format = { "type": "json_object" }` while emitting a stable `unsupported { feature: "responseFormat" }` warning on chat responses, and callers can opt back into wire-level `json_schema` by setting `supportsStructuredOutputs = true`.
 - OpenAI-compatible chat request shaping now also honors AI SDK-style known compat provider options from both canonical `providerOptions.openaiCompatible` and provider-owned keys: `user`, `reasoningEffort`, `textVerbosity`, and `strictJsonSchema` are mapped onto the final wire body (`user`, `reasoning_effort`, `verbosity`, `response_format.json_schema.strict`) instead of leaking through as raw compatibility keys.

@@ -33,6 +33,10 @@ impl VideoGenerationCapability for GeminiClient {
         helper.query_video_task(task_id).await
     }
 
+    fn max_videos_per_call(&self) -> Option<u32> {
+        Some(4)
+    }
+
     fn get_supported_models(&self) -> Vec<String> {
         super::super::video::get_supported_veo_models()
     }

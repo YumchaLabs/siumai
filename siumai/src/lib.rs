@@ -152,6 +152,8 @@ pub mod text;
 pub mod transcription;
 /// AI SDK-style `UIMessage` validation and conversion helpers.
 pub mod ui;
+/// Task-oriented video generation family helpers.
+pub mod video;
 
 /// Tool runtime (schema + execution binding).
 pub mod tooling;
@@ -308,7 +310,9 @@ pub mod provider_ext {
         pub use siumai_provider_openai::providers::openai::OpenAiWebSocketSession;
         #[cfg(feature = "openai-websocket")]
         pub use siumai_provider_openai::providers::openai::OpenAiWebSocketTransport;
-        pub use siumai_provider_openai::providers::openai::{OpenAiClient, OpenAiConfig};
+        pub use siumai_provider_openai::providers::openai::{
+            OpenAiBuilder, OpenAiClient, OpenAiConfig,
+        };
 
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         ///
@@ -412,11 +416,37 @@ pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai_compatible {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig,
+            ConfigurableAdapter, MetadataExtractor, OpenAiCompatibleChatModelId,
+            OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
+            OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
             OpenAiCompatibleRequestSettings, ProviderAdapter, ProviderCompatibility,
-            ProviderConfig, RequestBodyTransformer, ResponseMetadataExtractor, deepinfra, deepseek,
-            fireworks, get_provider_config, groq, list_provider_ids, moonshot, moonshotai,
-            openrouter, provider_supports_capability, siliconflow, vertex_maas, xai,
+            ProviderConfig, ProviderErrorStructure, RequestBodyTransformer,
+            ResponseMetadataExtractor, deepinfra, deepseek, fireworks, get_provider_config, groq,
+            list_provider_ids, moonshot, moonshotai, openrouter, provider_supports_capability,
+            siliconflow, vertex_maas, xai,
+        };
+
+        /// Typed generic OpenAI-compatible provider options (`provider_options_map["openaiCompatible"]`).
+        pub mod options {
+            #[allow(deprecated)]
+            pub use siumai_provider_openai_compatible::provider_options::{
+                OpenAiCompatibleCompletionProviderOptions, OpenAiCompatibleEmbeddingModelOptions,
+                OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleLanguageModelChatOptions,
+                OpenAiCompatibleLanguageModelCompletionOptions, OpenAiCompatibleProviderOptions,
+            };
+            pub use siumai_provider_openai_compatible::providers::openai_compatible::ext::{
+                OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionRequestExt,
+                OpenAiCompatibleEmbeddingRequestExt,
+            };
+        }
+
+        #[allow(deprecated)]
+        pub use options::{
+            OpenAiCompatibleChatRequestExt, OpenAiCompatibleCompletionProviderOptions,
+            OpenAiCompatibleCompletionRequestExt, OpenAiCompatibleEmbeddingModelOptions,
+            OpenAiCompatibleEmbeddingProviderOptions, OpenAiCompatibleEmbeddingRequestExt,
+            OpenAiCompatibleLanguageModelChatOptions,
+            OpenAiCompatibleLanguageModelCompletionOptions, OpenAiCompatibleProviderOptions,
         };
     }
 
@@ -517,7 +547,8 @@ pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod fireworks {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            FireworksClient, FireworksConfig,
+            FireworksClient, FireworksConfig, FireworksEmbeddingModelId, FireworksErrorData,
+            FireworksImageModelId,
         };
 
         /// Curated Fireworks model constants aligned with the audited AI SDK package subset.
@@ -552,7 +583,7 @@ pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod moonshotai {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            MoonshotAIClient, MoonshotAIConfig,
+            MoonshotAIChatModelId, MoonshotAIClient, MoonshotAIConfig,
         };
 
         /// Curated MoonshotAI model constants aligned with the audited AI SDK package subset.
@@ -584,7 +615,7 @@ pub mod provider_ext {
     #[cfg(feature = "deepinfra")]
     pub mod deepinfra {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            DeepInfraClient, DeepInfraConfig,
+            DeepInfraClient, DeepInfraConfig, DeepInfraErrorData,
         };
 
         /// Curated DeepInfra model constants aligned with the audited AI SDK package subset.
@@ -681,7 +712,9 @@ pub mod provider_ext {
 
     #[cfg(feature = "cohere")]
     pub mod cohere {
-        pub use siumai_provider_cohere::providers::cohere::{CohereClient, CohereConfig};
+        pub use siumai_provider_cohere::providers::cohere::{
+            CohereBuilder, CohereClient, CohereConfig,
+        };
 
         pub mod models {
             pub use siumai_provider_cohere::providers::cohere::models::{
@@ -717,7 +750,7 @@ pub mod provider_ext {
     #[cfg(feature = "togetherai")]
     pub mod togetherai {
         pub use siumai_provider_togetherai::providers::togetherai::{
-            TogetherAiClient, TogetherAiConfig,
+            TogetherAIErrorData, TogetherAiBuilder, TogetherAiClient, TogetherAiConfig,
         };
 
         pub mod models {
@@ -791,7 +824,7 @@ pub mod provider_ext {
     #[cfg(feature = "anthropic")]
     pub mod anthropic {
         pub use siumai_provider_anthropic::providers::anthropic::{
-            AnthropicClient, AnthropicConfig,
+            AnthropicBuilder, AnthropicClient, AnthropicConfig,
         };
 
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
@@ -891,8 +924,8 @@ pub mod provider_ext {
 
     #[cfg(feature = "google")]
     pub mod gemini {
-        pub use siumai_provider_gemini::providers::gemini::GeminiClient;
         pub use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
+        pub use siumai_provider_gemini::providers::gemini::{GeminiBuilder, GeminiClient};
 
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         pub mod tools {
@@ -911,15 +944,22 @@ pub mod provider_ext {
 
         /// Typed provider options (`provider_options_map["google"]`).
         pub mod options {
-            #[allow(deprecated)]
-            pub use siumai_provider_gemini::provider_options::gemini::GoogleGenerativeAIImageProviderOptions;
             pub use siumai_provider_gemini::provider_options::gemini::{
                 GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiImageOptions, GeminiOptions,
                 GeminiResponseModality, GeminiSafetySetting, GeminiThinkingConfig,
-                GeminiThinkingLevel, GoogleImageModelOptions,
+                GeminiThinkingLevel, GoogleEmbeddingContentPart, GoogleEmbeddingInlineData,
+                GoogleEmbeddingModelOptions, GoogleFilesUploadOptions, GoogleImageModelOptions,
+                GoogleLanguageModelOptions, GoogleVideoModelId, GoogleVideoModelOptions,
+            };
+            #[allow(deprecated)]
+            pub use siumai_provider_gemini::provider_options::gemini::{
+                GoogleGenerativeAIEmbeddingProviderOptions, GoogleGenerativeAIImageProviderOptions,
+                GoogleGenerativeAIProviderOptions, GoogleGenerativeAIVideoModelId,
+                GoogleGenerativeAIVideoProviderOptions,
             };
             pub use siumai_provider_gemini::providers::gemini::ext::{
-                GeminiChatRequestExt, GeminiImageRequestExt,
+                GeminiChatRequestExt, GeminiImageRequestExt, GoogleChatRequestExt,
+                GoogleEmbeddingRequestExt, GoogleImageRequestExt, GoogleVideoRequestExt,
             };
             pub use siumai_provider_gemini::providers::gemini::types::{
                 GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
@@ -927,24 +967,37 @@ pub mod provider_ext {
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
-        #[allow(deprecated)]
-        pub use options::GoogleGenerativeAIImageProviderOptions;
         pub use options::{
             GeminiChatRequestExt, GeminiEmbeddingOptions, GeminiEmbeddingRequestExt,
             GeminiHarmBlockThreshold, GeminiHarmCategory, GeminiImageOptions,
             GeminiImageRequestExt, GeminiOptions, GeminiResponseModality, GeminiSafetySetting,
-            GeminiThinkingConfig, GeminiThinkingLevel, GoogleImageModelOptions,
+            GeminiThinkingConfig, GeminiThinkingLevel, GoogleChatRequestExt,
+            GoogleEmbeddingContentPart, GoogleEmbeddingInlineData, GoogleEmbeddingModelOptions,
+            GoogleEmbeddingRequestExt, GoogleFilesUploadOptions, GoogleImageModelOptions,
+            GoogleImageRequestExt, GoogleLanguageModelOptions, GoogleVideoModelId,
+            GoogleVideoModelOptions, GoogleVideoRequestExt,
+        };
+        #[allow(deprecated)]
+        pub use options::{
+            GoogleGenerativeAIEmbeddingProviderOptions, GoogleGenerativeAIImageProviderOptions,
+            GoogleGenerativeAIProviderOptions, GoogleGenerativeAIVideoModelId,
+            GoogleGenerativeAIVideoProviderOptions,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["google"]`).
         pub mod metadata {
+            #[allow(deprecated)]
             pub use siumai_provider_gemini::provider_metadata::gemini::{
                 GeminiChatResponseExt, GeminiContentPartExt, GeminiMetadata, GeminiSource,
+                GoogleGenerativeAIProviderMetadata, GoogleProviderMetadata,
             };
         }
+        #[allow(deprecated)]
         pub use metadata::{
             GeminiChatResponseExt, GeminiContentPartExt, GeminiMetadata, GeminiSource,
+            GoogleGenerativeAIProviderMetadata, GoogleProviderMetadata,
         };
+        pub use siumai_provider_gemini::providers::gemini::{GoogleErrorBody, GoogleErrorData};
 
         /// Non-unified Gemini extension APIs (escape hatches).
         pub mod ext {
@@ -957,7 +1010,7 @@ pub mod provider_ext {
         pub mod resources {
             pub use siumai_provider_gemini::providers::gemini::{
                 GeminiCachedContents, GeminiFileSearchStores, GeminiFiles, GeminiModels,
-                GeminiTokens,
+                GeminiTokens, GeminiVideo, GoogleErrorBody, GoogleErrorData,
             };
         }
 
@@ -979,13 +1032,13 @@ pub mod provider_ext {
     #[cfg(feature = "google-vertex")]
     pub mod google_vertex {
         pub use siumai_provider_google_vertex::providers::vertex::{
-            GoogleVertexClient, GoogleVertexConfig,
+            GoogleVertexBuilder, GoogleVertexClient, GoogleVertexConfig,
         };
 
         /// Curated Google Vertex model constants aligned with the audited public subset.
         pub mod models {
             pub use siumai_provider_google_vertex::providers::vertex::models::{
-                self as model_sets, chat, embedding, image,
+                self as model_sets, chat, embedding, image, video,
             };
         }
 
@@ -1025,24 +1078,31 @@ pub mod provider_ext {
         pub mod options {
             #[allow(deprecated)]
             pub use siumai_provider_google_vertex::provider_options::vertex::GoogleVertexImageProviderOptions;
+            #[allow(deprecated)]
+            pub use siumai_provider_google_vertex::provider_options::vertex::GoogleVertexVideoProviderOptions;
             pub use siumai_provider_google_vertex::provider_options::vertex::{
                 GoogleVertexEmbeddingModelOptions, GoogleVertexImageModelOptions,
-                VertexEmbeddingOptions, VertexImagenEditOptions, VertexImagenInlineImage,
-                VertexImagenMaskImageConfig, VertexImagenOptions, VertexImagenReferenceImage,
+                GoogleVertexReferenceImage, GoogleVertexVideoModelId,
+                GoogleVertexVideoModelOptions, VertexEmbeddingOptions, VertexImagenEditOptions,
+                VertexImagenInlineImage, VertexImagenMaskImageConfig, VertexImagenOptions,
+                VertexImagenReferenceImage,
             };
             pub use siumai_provider_google_vertex::providers::vertex::{
-                VertexEmbeddingRequestExt, VertexImagenRequestExt,
+                VertexEmbeddingRequestExt, VertexImagenRequestExt, VertexVideoRequestExt,
             };
         }
 
-        pub use models::{chat, embedding, image, model_sets};
+        pub use models::{chat, embedding, image, model_sets, video};
         #[allow(deprecated)]
         pub use options::GoogleVertexImageProviderOptions;
+        #[allow(deprecated)]
+        pub use options::GoogleVertexVideoProviderOptions;
         pub use options::{
             GoogleVertexEmbeddingModelOptions, GoogleVertexImageModelOptions,
+            GoogleVertexReferenceImage, GoogleVertexVideoModelId, GoogleVertexVideoModelOptions,
             VertexEmbeddingOptions, VertexEmbeddingRequestExt, VertexImagenEditOptions,
             VertexImagenInlineImage, VertexImagenMaskImageConfig, VertexImagenOptions,
-            VertexImagenReferenceImage, VertexImagenRequestExt,
+            VertexImagenReferenceImage, VertexImagenRequestExt, VertexVideoRequestExt,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["vertex"]`).
@@ -1062,7 +1122,7 @@ pub mod provider_ext {
 
     #[cfg(feature = "minimaxi")]
     pub mod minimaxi {
-        pub use siumai_provider_minimaxi::providers::minimaxi::MinimaxiClient;
+        pub use siumai_provider_minimaxi::providers::minimaxi::{MinimaxiBuilder, MinimaxiClient};
 
         /// Curated MiniMaxi model constants for the public provider surface.
         pub mod models {
@@ -1125,7 +1185,9 @@ pub mod provider_ext {
 
     #[cfg(feature = "ollama")]
     pub mod ollama {
-        pub use siumai_provider_ollama::providers::ollama::{OllamaClient, OllamaConfig};
+        pub use siumai_provider_ollama::providers::ollama::{
+            OllamaBuilder, OllamaClient, OllamaConfig,
+        };
 
         /// Curated Ollama model constants for the public provider surface.
         pub mod models {
@@ -1217,7 +1279,9 @@ pub mod provider_ext {
 
     #[cfg(feature = "deepseek")]
     pub mod deepseek {
-        pub use siumai_provider_deepseek::providers::deepseek::{DeepSeekClient, DeepSeekConfig};
+        pub use siumai_provider_deepseek::providers::deepseek::{
+            DeepSeekBuilder, DeepSeekClient, DeepSeekConfig, DeepSeekErrorData,
+        };
 
         /// Curated DeepSeek model constants aligned with the audited AI SDK chat surface.
         pub mod models {
@@ -1265,7 +1329,7 @@ pub mod provider_ext {
     #[cfg(feature = "xai")]
     pub mod xai {
         pub use siumai_provider_xai::providers::xai::{
-            XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId,
+            XaiBuilder, XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["xai"]`).
@@ -1303,8 +1367,8 @@ pub mod provider_ext {
                 XaiImageResolution, XaiLanguageModelChatOptions, XaiLanguageModelResponsesOptions,
                 XaiOptions, XaiProviderOptions, XaiReasoningSummary, XaiResponseInclude,
                 XaiResponsesOptions, XaiResponsesProviderOptions, XaiResponsesReasoningEffort,
-                XaiSearchParameters, XaiTtsOptions, XaiVideoModelOptions, XaiVideoOptions,
-                XaiVideoProviderOptions, XaiVideoResolution,
+                XaiSearchParameters, XaiTtsOptions, XaiVideoMode, XaiVideoModelOptions,
+                XaiVideoOptions, XaiVideoProviderOptions, XaiVideoResolution,
             };
         }
 
@@ -1318,8 +1382,8 @@ pub mod provider_ext {
             XaiLanguageModelResponsesOptions, XaiOptions, XaiProviderOptions, XaiReasoningSummary,
             XaiResponseInclude, XaiResponsesOptions, XaiResponsesProviderOptions,
             XaiResponsesReasoningEffort, XaiSearchParameters, XaiTtsOptions, XaiTtsRequestExt,
-            XaiVideoModelOptions, XaiVideoOptions, XaiVideoProviderOptions, XaiVideoRequestExt,
-            XaiVideoResolution,
+            XaiVideoMode, XaiVideoModelOptions, XaiVideoOptions, XaiVideoProviderOptions,
+            XaiVideoRequestExt, XaiVideoResolution,
         };
 
         /// Non-unified xAI extension APIs (escape hatches).
@@ -1496,8 +1560,8 @@ pub mod prelude {
             pub use crate::registry::{
                 CompletionModelHandle, EmbeddingModelHandle, ImageModelHandle, LanguageModelHandle,
                 ProviderFactory, ProviderRegistryHandle, RegistryOptions, RerankingModelHandle,
-                SpeechModelHandle, TranscriptionModelHandle, create_bare_registry,
-                create_empty_registry, create_provider_registry,
+                SpeechModelHandle, TranscriptionModelHandle, VideoModelHandle,
+                create_bare_registry, create_empty_registry, create_provider_registry,
             };
 
             #[cfg(any(

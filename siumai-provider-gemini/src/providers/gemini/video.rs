@@ -61,6 +61,15 @@ fn take_u64_opt(map: &mut HashMap<String, serde_json::Value>, key: &str) -> Opti
     map.remove(key).and_then(|v| v.as_u64())
 }
 
+fn video_provider_options(
+    request: &VideoGenerationRequest,
+) -> Option<&serde_json::Map<String, serde_json::Value>> {
+    request
+        .provider_options_map
+        .get_object("google")
+        .or_else(|| request.provider_options_map.get_object("gemini"))
+}
+
 fn build_veo_image_from_input(input: &VideoGenerationInput) -> Result<Option<VeoImage>, Warning> {
     match input {
         VideoGenerationInput::Url { .. } => Err(Warning::unsupported(
@@ -167,6 +176,84 @@ fn extract_video_uri(operation_response: &serde_json::Value) -> Option<String> {
     None
 }
 
+fn has_auth_header(headers: &HashMap<String, String>) -> bool {
+    headers
+        .keys()
+        .any(|key| key.eq_ignore_ascii_case("authorization"))
+}
+
+fn append_api_key_query(url: String, api_key: &str) -> String {
+    let key = urlencoding::encode(api_key);
+    if url.contains('?') {
+        format!("{url}&key={key}")
+    } else {
+        format!("{url}?key={key}")
+    }
+}
+
+fn normalize_download_uri(uri: &str, provider_context: &crate::core::ProviderContext) -> String {
+    if !uri.starts_with("http://") && !uri.starts_with("https://") {
+        return uri.to_string();
+    }
+
+    if let Some(api_key) = provider_context.api_key.as_deref()
+        && !api_key.is_empty()
+        && !has_auth_header(&provider_context.http_extra_headers)
+    {
+        append_api_key_query(uri.to_string(), api_key)
+    } else {
+        uri.to_string()
+    }
+}
+
+fn extract_generated_video_metadata(
+    operation_response: &serde_json::Value,
+    provider_context: &crate::core::ProviderContext,
+) -> Vec<serde_json::Value> {
+    operation_response
+        .pointer("/generateVideoResponse/generatedSamples")
+        .and_then(|value| value.as_array())
+        .map(|samples| {
+            samples
+                .iter()
+                .filter_map(|sample| {
+                    let uri = sample
+                        .pointer("/video/uri")
+                        .or_else(|| sample.get("videoUri"))
+                        .and_then(|value| value.as_str())?;
+                    let mime_type = sample
+                        .pointer("/video/mimeType")
+                        .or_else(|| sample.get("mimeType"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("video/mp4");
+
+                    Some(serde_json::json!({
+                        "uri": normalize_download_uri(uri, provider_context),
+                        "mediaType": mime_type,
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn build_query_metadata(
+    operation_response: &serde_json::Value,
+    provider_context: &crate::core::ProviderContext,
+) -> HashMap<String, serde_json::Value> {
+    let videos = extract_generated_video_metadata(operation_response, provider_context);
+    if videos.is_empty() {
+        HashMap::new()
+    } else {
+        HashMap::from([(
+            "gemini".to_string(),
+            serde_json::json!({
+                "videos": videos,
+            }),
+        )])
+    }
+}
+
 fn build_wiring(
     ctx: crate::core::ProviderContext,
     http_client: &reqwest::Client,
@@ -212,9 +299,34 @@ fn build_operation_get_url(base_url: &str, op_name: &str) -> String {
 fn build_video_request_body(
     request: VideoGenerationRequest,
 ) -> Result<(serde_json::Value, Vec<Warning>), LlmError> {
-    let mut extra_params: HashMap<String, serde_json::Value> =
-        request.extra_params.unwrap_or_default();
+    let mut extra_params: HashMap<String, serde_json::Value> = video_provider_options(&request)
+        .cloned()
+        .map(|map| map.into_iter().collect())
+        .unwrap_or_default();
+    extra_params.extend(request.extra_params.clone().unwrap_or_default());
     let mut warnings = Vec::new();
+
+    let ignored_poll_interval_ms = take_u64_opt(&mut extra_params, "pollIntervalMs")
+        .or_else(|| take_u64_opt(&mut extra_params, "poll_interval_ms"));
+    let ignored_poll_timeout_ms = take_u64_opt(&mut extra_params, "pollTimeoutMs")
+        .or_else(|| take_u64_opt(&mut extra_params, "poll_timeout_ms"));
+
+    if ignored_poll_interval_ms.is_some() {
+        warnings.push(Warning::unsupported(
+            "pollIntervalMs",
+            Some(
+                "Gemini video uses the task-based Rust surface; automatic polling options are ignored on request submission.",
+            ),
+        ));
+    }
+    if ignored_poll_timeout_ms.is_some() {
+        warnings.push(Warning::unsupported(
+            "pollTimeoutMs",
+            Some(
+                "Gemini video uses the task-based Rust surface; automatic polling options are ignored on request submission.",
+            ),
+        ));
+    }
 
     let negative_prompt = take_string_opt(&mut extra_params, "negativePrompt")
         .or_else(|| take_string_opt(&mut extra_params, "negative_prompt"));
@@ -229,7 +341,9 @@ fn build_video_request_body(
         .or_else(|| take_u64_opt(&mut extra_params, "seed"));
 
     let mut instance = serde_json::Map::new();
-    instance.insert("prompt".to_string(), serde_json::json!(request.prompt));
+    if let Some(prompt) = request.prompt {
+        instance.insert("prompt".to_string(), serde_json::json!(prompt));
+    }
 
     // Prefer explicit instance objects if caller supplies them.
     if let Some(v) = extra_params.remove("image") {
@@ -462,6 +576,11 @@ impl GeminiVideo {
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string())
             });
+        let metadata = op
+            .response
+            .as_ref()
+            .map(|response| build_query_metadata(response, &cfg.provider_context))
+            .unwrap_or_default();
 
         Ok(VideoTaskStatusResponse {
             task_id: op.name,
@@ -475,7 +594,7 @@ impl GeminiVideo {
                 status_code: 0,
                 status_msg: "OK".to_string(),
             }),
-            metadata: HashMap::new(),
+            metadata,
             response: None,
         })
     }
@@ -584,6 +703,69 @@ mod tests {
     }
 
     #[test]
+    fn build_request_body_reads_google_provider_options_and_ignores_polling_knobs() {
+        let req = VideoGenerationRequest::new("veo-3.1-generate-preview", "hi")
+            .with_provider_option(
+                "google",
+                serde_json::json!({
+                    "negativePrompt": "no cats",
+                    "personGeneration": "allow_all",
+                    "pollIntervalMs": 500,
+                    "pollTimeoutMs": 30000,
+                    "referenceImages": [
+                        {
+                            "bytesBase64Encoded": "Zm9v"
+                        }
+                    ]
+                }),
+            );
+
+        let (body, warnings) = build_video_request_body(req).unwrap();
+        assert_eq!(
+            body["parameters"]["negativePrompt"],
+            serde_json::json!("no cats")
+        );
+        assert_eq!(
+            body["parameters"]["personGeneration"],
+            serde_json::json!("allow_all")
+        );
+        assert_eq!(
+            body["instances"][0]["referenceImages"][0]["bytesBase64Encoded"],
+            serde_json::json!("Zm9v")
+        );
+        assert!(body["parameters"].get("pollIntervalMs").is_none());
+        assert!(body["parameters"].get("pollTimeoutMs").is_none());
+
+        let warning_features = warnings
+            .into_iter()
+            .map(|warning| match warning {
+                Warning::Unsupported { feature, .. } => feature,
+                Warning::UnsupportedSetting { setting, .. } => setting,
+                Warning::UnsupportedTool { tool_name, .. } => tool_name,
+                Warning::Compatibility { feature, .. } => feature,
+                Warning::Other { message } => message,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(warning_features, vec!["pollIntervalMs", "pollTimeoutMs"]);
+    }
+
+    #[test]
+    fn build_request_body_allows_promptless_image_to_video_requests() {
+        let req =
+            VideoGenerationRequest::new_without_prompt("veo-3.1-generate-preview").with_image(
+                VideoGenerationInput::file_with_media_type(vec![1, 2, 3], "image/png"),
+            );
+
+        let (body, warnings) = build_video_request_body(req).unwrap();
+        assert!(warnings.is_empty());
+        assert!(body["instances"][0].get("prompt").is_none());
+        assert_eq!(
+            body["instances"][0]["image"]["imageBytes"],
+            serde_json::json!("AQID")
+        );
+    }
+
+    #[test]
     fn extract_video_uri_from_operation_response() {
         let v = serde_json::json!({
             "generateVideoResponse": {
@@ -595,6 +777,51 @@ mod tests {
         assert_eq!(
             extract_video_uri(&v),
             Some("https://example/video.mp4".to_string())
+        );
+    }
+
+    #[test]
+    fn build_query_metadata_keeps_generated_video_entries() {
+        let response = serde_json::json!({
+            "generateVideoResponse": {
+                "generatedSamples": [
+                    {
+                        "video": {
+                            "uri": "https://example/video-1.mp4",
+                            "mimeType": "video/mp4"
+                        }
+                    },
+                    {
+                        "video": {
+                            "uri": "https://example/video-2.webm",
+                            "mimeType": "video/webm"
+                        }
+                    }
+                ]
+            }
+        });
+        let provider_context = crate::core::ProviderContext::new(
+            "gemini",
+            "https://generativelanguage.googleapis.com",
+            Some("test-key".to_string()),
+            HashMap::new(),
+        );
+
+        let metadata = build_query_metadata(&response, &provider_context);
+        let videos = metadata
+            .get("gemini")
+            .and_then(|value| value.get("videos"))
+            .and_then(|value| value.as_array())
+            .expect("gemini videos metadata");
+
+        assert_eq!(videos.len(), 2);
+        assert_eq!(
+            videos[0].get("uri").and_then(|value| value.as_str()),
+            Some("https://example/video-1.mp4?key=test-key")
+        );
+        assert_eq!(
+            videos[1].get("mediaType").and_then(|value| value.as_str()),
+            Some("video/webm")
         );
     }
 }

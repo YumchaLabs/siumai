@@ -75,6 +75,15 @@ pub trait VideoGenerationCapability: Send + Sync {
     /// ```
     async fn query_video_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError>;
 
+    /// Maximum number of final videos this model/provider can produce in a single task call.
+    ///
+    /// This stays object-safe so higher-level helpers can implement AI SDK-style
+    /// `maxVideosPerCall` batching without requiring providers to expose a different execution
+    /// trait.
+    fn max_videos_per_call(&self) -> Option<u32> {
+        None
+    }
+
     /// Get supported video generation models
     ///
     /// # Returns

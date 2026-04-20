@@ -1,6 +1,10 @@
-//! Google Vertex AI client (minimal).
+//! Google Vertex AI client.
 //!
-//! This client currently focuses on Vertex Imagen via the `:predict` endpoint.
+//! This client owns the provider-specific Vertex runtime for:
+//! - Gemini chat via `generateContent`
+//! - Vertex text embeddings via `:predict`
+//! - Imagen image generation/editing via `:predict`
+//! - Veo video task creation/status via `:predictLongRunning` and `:fetchPredictOperation`
 
 use async_trait::async_trait;
 use reqwest::Client as HttpClient;
@@ -19,12 +23,13 @@ use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
 use crate::traits::{
     ChatCapability, EmbeddingCapability, EmbeddingExtensions, ImageExtras,
-    ImageGenerationCapability, ProviderCapabilities,
+    ImageGenerationCapability, ProviderCapabilities, VideoGenerationCapability,
 };
 use crate::types::{
     BatchEmbeddingRequest, BatchEmbeddingResponse, ChatMessage, ChatRequest, ChatResponse,
     EmbeddingRequest, EmbeddingResponse, HttpConfig, ImageEditRequest, ImageGenerationRequest,
     ImageGenerationResponse, Tool,
+    video::{VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatusResponse},
 };
 
 fn effective_embedding_model(request: &EmbeddingRequest, default_model: &str) -> String {
@@ -893,6 +898,7 @@ impl LlmClient for GoogleVertexClient {
             .with_vision()
             .with_embedding()
             .with_image_generation()
+            .with_custom_feature("video", true)
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -921,6 +927,56 @@ impl LlmClient for GoogleVertexClient {
 
     fn as_embedding_extensions(&self) -> Option<&dyn EmbeddingExtensions> {
         Some(self)
+    }
+
+    fn as_video_generation_capability(&self) -> Option<&dyn VideoGenerationCapability> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl VideoGenerationCapability for GoogleVertexClient {
+    async fn create_video_task(
+        &self,
+        request: VideoGenerationRequest,
+    ) -> Result<VideoGenerationResponse, LlmError> {
+        super::video::create_video_task(
+            &self.config,
+            &self.common_params.model,
+            &self.http_client,
+            self.retry_options.as_ref(),
+            &self.http_interceptors,
+            request,
+        )
+        .await
+    }
+
+    async fn query_video_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+        super::video::query_video_task(
+            &self.config,
+            &self.common_params.model,
+            &self.http_client,
+            self.retry_options.as_ref(),
+            &self.http_interceptors,
+            task_id,
+        )
+        .await
+    }
+
+    fn max_videos_per_call(&self) -> Option<u32> {
+        Some(4)
+    }
+
+    fn get_supported_models(&self) -> Vec<String> {
+        super::video::get_supported_video_models()
+    }
+
+    fn get_supported_resolutions(&self, model: &str) -> Vec<String> {
+        super::video::get_supported_resolutions(model)
+    }
+
+    fn get_supported_durations(&self, model: &str) -> Vec<u32> {
+        super::video::get_supported_durations(model)
     }
 }
 

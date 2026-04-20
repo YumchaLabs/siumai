@@ -226,7 +226,10 @@ mod minimaxi_tests {
                 );
 
         assert_eq!(request.model, "MiniMax-Hailuo-2.3");
-        assert_eq!(request.prompt, "A beautiful sunset over the ocean");
+        assert_eq!(
+            request.prompt.as_deref(),
+            Some("A beautiful sunset over the ocean")
+        );
         assert_eq!(request.duration, Some(6));
         assert_eq!(request.resolution, Some("1080P".to_string()));
         let minimaxi_options = request
@@ -296,7 +299,10 @@ mod minimaxi_tests {
                 .with_format("wav");
 
         assert_eq!(request.model, "music-2.0");
-        assert_eq!(request.prompt, "Indie folk, melancholic, introspective");
+        assert_eq!(
+            request.prompt.as_deref(),
+            Some("Indie folk, melancholic, introspective")
+        );
         assert!(
             request
                 .lyrics

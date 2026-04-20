@@ -219,6 +219,79 @@ impl VideoGenerationInput {
     }
 }
 
+/// High-level video prompt shape aligned with AI SDK `GenerateVideoPrompt`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum VideoGenerationPrompt {
+    /// Text-only video prompt.
+    Text(String),
+    /// Image-to-video prompt with optional text.
+    Image {
+        /// Optional text description for the generated video.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        /// Input image for image-to-video generation.
+        image: VideoGenerationInput,
+    },
+}
+
+/// AI SDK-auditable alias for the stable Rust video prompt shape.
+pub type GenerateVideoPrompt = VideoGenerationPrompt;
+
+impl VideoGenerationPrompt {
+    /// Create a text-only prompt.
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(text.into())
+    }
+
+    /// Create an image-only prompt.
+    pub fn image(image: VideoGenerationInput) -> Self {
+        Self::Image { text: None, image }
+    }
+
+    /// Create an image prompt with an accompanying text description.
+    pub fn image_with_text(image: VideoGenerationInput, text: impl Into<String>) -> Self {
+        Self::Image {
+            text: Some(text.into()),
+            image,
+        }
+    }
+
+    /// Return the text portion of the prompt when present.
+    pub fn text_part(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) => Some(text.as_str()),
+            Self::Image { text, .. } => text.as_deref(),
+        }
+    }
+
+    /// Return the image portion of the prompt when present.
+    pub fn image_part(&self) -> Option<&VideoGenerationInput> {
+        match self {
+            Self::Text(_) => None,
+            Self::Image { image, .. } => Some(image),
+        }
+    }
+}
+
+impl From<String> for VideoGenerationPrompt {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<&str> for VideoGenerationPrompt {
+    fn from(value: &str) -> Self {
+        Self::Text(value.to_string())
+    }
+}
+
+impl From<VideoGenerationInput> for VideoGenerationPrompt {
+    fn from(value: VideoGenerationInput) -> Self {
+        Self::image(value)
+    }
+}
+
 /// Video generation request
 ///
 /// This type is designed to be extensible across different video generation providers.
@@ -229,8 +302,12 @@ pub struct VideoGenerationRequest {
     /// Model name (e.g., "hailuo-2.3", "gen-3-alpha", "sora-2")
     pub model: String,
 
-    /// Text description for video generation
-    pub prompt: String,
+    /// Optional text description for video generation.
+    ///
+    /// This is optional to match AI SDK `GenerateVideoPrompt`, where image-to-video requests may
+    /// provide only an input image and omit the textual prompt entirely.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 
     /// Number of videos to generate (AI SDK `n`).
     #[serde(skip_serializing_if = "Option::is_none", alias = "n")]
@@ -310,9 +387,24 @@ impl VideoGenerationRequest {
     /// let request = VideoGenerationRequest::new("hailuo-2.3", "A cat playing piano");
     /// ```
     pub fn new(model: impl Into<String>, prompt: impl Into<String>) -> Self {
+        Self::new_without_prompt(model).with_prompt(prompt)
+    }
+
+    /// Create a request from a high-level AI SDK-style video prompt.
+    pub fn from_generate_prompt(
+        model: impl Into<String>,
+        prompt: impl Into<VideoGenerationPrompt>,
+    ) -> Self {
+        Self::new_without_prompt(model).with_generate_prompt(prompt)
+    }
+
+    /// Create a request without a text prompt.
+    ///
+    /// This is primarily intended for image-to-video providers that support prompt-less requests.
+    pub fn new_without_prompt(model: impl Into<String>) -> Self {
         Self {
             model: model.into(),
-            prompt: prompt.into(),
+            prompt: None,
             count: None,
             duration: None,
             resolution: None,
@@ -325,6 +417,26 @@ impl VideoGenerationRequest {
             provider_options_map: ProviderOptionsMap::default(),
             http_config: None,
         }
+    }
+
+    /// Set or replace the text prompt.
+    pub fn with_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.prompt = Some(prompt.into());
+        self
+    }
+
+    /// Apply a high-level AI SDK-style video prompt onto the request.
+    pub fn with_generate_prompt(mut self, prompt: impl Into<VideoGenerationPrompt>) -> Self {
+        match prompt.into() {
+            VideoGenerationPrompt::Text(text) => {
+                self.prompt = Some(text);
+            }
+            VideoGenerationPrompt::Image { text, image } => {
+                self.prompt = text;
+                self.image = Some(image);
+            }
+        }
+        self
     }
 
     /// Set video duration
@@ -558,6 +670,24 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_video_generation_prompt_helpers() {
+        let prompt = VideoGenerationPrompt::image_with_text(
+            VideoGenerationInput::url("https://example.com/start.png"),
+            "animate this scene",
+        );
+
+        assert_eq!(prompt.text_part(), Some("animate this scene"));
+        assert_eq!(
+            prompt.image_part().and_then(VideoGenerationInput::as_url),
+            Some("https://example.com/start.png")
+        );
+
+        let text_prompt = VideoGenerationPrompt::from("a cat dancing");
+        assert_eq!(text_prompt.text_part(), Some("a cat dancing"));
+        assert!(text_prompt.image_part().is_none());
+    }
+
+    #[test]
     fn test_video_generation_request_builder() {
         let req = VideoGenerationRequest::new("hailuo-2.3", "A beautiful sunset")
             .with_count(2)
@@ -568,13 +698,45 @@ mod tests {
             .with_image(VideoGenerationInput::url("https://example.com/start.png"));
 
         assert_eq!(req.model, "hailuo-2.3");
-        assert_eq!(req.prompt, "A beautiful sunset");
+        assert_eq!(req.prompt.as_deref(), Some("A beautiful sunset"));
         assert_eq!(req.count, Some(2));
         assert_eq!(req.duration, Some(6));
         assert_eq!(req.fps, Some(24));
         assert_eq!(req.seed, Some(7));
         assert_eq!(req.resolution, Some("1080P".to_string()));
         assert_eq!(req.aspect_ratio, None);
+        assert_eq!(
+            req.image.as_ref().and_then(VideoGenerationInput::as_url),
+            Some("https://example.com/start.png")
+        );
+    }
+
+    #[test]
+    fn test_video_generation_request_can_omit_prompt() {
+        let req = VideoGenerationRequest::new_without_prompt("veo-3.1-generate-preview")
+            .with_image(VideoGenerationInput::url("https://example.com/start.png"));
+
+        assert_eq!(req.model, "veo-3.1-generate-preview");
+        assert!(req.prompt.is_none());
+        assert_eq!(
+            req.image.as_ref().and_then(VideoGenerationInput::as_url),
+            Some("https://example.com/start.png")
+        );
+    }
+
+    #[test]
+    fn test_video_generation_request_from_generate_prompt() {
+        let req = VideoGenerationRequest::from_generate_prompt(
+            "veo-3.1-generate-preview",
+            VideoGenerationPrompt::image(VideoGenerationInput::url(
+                "https://example.com/start.png",
+            )),
+        )
+        .with_n(2);
+
+        assert_eq!(req.model, "veo-3.1-generate-preview");
+        assert!(req.prompt.is_none());
+        assert_eq!(req.count, Some(2));
         assert_eq!(
             req.image.as_ref().and_then(VideoGenerationInput::as_url),
             Some("https://example.com/start.png")

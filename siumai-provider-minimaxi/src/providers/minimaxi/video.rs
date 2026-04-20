@@ -32,9 +32,18 @@ fn parse_video_options(
 
 fn build_request_body(request: VideoGenerationRequest) -> Result<serde_json::Value, LlmError> {
     let options = parse_video_options(&request.provider_options_map)?;
+    let prompt = request
+        .prompt
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            LlmError::InvalidParameter(
+                "MiniMaxi video requests require a non-empty prompt".to_string(),
+            )
+        })?;
     let mut body = serde_json::Map::new();
     body.insert("model".to_string(), serde_json::json!(request.model));
-    body.insert("prompt".to_string(), serde_json::json!(request.prompt));
+    body.insert("prompt".to_string(), serde_json::json!(prompt));
 
     if let Some(duration) = request.duration {
         body.insert("duration".to_string(), serde_json::json!(duration));
@@ -195,5 +204,20 @@ pub(super) fn get_supported_durations(model: &str) -> Vec<u32> {
             vec![6]
         }
         _ => vec![],
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_request_body_rejects_promptless_requests() {
+        let err = build_request_body(VideoGenerationRequest::new_without_prompt("hailuo-2.3"))
+            .unwrap_err();
+
+        assert!(
+            matches!(err, LlmError::InvalidParameter(message) if message.contains("require a non-empty prompt"))
+        );
     }
 }

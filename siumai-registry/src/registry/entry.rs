@@ -39,6 +39,7 @@ use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
 use siumai_core::speech::SpeechModel as FamilySpeechModel;
 use siumai_core::transcription::TranscriptionModel as FamilyTranscriptionModel;
+use siumai_core::video::VideoModel as FamilyVideoModel;
 
 use lru::LruCache;
 use std::num::NonZeroUsize;
@@ -283,6 +284,43 @@ pub trait ProviderFactory: Send + Sync {
             .await
     }
 
+    /// Create a video model client for the given model ID.
+    async fn video_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.language_model(model_id).await
+    }
+
+    /// Create a video model client with build context.
+    async fn video_model_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn LlmClient>, LlmError> {
+        self.language_model_with_ctx(model_id, ctx).await
+    }
+
+    /// Create a video-family model with build context.
+    async fn video_model_family_with_ctx(
+        &self,
+        model_id: &str,
+        ctx: &BuildContext,
+    ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
+        let client = self.video_model_with_ctx(model_id, ctx).await?;
+        Ok(Arc::new(ClientBackedVideoModel::new(
+            client,
+            self.provider_id().into_owned(),
+            model_id.to_string(),
+        )))
+    }
+
+    /// Create a video-family model without an explicit build context.
+    async fn video_model_family(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
+        self.video_model_family_with_ctx(model_id, &BuildContext::default())
+            .await
+    }
+
     /// Create a reranking model client for the given model ID
     async fn reranking_model(&self, model_id: &str) -> Result<Arc<dyn LlmClient>, LlmError> {
         self.language_model(model_id).await
@@ -353,6 +391,12 @@ struct SpeechCacheEntry {
 /// Transcription-family cache entry with TTL support
 struct TranscriptionCacheEntry {
     model: Arc<dyn FamilyTranscriptionModel>,
+    created_at: Instant,
+}
+
+/// Video-family cache entry with TTL support
+struct VideoCacheEntry {
+    model: Arc<dyn FamilyVideoModel>,
     created_at: Instant,
 }
 
@@ -561,6 +605,83 @@ impl siumai_core::transcription::TranscriptionModelV3 for ClientBackedTranscript
     }
 }
 
+struct ClientBackedVideoModel {
+    client: Arc<dyn LlmClient>,
+    provider_id: String,
+    model_id: String,
+}
+
+impl ClientBackedVideoModel {
+    fn new(client: Arc<dyn LlmClient>, provider_id: String, model_id: String) -> Self {
+        Self {
+            client,
+            provider_id,
+            model_id,
+        }
+    }
+}
+
+impl crate::traits::ModelMetadata for ClientBackedVideoModel {
+    fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
+
+#[async_trait::async_trait]
+impl siumai_core::video::VideoModelV3 for ClientBackedVideoModel {
+    async fn create_task(
+        &self,
+        request: VideoGenerationRequest,
+    ) -> Result<VideoGenerationResponse, LlmError> {
+        let video = self
+            .client
+            .as_video_generation_capability()
+            .ok_or_else(|| {
+                LlmError::UnsupportedOperation(
+                    "Provider does not support video generation".to_string(),
+                )
+            })?;
+        video.create_video_task(request).await
+    }
+
+    async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+        let video = self
+            .client
+            .as_video_generation_capability()
+            .ok_or_else(|| {
+                LlmError::UnsupportedOperation(
+                    "Provider does not support video generation".to_string(),
+                )
+            })?;
+        video.query_video_task(task_id).await
+    }
+
+    fn supported_models(&self) -> Vec<String> {
+        self.client
+            .as_video_generation_capability()
+            .map(|video| video.get_supported_models())
+            .unwrap_or_else(|| vec![self.model_id.clone()])
+    }
+
+    fn supported_resolutions(&self, model: &str) -> Vec<String> {
+        self.client
+            .as_video_generation_capability()
+            .map(|video| video.get_supported_resolutions(model))
+            .unwrap_or_default()
+    }
+
+    fn supported_durations(&self, model: &str) -> Vec<u32> {
+        self.client
+            .as_video_generation_capability()
+            .map(|video| video.get_supported_durations(model))
+            .unwrap_or_default()
+    }
+}
+
 struct ClientBackedRerankingModel {
     client: Arc<dyn LlmClient>,
     provider_id: String,
@@ -753,6 +874,23 @@ impl SpeechCacheEntry {
 
 impl TranscriptionCacheEntry {
     fn new(model: Arc<dyn FamilyTranscriptionModel>) -> Self {
+        Self {
+            model,
+            created_at: Instant::now(),
+        }
+    }
+
+    fn is_expired(&self, ttl: Option<Duration>) -> bool {
+        if let Some(ttl) = ttl {
+            self.created_at.elapsed() > ttl
+        } else {
+            false
+        }
+    }
+}
+
+impl VideoCacheEntry {
+    fn new(model: Arc<dyn FamilyVideoModel>) -> Self {
         Self {
             model,
             created_at: Instant::now(),
@@ -1057,6 +1195,8 @@ pub struct ProviderRegistryHandle {
     speech_model_cache: Arc<TokioMutex<LruCache<String, SpeechCacheEntry>>>,
     /// LRU cache for transcription-family models (key: "provider:model")
     transcription_model_cache: Arc<TokioMutex<LruCache<String, TranscriptionCacheEntry>>>,
+    /// LRU cache for video-family models (key: "provider:model")
+    video_model_cache: Arc<TokioMutex<LruCache<String, VideoCacheEntry>>>,
     /// TTL for cached clients
     client_ttl: Option<Duration>,
     /// Whether to automatically add model-specific middlewares
@@ -1182,6 +1322,16 @@ fn apply_translation_handle_default_model(
 ) -> AudioTranslationRequest {
     if request_model_missing(request.model.as_deref()) && !model_id.trim().is_empty() {
         request.model = Some(model_id.to_string());
+    }
+    request
+}
+
+fn apply_video_handle_default_model(
+    mut request: VideoGenerationRequest,
+    model_id: &str,
+) -> VideoGenerationRequest {
+    if request.model.trim().is_empty() && !model_id.trim().is_empty() {
+        request.model = model_id.to_string();
     }
     request
 }
@@ -1414,6 +1564,35 @@ impl ProviderRegistryHandle {
         })
     }
 
+    /// Resolve video model - returns a handle that delegates to the factory.
+    pub fn video_model(&self, id: &str) -> Result<VideoModelHandle, LlmError> {
+        let (provider_id, model_id) = self.split_id(id)?;
+        let factory = self.get_provider(&provider_id)?;
+        let capabilities = factory.capabilities();
+        if !capabilities.supports("video") {
+            return Err(LlmError::UnsupportedOperation(format!(
+                "Provider '{}' does not expose video on the video_model handle",
+                provider_id
+            )));
+        }
+        let build_overrides = self.resolve_provider_build_overrides(&provider_id);
+
+        Ok(VideoModelHandle {
+            factory: factory.clone(),
+            provider_id,
+            model_id,
+            http_interceptors: self.http_interceptors.clone(),
+            http_client: build_overrides.http_client,
+            http_transport: build_overrides.http_transport,
+            http_config: build_overrides.http_config,
+            api_key: build_overrides.api_key,
+            base_url: build_overrides.base_url,
+            cache: self.video_model_cache.clone(),
+            client_ttl: self.client_ttl,
+            retry_options: self.retry_options.clone(),
+        })
+    }
+
     /// Resolve speech model - returns a handle that delegates to the factory
     pub fn speech_model(&self, id: &str) -> Result<SpeechModelHandle, LlmError> {
         let (provider_id, model_id) = self.split_id(id)?;
@@ -1586,6 +1765,8 @@ pub fn create_provider_registry(
         LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
     let transcription_cache =
         LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
+    let video_cache =
+        LruCache::new(NonZeroUsize::new(cache_capacity).expect("Cache capacity must be > 0"));
 
     ProviderRegistryHandle {
         providers,
@@ -1598,6 +1779,7 @@ pub fn create_provider_registry(
         completion_model_cache: Arc::new(TokioMutex::new(completion_cache)),
         speech_model_cache: Arc::new(TokioMutex::new(speech_cache)),
         transcription_model_cache: Arc::new(TokioMutex::new(transcription_cache)),
+        video_model_cache: Arc::new(TokioMutex::new(video_cache)),
         client_ttl,
         auto_middleware,
         http_config,
@@ -1735,6 +1917,28 @@ impl LanguageModelHandle {
         );
 
         self.factory.language_model_with_ctx(model_id, &ctx).await
+    }
+
+    async fn build_video_model(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
+        let ctx = build_registry_context(
+            &self.provider_id,
+            &self.http_interceptors,
+            &self.retry_options,
+            &self.http_client,
+            &self.http_transport,
+            &self.http_config,
+            &self.api_key,
+            &self.base_url,
+            self.reasoning_enabled,
+            self.reasoning_budget,
+        );
+
+        self.factory
+            .video_model_family_with_ctx(model_id, &ctx)
+            .await
     }
 }
 
@@ -2092,25 +2296,19 @@ impl VideoGenerationCapability for LanguageModelHandle {
         &self,
         request: VideoGenerationRequest,
     ) -> Result<VideoGenerationResponse, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let video = client.as_video_generation_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support video generation.",
-                self.provider_id
-            ))
-        })?;
-        video.create_video_task(request).await
+        let model = self.build_video_model(&self.model_id).await?;
+        model
+            .create_task(apply_video_handle_default_model(request, &self.model_id))
+            .await
     }
 
     async fn query_video_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
-        let client = self.build_language_client(&self.model_id).await?;
-        let video = client.as_video_generation_capability().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Provider {} does not support video generation.",
-                self.provider_id
-            ))
-        })?;
-        video.query_video_task(task_id).await
+        let model = self.build_video_model(&self.model_id).await?;
+        model.query_task(task_id).await
+    }
+
+    fn max_videos_per_call(&self) -> Option<u32> {
+        video_model_handle_max_videos_per_call(&self.provider_id, &self.model_id)
     }
 
     fn get_supported_models(&self) -> Vec<String> {
@@ -2539,6 +2737,14 @@ fn image_model_handle_max_images_per_call(provider_id: &str, model_id: &str) -> 
     }
 }
 
+fn video_model_handle_max_videos_per_call(provider_id: &str, _model_id: &str) -> Option<u32> {
+    match provider_id {
+        "gemini" | "google" | "vertex" | "google-vertex" => Some(4),
+        "xai" | "minimaxi" => Some(1),
+        _ => None,
+    }
+}
+
 /// Implementation of ImageGenerationCapability for ImageModelHandle
 ///
 /// This allows the handle to be used directly as an image generation client, aligning with
@@ -2668,6 +2874,120 @@ impl crate::traits::ModelMetadata for ImageModelHandle {
 }
 
 impl ImageModelHandle {}
+
+/// Video model handle - delegates to factory for client creation
+#[derive(Clone)]
+pub struct VideoModelHandle {
+    factory: Arc<dyn ProviderFactory>,
+    provider_id: String,
+    pub model_id: String,
+    /// Registry-level HTTP interceptors to attempt injecting into clients
+    http_interceptors: Vec<Arc<dyn HttpInterceptor>>,
+    /// Registry-level pre-built HTTP client copied into the handle
+    http_client: Option<reqwest::Client>,
+    /// Registry-level custom HTTP transport copied into the handle
+    http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    /// Registry-level retry options copied into the handle
+    retry_options: Option<RetryOptions>,
+    /// Registry-level HTTP configuration copied into the handle
+    http_config: Option<crate::types::HttpConfig>,
+    /// Registry-level API key copied into the handle
+    api_key: Option<String>,
+    /// Registry-level base URL copied into the handle
+    base_url: Option<String>,
+    /// Shared LRU cache for video-family models
+    cache: Arc<TokioMutex<LruCache<String, VideoCacheEntry>>>,
+    /// TTL for cached video-family models
+    client_ttl: Option<Duration>,
+}
+
+/// Implementation of VideoGenerationCapability for VideoModelHandle
+///
+/// This allows the handle to be used directly as a task-oriented video client, aligned with the
+/// provider registry `video_model(...)` entry point.
+#[async_trait::async_trait]
+impl VideoGenerationCapability for VideoModelHandle {
+    async fn create_video_task(
+        &self,
+        request: VideoGenerationRequest,
+    ) -> Result<VideoGenerationResponse, LlmError> {
+        let model = self.get_or_create_video_model(&self.model_id).await?;
+        model
+            .create_task(apply_video_handle_default_model(request, &self.model_id))
+            .await
+    }
+
+    async fn query_video_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+        let model = self.get_or_create_video_model(&self.model_id).await?;
+        model.query_task(task_id).await
+    }
+
+    fn max_videos_per_call(&self) -> Option<u32> {
+        video_model_handle_max_videos_per_call(&self.provider_id, &self.model_id)
+    }
+
+    fn get_supported_models(&self) -> Vec<String> {
+        vec![self.model_id.clone()]
+    }
+
+    fn get_supported_resolutions(&self, _model: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn get_supported_durations(&self, _model: &str) -> Vec<u32> {
+        Vec::new()
+    }
+}
+
+impl crate::traits::ModelMetadata for VideoModelHandle {
+    fn provider_id(&self) -> &str {
+        &self.provider_id
+    }
+
+    fn model_id(&self) -> &str {
+        &self.model_id
+    }
+}
+
+impl VideoModelHandle {
+    async fn get_or_create_video_model(
+        &self,
+        model_id: &str,
+    ) -> Result<Arc<dyn FamilyVideoModel>, LlmError> {
+        let cache_key = format!("{}:{}", self.provider_id, model_id);
+
+        let mut cache = self.cache.lock().await;
+        if let Some(entry) = cache.get(&cache_key) {
+            if !entry.is_expired(self.client_ttl) {
+                return Ok(entry.model.clone());
+            }
+            cache.pop(&cache_key);
+        }
+
+        drop(cache);
+        let ctx = build_registry_context(
+            &self.provider_id,
+            &self.http_interceptors,
+            &self.retry_options,
+            &self.http_client,
+            &self.http_transport,
+            &self.http_config,
+            &self.api_key,
+            &self.base_url,
+            None,
+            None,
+        );
+        let model = self
+            .factory
+            .video_model_family_with_ctx(model_id, &ctx)
+            .await?;
+
+        let mut cache = self.cache.lock().await;
+        cache.put(cache_key, VideoCacheEntry::new(model.clone()));
+
+        Ok(model)
+    }
+}
 
 /// Speech model handle (TTS) - delegates to factory for client creation
 #[derive(Clone)]

@@ -32,6 +32,7 @@ fn registry_handles_compile_as_family_models() {
     use siumai::speech::{SpeechModel, SpeechModelV3};
     use siumai::text::{LanguageModel, TextModelV3};
     use siumai::transcription::{TranscriptionModel, TranscriptionModelV3};
+    use siumai::video::{VideoModel, VideoModelV3, VideoModelV4};
 
     fn _assert_completion_handle<T: CompletionModel + CompletionModelV3 + ModelMetadata>() {}
     fn _assert_text_handle<T: LanguageModel + TextModelV3 + ModelMetadata>() {}
@@ -43,6 +44,7 @@ fn registry_handles_compile_as_family_models() {
         T: TranscriptionModel + TranscriptionModelV3 + ModelMetadata,
     >() {
     }
+    fn _assert_video_handle<T: VideoModel + VideoModelV3 + VideoModelV4 + ModelMetadata>() {}
 
     let _ = size_of::<CompletionModelHandle>();
     let _ = size_of::<LanguageModelHandle>();
@@ -51,6 +53,7 @@ fn registry_handles_compile_as_family_models() {
     let _ = size_of::<RerankingModelHandle>();
     let _ = size_of::<SpeechModelHandle>();
     let _ = size_of::<TranscriptionModelHandle>();
+    let _ = size_of::<VideoModelHandle>();
 
     _assert_completion_handle::<CompletionModelHandle>();
     _assert_text_handle::<LanguageModelHandle>();
@@ -59,6 +62,7 @@ fn registry_handles_compile_as_family_models() {
     _assert_rerank_handle::<RerankingModelHandle>();
     _assert_speech_handle::<SpeechModelHandle>();
     _assert_transcription_handle::<TranscriptionModelHandle>();
+    _assert_video_handle::<VideoModelHandle>();
 }
 
 #[test]
@@ -76,6 +80,7 @@ fn public_family_helpers_compile_against_stable_family_models() {
         speech::{self, SpeechModel, TtsRequest},
         text::{self, LanguageModel, TextRequest},
         transcription::{self, SttRequest, TranscriptionModel},
+        video::{self, VideoGenerationRequest, VideoModel},
     };
 
     fn _assert_completion_surface<M: CompletionModel + ?Sized>(model: &M) {
@@ -164,6 +169,21 @@ fn public_family_helpers_compile_against_stable_family_models() {
         ));
     }
 
+    fn _assert_video_surface<M: VideoModel + ?Sized>(model: &M) {
+        std::mem::drop(video::create_task(
+            model,
+            VideoGenerationRequest::new("video-model", "animate a robot"),
+            Default::default(),
+        ));
+        std::mem::drop(video::query_task(model, "task-123", Default::default()));
+        std::mem::drop(video::wait_for_task(model, "task-123", Default::default()));
+        std::mem::drop(video::generate(
+            model,
+            VideoGenerationRequest::new("video-model", "animate a robot"),
+            Default::default(),
+        ));
+    }
+
     let _: fn(&CompletionModelHandle) = _assert_completion_surface::<CompletionModelHandle>;
     let _: fn(&LanguageModelHandle) = _assert_text_surface::<LanguageModelHandle>;
     let _: fn(&EmbeddingModelHandle) = _assert_embedding_surface::<EmbeddingModelHandle>;
@@ -172,6 +192,7 @@ fn public_family_helpers_compile_against_stable_family_models() {
     let _: fn(&SpeechModelHandle) = _assert_speech_surface::<SpeechModelHandle>;
     let _: fn(&TranscriptionModelHandle) =
         _assert_transcription_surface::<TranscriptionModelHandle>;
+    let _: fn(&VideoModelHandle) = _assert_video_surface::<VideoModelHandle>;
 
     let runtime_stream_options = StreamRequestOptions::new().with_include_raw_chunks(true);
     let completion_request =
@@ -182,6 +203,48 @@ fn public_family_helpers_compile_against_stable_family_models() {
         siumai::text::StreamRequestOptions::new().with_include_raw_chunks(true),
     );
     assert!(text_request.stream_options.include_raw_chunks);
+}
+
+#[test]
+fn public_surface_video_family_imports_compile() {
+    use siumai::video::{
+        CreateTaskOptions, GenerateMaterializedVideoResult, GenerateOptions, GenerateVideoPrompt,
+        GenerateVideoProviderMetadata, GenerateVideoResponseMetadata, GenerateVideoResult,
+        GeneratedVideo, GeneratedVideoData, MaterializeVideoOptions, MaterializedVideo,
+        QueryTaskOptions, VideoGenerationFileData, VideoGenerationInput, VideoGenerationPrompt,
+        VideoGenerationRequest, VideoGenerationResponse, VideoModel, VideoModelV3, VideoModelV4,
+        VideoTaskStatus, VideoTaskStatusResponse, WaitForTaskOptions,
+    };
+
+    let _ = size_of::<VideoGenerationFileData>();
+    let _ = size_of::<VideoGenerationInput>();
+    let _ = size_of::<VideoGenerationPrompt>();
+    let _ = size_of::<GenerateVideoPrompt>();
+    let _ = size_of::<VideoGenerationRequest>();
+    let _ = size_of::<VideoGenerationResponse>();
+    let _ = size_of::<VideoTaskStatus>();
+    let _ = size_of::<VideoTaskStatusResponse>();
+    let _ = size_of::<CreateTaskOptions>();
+    let _ = size_of::<QueryTaskOptions>();
+    let _ = size_of::<WaitForTaskOptions>();
+    let _ = size_of::<GenerateOptions>();
+    let _ = size_of::<GenerateVideoResponseMetadata>();
+    let _ = size_of::<GenerateVideoResult>();
+    let _ = size_of::<GenerateMaterializedVideoResult>();
+    let _ = size_of::<GenerateVideoProviderMetadata>();
+    let _ = size_of::<GeneratedVideo>();
+    let _ = size_of::<GeneratedVideoData>();
+    let _ = size_of::<MaterializeVideoOptions>();
+    let _ = size_of::<MaterializedVideo>();
+    let _ = size_of::<*const dyn VideoModel>();
+    let _ = size_of::<*const dyn VideoModelV3>();
+    let _ = size_of::<*const dyn VideoModelV4>();
+    let _ = VideoGenerationRequest::new_without_prompt("video-model")
+        .with_image(VideoGenerationInput::url("https://example.com/image.png"));
+    let _ = VideoGenerationRequest::from_generate_prompt(
+        "video-model",
+        VideoGenerationPrompt::image(VideoGenerationInput::url("https://example.com/image.png")),
+    );
 }
 
 #[test]
@@ -248,7 +311,7 @@ fn public_surface_streaming_aliases_compile() {
 fn public_surface_openai_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::openai::{
-        OpenAiClient, OpenAiConfig,
+        OpenAiBuilder, OpenAiClient, OpenAiConfig,
         ext::{
             OpenAiResponsesEventConverter, moderation, responses, speech_streaming,
             transcription_streaming,
@@ -258,6 +321,7 @@ fn public_surface_openai_provider_ext_compiles() {
         resources::{OpenAiFiles, OpenAiModels, OpenAiModeration, OpenAiRerank},
     };
 
+    let _ = size_of::<OpenAiBuilder>();
     let _ = size_of::<OpenAiClient>();
     let _ = size_of::<OpenAiConfig>();
     let _ = size_of::<OpenAILanguageModelChatOptions>();
@@ -311,17 +375,34 @@ fn public_surface_openai_provider_ext_compiles() {
 #[cfg(feature = "openai")]
 #[test]
 fn public_surface_openai_compatible_provider_ext_compiles() {
+    use siumai::prelude::unified::*;
     use siumai::provider_ext::openai_compatible::{
-        ConfigurableAdapter, OpenAiCompatibleClient, OpenAiCompatibleConfig,
+        ConfigurableAdapter, MetadataExtractor, OpenAiCompatibleChatModelId,
+        OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
+        OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
         OpenAiCompatibleRequestSettings, ProviderAdapter, ProviderCompatibility, ProviderConfig,
-        RequestBodyTransformer, ResponseMetadataExtractor, deepinfra, fireworks,
-        get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter,
-        provider_supports_capability, siliconflow, xai,
+        ProviderErrorStructure, RequestBodyTransformer, ResponseMetadataExtractor, deepinfra,
+        fireworks, get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter,
+        options::*, provider_supports_capability, siliconflow, xai,
     };
     use std::sync::Arc;
 
+    let _ = size_of::<OpenAiCompatibleChatModelId>();
     let _ = size_of::<OpenAiCompatibleClient>();
+    let _ = size_of::<OpenAiCompatibleCompletionModelId>();
     let _ = size_of::<OpenAiCompatibleConfig>();
+    let _ = size_of::<OpenAiCompatibleEmbeddingModelId>();
+    let _ = size_of::<OpenAiCompatibleErrorData>();
+    let _ = size_of::<ProviderErrorStructure<OpenAiCompatibleErrorData>>();
+    let _ = size_of::<OpenAiCompatibleLanguageModelChatOptions>();
+    let _ = size_of::<OpenAiCompatibleLanguageModelCompletionOptions>();
+    let _ = size_of::<OpenAiCompatibleEmbeddingModelOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<OpenAiCompatibleProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<OpenAiCompatibleCompletionProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<OpenAiCompatibleEmbeddingProviderOptions>();
     let _ = size_of::<OpenAiCompatibleRequestSettings>();
     let _ = size_of::<ConfigurableAdapter>();
     let _ = size_of::<ProviderCompatibility>();
@@ -342,6 +423,7 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     fn _assert_adapter<T: ProviderAdapter>() {}
     _assert_adapter::<ConfigurableAdapter>();
     fn _accept_request_body_transformer(_transformer: Arc<dyn RequestBodyTransformer>) {}
+    fn _accept_metadata_extractor_alias(_extractor: Arc<dyn MetadataExtractor>) {}
     fn _accept_metadata_extractor(_extractor: Arc<dyn ResponseMetadataExtractor>) {}
     let request_body_transformer: Arc<dyn RequestBodyTransformer> =
         Arc::new(NoopRequestBodyTransformer);
@@ -364,6 +446,33 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
         })
     });
     _accept_metadata_extractor(extractor);
+    let extractor_alias: Arc<dyn MetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
+        raw.get("test").map(|value| {
+            std::collections::HashMap::from([(
+                "test-provider".to_string(),
+                serde_json::json!({ "value": value }),
+            )])
+        })
+    });
+    _accept_metadata_extractor_alias(extractor_alias);
+    let error_structure = ProviderErrorStructure::<OpenAiCompatibleErrorData>::serde_json(|data| {
+        data.error.message.clone()
+    })
+    .with_is_retryable(|status, _| {
+        status == reqwest::StatusCode::TOO_MANY_REQUESTS || status.is_server_error()
+    });
+    let decoded_error = error_structure
+        .deserialize(&serde_json::json!({
+            "error": {
+                "message": "retry later"
+            }
+        }))
+        .expect("decode compat error");
+    assert_eq!(error_structure.message(&decoded_error), "retry later");
+    assert_eq!(
+        error_structure.is_retryable(reqwest::StatusCode::TOO_MANY_REQUESTS, Some(&decoded_error)),
+        Some(true)
+    );
 
     let _ = get_provider_config("openrouter");
     let _ = list_provider_ids();
@@ -383,6 +492,26 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let _ = moonshot::recommended::CHAT;
     let _ = siliconflow::DEEPSEEK_V3;
     let _ = xai::GROK_BETA;
+
+    let _ = ChatRequest::new(vec![user!("hi")]).with_openai_compatible_options(
+        OpenAiCompatibleLanguageModelChatOptions::new()
+            .with_user("user-123")
+            .with_reasoning_effort("high")
+            .with_text_verbosity("medium")
+            .with_strict_json_schema(true),
+    );
+    let _ = CompletionRequest::new("hi").with_openai_compatible_options(
+        OpenAiCompatibleLanguageModelCompletionOptions::new()
+            .with_echo(true)
+            .with_logit_bias_token("42", 1.5)
+            .with_suffix(" after")
+            .with_user("user-456"),
+    );
+    let _ = EmbeddingRequest::single("hello").with_openai_compatible_options(
+        OpenAiCompatibleEmbeddingModelOptions::new()
+            .with_dimensions(256)
+            .with_user("user-789"),
+    );
 }
 
 #[cfg(feature = "openai")]
@@ -543,7 +672,7 @@ fn public_surface_fireworks_provider_ext_compiles() {
 fn public_surface_anthropic_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::anthropic::{
-        AnthropicClient, AnthropicConfig,
+        AnthropicBuilder, AnthropicClient, AnthropicConfig,
         ext::{structured_output, thinking, tools},
         metadata::*,
         options::*,
@@ -551,6 +680,7 @@ fn public_surface_anthropic_provider_ext_compiles() {
     };
     use std::collections::HashMap;
 
+    let _ = size_of::<AnthropicBuilder>();
     let _ = size_of::<AnthropicClient>();
     let _ = size_of::<AnthropicConfig>();
     let _ = size_of::<AnthropicOptions>();
@@ -694,31 +824,51 @@ fn public_surface_protocol_anthropic_compiles() {
 #[cfg(feature = "google")]
 #[test]
 fn public_surface_gemini_provider_ext_compiles() {
+    use siumai::prelude::extensions::types::VideoGenerationRequest;
     use siumai::prelude::unified::*;
     use siumai::provider_ext::gemini::{
-        GeminiClient,
+        GeminiBuilder, GeminiClient,
         ext::{code_execution, file_search_stores, tools},
         metadata::*,
         options::*,
         resources::{
             GeminiCachedContents, GeminiFileSearchStores, GeminiFiles, GeminiModels, GeminiTokens,
+            GeminiVideo, GoogleErrorData,
         },
     };
 
+    let _ = size_of::<GeminiBuilder>();
     let _ = size_of::<GeminiClient>();
     let _ = size_of::<GeminiImageOptions>();
     let _ = size_of::<GoogleImageModelOptions>();
+    let _ = size_of::<GoogleLanguageModelOptions>();
+    let _ = size_of::<GoogleEmbeddingModelOptions>();
+    let _ = size_of::<GoogleVideoModelOptions>();
+    let _ = size_of::<GoogleFilesUploadOptions>();
     #[allow(deprecated)]
     let _ = size_of::<GoogleGenerativeAIImageProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIEmbeddingProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIVideoProviderOptions>();
+    #[allow(deprecated)]
+    let _: GoogleGenerativeAIVideoModelId = "veo-3.1-generate-preview".to_string();
     let _ = size_of::<GeminiOptions>();
     let _ = size_of::<GeminiThinkingConfig>();
     let _ = size_of::<GeminiMetadata>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIProviderMetadata>();
+    let _ = size_of::<GoogleProviderMetadata>();
     let _ = size_of::<GeminiSource>();
     let _ = size_of::<GeminiCachedContents>();
     let _ = size_of::<GeminiFileSearchStores>();
     let _ = size_of::<GeminiFiles>();
     let _ = size_of::<GeminiModels>();
     let _ = size_of::<GeminiTokens>();
+    let _ = size_of::<GeminiVideo>();
+    let _ = size_of::<GoogleErrorData>();
     let _ = size_of::<code_execution::CodeExecutionConfig>();
     let _ = size_of::<code_execution::CodeExecutionResult>();
     let _ = size_of::<tools::GeminiCustomEvent>();
@@ -739,6 +889,12 @@ fn public_surface_gemini_provider_ext_compiles() {
             .with_aspect_ratio("16:9")
             .with_person_generation("allow_all"),
     );
+    let _ = VideoGenerationRequest::new("veo-3.1-generate-preview", "draw a robot")
+        .with_google_video_options(
+            GoogleVideoModelOptions::new()
+                .with_negative_prompt("no cats")
+                .with_person_generation("allow_all"),
+        );
 
     let _ = siumai::hosted_tools::google::google_search().build();
     let _ = siumai::provider_ext::gemini::hosted_tools::file_search()
@@ -755,32 +911,53 @@ fn public_surface_gemini_provider_ext_compiles() {
 #[cfg(feature = "google")]
 #[test]
 fn public_surface_google_provider_ext_compiles() {
+    use siumai::prelude::extensions::types::VideoGenerationRequest;
     use siumai::prelude::unified::*;
     use siumai::provider_ext::google::{
-        GeminiClient, GeminiConfig,
+        GeminiBuilder, GeminiClient, GeminiConfig, GoogleErrorData,
         ext::{code_execution, file_search_stores, tools},
         metadata::*,
         options::*,
         resources::{
             GeminiCachedContents, GeminiFileSearchStores, GeminiFiles, GeminiModels, GeminiTokens,
+            GeminiVideo,
         },
     };
 
+    let _ = size_of::<GeminiBuilder>();
     let _ = size_of::<GeminiClient>();
     let _ = size_of::<GeminiConfig>();
     let _ = size_of::<GeminiImageOptions>();
     let _ = size_of::<GoogleImageModelOptions>();
+    let _ = size_of::<GoogleLanguageModelOptions>();
+    let _ = size_of::<GoogleEmbeddingModelOptions>();
+    let _ = size_of::<GoogleVideoModelOptions>();
+    let _ = size_of::<GoogleFilesUploadOptions>();
     #[allow(deprecated)]
     let _ = size_of::<GoogleGenerativeAIImageProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIEmbeddingProviderOptions>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIVideoProviderOptions>();
+    let _ = size_of::<GoogleProviderMetadata>();
+    #[allow(deprecated)]
+    let _ = size_of::<GoogleGenerativeAIProviderMetadata>();
+    let _: GoogleVideoModelId = "veo-3.1-generate-preview".to_string();
+    #[allow(deprecated)]
+    let _: GoogleGenerativeAIVideoModelId = "veo-3.1-generate-preview".to_string();
     let _ = size_of::<GeminiOptions>();
     let _ = size_of::<GeminiCachedContents>();
     let _ = size_of::<GeminiFileSearchStores>();
     let _ = size_of::<GeminiFiles>();
     let _ = size_of::<GeminiModels>();
     let _ = size_of::<GeminiTokens>();
+    let _ = size_of::<GeminiVideo>();
     let _ = size_of::<GeminiThinkingConfig>();
     let _ = size_of::<GeminiMetadata>();
     let _ = size_of::<GeminiSource>();
+    let _ = size_of::<GoogleErrorData>();
     let _ = size_of::<code_execution::CodeExecutionConfig>();
     let _ = size_of::<code_execution::CodeExecutionResult>();
     let _ = size_of::<tools::GeminiCustomEvent>();
@@ -790,9 +967,17 @@ fn public_surface_google_provider_ext_compiles() {
 
     fn _assert_req_ext<T: GeminiChatRequestExt>() {}
     fn _assert_image_req_ext<T: GeminiImageRequestExt>() {}
+    fn _assert_google_req_ext<T: GoogleChatRequestExt>() {}
+    fn _assert_google_embed_req_ext<T: GoogleEmbeddingRequestExt>() {}
+    fn _assert_google_image_req_ext<T: GoogleImageRequestExt>() {}
+    fn _assert_google_video_req_ext<T: GoogleVideoRequestExt>() {}
     fn _assert_resp_ext<T: GeminiChatResponseExt>() {}
     _assert_req_ext::<ChatRequest>();
     _assert_image_req_ext::<siumai::image::GenerateImageRequest>();
+    _assert_google_req_ext::<ChatRequest>();
+    _assert_google_embed_req_ext::<EmbeddingRequest>();
+    _assert_google_image_req_ext::<siumai::image::GenerateImageRequest>();
+    _assert_google_video_req_ext::<VideoGenerationRequest>();
     _assert_resp_ext::<ChatResponse>();
     let _ = file_search_stores::stores;
 
@@ -800,6 +985,32 @@ fn public_surface_google_provider_ext_compiles() {
         GeminiImageOptions::new()
             .with_aspect_ratio("16:9")
             .with_person_generation("allow_all"),
+    );
+    let _ = ChatRequest::new(vec![ChatMessage::user("hi").build()]).with_google_options(
+        GoogleLanguageModelOptions::new()
+            .with_service_tier("flex")
+            .with_stream_function_call_arguments(true),
+    );
+    let _ = EmbeddingRequest::single("hello").with_google_embedding_options(
+        GoogleEmbeddingModelOptions::new()
+            .with_output_dimensionality(128)
+            .with_task_type(siumai::types::EmbeddingTaskType::SemanticSimilarity),
+    );
+    let _ = siumai::image::GenerateImageRequest::new("draw a robot").with_google_image_options(
+        GeminiImageOptions::new()
+            .with_aspect_ratio("1:1")
+            .with_person_generation("allow_all"),
+    );
+    let _ = VideoGenerationRequest::new("veo-3.1-generate-preview", "draw a robot")
+        .with_google_video_options(
+            GoogleVideoModelOptions::new()
+                .with_negative_prompt("no cats")
+                .with_person_generation("allow_all"),
+        );
+    let _ = UploadFileOptions::new().with_google_upload_options(
+        GoogleFilesUploadOptions::new()
+            .with_display_name("spec.pdf")
+            .with_poll_interval_ms(250),
     );
 
     let _ = siumai::provider_ext::google::hosted_tools::file_search()
@@ -820,9 +1031,10 @@ fn public_surface_google_provider_ext_compiles() {
 fn public_surface_cohere_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::cohere::{
-        CohereClient, CohereConfig, chat, embedding, model_sets, options::*, rerank,
+        CohereBuilder, CohereClient, CohereConfig, chat, embedding, model_sets, options::*, rerank,
     };
 
+    let _ = size_of::<CohereBuilder>();
     let _ = size_of::<CohereClient>();
     let _ = size_of::<CohereConfig>();
     let _ = size_of::<CohereChatOptions>();
@@ -897,12 +1109,14 @@ fn public_surface_togetherai_provider_ext_compiles() {
     use siumai::prelude::extensions::types::{ImageEditInput, ImageEditRequest};
     use siumai::prelude::unified::*;
     use siumai::provider_ext::togetherai::{
-        TogetherAiClient, TogetherAiConfig, chat, completion, embedding, image, model_sets,
-        options::*, rerank,
+        TogetherAIErrorData, TogetherAiBuilder, TogetherAiClient, TogetherAiConfig, chat,
+        completion, embedding, image, model_sets, options::*, rerank,
     };
 
+    let _ = size_of::<TogetherAiBuilder>();
     let _ = size_of::<TogetherAiClient>();
     let _ = size_of::<TogetherAiConfig>();
+    let _ = size_of::<TogetherAIErrorData>();
     let _ = size_of::<TogetherAiImageOptions>();
     let _ = size_of::<TogetherAiImageModelOptions>();
     let _ = size_of::<TogetherAiImageProviderOptions>();
@@ -926,6 +1140,13 @@ fn public_surface_togetherai_provider_ext_compiles() {
     let _ = model_sets::ALL_EMBEDDING;
     let _ = model_sets::ALL_IMAGE;
     let _ = model_sets::ALL_RERANK;
+    let decoded_error: TogetherAIErrorData = serde_json::from_value(serde_json::json!({
+        "error": {
+            "message": "bad request"
+        }
+    }))
+    .expect("decode togetherai error data");
+    assert_eq!(decoded_error.error.message, "bad request");
 
     let req = RerankRequest::new(
         rerank::LLAMA_RANK_V1.to_string(),
@@ -983,11 +1204,13 @@ fn public_surface_togetherai_unified_builder_compiles() {
 fn public_surface_deepinfra_unified_builder_compiles() {
     use siumai::prelude::compat::{Provider, Siumai};
     use siumai::provider_ext::deepinfra::{
-        DeepInfraClient, DeepInfraConfig, chat, completion, embedding, image, model_sets,
+        DeepInfraClient, DeepInfraConfig, DeepInfraErrorData, chat, completion, embedding, image,
+        model_sets,
     };
 
     let _ = size_of::<DeepInfraClient>();
     let _ = size_of::<DeepInfraConfig>();
+    let _ = size_of::<DeepInfraErrorData>();
     let _ = Provider::deepinfra;
     let _ = Siumai::builder().deepinfra();
     let _ = chat::LLAMA_V3P3_70B_INSTRUCT;
@@ -1027,13 +1250,15 @@ fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
 fn public_surface_moonshotai_provider_ext_compile() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::moonshotai::{
-        MoonshotAIChatOptions, MoonshotAIChatRequestExt, MoonshotAIClient, MoonshotAIConfig,
-        MoonshotAILanguageModelOptions, MoonshotAIProviderOptions, MoonshotAIReasoningHistory,
-        MoonshotAIThinkingConfig, MoonshotAIThinkingType, model_sets, recommended,
+        MoonshotAIChatModelId, MoonshotAIChatOptions, MoonshotAIChatRequestExt, MoonshotAIClient,
+        MoonshotAIConfig, MoonshotAILanguageModelOptions, MoonshotAIProviderOptions,
+        MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType, model_sets,
+        recommended,
     };
 
     let _ = size_of::<MoonshotAIClient>();
     let _ = size_of::<MoonshotAIConfig>();
+    let _ = size_of::<MoonshotAIChatModelId>();
     let _ = size_of::<MoonshotAIChatOptions>();
     let _ = size_of::<MoonshotAILanguageModelOptions>();
     let _ = size_of::<MoonshotAIProviderOptions>();
@@ -1160,7 +1385,8 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::fireworks::{
         FireworksChatOptions, FireworksChatRequestExt, FireworksClient, FireworksConfig,
-        FireworksEmbeddingModelOptions, FireworksEmbeddingProviderOptions,
+        FireworksEmbeddingModelId, FireworksEmbeddingModelOptions,
+        FireworksEmbeddingProviderOptions, FireworksErrorData, FireworksImageModelId,
         FireworksProviderOptions, FireworksReasoningHistory, FireworksThinkingConfig,
         FireworksThinkingType, chat as fireworks_chat,
     };
@@ -1180,8 +1406,11 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
     let _ = size_of::<FireworksClient>();
     let _ = size_of::<FireworksConfig>();
     let _ = size_of::<FireworksChatOptions>();
+    let _ = size_of::<FireworksErrorData>();
+    let _ = size_of::<FireworksEmbeddingModelId>();
     let _ = size_of::<FireworksEmbeddingModelOptions>();
     let _ = size_of::<FireworksEmbeddingProviderOptions>();
+    let _ = size_of::<FireworksImageModelId>();
     let _ = size_of::<FireworksProviderOptions>();
     let _ = size_of::<PerplexityClient>();
     let _ = size_of::<PerplexityConfig>();
@@ -1217,15 +1446,20 @@ fn public_surface_google_vertex_provider_ext_compiles() {
     use siumai::compat::Siumai;
     use siumai::prelude::unified::{ChatResponse, ContentPart, MessageContent};
     use siumai::provider_ext::google_vertex::{
-        GoogleVertexClient, GoogleVertexConfig, chat, embedding, image, metadata::*, model_sets,
-        options::*,
+        GoogleVertexBuilder, GoogleVertexClient, GoogleVertexConfig, chat, embedding, image,
+        metadata::*, model_sets, options::*, video,
     };
 
+    let _ = size_of::<GoogleVertexBuilder>();
     let _ = size_of::<GoogleVertexClient>();
     let _ = size_of::<GoogleVertexConfig>();
     let _ = size_of::<GoogleVertexEmbeddingModelOptions>();
     let _ = size_of::<GoogleVertexImageModelOptions>();
     let _ = size_of::<GoogleVertexImageProviderOptions>();
+    let _ = size_of::<GoogleVertexReferenceImage>();
+    let _ = size_of::<GoogleVertexVideoModelId>();
+    let _ = size_of::<GoogleVertexVideoModelOptions>();
+    let _ = size_of::<GoogleVertexVideoProviderOptions>();
     let _ = size_of::<VertexEmbeddingOptions>();
     let _ = size_of::<VertexImagenOptions>();
     let _ = size_of::<VertexMetadata>();
@@ -1238,16 +1472,20 @@ fn public_surface_google_vertex_provider_ext_compiles() {
     let _ = chat::GEMINI_2_5_FLASH;
     let _ = embedding::TEXT_EMBEDDING_004;
     let _ = image::IMAGEN_3_0_EDIT_001;
+    let _ = video::VEO_3_1_GENERATE_PREVIEW;
     let _ = model_sets::ALL_CHAT;
     let _ = model_sets::ALL_EMBEDDING;
     let _ = model_sets::ALL_IMAGE;
+    let _ = model_sets::ALL_VIDEO;
 
     fn _assert_resp_ext<T: VertexChatResponseExt>() {}
     fn _assert_part_ext<T: VertexContentPartExt>() {}
     fn _assert_image_req_ext<T: VertexImagenRequestExt>() {}
+    fn _assert_video_req_ext<T: VertexVideoRequestExt>() {}
     _assert_resp_ext::<ChatResponse>();
     _assert_part_ext::<ContentPart>();
     _assert_image_req_ext::<siumai::image::GenerateImageRequest>();
+    _assert_video_req_ext::<siumai::extensions::types::VideoGenerationRequest>();
 
     let mut resp = ChatResponse::new(MessageContent::Text("ok".to_string()));
     let mut inner = std::collections::HashMap::new();
@@ -1299,8 +1537,21 @@ fn public_surface_google_vertex_provider_ext_compiles() {
             .with_add_watermark(false)
             .with_sample_image_size("2K"),
     );
+    let _ = siumai::extensions::types::VideoGenerationRequest::new(
+        "veo-3.1-generate-preview",
+        "animate a tiny robot",
+    )
+    .with_vertex_video_options(
+        GoogleVertexVideoModelOptions::new()
+            .with_negative_prompt("blurry")
+            .with_generate_audio(true)
+            .with_reference_images(vec![
+                GoogleVertexReferenceImage::new().with_gcs_uri("gs://bucket/reference.png"),
+            ]),
+    );
     let _ = siumai::Provider::vertex();
     let _ = siumai::Provider::vertex_maas();
+    let _ = Siumai::builder().vertex();
     let _ = Siumai::builder().vertex_maas();
 }
 
@@ -1428,10 +1679,11 @@ fn public_surface_groq_provider_ext_compiles() {
 fn public_surface_xai_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::xai::{
-        XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId, metadata::*, options::*,
+        XaiBuilder, XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId, metadata::*, options::*,
     };
     use std::collections::HashMap;
 
+    let _ = size_of::<XaiBuilder>();
     let _ = size_of::<XaiClient>();
     let _ = size_of::<XaiConfig>();
     let _ = size_of::<XaiErrorData>();
@@ -1461,6 +1713,7 @@ fn public_surface_xai_provider_ext_compiles() {
     let _ = size_of::<XaiVideoModelId>();
     #[allow(deprecated)]
     let _ = size_of::<XaiVideoProviderOptions>();
+    let _ = size_of::<XaiVideoMode>();
     let _ = size_of::<XaiVideoResolution>();
     let _ = XaiClient::provider_context;
     let _ = XaiClient::base_url;
@@ -1472,6 +1725,20 @@ fn public_surface_xai_provider_ext_compiles() {
     let _ = size_of::<XaiMetadata>();
     let _ = size_of::<XaiSource>();
     let _ = size_of::<XaiSourceMetadata>();
+    let _ = siumai::provider_ext::xai::tools::code_execution();
+    let _ = siumai::provider_ext::xai::tools::file_search(vec!["store_1".to_string()]);
+    let _ = siumai::provider_ext::xai::tools::mcp_server("https://example.com/mcp");
+    let _ = siumai::provider_ext::xai::tools::view_image();
+    let _ = siumai::provider_ext::xai::tools::view_x_video();
+    let _ = siumai::provider_ext::xai::tools::web_search();
+    let _ = siumai::provider_ext::xai::tools::x_search();
+    let _ = siumai::provider_ext::xai::provider_tools::code_execution();
+    let _ = siumai::provider_ext::xai::provider_tools::file_search(vec!["store_1".to_string()]);
+    let _ = siumai::provider_ext::xai::provider_tools::mcp_server("https://example.com/mcp");
+    let _ = siumai::provider_ext::xai::provider_tools::view_image();
+    let _ = siumai::provider_ext::xai::provider_tools::view_x_video();
+    let _ = siumai::provider_ext::xai::provider_tools::web_search();
+    let _ = siumai::provider_ext::xai::provider_tools::x_search();
 
     fn _assert_req_ext<T: XaiChatRequestExt>() {}
     fn _assert_image_req_ext<T: XaiImageRequestExt>() {}
@@ -1583,7 +1850,12 @@ fn public_surface_xai_provider_ext_compiles() {
         )
         .with_xai_video_options(
             XaiVideoOptions::new()
+                .with_mode("reference-to-video")
                 .with_video_url("https://example.com/video.mp4")
+                .with_reference_image_urls([
+                    "https://example.com/ref-1.png",
+                    "https://example.com/ref-2.png",
+                ])
                 .with_resolution("720p"),
         );
     let _ = siumai::provider_ext::xai::tools::web_search();
@@ -1624,10 +1896,11 @@ fn public_surface_xai_provider_ext_compiles() {
 fn public_surface_ollama_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::ollama::{
-        OllamaClient, OllamaConfig, OllamaParams, chat, embedding, metadata::*, model_sets,
-        options::*,
+        OllamaBuilder, OllamaClient, OllamaConfig, OllamaParams, chat, embedding, metadata::*,
+        model_sets, options::*,
     };
 
+    let _ = size_of::<OllamaBuilder>();
     let _ = size_of::<OllamaClient>();
     let _ = size_of::<OllamaConfig>();
     let _ = size_of::<OllamaParams>();
@@ -1669,7 +1942,7 @@ fn public_surface_ollama_provider_ext_compiles() {
 fn public_surface_minimaxi_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::minimaxi::{
-        MinimaxiClient, MinimaxiConfig, chat,
+        MinimaxiBuilder, MinimaxiClient, MinimaxiConfig, chat,
         ext::{music, structured_output, thinking, video},
         image,
         metadata::*,
@@ -1680,6 +1953,7 @@ fn public_surface_minimaxi_provider_ext_compiles() {
     };
     use std::collections::HashMap;
 
+    let _ = size_of::<MinimaxiBuilder>();
     let _ = size_of::<MinimaxiClient>();
     let _ = size_of::<MinimaxiConfig>();
     let _ = size_of::<MinimaxiOptions>();
@@ -1816,11 +2090,14 @@ fn public_surface_azure_provider_ext_compiles() {
 fn public_surface_deepseek_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::deepseek::{
-        DeepSeekClient, DeepSeekConfig, chat, metadata::*, model_sets, options::*,
+        DeepSeekBuilder, DeepSeekClient, DeepSeekConfig, DeepSeekErrorData, chat, metadata::*,
+        model_sets, options::*,
     };
 
+    let _ = size_of::<DeepSeekBuilder>();
     let _ = size_of::<DeepSeekClient>();
     let _ = size_of::<DeepSeekConfig>();
+    let _ = size_of::<DeepSeekErrorData>();
     let _ = size_of::<DeepSeekOptions>();
     let _ = size_of::<DeepSeekLanguageModelOptions>();
     #[allow(deprecated)]
@@ -1838,6 +2115,13 @@ fn public_surface_deepseek_provider_ext_compiles() {
     let _ = chat::DEEPSEEK_CHAT;
     let _ = chat::DEEPSEEK_REASONER;
     let _ = model_sets::CHAT;
+    let decoded_error: DeepSeekErrorData = serde_json::from_value(serde_json::json!({
+        "error": {
+            "message": "bad request"
+        }
+    }))
+    .expect("decode deepseek error data");
+    assert_eq!(decoded_error.error.message, "bad request");
 
     fn _assert_req_ext<T: DeepSeekChatRequestExt>() {}
     fn _assert_resp_ext<T: DeepSeekChatResponseExt>() {}

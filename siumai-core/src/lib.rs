@@ -34,5 +34,6 @@ pub mod transcription;
 pub mod types;
 pub mod ui;
 pub mod utils;
+pub mod video;
 
 pub use error::LlmError;

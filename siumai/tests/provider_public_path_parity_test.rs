@@ -7621,7 +7621,9 @@ mod gemini_public_path {
     };
     use siumai::provider_ext::gemini::{
         GeminiChatRequestExt, GeminiChatResponseExt, GeminiContentPartExt, GeminiOptions,
-        GeminiThinkingConfig,
+        GeminiThinkingConfig, GoogleChatRequestExt, GoogleEmbeddingContentPart,
+        GoogleEmbeddingInlineData, GoogleEmbeddingModelOptions, GoogleEmbeddingRequestExt,
+        GoogleLanguageModelOptions,
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_core::types::EmbeddingTaskType;
@@ -7885,6 +7887,179 @@ mod gemini_public_path {
             assert_eq!(item["content"]["role"], serde_json::json!("user"));
             assert_eq!(item["content"]["parts"][0]["text"], serde_json::json!(text));
         }
+    }
+
+    #[tokio::test]
+    async fn gemini_public_paths_preserve_google_embedding_provider_options() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let base_url = "https://example.com/v1beta";
+        let model = "gemini-embedding-001";
+
+        let siumai_client = Siumai::builder()
+            .gemini()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::gemini()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::gemini::GeminiClient::from_config(
+            siumai::provider_ext::gemini::GeminiConfig::new("test-key")
+                .with_base_url(base_url.to_string())
+                .with_model(model.to_string())
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .embedding_model("gemini:gemini-embedding-001")
+            .expect("build registry embedding model");
+
+        let request = EmbeddingRequest::new(vec!["A".to_string(), "B".to_string()])
+            .with_model(model)
+            .with_google_embedding_options(
+                GoogleEmbeddingModelOptions::new()
+                    .with_output_dimensionality(64)
+                    .with_task_type(EmbeddingTaskType::SemanticSimilarity)
+                    .with_content(vec![
+                        Some(vec![GoogleEmbeddingContentPart::InlineData {
+                            inline_data: GoogleEmbeddingInlineData {
+                                mime_type: "image/png".to_string(),
+                                data: "Zm9v".to_string(),
+                            },
+                        }]),
+                        None,
+                    ]),
+            );
+
+        let _ = siumai_client.embed_with_config(request.clone()).await;
+        let _ = provider_client.embed_with_config(request.clone()).await;
+        let _ = config_client.embed_with_config(request.clone()).await;
+        let _ = registry_model.embed_with_config(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+
+        let requests = siumai_req.body["requests"]
+            .as_array()
+            .expect("requests array");
+        assert_eq!(requests.len(), 2);
+        assert_eq!(
+            requests[0]["taskType"],
+            serde_json::json!("SEMANTIC_SIMILARITY")
+        );
+        assert_eq!(requests[0]["outputDimensionality"], serde_json::json!(64));
+        assert_eq!(
+            requests[0]["content"]["parts"][0]["text"],
+            serde_json::json!("A")
+        );
+        assert_eq!(
+            requests[0]["content"]["parts"][1]["inlineData"]["mimeType"],
+            serde_json::json!("image/png")
+        );
+        assert_eq!(
+            requests[0]["content"]["parts"][1]["inlineData"]["data"],
+            serde_json::json!("Zm9v")
+        );
+        assert_eq!(
+            requests[1]["content"]["parts"][0]["text"],
+            serde_json::json!("B")
+        );
+        assert_eq!(
+            requests[1]["content"]["parts"]
+                .as_array()
+                .map(|parts| parts.len()),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn gemini_public_paths_preserve_google_language_model_options() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "gemini-2.5-flash";
+        let base_url = "https://example.com/v1beta";
+
+        let siumai_client = Siumai::builder()
+            .gemini()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::gemini()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::gemini::GeminiClient::from_config(
+            siumai::provider_ext::gemini::GeminiConfig::new("test-key")
+                .with_base_url(base_url.to_string())
+                .with_model(model.to_string())
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_model = registry
+            .language_model("gemini:gemini-2.5-flash")
+            .expect("build registry language model");
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .build()
+            .with_google_options(
+                GoogleLanguageModelOptions::new()
+                    .with_service_tier("flex")
+                    .with_structured_outputs(true),
+            );
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.body["serviceTier"], serde_json::json!("flex"));
     }
 
     #[tokio::test]
@@ -13779,23 +13954,18 @@ data: [DONE]
         assert_eq!(siumai_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(provider_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(config_meta.logprobs, Some(expected_logprobs));
-        assert_eq!(siumai_meta.id.as_deref(), Some("chatcmpl-groq-test"));
-        assert_eq!(provider_meta.id.as_deref(), Some("chatcmpl-groq-test"));
-        assert_eq!(config_meta.id.as_deref(), Some("chatcmpl-groq-test"));
-        assert_eq!(
-            siumai_meta.timestamp.map(|timestamp| timestamp.timestamp()),
-            Some(1_741_392_000)
-        );
-        assert_eq!(
-            provider_meta
-                .timestamp
-                .map(|timestamp| timestamp.timestamp()),
-            Some(1_741_392_000)
-        );
-        assert_eq!(
-            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
-            Some(1_741_392_000)
-        );
+        assert_eq!(siumai_resp.id.as_deref(), Some("chatcmpl-deepseek-test"));
+        assert_eq!(provider_resp.id.as_deref(), Some("chatcmpl-deepseek-test"));
+        assert_eq!(config_resp.id.as_deref(), Some("chatcmpl-deepseek-test"));
+        assert_eq!(siumai_resp.model.as_deref(), Some(model));
+        assert_eq!(provider_resp.model.as_deref(), Some(model));
+        assert_eq!(config_resp.model.as_deref(), Some(model));
+        assert!(siumai_meta.sources.is_none());
+        assert!(provider_meta.sources.is_none());
+        assert!(config_meta.sources.is_none());
+        assert!(siumai_meta.extra.is_empty());
+        assert!(provider_meta.extra.is_empty());
+        assert!(config_meta.extra.is_empty());
 
         let siumai_req = siumai_transport.take().expect("siumai request");
         let provider_req = provider_transport.take().expect("provider request");
@@ -13946,23 +14116,18 @@ data: [DONE]
         assert_eq!(siumai_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(provider_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(config_meta.logprobs, Some(expected_logprobs));
-        assert_eq!(siumai_meta.id.as_deref(), Some("1"));
-        assert_eq!(provider_meta.id.as_deref(), Some("1"));
-        assert_eq!(config_meta.id.as_deref(), Some("1"));
-        assert_eq!(
-            siumai_meta.timestamp.map(|timestamp| timestamp.timestamp()),
-            Some(1_718_345_013)
-        );
-        assert_eq!(
-            provider_meta
-                .timestamp
-                .map(|timestamp| timestamp.timestamp()),
-            Some(1_718_345_013)
-        );
-        assert_eq!(
-            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
-            Some(1_718_345_013)
-        );
+        assert_eq!(siumai_resp.id.as_deref(), Some("1"));
+        assert_eq!(provider_resp.id.as_deref(), Some("1"));
+        assert_eq!(config_resp.id.as_deref(), Some("1"));
+        assert_eq!(siumai_resp.model.as_deref(), Some(model));
+        assert_eq!(provider_resp.model.as_deref(), Some(model));
+        assert_eq!(config_resp.model.as_deref(), Some(model));
+        assert!(siumai_meta.sources.is_none());
+        assert!(provider_meta.sources.is_none());
+        assert!(config_meta.sources.is_none());
+        assert!(siumai_meta.extra.is_empty());
+        assert!(provider_meta.extra.is_empty());
+        assert!(config_meta.extra.is_empty());
 
         let siumai_req = siumai_transport
             .take_stream()
@@ -14090,18 +14255,14 @@ data: [DONE]
         ]);
         assert_eq!(config_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(registry_meta.logprobs, Some(expected_logprobs));
-        assert_eq!(config_meta.id.as_deref(), Some("chatcmpl-groq-test"));
-        assert_eq!(registry_meta.id.as_deref(), Some("chatcmpl-groq-test"));
-        assert_eq!(
-            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
-            Some(1_741_392_000)
-        );
-        assert_eq!(
-            registry_meta
-                .timestamp
-                .map(|timestamp| timestamp.timestamp()),
-            Some(1_741_392_000)
-        );
+        assert_eq!(config_resp.id.as_deref(), Some("chatcmpl-deepseek-test"));
+        assert_eq!(registry_resp.id.as_deref(), Some("chatcmpl-deepseek-test"));
+        assert_eq!(config_resp.model.as_deref(), Some(model));
+        assert_eq!(registry_resp.model.as_deref(), Some(model));
+        assert!(config_meta.sources.is_none());
+        assert!(registry_meta.sources.is_none());
+        assert!(config_meta.extra.is_empty());
+        assert!(registry_meta.extra.is_empty());
 
         let config_req = config_transport.take().expect("config request");
         let registry_req = registry_transport.take().expect("registry request");
@@ -14214,18 +14375,14 @@ data: [DONE]
         ]);
         assert_eq!(config_meta.logprobs, Some(expected_logprobs.clone()));
         assert_eq!(registry_meta.logprobs, Some(expected_logprobs));
-        assert_eq!(config_meta.id.as_deref(), Some("1"));
-        assert_eq!(registry_meta.id.as_deref(), Some("1"));
-        assert_eq!(
-            config_meta.timestamp.map(|timestamp| timestamp.timestamp()),
-            Some(1_718_345_013)
-        );
-        assert_eq!(
-            registry_meta
-                .timestamp
-                .map(|timestamp| timestamp.timestamp()),
-            Some(1_718_345_013)
-        );
+        assert_eq!(config_resp.id.as_deref(), Some("1"));
+        assert_eq!(registry_resp.id.as_deref(), Some("1"));
+        assert_eq!(config_resp.model.as_deref(), Some(model));
+        assert_eq!(registry_resp.model.as_deref(), Some(model));
+        assert!(config_meta.sources.is_none());
+        assert!(registry_meta.sources.is_none());
+        assert!(config_meta.extra.is_empty());
+        assert!(registry_meta.extra.is_empty());
 
         let config_req = config_transport
             .take_stream()
@@ -14695,6 +14852,9 @@ mod openai_compatible_audio_public_path {
     use siumai::provider_ext::moonshotai::{
         MoonshotAIChatOptions, MoonshotAIChatRequestExt, MoonshotAIReasoningHistory,
         MoonshotAIThinkingConfig, MoonshotAIThinkingType,
+    };
+    use siumai::provider_ext::openai_compatible::{
+        OpenAiCompatibleChatRequestExt, OpenAiCompatibleLanguageModelChatOptions,
     };
     use siumai::provider_ext::openrouter::{
         OpenRouterChatRequestExt, OpenRouterChatResponseExt, OpenRouterOptions,
@@ -21037,6 +21197,105 @@ data: [DONE]
             serde_json::json!("canonical-tool-result")
         );
         assert!(messages[3].get("legacyOnlyToolResult").is_none());
+    }
+
+    #[tokio::test]
+    async fn openrouter_public_paths_preserve_typed_openai_compatible_chat_options() {
+        let siumai_transport = CaptureTransport::default();
+        let provider_transport = CaptureTransport::default();
+        let config_transport = CaptureTransport::default();
+        let registry_transport = CaptureTransport::default();
+
+        let model = "openai/gpt-4o";
+
+        let siumai_client = Siumai::builder()
+            .openai()
+            .openrouter()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::openai()
+            .openrouter()
+            .api_key("test-key")
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client =
+            make_config_client("openrouter", model, Arc::new(config_transport.clone())).await;
+        let registry = make_registry("openrouter", Arc::new(registry_transport.clone()));
+        let registry_model = registry
+            .language_model("openrouter:openai/gpt-4o")
+            .expect("build registry language model");
+
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+
+        let request = ChatRequest::builder()
+            .model(model)
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .build()
+            .with_openai_compatible_options(
+                OpenAiCompatibleLanguageModelChatOptions::new()
+                    .with_user("compat-user-123")
+                    .with_reasoning_effort("high")
+                    .with_text_verbosity("medium")
+                    .with_strict_json_schema(false),
+            );
+
+        let _ = siumai_client.chat_request(request.clone()).await;
+        let _ = provider_client.chat_request(request.clone()).await;
+        let _ = config_client.chat_request(request.clone()).await;
+        let _ = registry_model.chat_request(request).await;
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(
+            siumai_req.url,
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(
+            siumai_req.body["user"],
+            serde_json::json!("compat-user-123")
+        );
+        assert_eq!(
+            siumai_req.body["reasoning_effort"],
+            serde_json::json!("high")
+        );
+        assert_eq!(siumai_req.body["verbosity"], serde_json::json!("medium"));
+        assert_eq!(
+            siumai_req.body["response_format"],
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": false
+                }
+            })
+        );
+        assert!(siumai_req.body.get("openaiCompatible").is_none());
+        assert!(siumai_req.body.get("reasoningEffort").is_none());
+        assert!(siumai_req.body.get("textVerbosity").is_none());
+        assert!(siumai_req.body.get("strictJsonSchema").is_none());
     }
 
     #[tokio::test]
@@ -31377,8 +31636,8 @@ mod minimaxi_public_path {
             "https://example.com/anthropic/v1",
         );
         let registry_client = registry
-            .language_model("minimaxi:hailuo-2.3")
-            .expect("build registry language model");
+            .video_model("minimaxi:hailuo-2.3")
+            .expect("build registry video model");
 
         let request = siumai::prelude::extensions::types::VideoGenerationRequest::new(
             "hailuo-2.3",
@@ -31532,8 +31791,8 @@ mod minimaxi_public_path {
             }),
         );
         let registry_client = registry
-            .language_model("minimaxi:hailuo-2.3")
-            .expect("build registry language model");
+            .video_model("minimaxi:hailuo-2.3")
+            .expect("build registry video model");
 
         let siumai_resp = siumai_client
             .query_video_task("task-123")
@@ -32848,8 +33107,8 @@ mod minimaxi_public_path {
             .expect("build registry");
 
         let handle = registry
-            .language_model("minimaxi:hailuo-2.3")
-            .expect("build registry language model");
+            .video_model("minimaxi:hailuo-2.3")
+            .expect("build registry video model");
 
         let created = handle
             .create_video_task(
@@ -33236,8 +33495,8 @@ mod minimaxi_public_path {
             .expect("build registry");
 
         let handle = registry
-            .language_model("minimaxi:hailuo-2.3")
-            .expect("build registry language model");
+            .video_model("minimaxi:hailuo-2.3")
+            .expect("build registry video model");
 
         let queried = handle
             .query_video_task("task-123")
@@ -37341,7 +37600,11 @@ mod anthropic_public_path {
 #[cfg(feature = "google-vertex")]
 mod vertex_public_path {
     use super::*;
+    #[cfg(feature = "bedrock")]
+    use reqwest::header::AUTHORIZATION;
     use siumai::experimental::client::LlmClient;
+    use siumai::extensions::VideoGenerationCapability;
+    use siumai::extensions::types::{VideoGenerationInput, VideoGenerationRequest};
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         ContentPart, EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
@@ -37349,9 +37612,12 @@ mod vertex_public_path {
     use siumai::provider_ext::anthropic_vertex::{
         VertexAnthropicStructuredOutputMode, VertexAnthropicThinkingMode,
     };
+    #[cfg(feature = "bedrock")]
+    use siumai::provider_ext::bedrock::{BedrockEmbeddingOptions, BedrockEmbeddingRequestExt};
     use siumai::provider_ext::google_vertex::{
-        VertexEmbeddingOptions, VertexEmbeddingRequestExt, VertexImagenEditOptions,
-        VertexImagenOptions, VertexImagenRequestExt,
+        GoogleVertexReferenceImage, GoogleVertexVideoModelOptions, VertexEmbeddingOptions,
+        VertexEmbeddingRequestExt, VertexImagenEditOptions, VertexImagenOptions,
+        VertexImagenRequestExt, VertexVideoRequestExt,
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_core::types::EmbeddingTaskType;
@@ -41607,7 +41873,13 @@ mod vertex_public_path {
                     http_config: None,
                 }
                 .with_vertex_imagen_options(
-                    VertexImagenOptions::new().with_negative_prompt("blurry"),
+                    VertexImagenOptions::new()
+                        .with_negative_prompt("blurry")
+                        .with_person_generation("allow_adult")
+                        .with_safety_setting("block_medium_and_above")
+                        .with_add_watermark(false)
+                        .with_storage_uri("gs://bucket/images/")
+                        .with_sample_image_size("2K"),
                 ),
             )
             .await
@@ -42159,6 +42431,281 @@ mod vertex_public_path {
             serde_json::json!("MASK_MODE_USER_PROVIDED")
         );
     }
+
+    fn make_vertex_video_generation_request(model: &str) -> VideoGenerationRequest {
+        VideoGenerationRequest::new(model, "animate a tiny robot walking through neon rain")
+            .with_n(2)
+            .with_duration(6)
+            .with_resolution("1920x1080")
+            .with_aspect_ratio("16:9")
+            .with_seed(7)
+            .with_image(VideoGenerationInput::file_with_media_type(
+                vec![1, 2, 3, 4],
+                "image/png",
+            ))
+            .with_vertex_video_options(
+                GoogleVertexVideoModelOptions::new()
+                    .with_poll_interval_ms(1200)
+                    .with_poll_timeout_ms(30_000)
+                    .with_negative_prompt("blurry")
+                    .with_person_generation("allow_adult")
+                    .with_generate_audio(true)
+                    .with_gcs_output_directory("gs://bucket/output/")
+                    .with_reference_images(vec![
+                        GoogleVertexReferenceImage::new().with_gcs_uri("gs://bucket/reference.png"),
+                    ]),
+            )
+            .with_header("x-video-test", "1")
+    }
+
+    fn assert_vertex_video_create_request(req: &HttpTransportRequest, base_url: &str, model: &str) {
+        assert_eq!(
+            req.url,
+            format!("{base_url}/models/{model}:predictLongRunning?key=test-key")
+        );
+        assert_eq!(header_value(req, "x-video-test"), Some("1".to_string()));
+        assert_eq!(
+            req.body["instances"][0]["prompt"],
+            serde_json::json!("animate a tiny robot walking through neon rain")
+        );
+        assert_eq!(
+            req.body["instances"][0]["image"]["bytesBase64Encoded"],
+            serde_json::json!("AQIDBA==")
+        );
+        assert_eq!(
+            req.body["instances"][0]["image"]["mimeType"],
+            serde_json::json!("image/png")
+        );
+        assert_eq!(
+            req.body["instances"][0]["referenceImages"][0]["gcsUri"],
+            serde_json::json!("gs://bucket/reference.png")
+        );
+        assert_eq!(req.body["parameters"]["sampleCount"], serde_json::json!(2));
+        assert_eq!(
+            req.body["parameters"]["durationSeconds"],
+            serde_json::json!(6)
+        );
+        assert_eq!(
+            req.body["parameters"]["resolution"],
+            serde_json::json!("1080p")
+        );
+        assert_eq!(
+            req.body["parameters"]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(req.body["parameters"]["seed"], serde_json::json!(7));
+        assert_eq!(
+            req.body["parameters"]["negativePrompt"],
+            serde_json::json!("blurry")
+        );
+        assert_eq!(
+            req.body["parameters"]["personGeneration"],
+            serde_json::json!("allow_adult")
+        );
+        assert_eq!(
+            req.body["parameters"]["generateAudio"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            req.body["parameters"]["gcsOutputDirectory"],
+            serde_json::json!("gs://bucket/output/")
+        );
+        assert!(req.body["parameters"].get("pollIntervalMs").is_none());
+        assert!(req.body["parameters"].get("pollTimeoutMs").is_none());
+    }
+
+    fn assert_vertex_video_query_request(req: &HttpTransportRequest, base_url: &str, model: &str) {
+        assert_eq!(
+            req.url,
+            format!("{base_url}/models/{model}:fetchPredictOperation?key=test-key")
+        );
+        assert_eq!(
+            req.body["operationName"],
+            serde_json::json!("operations/test-video-123")
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_siumai_provider_config_registry_video_create_are_equivalent() {
+        let response_json = serde_json::json!({
+            "name": "operations/test-video-123",
+            "done": false
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "veo-3.1-generate-preview";
+        let base_url = "https://example.com/custom";
+
+        let siumai_client = Siumai::builder()
+            .vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
+            siumai::provider_ext::google_vertex::GoogleVertexConfig::new(base_url, model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_client = registry
+            .video_model("vertex:veo-3.1-generate-preview")
+            .expect("build registry video model");
+
+        let request = make_vertex_video_generation_request(model);
+
+        let siumai_resp = siumai_client
+            .create_video_task(request.clone())
+            .await
+            .expect("siumai create video ok");
+        let provider_resp = provider_client
+            .create_video_task(request.clone())
+            .await
+            .expect("provider create video ok");
+        let config_resp = config_client
+            .create_video_task(request.clone())
+            .await
+            .expect("config create video ok");
+        let registry_resp = registry_client
+            .create_video_task(request)
+            .await
+            .expect("registry create video ok");
+
+        assert_eq!(siumai_resp.task_id, "operations/test-video-123");
+        assert_eq!(provider_resp.task_id, "operations/test-video-123");
+        assert_eq!(config_resp.task_id, "operations/test-video-123");
+        assert_eq!(registry_resp.task_id, "operations/test-video-123");
+        assert_eq!(
+            siumai_resp.warnings.as_ref().map(std::vec::Vec::len),
+            Some(2)
+        );
+        assert_eq!(provider_resp.warnings, siumai_resp.warnings);
+        assert_eq!(config_resp.warnings, siumai_resp.warnings);
+        assert_eq!(registry_resp.warnings, siumai_resp.warnings);
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_vertex_video_create_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn vertex_siumai_provider_config_registry_query_video_task_are_equivalent() {
+        let response_json = serde_json::json!({
+            "name": "operations/test-video-123",
+            "done": true,
+            "response": {
+                "videos": [
+                    {
+                        "gcsUri": "https://cdn.example.com/video.mp4",
+                        "mimeType": "video/mp4"
+                    }
+                ],
+                "raiMediaFilteredCount": 1
+            }
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "veo-3.1-generate-preview";
+        let base_url = "https://example.com/custom";
+
+        let siumai_client = Siumai::builder()
+            .vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::vertex()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::google_vertex::GoogleVertexClient::from_config(
+            siumai::provider_ext::google_vertex::GoogleVertexConfig::new(base_url, model)
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()), base_url);
+        let registry_client = registry
+            .video_model("vertex:veo-3.1-generate-preview")
+            .expect("build registry video model");
+
+        let siumai_resp = siumai_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("siumai query video ok");
+        let provider_resp = provider_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("provider query video ok");
+        let config_resp = config_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("config query video ok");
+        let registry_resp = registry_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("registry query video ok");
+
+        assert_eq!(siumai_resp.status.to_string(), "Success");
+        assert_eq!(provider_resp.status.to_string(), "Success");
+        assert_eq!(config_resp.status.to_string(), "Success");
+        assert_eq!(registry_resp.status.to_string(), "Success");
+        assert_eq!(
+            siumai_resp.file_id.as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
+        assert_eq!(
+            registry_resp.video_url.as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_vertex_video_query_request(&siumai_req, base_url, model);
+    }
 }
 
 #[cfg(feature = "xai")]
@@ -42624,6 +43171,86 @@ mod xai_public_path {
         assert!(req.body.get("fps").is_none());
         assert!(req.body.get("seed").is_none());
         assert!(req.body.get("n").is_none());
+    }
+
+    fn make_xai_video_extension_request(model: &str) -> VideoGenerationRequest {
+        VideoGenerationRequest::new(model, "extend the clip")
+            .with_duration(6)
+            .with_aspect_ratio("16:9")
+            .with_xai_video_options(
+                XaiVideoOptions::new()
+                    .with_mode("extend-video")
+                    .with_video_url("https://example.com/input.mp4")
+                    .with_resolution("720p")
+                    .with_poll_interval_ms(1500)
+                    .with_poll_timeout_ms(45_000),
+            )
+            .with_header("x-video-mode", "extend")
+    }
+
+    fn assert_xai_video_extension_request(req: &HttpTransportRequest, base_url: &str, model: &str) {
+        assert_eq!(req.url, format!("{base_url}/videos/extensions"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(req.body["prompt"], serde_json::json!("extend the clip"));
+        assert_eq!(req.body["duration"], serde_json::json!(6));
+        assert_eq!(
+            req.body["video"]["url"],
+            serde_json::json!("https://example.com/input.mp4")
+        );
+        assert_eq!(
+            header_value(req, "x-video-mode"),
+            Some("extend".to_string())
+        );
+        assert!(req.body.get("aspect_ratio").is_none());
+        assert!(req.body.get("resolution").is_none());
+        assert!(req.body.get("poll_interval_ms").is_none());
+        assert!(req.body.get("poll_timeout_ms").is_none());
+    }
+
+    fn make_xai_reference_to_video_request(model: &str) -> VideoGenerationRequest {
+        VideoGenerationRequest::new(model, "animate this style")
+            .with_duration(4)
+            .with_aspect_ratio("16:9")
+            .with_xai_video_options(
+                XaiVideoOptions::new()
+                    .with_mode("reference-to-video")
+                    .with_resolution("720p")
+                    .with_reference_image_urls([
+                        "https://example.com/ref-1.png",
+                        "https://example.com/ref-2.png",
+                    ])
+                    .with_poll_interval_ms(900)
+                    .with_poll_timeout_ms(20_000)
+                    .with_extra_field("style", serde_json::json!("cinematic")),
+            )
+            .with_header("x-video-mode", "reference")
+    }
+
+    fn assert_xai_reference_to_video_request(
+        req: &HttpTransportRequest,
+        base_url: &str,
+        model: &str,
+    ) {
+        assert_eq!(req.url, format!("{base_url}/videos/generations"));
+        assert_eq!(req.body["model"], serde_json::json!(model));
+        assert_eq!(req.body["prompt"], serde_json::json!("animate this style"));
+        assert_eq!(req.body["duration"], serde_json::json!(4));
+        assert_eq!(req.body["aspect_ratio"], serde_json::json!("16:9"));
+        assert_eq!(req.body["resolution"], serde_json::json!("720p"));
+        assert_eq!(req.body["style"], serde_json::json!("cinematic"));
+        assert_eq!(
+            req.body["reference_images"],
+            serde_json::json!([
+                { "url": "https://example.com/ref-1.png" },
+                { "url": "https://example.com/ref-2.png" }
+            ])
+        );
+        assert_eq!(
+            header_value(req, "x-video-mode"),
+            Some("reference".to_string())
+        );
+        assert!(req.body.get("poll_interval_ms").is_none());
+        assert!(req.body.get("poll_timeout_ms").is_none());
     }
 
     fn wiremock_header_value(req: &WiremockRequest, key: &str) -> Option<String> {
@@ -46269,8 +46896,8 @@ data: [DONE]
 
         let registry = make_registry(Arc::new(registry_transport.clone()));
         let registry_client = registry
-            .language_model("xai:grok-imagine-video")
-            .expect("build registry language model");
+            .video_model("xai:grok-imagine-video")
+            .expect("build registry video model");
 
         let request = make_xai_video_generation_request(model);
 
@@ -46322,6 +46949,180 @@ data: [DONE]
         assert_requests_equivalent(&siumai_req, &config_req);
         assert_requests_equivalent(&siumai_req, &registry_req);
         assert_xai_video_create_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_siumai_provider_config_registry_video_extension_create_are_equivalent() {
+        let response_json = serde_json::json!({
+            "request_id": "task-extend-123",
+            "queued": true
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-video";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()));
+        let registry_client = registry
+            .video_model("xai:grok-imagine-video")
+            .expect("build registry video model");
+
+        let request = make_xai_video_extension_request(model);
+
+        let siumai_resp = siumai_client
+            .create_video_task(request.clone())
+            .await
+            .expect("siumai create extension ok");
+        let provider_resp = provider_client
+            .create_video_task(request.clone())
+            .await
+            .expect("provider create extension ok");
+        let config_resp = config_client
+            .create_video_task(request.clone())
+            .await
+            .expect("config create extension ok");
+        let registry_resp = registry_client
+            .create_video_task(request)
+            .await
+            .expect("registry create extension ok");
+
+        assert_eq!(siumai_resp.task_id, "task-extend-123");
+        assert_eq!(provider_resp.task_id, "task-extend-123");
+        assert_eq!(config_resp.task_id, "task-extend-123");
+        assert_eq!(registry_resp.task_id, "task-extend-123");
+
+        let siumai_req = siumai_transport.take().expect("siumai extension request");
+        let provider_req = provider_transport
+            .take()
+            .expect("provider extension request");
+        let config_req = config_transport.take().expect("config extension request");
+        let registry_req = registry_transport
+            .take()
+            .expect("registry extension request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_xai_video_extension_request(&siumai_req, base_url, model);
+    }
+
+    #[tokio::test]
+    async fn xai_siumai_provider_config_registry_reference_to_video_create_are_equivalent() {
+        let response_json = serde_json::json!({
+            "request_id": "task-reference-123",
+            "queued": true
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "grok-imagine-video";
+        let base_url = "https://example.com/custom/v1";
+
+        let siumai_client = Siumai::builder()
+            .xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::xai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::xai::XaiClient::from_config(
+            siumai::provider_ext::xai::XaiConfig::new("test-key")
+                .with_base_url(base_url)
+                .with_model(model)
+                .with_http_transport(Arc::new(config_transport.clone())),
+        )
+        .await
+        .expect("build config client");
+
+        let registry = make_registry(Arc::new(registry_transport.clone()));
+        let registry_client = registry
+            .video_model("xai:grok-imagine-video")
+            .expect("build registry video model");
+
+        let request = make_xai_reference_to_video_request(model);
+
+        let siumai_resp = siumai_client
+            .create_video_task(request.clone())
+            .await
+            .expect("siumai create reference-to-video ok");
+        let provider_resp = provider_client
+            .create_video_task(request.clone())
+            .await
+            .expect("provider create reference-to-video ok");
+        let config_resp = config_client
+            .create_video_task(request.clone())
+            .await
+            .expect("config create reference-to-video ok");
+        let registry_resp = registry_client
+            .create_video_task(request)
+            .await
+            .expect("registry create reference-to-video ok");
+
+        assert_eq!(siumai_resp.task_id, "task-reference-123");
+        assert_eq!(provider_resp.task_id, "task-reference-123");
+        assert_eq!(config_resp.task_id, "task-reference-123");
+        assert_eq!(registry_resp.task_id, "task-reference-123");
+
+        let siumai_req = siumai_transport.take().expect("siumai reference request");
+        let provider_req = provider_transport
+            .take()
+            .expect("provider reference request");
+        let config_req = config_transport.take().expect("config reference request");
+        let registry_req = registry_transport
+            .take()
+            .expect("registry reference request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &config_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_xai_reference_to_video_request(&siumai_req, base_url, model);
     }
 
     #[tokio::test]
@@ -46417,8 +47218,8 @@ data: [DONE]
             }),
         );
         let registry_client = registry
-            .language_model("xai:grok-imagine-video")
-            .expect("build registry language model");
+            .video_model("xai:grok-imagine-video")
+            .expect("build registry video model");
 
         let siumai_resp = siumai_client
             .query_video_task("task-123")

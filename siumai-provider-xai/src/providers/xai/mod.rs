@@ -76,6 +76,6 @@ pub use crate::provider_options::{
     XaiImageProviderOptions, XaiImageQuality, XaiImageResolution, XaiLanguageModelChatOptions,
     XaiLanguageModelResponsesOptions, XaiOptions, XaiProviderOptions, XaiReasoningSummary,
     XaiResponseInclude, XaiResponsesOptions, XaiResponsesProviderOptions,
-    XaiResponsesReasoningEffort, XaiSearchParameters, XaiTtsOptions, XaiVideoModelOptions,
-    XaiVideoOptions, XaiVideoProviderOptions, XaiVideoResolution,
+    XaiResponsesReasoningEffort, XaiSearchParameters, XaiTtsOptions, XaiVideoMode,
+    XaiVideoModelOptions, XaiVideoOptions, XaiVideoProviderOptions, XaiVideoResolution,
 };

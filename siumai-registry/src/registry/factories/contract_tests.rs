@@ -14548,7 +14548,7 @@ mod minimaxi_contract {
             .expect("build registry");
 
         let handle = registry
-            .language_model("minimaxi:hailuo-2.3")
+            .video_model("minimaxi:hailuo-2.3")
             .expect("build minimaxi handle");
 
         let created = handle
@@ -14901,7 +14901,7 @@ mod minimaxi_contract {
             .expect("build registry");
 
         let handle = registry
-            .language_model("minimaxi:hailuo-2.3")
+            .video_model("minimaxi:hailuo-2.3")
             .expect("build minimaxi handle");
 
         let queried =
@@ -17467,13 +17467,14 @@ mod gemini_contract {
 mod vertex_contract {
     use super::*;
     use crate::registry::factories::GoogleVertexProviderFactory;
-    use crate::traits::ChatCapability;
+    use crate::traits::{ChatCapability, VideoGenerationCapability};
     use crate::types::{EmbeddingRequest, ImageGenerationRequest, ImageVariationRequest};
     use siumai_provider_google_vertex::provider_options::vertex::{
-        VertexEmbeddingOptions, VertexImagenOptions,
+        GoogleVertexReferenceImage, GoogleVertexVideoModelOptions, VertexEmbeddingOptions,
+        VertexImagenOptions,
     };
     use siumai_provider_google_vertex::providers::vertex::{
-        VertexEmbeddingRequestExt, VertexImagenRequestExt,
+        VertexEmbeddingRequestExt, VertexImagenRequestExt, VertexVideoRequestExt,
     };
 
     fn make_image_request() -> ImageGenerationRequest {
@@ -17500,6 +17501,37 @@ mod vertex_contract {
             provider_options_map: Default::default(),
             http_config: None,
         }
+    }
+
+    fn make_vertex_video_request(model: &str) -> crate::types::VideoGenerationRequest {
+        crate::types::VideoGenerationRequest::new(
+            model,
+            "animate a tiny robot walking through neon rain",
+        )
+        .with_n(2)
+        .with_duration(6)
+        .with_resolution("1920x1080")
+        .with_aspect_ratio("16:9")
+        .with_seed(7)
+        .with_image(
+            crate::types::video::VideoGenerationInput::file_with_media_type(
+                vec![1, 2, 3, 4],
+                "image/png",
+            ),
+        )
+        .with_vertex_video_options(
+            GoogleVertexVideoModelOptions::new()
+                .with_poll_interval_ms(1200)
+                .with_poll_timeout_ms(30_000)
+                .with_negative_prompt("blurry")
+                .with_person_generation("allow_adult")
+                .with_generate_audio(true)
+                .with_gcs_output_directory("gs://bucket/output/")
+                .with_reference_images(vec![
+                    GoogleVertexReferenceImage::new().with_gcs_uri("gs://bucket/reference.png"),
+                ]),
+        )
+        .with_header("x-video-test", "1")
     }
 
     #[tokio::test]
@@ -18673,6 +18705,243 @@ mod vertex_contract {
         assert_eq!(
             req.body["contents"][0]["parts"][0]["text"],
             serde_json::json!("hi")
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_builder_config_registry_video_create_request_are_equivalent() {
+        let _lock = lock_env();
+
+        let response_json = serde_json::json!({
+            "name": "operations/test-video-123",
+            "done": false
+        });
+        let builder_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+        let model = "veo-3.1-generate-preview";
+        let base_url = "https://example.com/custom";
+
+        let builder_client =
+            siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
+                siumai_provider_google_vertex::builder::BuilderBase::default(),
+            )
+            .api_key("ctx-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
+
+        let config_client =
+            siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::from_config(
+                siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig::new(
+                    base_url, model,
+                )
+                .with_api_key("ctx-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let factory = GoogleVertexProviderFactory;
+        let registry_client = factory
+            .language_model_with_ctx(
+                model,
+                &BuildContext {
+                    provider_id: Some("vertex".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some(base_url.to_string()),
+                    http_transport: Some(Arc::new(registry_transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build registry client");
+
+        let request = make_vertex_video_request(model);
+
+        let builder_resp =
+            VideoGenerationCapability::create_video_task(&builder_client, request.clone())
+                .await
+                .expect("builder create video");
+        let config_resp =
+            VideoGenerationCapability::create_video_task(&config_client, request.clone())
+                .await
+                .expect("config create video");
+        let registry_resp = registry_client
+            .as_video_generation_capability()
+            .expect("registry video capability")
+            .create_video_task(request)
+            .await
+            .expect("registry create video");
+
+        assert_eq!(builder_resp.task_id, "operations/test-video-123");
+        assert_eq!(config_resp.task_id, "operations/test-video-123");
+        assert_eq!(registry_resp.task_id, "operations/test-video-123");
+        assert_eq!(
+            builder_resp.warnings.as_ref().map(std::vec::Vec::len),
+            Some(2)
+        );
+        assert_eq!(config_resp.warnings, builder_resp.warnings);
+        assert_eq!(registry_resp.warnings, builder_resp.warnings);
+
+        let builder_req = builder_transport.take().expect("builder request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&builder_req, &config_req);
+        assert_requests_equivalent(&builder_req, &registry_req);
+        assert_eq!(
+            builder_req.url,
+            format!("{base_url}/models/{model}:predictLongRunning?key=ctx-key")
+        );
+        assert_eq!(
+            header_value(&builder_req, "x-video-test"),
+            Some("1".to_string())
+        );
+        assert_eq!(
+            builder_req.body["instances"][0]["prompt"],
+            serde_json::json!("animate a tiny robot walking through neon rain")
+        );
+        assert_eq!(
+            builder_req.body["instances"][0]["image"]["bytesBase64Encoded"],
+            serde_json::json!("AQIDBA==")
+        );
+        assert_eq!(
+            builder_req.body["instances"][0]["referenceImages"][0]["gcsUri"],
+            serde_json::json!("gs://bucket/reference.png")
+        );
+        assert_eq!(
+            builder_req.body["parameters"]["sampleCount"],
+            serde_json::json!(2)
+        );
+        assert_eq!(
+            builder_req.body["parameters"]["durationSeconds"],
+            serde_json::json!(6)
+        );
+        assert_eq!(
+            builder_req.body["parameters"]["resolution"],
+            serde_json::json!("1080p")
+        );
+        assert_eq!(
+            builder_req.body["parameters"]["negativePrompt"],
+            serde_json::json!("blurry")
+        );
+        assert!(
+            builder_req.body["parameters"]
+                .get("pollIntervalMs")
+                .is_none()
+        );
+        assert!(
+            builder_req.body["parameters"]
+                .get("pollTimeoutMs")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn vertex_builder_config_registry_query_video_request_are_equivalent() {
+        let _lock = lock_env();
+
+        let response_json = serde_json::json!({
+            "name": "operations/test-video-123",
+            "done": true,
+            "response": {
+                "videos": [
+                    {
+                        "gcsUri": "https://cdn.example.com/video.mp4",
+                        "mimeType": "video/mp4"
+                    }
+                ],
+                "raiMediaFilteredCount": 1
+            }
+        });
+        let builder_transport = JsonSuccessTransport::new(response_json.clone());
+        let config_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+        let model = "veo-3.1-generate-preview";
+        let base_url = "https://example.com/custom";
+
+        let builder_client =
+            siumai_provider_google_vertex::providers::vertex::GoogleVertexBuilder::new(
+                siumai_provider_google_vertex::builder::BuilderBase::default(),
+            )
+            .api_key("ctx-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(builder_transport.clone()))
+            .build()
+            .expect("build builder client");
+
+        let config_client =
+            siumai_provider_google_vertex::providers::vertex::GoogleVertexClient::from_config(
+                siumai_provider_google_vertex::providers::vertex::GoogleVertexConfig::new(
+                    base_url, model,
+                )
+                .with_api_key("ctx-key")
+                .with_http_transport(Arc::new(config_transport.clone())),
+            )
+            .expect("build config client");
+
+        let factory = GoogleVertexProviderFactory;
+        let registry_client = factory
+            .language_model_with_ctx(
+                model,
+                &BuildContext {
+                    provider_id: Some("vertex".to_string()),
+                    api_key: Some("ctx-key".to_string()),
+                    base_url: Some(base_url.to_string()),
+                    http_transport: Some(Arc::new(registry_transport.clone())),
+                    ..Default::default()
+                },
+            )
+            .await
+            .expect("build registry client");
+
+        let builder_resp = VideoGenerationCapability::query_video_task(
+            &builder_client,
+            "operations/test-video-123",
+        )
+        .await
+        .expect("builder query video");
+        let config_resp = VideoGenerationCapability::query_video_task(
+            &config_client,
+            "operations/test-video-123",
+        )
+        .await
+        .expect("config query video");
+        let registry_resp = registry_client
+            .as_video_generation_capability()
+            .expect("registry video capability")
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("registry query video");
+
+        assert_eq!(builder_resp.status.to_string(), "Success");
+        assert_eq!(config_resp.status.to_string(), "Success");
+        assert_eq!(registry_resp.status.to_string(), "Success");
+        assert_eq!(
+            builder_resp.video_url.as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
+        assert_eq!(
+            registry_resp.file_id.as_deref(),
+            Some("https://cdn.example.com/video.mp4")
+        );
+
+        let builder_req = builder_transport.take().expect("builder request");
+        let config_req = config_transport.take().expect("config request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&builder_req, &config_req);
+        assert_requests_equivalent(&builder_req, &registry_req);
+        assert_eq!(
+            builder_req.url,
+            format!("{base_url}/models/{model}:fetchPredictOperation?key=ctx-key")
+        );
+        assert_eq!(
+            builder_req.body["operationName"],
+            serde_json::json!("operations/test-video-123")
         );
     }
 }

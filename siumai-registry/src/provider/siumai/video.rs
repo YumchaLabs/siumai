@@ -30,6 +30,12 @@ impl VideoGenerationCapability for Siumai {
         }
     }
 
+    fn max_videos_per_call(&self) -> Option<u32> {
+        self.client
+            .as_video_generation_capability()
+            .and_then(VideoGenerationCapability::max_videos_per_call)
+    }
+
     fn get_supported_models(&self) -> Vec<String> {
         self.client
             .as_video_generation_capability()

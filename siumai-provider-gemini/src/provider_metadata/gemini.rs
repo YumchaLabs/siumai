@@ -31,7 +31,19 @@ pub struct GeminiMetadata {
 
     /// Prompt feedback (content filter information for the prompt)
     #[serde(skip_serializing_if = "Option::is_none", rename = "promptFeedback")]
-    pub prompt_feedback: Option<serde_json::Value>,
+    pub prompt_feedback: Option<crate::standards::gemini::types::PromptFeedback>,
+
+    /// Request/response usage metadata exposed under the provider metadata root.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "usageMetadata")]
+    pub usage_metadata: Option<crate::standards::gemini::types::UsageMetadata>,
+
+    /// Optional finish message surfaced by the provider.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "finishMessage")]
+    pub finish_message: Option<String>,
+
+    /// Optional provider-reported service tier.
+    #[serde(skip_serializing_if = "Option::is_none", rename = "serviceTier")]
+    pub service_tier: Option<String>,
 
     /// Output only. Average log probability across all tokens in the candidate.
     #[serde(skip_serializing_if = "Option::is_none", rename = "avgLogprobs")]
@@ -59,6 +71,13 @@ pub struct GeminiLogprobsResult {
     #[serde(flatten)]
     pub extra: HashMap<String, serde_json::Value>,
 }
+
+/// AI SDK-style alias for Google provider metadata.
+pub type GoogleProviderMetadata = GeminiMetadata;
+
+/// Deprecated AI SDK compatibility alias for Google provider metadata.
+#[deprecated(note = "Use `GoogleProviderMetadata` instead.")]
+pub type GoogleGenerativeAIProviderMetadata = GoogleProviderMetadata;
 
 /// Top logprob candidates for a single decoding step.
 #[derive(Debug, Clone, Serialize, Deserialize)]

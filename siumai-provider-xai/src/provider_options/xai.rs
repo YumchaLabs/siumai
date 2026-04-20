@@ -107,6 +107,12 @@ xai_string_enum!(XaiVideoResolution {
     R720p => "720p",
 });
 
+xai_string_enum!(XaiVideoMode {
+    EditVideo => "edit-video",
+    ExtendVideo => "extend-video",
+    ReferenceToVideo => "reference-to-video",
+});
+
 /// xAI image-generation specific options.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct XaiImageOptions {
@@ -178,17 +184,39 @@ impl XaiImageOptions {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct XaiVideoOptions {
     /// Polling interval in milliseconds.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "pollIntervalMs")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "pollIntervalMs",
+        alias = "poll_interval_ms"
+    )]
     pub poll_interval_ms: Option<u64>,
     /// Polling timeout in milliseconds.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "pollTimeoutMs")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "pollTimeoutMs",
+        alias = "poll_timeout_ms"
+    )]
     pub poll_timeout_ms: Option<u64>,
     /// Output resolution hint (`480p` or `720p`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<XaiVideoResolution>,
+    /// Explicit xAI video operation mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mode: Option<XaiVideoMode>,
     /// Source video URL for video editing.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "videoUrl")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "videoUrl",
+        alias = "video_url"
+    )]
     pub video_url: Option<String>,
+    /// Reference image URLs for reference-to-video generation.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "referenceImageUrls",
+        alias = "reference_image_urls"
+    )]
+    pub reference_image_urls: Option<Vec<String>>,
     /// Forward-compatible provider-owned escape hatch for newly introduced options.
     #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
     pub extra_fields: HashMap<String, serde_json::Value>,
@@ -214,8 +242,23 @@ impl XaiVideoOptions {
         self
     }
 
+    pub fn with_mode(mut self, mode: impl Into<XaiVideoMode>) -> Self {
+        self.mode = Some(mode.into());
+        self
+    }
+
     pub fn with_video_url(mut self, video_url: impl Into<String>) -> Self {
         self.video_url = Some(video_url.into());
+        self
+    }
+
+    pub fn with_reference_image_urls<I, S>(mut self, reference_image_urls: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.reference_image_urls =
+            Some(reference_image_urls.into_iter().map(Into::into).collect());
         self
     }
 
@@ -229,10 +272,18 @@ impl XaiVideoOptions {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct XaiFilesOptions {
     /// Team identifier forwarded as `team_id` on the xAI multipart upload endpoint.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "teamId")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "teamId",
+        alias = "team_id"
+    )]
     pub team_id: Option<String>,
     /// Optional provider-native file path hint.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "filePath")]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "filePath",
+        alias = "file_path"
+    )]
     pub file_path: Option<String>,
     /// Forward-compatible provider-owned escape hatch for newly introduced fields.
     #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
@@ -264,19 +315,31 @@ impl XaiFilesOptions {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct XaiChatOptions {
     /// Reasoning effort for Grok chat models.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "reasoningEffort")]
+    #[serde(
+        rename = "reasoningEffort",
+        alias = "reasoning_effort",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reasoning_effort: Option<XaiChatReasoningEffort>,
     /// Whether to return token logprobs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<bool>,
     /// Number of top logprobs to return.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "topLogprobs")]
+    #[serde(
+        rename = "topLogprobs",
+        alias = "top_logprobs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub top_logprobs: Option<u32>,
     /// Whether to enable parallel function calling during tool use.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parallel_function_calling: Option<bool>,
     /// Web search parameters.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "searchParameters")]
+    #[serde(
+        rename = "searchParameters",
+        alias = "search_parameters",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub search_parameters: Option<XaiSearchParameters>,
 }
 
@@ -328,16 +391,28 @@ impl XaiChatOptions {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct XaiResponsesOptions {
     /// Reasoning effort for Grok Responses models.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "reasoningEffort")]
+    #[serde(
+        rename = "reasoningEffort",
+        alias = "reasoning_effort",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reasoning_effort: Option<XaiResponsesReasoningEffort>,
     /// Reasoning summary verbosity for Responses-style APIs.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "reasoningSummary")]
+    #[serde(
+        rename = "reasoningSummary",
+        alias = "reasoning_summary",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reasoning_summary: Option<XaiReasoningSummary>,
     /// Whether to return token logprobs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logprobs: Option<bool>,
     /// Number of top logprobs to return.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "topLogprobs")]
+    #[serde(
+        rename = "topLogprobs",
+        alias = "top_logprobs",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub top_logprobs: Option<u32>,
     /// Whether to store the response for later retrieval.
     ///
@@ -345,7 +420,11 @@ pub struct XaiResponsesOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub store: Option<bool>,
     /// Previous response id for continuing a response chain.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "previousResponseId")]
+    #[serde(
+        rename = "previousResponseId",
+        alias = "previous_response_id",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub previous_response_id: Option<String>,
     /// Additional response payload sections to include.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -477,16 +556,32 @@ pub struct XaiSearchParameters {
     /// Search mode.
     pub mode: SearchMode,
     /// Whether to return citations.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "returnCitations")]
+    #[serde(
+        rename = "returnCitations",
+        alias = "return_citations",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub return_citations: Option<bool>,
     /// Maximum number of search results.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "maxSearchResults")]
+    #[serde(
+        rename = "maxSearchResults",
+        alias = "max_search_results",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub max_search_results: Option<u32>,
     /// Start date for search (YYYY-MM-DD).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "fromDate")]
+    #[serde(
+        rename = "fromDate",
+        alias = "from_date",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub from_date: Option<String>,
     /// End date for search (YYYY-MM-DD).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "toDate")]
+    #[serde(
+        rename = "toDate",
+        alias = "to_date",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub to_date: Option<String>,
     /// Search sources configuration.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -584,13 +679,25 @@ pub struct WebSearchSource {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub country: Option<String>,
     /// Allowed websites.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "allowedWebsites")]
+    #[serde(
+        rename = "allowedWebsites",
+        alias = "allowed_websites",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub allowed_websites: Option<Vec<String>>,
     /// Excluded websites.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "excludedWebsites")]
+    #[serde(
+        rename = "excludedWebsites",
+        alias = "excluded_websites",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub excluded_websites: Option<Vec<String>>,
     /// Enable safe search.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "safeSearch")]
+    #[serde(
+        rename = "safeSearch",
+        alias = "safe_search",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub safe_search: Option<bool>,
 }
 
@@ -607,10 +714,18 @@ pub struct NewsSearchSource {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub country: Option<String>,
     /// Excluded websites.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "excludedWebsites")]
+    #[serde(
+        rename = "excludedWebsites",
+        alias = "excluded_websites",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub excluded_websites: Option<Vec<String>>,
     /// Enable safe search.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "safeSearch")]
+    #[serde(
+        rename = "safeSearch",
+        alias = "safe_search",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub safe_search: Option<bool>,
 }
 
@@ -638,7 +753,7 @@ impl XSearchSource {
         Self::default()
     }
 
-    /// Deprecated AI SDK alias helper. Normalized to `included_x_handles`.
+    /// Deprecated AI SDK alias helper. Normalized to `includedXHandles`.
     pub fn with_legacy_x_handles<I, S>(mut self, handles: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -695,13 +810,13 @@ impl Serialize for SearchSource {
                     map.serialize_entry("country", country)?;
                 }
                 if let Some(allowed_websites) = &source.allowed_websites {
-                    map.serialize_entry("allowed_websites", allowed_websites)?;
+                    map.serialize_entry("allowedWebsites", allowed_websites)?;
                 }
                 if let Some(excluded_websites) = &source.excluded_websites {
-                    map.serialize_entry("excluded_websites", excluded_websites)?;
+                    map.serialize_entry("excludedWebsites", excluded_websites)?;
                 }
                 if let Some(safe_search) = source.safe_search {
-                    map.serialize_entry("safe_search", &safe_search)?;
+                    map.serialize_entry("safeSearch", &safe_search)?;
                 }
                 map.end()
             }
@@ -723,10 +838,10 @@ impl Serialize for SearchSource {
                     map.serialize_entry("country", country)?;
                 }
                 if let Some(excluded_websites) = &source.excluded_websites {
-                    map.serialize_entry("excluded_websites", excluded_websites)?;
+                    map.serialize_entry("excludedWebsites", excluded_websites)?;
                 }
                 if let Some(safe_search) = source.safe_search {
-                    map.serialize_entry("safe_search", &safe_search)?;
+                    map.serialize_entry("safeSearch", &safe_search)?;
                 }
                 map.end()
             }
@@ -748,16 +863,16 @@ impl Serialize for SearchSource {
                 let mut map = serializer.serialize_map(Some(field_count))?;
                 map.serialize_entry("type", "x")?;
                 if let Some(excluded_x_handles) = &source.excluded_x_handles {
-                    map.serialize_entry("excluded_x_handles", excluded_x_handles)?;
+                    map.serialize_entry("excludedXHandles", excluded_x_handles)?;
                 }
                 if let Some(included_x_handles) = &source.included_x_handles {
-                    map.serialize_entry("included_x_handles", included_x_handles)?;
+                    map.serialize_entry("includedXHandles", included_x_handles)?;
                 }
                 if let Some(post_favorite_count) = source.post_favorite_count {
-                    map.serialize_entry("post_favorite_count", &post_favorite_count)?;
+                    map.serialize_entry("postFavoriteCount", &post_favorite_count)?;
                 }
                 if let Some(post_view_count) = source.post_view_count {
-                    map.serialize_entry("post_view_count", &post_view_count)?;
+                    map.serialize_entry("postViewCount", &post_view_count)?;
                 }
                 map.end()
             }
@@ -782,31 +897,31 @@ impl<'de> Deserialize<'de> for SearchSource {
             Web {
                 #[serde(default)]
                 country: Option<String>,
-                #[serde(default, alias = "allowedWebsites")]
+                #[serde(default, rename = "allowedWebsites", alias = "allowed_websites")]
                 allowed_websites: Option<Vec<String>>,
-                #[serde(default, alias = "excludedWebsites")]
+                #[serde(default, rename = "excludedWebsites", alias = "excluded_websites")]
                 excluded_websites: Option<Vec<String>>,
-                #[serde(default, alias = "safeSearch")]
+                #[serde(default, rename = "safeSearch", alias = "safe_search")]
                 safe_search: Option<bool>,
             },
             News {
                 #[serde(default)]
                 country: Option<String>,
-                #[serde(default, alias = "excludedWebsites")]
+                #[serde(default, rename = "excludedWebsites", alias = "excluded_websites")]
                 excluded_websites: Option<Vec<String>>,
-                #[serde(default, alias = "safeSearch")]
+                #[serde(default, rename = "safeSearch", alias = "safe_search")]
                 safe_search: Option<bool>,
             },
             X {
-                #[serde(default, alias = "excludedXHandles")]
+                #[serde(default, rename = "excludedXHandles", alias = "excluded_x_handles")]
                 excluded_x_handles: Option<Vec<String>>,
-                #[serde(default, alias = "includedXHandles")]
+                #[serde(default, rename = "includedXHandles", alias = "included_x_handles")]
                 included_x_handles: Option<Vec<String>>,
-                #[serde(default, alias = "x_handles", alias = "xHandles")]
+                #[serde(default, rename = "xHandles", alias = "x_handles")]
                 x_handles: Option<Vec<String>>,
-                #[serde(default, alias = "postFavoriteCount")]
+                #[serde(default, rename = "postFavoriteCount", alias = "post_favorite_count")]
                 post_favorite_count: Option<u64>,
-                #[serde(default, alias = "postViewCount")]
+                #[serde(default, rename = "postViewCount", alias = "post_view_count")]
                 post_view_count: Option<u64>,
             },
             Rss {
@@ -903,7 +1018,12 @@ mod tests {
             "pollIntervalMs": 1000,
             "pollTimeoutMs": 60000,
             "resolution": "720p",
+            "mode": "extend-video",
             "videoUrl": "https://example.com/video.mp4",
+            "referenceImageUrls": [
+                "https://example.com/ref-1.png",
+                "https://example.com/ref-2.png"
+            ],
             "style": "cinematic"
         }))
         .expect("deserialize xai video options");
@@ -911,14 +1031,57 @@ mod tests {
         assert_eq!(options.poll_interval_ms, Some(1000));
         assert_eq!(options.poll_timeout_ms, Some(60000));
         assert_eq!(options.resolution, Some(XaiVideoResolution::R720p));
+        assert_eq!(options.mode, Some(XaiVideoMode::ExtendVideo));
         assert_eq!(
             options.video_url.as_deref(),
             Some("https://example.com/video.mp4")
         );
         assert_eq!(
+            options.reference_image_urls,
+            Some(vec![
+                "https://example.com/ref-1.png".to_string(),
+                "https://example.com/ref-2.png".to_string(),
+            ])
+        );
+        assert_eq!(
             options.extra_fields.get("style"),
             Some(&serde_json::json!("cinematic"))
         );
+    }
+
+    #[test]
+    fn xai_video_options_serialize_ai_sdk_fields_and_passthrough() {
+        let value = serde_json::to_value(
+            XaiVideoOptions::new()
+                .with_poll_interval_ms(1000)
+                .with_poll_timeout_ms(60000)
+                .with_resolution("720p")
+                .with_mode("reference-to-video")
+                .with_video_url("https://example.com/video.mp4")
+                .with_reference_image_urls([
+                    "https://example.com/ref-1.png",
+                    "https://example.com/ref-2.png",
+                ])
+                .with_extra_field("style", serde_json::json!("cinematic")),
+        )
+        .expect("serialize xai video options");
+
+        assert_eq!(value["pollIntervalMs"], serde_json::json!(1000));
+        assert_eq!(value["pollTimeoutMs"], serde_json::json!(60000));
+        assert_eq!(value["resolution"], serde_json::json!("720p"));
+        assert_eq!(value["mode"], serde_json::json!("reference-to-video"));
+        assert_eq!(
+            value["videoUrl"],
+            serde_json::json!("https://example.com/video.mp4")
+        );
+        assert_eq!(
+            value["referenceImageUrls"],
+            serde_json::json!([
+                "https://example.com/ref-1.png",
+                "https://example.com/ref-2.png"
+            ])
+        );
+        assert_eq!(value["style"], serde_json::json!("cinematic"));
     }
 
     #[test]
@@ -931,8 +1094,8 @@ mod tests {
         )
         .expect("serialize xai files options");
 
-        assert_eq!(value["team_id"], serde_json::json!("team-123"));
-        assert_eq!(value["file_path"], serde_json::json!("/uploads/demo.txt"));
+        assert_eq!(value["teamId"], serde_json::json!("team-123"));
+        assert_eq!(value["filePath"], serde_json::json!("/uploads/demo.txt"));
         assert_eq!(value["retention_days"], serde_json::json!(7));
     }
 
@@ -959,14 +1122,59 @@ mod tests {
             XaiOptions::new()
                 .with_reasoning_effort("high")
                 .with_top_logprobs(3)
+                .with_search(XaiSearchParameters {
+                    mode: SearchMode::On,
+                    return_citations: Some(true),
+                    max_search_results: Some(5),
+                    from_date: Some("2026-03-01".to_string()),
+                    to_date: Some("2026-03-11".to_string()),
+                    sources: Some(vec![SearchSource::Web(WebSearchSource {
+                        country: Some("US".to_string()),
+                        allowed_websites: Some(vec!["example.com".to_string()]),
+                        excluded_websites: Some(vec!["blocked.example.com".to_string()]),
+                        safe_search: Some(true),
+                    })]),
+                })
                 .with_parallel_function_calling(false),
         )
         .expect("serialize xai options");
 
-        assert_eq!(value["reasoning_effort"], serde_json::json!("high"));
+        assert_eq!(value["reasoningEffort"], serde_json::json!("high"));
         assert_eq!(value["logprobs"], serde_json::json!(true));
-        assert_eq!(value["top_logprobs"], serde_json::json!(3));
+        assert_eq!(value["topLogprobs"], serde_json::json!(3));
         assert_eq!(value["parallel_function_calling"], serde_json::json!(false));
+        assert_eq!(value["searchParameters"]["mode"], serde_json::json!("on"));
+        assert_eq!(
+            value["searchParameters"]["returnCitations"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            value["searchParameters"]["maxSearchResults"],
+            serde_json::json!(5)
+        );
+        assert_eq!(
+            value["searchParameters"]["fromDate"],
+            serde_json::json!("2026-03-01")
+        );
+        assert_eq!(
+            value["searchParameters"]["toDate"],
+            serde_json::json!("2026-03-11")
+        );
+        assert_eq!(
+            value["searchParameters"]["sources"][0]["allowedWebsites"],
+            serde_json::json!(["example.com"])
+        );
+        assert_eq!(
+            value["searchParameters"]["sources"][0]["excludedWebsites"],
+            serde_json::json!(["blocked.example.com"])
+        );
+        assert_eq!(
+            value["searchParameters"]["sources"][0]["safeSearch"],
+            serde_json::json!(true)
+        );
+        assert!(value.get("reasoning_effort").is_none());
+        assert!(value.get("top_logprobs").is_none());
+        assert!(value.get("search_parameters").is_none());
         assert!(value.get("reasoning_summary").is_none());
         assert!(value.get("store").is_none());
         assert!(value.get("previous_response_id").is_none());
@@ -986,19 +1194,23 @@ mod tests {
         )
         .expect("serialize xai responses options");
 
-        assert_eq!(value["reasoning_effort"], serde_json::json!("medium"));
-        assert_eq!(value["reasoning_summary"], serde_json::json!("detailed"));
+        assert_eq!(value["reasoningEffort"], serde_json::json!("medium"));
+        assert_eq!(value["reasoningSummary"], serde_json::json!("detailed"));
         assert_eq!(value["logprobs"], serde_json::json!(true));
-        assert_eq!(value["top_logprobs"], serde_json::json!(3));
+        assert_eq!(value["topLogprobs"], serde_json::json!(3));
         assert_eq!(value["store"], serde_json::json!(false));
         assert_eq!(
-            value["previous_response_id"],
+            value["previousResponseId"],
             serde_json::json!("resp_prev_123")
         );
         assert_eq!(
             value["include"],
             serde_json::json!(["file_search_call.results"])
         );
+        assert!(value.get("reasoning_effort").is_none());
+        assert!(value.get("reasoning_summary").is_none());
+        assert!(value.get("top_logprobs").is_none());
+        assert!(value.get("previous_response_id").is_none());
     }
 
     #[test]
@@ -1069,13 +1281,125 @@ mod tests {
     }
 
     #[test]
-    fn xai_search_source_serializes_x_and_rss_fields() {
+    fn xai_chat_options_deserialize_legacy_snake_case_aliases() {
+        let value = serde_json::json!({
+            "reasoning_effort": "high",
+            "top_logprobs": 3,
+            "parallel_function_calling": false,
+            "search_parameters": {
+                "mode": "on",
+                "return_citations": true,
+                "max_search_results": 5,
+                "from_date": "2026-03-01",
+                "to_date": "2026-03-11"
+            }
+        });
+
+        let options: XaiChatOptions =
+            serde_json::from_value(value).expect("deserialize legacy xai chat options");
+
+        assert_eq!(options.reasoning_effort, Some(XaiChatReasoningEffort::High));
+        assert_eq!(options.top_logprobs, Some(3));
+        assert_eq!(options.parallel_function_calling, Some(false));
+        assert!(matches!(
+            options.search_parameters.as_ref().map(|value| &value.mode),
+            Some(SearchMode::On)
+        ));
+        assert_eq!(
+            options
+                .search_parameters
+                .as_ref()
+                .and_then(|value| value.return_citations),
+            Some(true)
+        );
+        assert_eq!(
+            options
+                .search_parameters
+                .as_ref()
+                .and_then(|value| value.max_search_results),
+            Some(5)
+        );
+    }
+
+    #[test]
+    fn xai_responses_options_deserialize_legacy_snake_case_aliases() {
+        let value = serde_json::json!({
+            "reasoning_effort": "medium",
+            "reasoning_summary": "detailed",
+            "logprobs": true,
+            "top_logprobs": 3,
+            "store": false,
+            "previous_response_id": "resp_prev_123",
+            "include": ["file_search_call.results"]
+        });
+
+        let options: XaiResponsesOptions =
+            serde_json::from_value(value).expect("deserialize legacy xai responses options");
+
+        assert_eq!(
+            options.reasoning_effort,
+            Some(XaiResponsesReasoningEffort::Medium)
+        );
+        assert_eq!(
+            options.reasoning_summary,
+            Some(XaiReasoningSummary::Detailed)
+        );
+        assert_eq!(options.logprobs, Some(true));
+        assert_eq!(options.top_logprobs, Some(3));
+        assert_eq!(options.store, Some(false));
+        assert_eq!(
+            options.previous_response_id.as_deref(),
+            Some("resp_prev_123")
+        );
+        assert_eq!(
+            options.include,
+            Some(vec![XaiResponseInclude::FileSearchCallResults])
+        );
+    }
+
+    #[test]
+    fn xai_search_parameters_deserialize_legacy_snake_case_aliases() {
+        let value = serde_json::json!({
+            "mode": "on",
+            "return_citations": true,
+            "max_search_results": 7,
+            "from_date": "2026-03-01",
+            "to_date": "2026-03-11",
+            "sources": [{
+                "type": "web",
+                "allowed_websites": ["example.com"],
+                "excluded_websites": ["blocked.example.com"],
+                "safe_search": true
+            }]
+        });
+
+        let params: XaiSearchParameters =
+            serde_json::from_value(value).expect("deserialize legacy xai search parameters");
+
+        assert!(matches!(params.mode, SearchMode::On));
+        assert_eq!(params.return_citations, Some(true));
+        assert_eq!(params.max_search_results, Some(7));
+        assert_eq!(params.from_date.as_deref(), Some("2026-03-01"));
+        assert_eq!(params.to_date.as_deref(), Some("2026-03-11"));
+        assert_eq!(
+            params.sources,
+            Some(vec![SearchSource::Web(WebSearchSource {
+                country: None,
+                allowed_websites: Some(vec!["example.com".to_string()]),
+                excluded_websites: Some(vec!["blocked.example.com".to_string()]),
+                safe_search: Some(true),
+            })])
+        );
+    }
+
+    #[test]
+    fn xai_search_parameters_serialize_ai_sdk_field_names() {
         let value = serde_json::to_value(XaiSearchParameters {
             mode: SearchMode::On,
             return_citations: Some(true),
             max_search_results: Some(3),
-            from_date: None,
-            to_date: None,
+            from_date: Some("2026-03-01".to_string()),
+            to_date: Some("2026-03-11".to_string()),
             sources: Some(vec![
                 XSearchSource {
                     excluded_x_handles: Some(vec!["spam".to_string()]),
@@ -1089,29 +1413,36 @@ mod tests {
         })
         .expect("serialize xai search parameters");
 
+        assert_eq!(value["returnCitations"], serde_json::json!(true));
+        assert_eq!(value["maxSearchResults"], serde_json::json!(3));
+        assert_eq!(value["fromDate"], serde_json::json!("2026-03-01"));
+        assert_eq!(value["toDate"], serde_json::json!("2026-03-11"));
         assert_eq!(value["sources"][0]["type"], serde_json::json!("x"));
         assert_eq!(
-            value["sources"][0]["included_x_handles"],
+            value["sources"][0]["includedXHandles"],
             serde_json::json!(["openai", "deepmind"])
         );
         assert_eq!(
-            value["sources"][0]["excluded_x_handles"],
+            value["sources"][0]["excludedXHandles"],
             serde_json::json!(["spam"])
         );
         assert_eq!(
-            value["sources"][0]["post_favorite_count"],
+            value["sources"][0]["postFavoriteCount"],
             serde_json::json!(10)
         );
-        assert_eq!(
-            value["sources"][0]["post_view_count"],
-            serde_json::json!(99)
-        );
-        assert!(value["sources"][0].get("x_handles").is_none());
+        assert_eq!(value["sources"][0]["postViewCount"], serde_json::json!(99));
+        assert!(value["sources"][0].get("xHandles").is_none());
+        assert!(value["sources"][0].get("included_x_handles").is_none());
+        assert!(value["sources"][0].get("excluded_x_handles").is_none());
         assert_eq!(value["sources"][1]["type"], serde_json::json!("rss"));
         assert_eq!(
             value["sources"][1]["links"],
             serde_json::json!(["https://example.com/feed.xml"])
         );
+        assert!(value.get("return_citations").is_none());
+        assert!(value.get("max_search_results").is_none());
+        assert!(value.get("from_date").is_none());
+        assert!(value.get("to_date").is_none());
     }
 
     #[test]
@@ -1123,18 +1454,21 @@ mod tests {
 
         assert_eq!(value["type"], serde_json::json!("x"));
         assert_eq!(
-            value["included_x_handles"],
+            value["includedXHandles"],
             serde_json::json!(["openai", "deepmind"])
         );
-        assert!(value.get("x_handles").is_none());
+        assert!(value.get("xHandles").is_none());
+        assert!(value.get("included_x_handles").is_none());
     }
 
     #[test]
-    fn xai_search_source_deserializes_deprecated_xhandles_alias() {
+    fn xai_search_source_deserializes_deprecated_and_legacy_aliases() {
         let value = serde_json::json!({
             "type": "x",
-            "xHandles": ["openai", "deepmind"],
-            "excluded_x_handles": ["grok"]
+            "x_handles": ["openai", "deepmind"],
+            "excluded_x_handles": ["grok"],
+            "post_favorite_count": 10,
+            "post_view_count": 99
         });
 
         let source: SearchSource =
@@ -1145,8 +1479,8 @@ mod tests {
             SearchSource::X(XSearchSource {
                 excluded_x_handles: Some(vec!["grok".to_string()]),
                 included_x_handles: Some(vec!["openai".to_string(), "deepmind".to_string()]),
-                post_favorite_count: None,
-                post_view_count: None,
+                post_favorite_count: Some(10),
+                post_view_count: Some(99),
             })
         );
     }

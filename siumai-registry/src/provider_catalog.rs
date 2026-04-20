@@ -254,6 +254,7 @@ pub fn get_supported_providers() -> Vec<ProviderInfo> {
                     .iter()
                     .chain(vertex_models::ALL_EMBEDDING.iter())
                     .chain(vertex_models::ALL_IMAGE.iter())
+                    .chain(vertex_models::ALL_VIDEO.iter())
                 {
                     push_unique_model(&mut models, Cow::Borrowed(*model));
                 }
@@ -1150,8 +1151,9 @@ mod tests {
             info.capabilities.chat
                 && info.capabilities.streaming
                 && info.capabilities.embedding
-                && info.capabilities.image_generation,
-            "expected vertex to expose unified chat/embedding/image capabilities"
+                && info.capabilities.image_generation
+                && info.capabilities.supports("video"),
+            "expected vertex to expose unified chat/embedding/image/video capabilities"
         );
         assert!(
             info.supported_models
@@ -1170,6 +1172,12 @@ mod tests {
                 .iter()
                 .any(|m| m.as_ref() == "imagen-3.0-edit-001"),
             "expected vertex curated image edit model ids to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "veo-3.1-generate-preview"),
+            "expected vertex curated video model ids to be listed"
         );
     }
 

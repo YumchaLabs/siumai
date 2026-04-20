@@ -33,6 +33,8 @@
 //! }
 //! ```
 
+use serde::{Deserialize, Serialize};
+
 // Core modules
 pub mod chat;
 pub mod client;
@@ -60,13 +62,25 @@ pub mod video;
 
 // Re-export main types for convenience
 #[allow(deprecated)]
-pub use crate::provider_options::gemini::GoogleGenerativeAIImageProviderOptions;
-pub use crate::provider_options::gemini::{GeminiImageOptions, GoogleImageModelOptions};
+pub use crate::provider_metadata::gemini::GoogleGenerativeAIProviderMetadata;
+pub use crate::provider_metadata::gemini::GoogleProviderMetadata;
+pub use crate::provider_options::gemini::GeminiImageOptions;
+#[allow(deprecated)]
+pub use crate::provider_options::gemini::{
+    GoogleEmbeddingModelOptions, GoogleFilesUploadOptions,
+    GoogleGenerativeAIEmbeddingProviderOptions, GoogleGenerativeAIImageProviderOptions,
+    GoogleGenerativeAIProviderOptions, GoogleGenerativeAIVideoModelId,
+    GoogleGenerativeAIVideoProviderOptions, GoogleImageModelOptions, GoogleLanguageModelOptions,
+    GoogleVideoModelId, GoogleVideoModelOptions,
+};
 pub use builder::GeminiBuilder;
 pub use cached_contents::GeminiCachedContents;
 pub use chat::GeminiChatCapability;
 pub use client::GeminiClient;
-pub use ext::{GeminiChatRequestExt, GeminiImageRequestExt};
+pub use ext::{
+    GeminiChatRequestExt, GeminiImageRequestExt, GoogleChatRequestExt, GoogleEmbeddingRequestExt,
+    GoogleImageRequestExt, GoogleVideoRequestExt,
+};
 pub use file_search_stores::GeminiFileSearchStores;
 pub use files::GeminiFiles;
 pub use middleware::GeminiToolWarningsMiddleware;
@@ -74,3 +88,20 @@ pub use models::GeminiModels;
 pub use tokens::{GeminiCountTokensResponse, GeminiTokens};
 pub use types::*;
 pub use video::GeminiVideo;
+
+/// Google-compatible error envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct GoogleErrorData {
+    pub error: GoogleErrorBody,
+}
+
+/// Nested Google-compatible error payload.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct GoogleErrorBody {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<i32>,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub status: String,
+}

@@ -690,7 +690,7 @@ pub use entry::{
     BuildContext, CompletionModelHandle, EmbeddingModelHandle, ImageModelHandle,
     LanguageModelHandle, ProviderBuildOverrides, ProviderFactory, ProviderRegistryHandle,
     RegistryOptions, RerankingModelHandle, SpeechModelHandle, TranscriptionModelHandle,
-    create_provider_registry,
+    VideoModelHandle, create_provider_registry,
 };
 
 pub use helpers::{create_bare_registry, create_empty_registry};

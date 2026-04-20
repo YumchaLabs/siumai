@@ -1103,6 +1103,10 @@ impl VideoGenerationCapability for XaiClient {
         super::video::query_video_task(self, task_id).await
     }
 
+    fn max_videos_per_call(&self) -> Option<u32> {
+        Some(1)
+    }
+
     fn get_supported_models(&self) -> Vec<String> {
         super::video::supported_models()
     }

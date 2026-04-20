@@ -22,7 +22,9 @@ mod tests {
         let request = VideoGenerationRequest::new("grok-imagine-video", "hi")
             .with_xai_video_options(
                 XaiVideoOptions::new()
+                    .with_mode("reference-to-video")
                     .with_video_url("https://example.com/video.mp4")
+                    .with_reference_image_urls(["https://example.com/ref-1.png"])
                     .with_poll_interval_ms(1500),
             );
 
@@ -30,10 +32,15 @@ mod tests {
             .provider_options_map
             .get("xai")
             .expect("xai video options present");
+        assert_eq!(value["mode"], serde_json::json!("reference-to-video"));
         assert_eq!(
-            value["video_url"],
+            value["videoUrl"],
             serde_json::json!("https://example.com/video.mp4")
         );
-        assert_eq!(value["poll_interval_ms"], serde_json::json!(1500));
+        assert_eq!(
+            value["referenceImageUrls"],
+            serde_json::json!(["https://example.com/ref-1.png"])
+        );
+        assert_eq!(value["pollIntervalMs"], serde_json::json!(1500));
     }
 }
