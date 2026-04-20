@@ -1124,9 +1124,13 @@ fn public_surface_togetherai_provider_ext_compiles() {
     let _ = size_of::<TogetherAiConfig>();
     let _ = size_of::<TogetherAIErrorData>();
     let _ = size_of::<TogetherAiImageOptions>();
+    let _ = size_of::<TogetherAIImageModelOptions>();
+    let _ = size_of::<TogetherAIImageProviderOptions>();
     let _ = size_of::<TogetherAiImageModelOptions>();
     let _ = size_of::<TogetherAiImageProviderOptions>();
     let _ = size_of::<TogetherAiRerankOptions>();
+    let _ = size_of::<TogetherAIRerankingModelOptions>();
+    let _ = size_of::<TogetherAIRerankingOptions>();
     let _ = size_of::<TogetherAiRerankingModelOptions>();
     let _ = size_of::<TogetherAiRerankingOptions>();
     let _ = TogetherAiClient::provider_context;
@@ -1160,7 +1164,7 @@ fn public_surface_togetherai_provider_ext_compiles() {
         vec!["doc-1".to_string()],
     )
     .with_togetherai_options(
-        TogetherAiRerankOptions::new().with_rank_fields(vec!["example".to_string()]),
+        TogetherAIRerankingModelOptions::new().with_rank_fields(vec!["example".to_string()]),
     );
     let _ = req;
 
@@ -1169,7 +1173,7 @@ fn public_surface_togetherai_provider_ext_compiles() {
         ..Default::default()
     }
     .with_togetherai_image_options(
-        TogetherAiImageOptions::new()
+        TogetherAIImageModelOptions::new()
             .with_steps(12)
             .with_negative_prompt("blurry"),
     );
@@ -1180,11 +1184,13 @@ fn public_surface_togetherai_provider_ext_compiles() {
         images: vec![ImageEditInput::url("https://example.com/input.png")],
         ..Default::default()
     }
-    .with_togetherai_image_options(TogetherAiImageOptions::new().with_disable_safety_checker(true));
+    .with_togetherai_image_options(
+        TogetherAIImageModelOptions::new().with_disable_safety_checker(true),
+    );
     let _ = image_edit_req;
 
     let _ = siumai::image::GenerateImageRequest::new("draw a robot").with_togetherai_image_options(
-        TogetherAiImageOptions::new()
+        TogetherAIImageModelOptions::new()
             .with_steps(12)
             .with_negative_prompt("blurry"),
     );

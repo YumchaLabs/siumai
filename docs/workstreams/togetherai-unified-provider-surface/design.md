@@ -1,6 +1,6 @@
 # TogetherAI Unified Provider Surface - Design
 
-Last updated: 2026-04-10
+Last updated: 2026-04-20
 
 ## Problem
 
@@ -149,6 +149,10 @@ This preserves both stories:
   rejects `mask` edits before transport
 - public `TogetherAiImageOptions` now mirrors the audited AI SDK image option lane under
   `providerOptions.togetherai`
+- the public alias surface now also exposes the exact AI SDK package-style names
+  `TogetherAIImageModelOptions`, deprecated `TogetherAIImageProviderOptions`,
+  `TogetherAIRerankingModelOptions`, and deprecated `TogetherAIRerankingOptions`, while keeping
+  the older Rust `TogetherAi*` aliases available for compatibility
 - `provider_ext::togetherai` now also exposes `TogetherAIErrorData`, so TogetherAI package-surface
   audits no longer have to fall back to generic compat error types just to decode provider errors
 - registry metadata for `togetherai` now advertises the full AI SDK-style capability set instead of

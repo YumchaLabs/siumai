@@ -644,9 +644,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   expose public speech/transcription getters for unified-provider consumers.
 - TogetherAI's public typed surface now mirrors the audited AI SDK package more closely as well:
   `provider_ext::togetherai` exposes curated `chat/completion/embedding/image/rerank` model
-  constants plus AI SDK-style `TogetherAiImageModelOptions` /
-  `TogetherAiRerankingModelOptions` aliases, with deprecated compatibility aliases kept for
-  migration-side audits.
+  constants plus AI SDK-style `TogetherAIImageModelOptions` /
+  `TogetherAIRerankingModelOptions` aliases, with deprecated compatibility aliases kept for
+  migration-side audits and the older Rust `TogetherAi*` names preserved as compatibility aliases.
 - TogetherAI provider-catalog output now also includes the audited curated
   chat/completion/embedding/image/rerank model subset instead of listing only family defaults,
   while still keeping speech/transcription defaults visible for the extra unified families that

@@ -85,22 +85,42 @@ impl TogetherAiImageOptions {
 }
 
 /// AI SDK-aligned alias for TogetherAI image-model options.
+pub type TogetherAIImageModelOptions = TogetherAiImageOptions;
+
+/// Deprecated AI SDK compatibility alias.
+#[deprecated(
+    since = "0.11.0-beta.6",
+    note = "Use `TogetherAIImageModelOptions` instead."
+)]
+pub type TogetherAIImageProviderOptions = TogetherAIImageModelOptions;
+
+/// Compatibility alias for historical Rust naming.
 pub type TogetherAiImageModelOptions = TogetherAiImageOptions;
 
 /// Deprecated AI SDK compatibility alias.
 #[deprecated(
     since = "0.11.0-beta.6",
-    note = "Use `TogetherAiImageModelOptions` instead."
+    note = "Use `TogetherAIImageModelOptions` instead."
 )]
 pub type TogetherAiImageProviderOptions = TogetherAiImageOptions;
 
 /// AI SDK-aligned alias for TogetherAI reranking-model options.
+pub type TogetherAIRerankingModelOptions = TogetherAiRerankOptions;
+
+/// Deprecated AI SDK compatibility alias.
+#[deprecated(
+    since = "0.11.0-beta.6",
+    note = "Use `TogetherAIRerankingModelOptions` instead."
+)]
+pub type TogetherAIRerankingOptions = TogetherAIRerankingModelOptions;
+
+/// Compatibility alias for historical Rust naming.
 pub type TogetherAiRerankingModelOptions = TogetherAiRerankOptions;
 
 /// Deprecated AI SDK compatibility alias.
 #[deprecated(
     since = "0.11.0-beta.6",
-    note = "Use `TogetherAiRerankingModelOptions` instead."
+    note = "Use `TogetherAIRerankingModelOptions` instead."
 )]
 pub type TogetherAiRerankingOptions = TogetherAiRerankOptions;
 
@@ -162,13 +182,21 @@ mod tests {
     #[test]
     #[allow(deprecated)]
     fn ai_sdk_style_aliases_resolve_to_same_types() {
-        let image: TogetherAiImageModelOptions = TogetherAiImageOptions::new().with_steps(8);
-        let image_provider: TogetherAiImageProviderOptions = image.clone();
-        let rerank: TogetherAiRerankingModelOptions =
+        let image: TogetherAIImageModelOptions = TogetherAiImageOptions::new().with_steps(8);
+        let image_provider: TogetherAIImageProviderOptions = image.clone();
+        let legacy_image: TogetherAiImageModelOptions = image.clone();
+        let legacy_image_provider: TogetherAiImageProviderOptions = image.clone();
+        let rerank: TogetherAIRerankingModelOptions =
             TogetherAiRerankOptions::new().with_rank_fields(vec!["title".to_string()]);
-        let reranking: TogetherAiRerankingOptions = rerank.clone();
+        let reranking: TogetherAIRerankingOptions = rerank.clone();
+        let legacy_rerank: TogetherAiRerankingModelOptions = rerank.clone();
+        let legacy_reranking: TogetherAiRerankingOptions = rerank.clone();
 
         assert_eq!(image.steps, image_provider.steps);
+        assert_eq!(image.steps, legacy_image.steps);
+        assert_eq!(image.steps, legacy_image_provider.steps);
         assert_eq!(rerank.rank_fields, reranking.rank_fields);
+        assert_eq!(rerank.rank_fields, legacy_rerank.rank_fields);
+        assert_eq!(rerank.rank_fields, legacy_reranking.rank_fields);
     }
 }

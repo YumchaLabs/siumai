@@ -763,6 +763,8 @@ pub mod provider_ext {
         pub mod options {
             #[allow(deprecated)]
             pub use siumai_provider_togetherai::provider_options::{
+                TogetherAIImageModelOptions, TogetherAIImageProviderOptions,
+                TogetherAIRerankingModelOptions, TogetherAIRerankingOptions,
                 TogetherAiImageModelOptions, TogetherAiImageOptions,
                 TogetherAiImageProviderOptions, TogetherAiRerankOptions,
                 TogetherAiRerankingModelOptions, TogetherAiRerankingOptions,
@@ -775,6 +777,8 @@ pub mod provider_ext {
         pub use models::{chat, completion, embedding, image, model_sets, rerank};
         #[allow(deprecated)]
         pub use options::{
+            TogetherAIImageModelOptions, TogetherAIImageProviderOptions,
+            TogetherAIRerankingModelOptions, TogetherAIRerankingOptions,
             TogetherAiImageModelOptions, TogetherAiImageOptions, TogetherAiImageProviderOptions,
             TogetherAiImageRequestExt, TogetherAiRerankOptions, TogetherAiRerankRequestExt,
             TogetherAiRerankingModelOptions, TogetherAiRerankingOptions,

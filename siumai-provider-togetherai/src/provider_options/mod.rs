@@ -4,6 +4,8 @@ pub mod togetherai;
 
 #[allow(deprecated)]
 pub use togetherai::{
-    TogetherAiImageModelOptions, TogetherAiImageOptions, TogetherAiImageProviderOptions,
-    TogetherAiRerankOptions, TogetherAiRerankingModelOptions, TogetherAiRerankingOptions,
+    TogetherAIImageModelOptions, TogetherAIImageProviderOptions, TogetherAIRerankingModelOptions,
+    TogetherAIRerankingOptions, TogetherAiImageModelOptions, TogetherAiImageOptions,
+    TogetherAiImageProviderOptions, TogetherAiRerankOptions, TogetherAiRerankingModelOptions,
+    TogetherAiRerankingOptions,
 };

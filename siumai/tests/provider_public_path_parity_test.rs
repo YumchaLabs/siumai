@@ -9574,7 +9574,10 @@ mod togetherai_public_path {
     use super::*;
     use reqwest::header::AUTHORIZATION;
     use siumai::experimental::client::LlmClient;
-    use siumai::provider_ext::togetherai::{TogetherAiRerankOptions, TogetherAiRerankRequestExt};
+    use siumai::provider_ext::togetherai::{
+        TogetherAIImageModelOptions, TogetherAIRerankingModelOptions, TogetherAiImageRequestExt,
+        TogetherAiRerankRequestExt,
+    };
     use siumai::registry::ProviderBuildOverrides;
 
     #[tokio::test]
@@ -9636,7 +9639,8 @@ mod togetherai_public_path {
         let request = make_rerank_request_with_model("Salesforce/Llama-Rank-v1")
             .with_top_n(1)
             .with_togetherai_options(
-                TogetherAiRerankOptions::new().with_rank_fields(vec!["example".to_string()]),
+                TogetherAIRerankingModelOptions::new()
+                    .with_rank_fields(vec!["example".to_string()]),
             );
 
         let _ = siumai_client.rerank(request.clone()).await;
@@ -9689,7 +9693,8 @@ mod togetherai_public_path {
         let request = make_rerank_request_with_model("Salesforce/Llama-Rank-v1")
             .with_top_n(1)
             .with_togetherai_options(
-                TogetherAiRerankOptions::new().with_rank_fields(vec!["example".to_string()]),
+                TogetherAIRerankingModelOptions::new()
+                    .with_rank_fields(vec!["example".to_string()]),
             );
 
         let _ = config_client.rerank(request.clone()).await;
@@ -9751,7 +9756,7 @@ mod togetherai_public_path {
                 make_rerank_request_with_model("Salesforce/Llama-Rank-v1")
                     .with_top_n(1)
                     .with_togetherai_options(
-                        TogetherAiRerankOptions::new()
+                        TogetherAIRerankingModelOptions::new()
                             .with_rank_fields(vec!["example".to_string()]),
                     ),
             )
@@ -9763,6 +9768,105 @@ mod togetherai_public_path {
         assert_eq!(req.url, "https://example.com/together/rerank");
         assert_eq!(req.body["top_n"], serde_json::json!(1));
         assert_eq!(req.body["rank_fields"], serde_json::json!(["example"]));
+    }
+
+    #[tokio::test]
+    async fn togetherai_image_request_alias_options_are_equivalent_across_public_paths() {
+        let response_json = serde_json::json!({
+            "data": [
+                {
+                    "b64_json": "aGVsbG8="
+                }
+            ]
+        });
+
+        let siumai_transport = JsonSuccessTransport::new(response_json.clone());
+        let provider_transport = JsonSuccessTransport::new(response_json.clone());
+        let registry_transport = JsonSuccessTransport::new(response_json);
+
+        let model = "black-forest-labs/FLUX.1-schnell";
+        let base_url = "https://example.com/together";
+
+        let siumai_client = Siumai::builder()
+            .togetherai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(siumai_transport.clone()))
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::togetherai()
+            .api_key("test-key")
+            .base_url(base_url)
+            .model(model)
+            .fetch(Arc::new(provider_transport.clone()))
+            .build()
+            .await
+            .expect("build provider client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "togetherai".to_string(),
+            Arc::new(siumai::registry::factories::TogetherAiProviderFactory)
+                as Arc<dyn siumai::registry::ProviderFactory>,
+        );
+        let registry = siumai::registry::builder::RegistryBuilder::new(providers)
+            .with_api_key("test-key")
+            .with_base_url(base_url)
+            .fetch(Arc::new(registry_transport.clone()))
+            .auto_middleware(false)
+            .build()
+            .expect("build registry");
+        let registry_model = registry
+            .image_model(&format!("togetherai:{model}"))
+            .expect("build registry togetherai image model");
+
+        let request = make_image_request_with_model(model).with_togetherai_image_options(
+            TogetherAIImageModelOptions::new()
+                .with_steps(12)
+                .with_guidance(3.5)
+                .with_disable_safety_checker(true),
+        );
+
+        let siumai_resp = siumai_client
+            .generate_images(request.clone())
+            .await
+            .expect("siumai image generation ok");
+        let provider_resp = provider_client
+            .generate_images(request.clone())
+            .await
+            .expect("provider image generation ok");
+        let registry_resp = registry_model
+            .generate_images(request)
+            .await
+            .expect("registry image generation ok");
+
+        assert_eq!(siumai_resp.images[0].b64_json.as_deref(), Some("aGVsbG8="));
+        assert_eq!(
+            provider_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+        assert_eq!(
+            registry_resp.images[0].b64_json.as_deref(),
+            Some("aGVsbG8=")
+        );
+
+        let siumai_req = siumai_transport.take().expect("siumai request");
+        let provider_req = provider_transport.take().expect("provider request");
+        let registry_req = registry_transport.take().expect("registry request");
+
+        assert_requests_equivalent(&siumai_req, &provider_req);
+        assert_requests_equivalent(&siumai_req, &registry_req);
+        assert_eq!(siumai_req.url, format!("{base_url}/images/generations"));
+        assert_eq!(siumai_req.body["model"], serde_json::json!(model));
+        assert_eq!(siumai_req.body["steps"], serde_json::json!(12));
+        assert_eq!(siumai_req.body["guidance"], serde_json::json!(3.5));
+        assert_eq!(
+            siumai_req.body["disable_safety_checker"],
+            serde_json::json!(true)
+        );
     }
 
     #[tokio::test]

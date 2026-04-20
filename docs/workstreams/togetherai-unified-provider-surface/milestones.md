@@ -1,6 +1,6 @@
 # TogetherAI Unified Provider Surface - Milestones
 
-Last updated: 2026-04-10
+Last updated: 2026-04-20
 
 ## TUP-M0 - Scope locked
 
@@ -53,8 +53,10 @@ Current state:
 - `provider_catalog` now lists TogetherAI's unified family defaults across chat, embedding, image,
   speech, transcription, and rerank instead of only the earlier text/rerank subset
 - `provider_ext::togetherai` now also exposes curated model constants plus AI SDK-style option
-  aliases (`TogetherAiImageModelOptions`, `TogetherAiRerankingModelOptions`) so public interface
-  audits no longer have to compare only raw string literals and provider-specific Rust names
+  aliases (`TogetherAIImageModelOptions`, `TogetherAIRerankingModelOptions`) plus the deprecated
+  package-compat aliases (`TogetherAIImageProviderOptions`, `TogetherAIRerankingOptions`), so
+  public interface audits no longer have to compare only raw string literals and provider-specific
+  Rust names
 - `provider_catalog` now also includes the audited curated TogetherAI chat/completion/embedding/
   image/rerank model subset instead of stopping at family defaults only
 

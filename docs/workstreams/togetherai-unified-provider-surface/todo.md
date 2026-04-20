@@ -1,6 +1,6 @@
 # TogetherAI Unified Provider Surface - TODO
 
-Last updated: 2026-04-10
+Last updated: 2026-04-20
 
 Status legend:
 
@@ -69,6 +69,8 @@ Status legend:
 - [~] Mirror the audited non-callable TogetherAI package exports where they are stable data
   structures rather than TS-only callable provider settings.
   - [x] `TogetherAIErrorData` is now exposed on `provider_ext::togetherai`
+  - [x] `TogetherAIImageModelOptions` / `TogetherAIRerankingModelOptions` plus the deprecated
+        package-compat aliases are now exposed on `provider_ext::togetherai`
   - [-] `TogetherAIProviderSettings` and `VERSION` remain intentionally deferred because the Rust
     provider facade uses `Config` / `Builder` / `Provider::togetherai()` as the stable
     constructor/settings story
