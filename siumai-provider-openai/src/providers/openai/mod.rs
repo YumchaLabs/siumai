@@ -85,6 +85,7 @@ pub mod websocket_transport;
 pub mod model_constants;
 
 // Re-export main types for convenience
+pub use crate::providers::openai::ext::OpenAiSttRequestExt;
 pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 pub use config::OpenAiConfig;

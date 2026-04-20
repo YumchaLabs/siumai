@@ -49,5 +49,5 @@ pub use crate::provider_options::{
 pub use builder::GroqBuilder;
 pub use client::GroqClient;
 pub use config::GroqConfig;
-pub use ext::GroqChatRequestExt;
+pub use ext::{GroqChatRequestExt, GroqSttRequestExt};
 pub use spec::GroqSpec;

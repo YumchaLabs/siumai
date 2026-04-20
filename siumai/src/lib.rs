@@ -365,7 +365,7 @@ pub mod provider_ext {
             };
             pub use siumai_provider_openai::providers::openai::ext::OpenAiChatRequestExt;
             pub use siumai_provider_openai::providers::openai::ext::audio_options::{
-                OpenAiSttOptions, OpenAiTtsOptions,
+                OpenAiSttOptions, OpenAiSttRequestExt, OpenAiTtsOptions,
             };
             pub use siumai_provider_openai::providers::openai::types::{
                 OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt,
@@ -378,9 +378,9 @@ pub mod provider_ext {
             OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
             OpenAISpeechModelOptions, OpenAITranscriptionModelOptions, OpenAiChatRequestExt,
             OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt, OpenAiOptions, OpenAiSttOptions,
-            OpenAiTtsOptions, OpenAiWebSearchOptions, PredictionContent, PredictionContentData,
-            ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation,
-            UserLocationWrapper, WebSearchLocation,
+            OpenAiSttRequestExt, OpenAiTtsOptions, OpenAiWebSearchOptions, PredictionContent,
+            PredictionContentData, ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity,
+            Truncation, UserLocationWrapper, WebSearchLocation,
         };
         #[allow(deprecated)]
         pub use options::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
@@ -1424,14 +1424,16 @@ pub mod provider_ext {
                 GroqLanguageModelOptions, GroqOptions, GroqProviderOptions, GroqReasoningEffort,
                 GroqReasoningFormat, GroqServiceTier, GroqTranscriptionModelOptions,
             };
-            pub use siumai_provider_groq::providers::groq::GroqChatRequestExt;
+            pub use siumai_provider_groq::providers::groq::{
+                GroqChatRequestExt, GroqSttRequestExt,
+            };
         }
 
         // Provider-owned typed options (kept out of `siumai-core`).
         #[allow(deprecated)]
         pub use options::{
             GroqChatRequestExt, GroqLanguageModelOptions, GroqOptions, GroqProviderOptions,
-            GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier,
+            GroqReasoningEffort, GroqReasoningFormat, GroqServiceTier, GroqSttRequestExt,
             GroqTranscriptionModelOptions,
         };
 

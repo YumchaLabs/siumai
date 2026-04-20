@@ -206,12 +206,8 @@ pub struct SttRequest {
     pub format: Option<String>,
     /// Required IANA media type for the audio input (e.g., "audio/wav").
     pub media_type: String,
-    /// Language code (e.g., "en-US")
-    pub language: Option<String>,
     /// Model to use
     pub model: Option<String>,
-    /// Enable word-level timestamps
-    pub timestamp_granularities: Option<Vec<String>>,
     /// Open provider options map (Vercel-aligned).
     pub provider_options_map: ProviderOptionsMap,
     /// Additional provider-specific parameters
@@ -227,9 +223,7 @@ impl SttRequest {
             audio: AudioInputData::binary(audio_data),
             format: None,
             media_type: media_type.into(),
-            language: None,
             model: None,
-            timestamp_granularities: None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
             http_config: None,
@@ -242,9 +236,7 @@ impl SttRequest {
             audio: AudioInputData::base64(audio_data),
             format: None,
             media_type: media_type.into(),
-            language: None,
             model: None,
-            timestamp_granularities: None,
             provider_options_map: ProviderOptionsMap::default(),
             extra_params: HashMap::new(),
             http_config: None,

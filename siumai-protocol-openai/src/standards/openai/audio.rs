@@ -112,16 +112,14 @@ fn build_tts_body_impl(
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
     });
-    let language = req.language.clone().or_else(|| {
-        lookup_extra_any(
-            provider_id,
-            &req.provider_options_map,
-            &req.extra_params,
-            &["language"],
-        )
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned)
-    });
+    let language = lookup_extra_any(
+        provider_id,
+        &req.provider_options_map,
+        &req.extra_params,
+        &["language"],
+    )
+    .and_then(|v| v.as_str())
+    .map(ToOwned::to_owned);
     let mut json = serde_json::json!({
         "model": model,
         "input": req.text,
@@ -188,37 +186,33 @@ fn build_stt_body_impl(
     } else if let Some(fmt) = defaults.stt_response_format.as_ref() {
         form = form.text("response_format", fmt.to_string());
     }
-    let language = req.language.clone().or_else(|| {
-        lookup_extra_any(
-            provider_id,
-            &req.provider_options_map,
-            &req.extra_params,
-            &["language"],
-        )
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned)
-    });
+    let language = lookup_extra_any(
+        provider_id,
+        &req.provider_options_map,
+        &req.extra_params,
+        &["language"],
+    )
+    .and_then(|v| v.as_str())
+    .map(ToOwned::to_owned);
     if defaults.stt_include_language
         && let Some(lang) = language
     {
         form = form.text("language", lang.clone());
     }
-    let timestamp_granularities = req.timestamp_granularities.clone().or_else(|| {
-        lookup_extra_any(
-            provider_id,
-            &req.provider_options_map,
-            &req.extra_params,
-            &["timestamp_granularities", "timestampGranularities"],
-        )
-        .and_then(|v| v.as_array())
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-                .collect::<Vec<_>>()
-        })
-        .filter(|items| !items.is_empty())
-    });
+    let timestamp_granularities = lookup_extra_any(
+        provider_id,
+        &req.provider_options_map,
+        &req.extra_params,
+        &["timestamp_granularities", "timestampGranularities"],
+    )
+    .and_then(|v| v.as_array())
+    .map(|items| {
+        items
+            .iter()
+            .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+            .collect::<Vec<_>>()
+    })
+    .filter(|items| !items.is_empty());
     if defaults.stt_include_timestamp_granularities
         && let Some(grans) = timestamp_granularities
     {

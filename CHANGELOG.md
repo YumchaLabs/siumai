@@ -167,6 +167,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `TtsResponse` / `SttResponse` plus `speech::SpeechResult` / `transcription::TranscriptionResult`
   expose that best-effort `request.body`, and the audited OpenAI speech path now returns the same
   debuggable request payload that upstream `OpenAISpeechModel.doGenerate()` exposes.
+- Shared transcription request typing now also matches AI SDK `TranscriptionModelV4CallOptions`
+  more strictly: `SttRequest` no longer carries top-level `language` or
+  `timestamp_granularities`, OpenAI-family multipart shaping now reads those knobs only from
+  provider-owned `providerOptions` / escape hatches, and provider-owned typed request ext helpers
+  now exist for OpenAI and Groq transcription options so callers can stay on typed surfaces
+  without reintroducing shared-structure drift.
 - DeepInfra now has a dedicated workstream under
   `docs/workstreams/deepinfra-unified-provider-surface/`, documenting the chosen first-class
   provider architecture and remaining follow-up audit scope.

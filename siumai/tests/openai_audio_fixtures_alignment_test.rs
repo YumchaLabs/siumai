@@ -6,6 +6,7 @@ use siumai::extensions::TranscriptionExtras;
 use siumai::prelude::unified::{
     Siumai, SpeechCapability, SttRequest, TranscriptionCapability, TtsRequest,
 };
+use siumai::provider_ext::openai::{OpenAiSttOptions, OpenAiSttRequestExt};
 use std::path::{Path, PathBuf};
 use wiremock::matchers::{
     body_json, body_string_contains, header, header_exists, header_regex, method, path,
@@ -195,9 +196,11 @@ async fn openai_stt_sends_multipart_and_maps_metadata() {
         .await
         .expect("build ok");
 
-    let mut req = SttRequest::from_audio(b"hello".to_vec(), "audio/mpeg");
-    req.language = Some("en".to_string());
-    req.timestamp_granularities = Some(vec!["word".to_string()]);
+    let mut req = SttRequest::from_audio(b"hello".to_vec(), "audio/mpeg").with_openai_stt_options(
+        OpenAiSttOptions::new()
+            .with_language("en")
+            .with_timestamp_granularities(vec!["word".to_string()]),
+    );
 
     req.extra_params.insert(
         "prompt".to_string(),

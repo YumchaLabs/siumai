@@ -11,4 +11,5 @@ pub mod responses;
 pub mod speech_streaming;
 pub mod transcription_streaming;
 
+pub use audio_options::OpenAiSttRequestExt;
 pub use request_options::OpenAiChatRequestExt;

@@ -1355,9 +1355,9 @@ mod openai_public_path {
             .transcription_model("openai:whisper-1")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
-        request.language = Some("en".to_string());
-        request = request.with_media_type("audio/mpeg".to_string());
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+            .with_provider_option("openai", serde_json::json!({ "language": "en" }))
+            .with_media_type("audio/mpeg".to_string());
 
         let siumai_resp = siumai_client
             .speech_to_text(request.clone())
@@ -1959,8 +1959,8 @@ mod openai_public_path {
             .downcast_ref::<siumai::provider_ext::openai::OpenAiClient>()
             .expect("registry should build provider-owned OpenAiClient");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
-        request.language = Some("en".to_string());
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+            .with_provider_option("openai", serde_json::json!({ "language": "en" }));
 
         let siumai_text = collect_transcript_text(
             siumai::provider_ext::openai::ext::transcription_streaming::stt_sse_stream(
@@ -2223,8 +2223,8 @@ mod openai_public_path {
             .transcription_model("openai:gpt-4o-mini-transcribe")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
-        request.language = Some("en".to_string());
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+            .with_provider_option("openai", serde_json::json!({ "language": "en" }));
 
         let siumai_text = collect_generic_transcript_text(
             siumai_client
@@ -5848,9 +5848,9 @@ mod azure_public_path {
             .transcription_model("azure:stt-deployment")
             .expect("build registry transcription model");
 
-        let mut request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg");
-        request.language = Some("en".to_string());
-        request = request.with_media_type("audio/mpeg".to_string());
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+            .with_provider_option("azure", serde_json::json!({ "language": "en" }))
+            .with_media_type("audio/mpeg".to_string());
 
         let siumai_resp = siumai_client
             .speech_to_text(request.clone())

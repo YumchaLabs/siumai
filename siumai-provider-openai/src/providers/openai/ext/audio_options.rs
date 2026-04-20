@@ -5,7 +5,7 @@
 //! enabling provider-specific escape hatches.
 
 use crate::error::LlmError;
-use crate::types::CustomProviderOptions;
+use crate::types::{CustomProviderOptions, SttRequest};
 use serde::{Deserialize, Serialize};
 
 /// OpenAI-specific options for TTS requests.
@@ -188,6 +188,45 @@ impl CustomProviderOptions for OpenAiSttOptions {
     }
 }
 
+fn merge_provider_option_object(
+    map: &mut crate::types::ProviderOptionsMap,
+    value: serde_json::Value,
+) {
+    if let serde_json::Value::Object(new_options) = value {
+        let mut merged = map
+            .get("openai")
+            .and_then(|value| value.as_object())
+            .cloned()
+            .unwrap_or_default();
+
+        for (key, value) in new_options {
+            merged.insert(key, value);
+        }
+
+        map.insert("openai", serde_json::Value::Object(merged));
+    } else {
+        map.insert("openai", value);
+    }
+}
+
+/// OpenAI request option helpers for `SttRequest`.
+///
+/// This keeps provider-owned transcription options out of the unified request surface while
+/// still providing an ergonomic typed attachment point.
+pub trait OpenAiSttRequestExt {
+    /// Convenience: attach OpenAI-specific transcription options to
+    /// `provider_options_map["openai"]`.
+    fn with_openai_stt_options(self, options: OpenAiSttOptions) -> Self;
+}
+
+impl OpenAiSttRequestExt for SttRequest {
+    fn with_openai_stt_options(mut self, options: OpenAiSttOptions) -> Self {
+        let value = options.to_json().expect("serialize OpenAiSttOptions");
+        merge_provider_option_object(&mut self.provider_options_map, value);
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,5 +260,25 @@ mod tests {
             serde_json::json!(["word", "segment"])
         );
         assert_eq!(value["chunkingStrategy"], serde_json::json!("auto"));
+    }
+
+    #[test]
+    fn stt_request_ext_merges_existing_openai_options() {
+        let request = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+            .with_provider_option("openai", serde_json::json!({ "existing": true }))
+            .with_openai_stt_options(
+                OpenAiSttOptions::new()
+                    .with_language("en")
+                    .with_timestamp_granularities(vec!["word".to_string()]),
+            );
+
+        assert_eq!(
+            request.provider_options_map.get("openai"),
+            Some(&serde_json::json!({
+                "existing": true,
+                "language": "en",
+                "timestampGranularities": ["word"]
+            }))
+        );
     }
 }

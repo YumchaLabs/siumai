@@ -258,10 +258,8 @@ mod groq_tests {
         let stt = crate::types::SttRequest {
             audio: crate::types::AudioInputData::binary(vec![1, 2, 3]),
             format: None,
-            media_type: None,
+            media_type: "audio/mpeg".to_string(),
             model: None,
-            language: None,
-            timestamp_granularities: None,
             provider_options_map: Default::default(),
             extra_params: std::collections::HashMap::new(),
             http_config: None,

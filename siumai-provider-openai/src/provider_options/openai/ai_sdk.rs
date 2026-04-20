@@ -367,12 +367,15 @@ impl OpenAILanguageModelCompletionOptions {
 }
 
 /// AI SDK-style alias for OpenAI embedding options.
+#[cfg(feature = "openai")]
 pub type OpenAIEmbeddingModelOptions = crate::providers::openai::types::OpenAiEmbeddingOptions;
 
 /// AI SDK-style alias for OpenAI speech options.
+#[cfg(feature = "openai")]
 pub type OpenAISpeechModelOptions = crate::providers::openai::ext::audio_options::OpenAiTtsOptions;
 
 /// AI SDK-style alias for OpenAI transcription options.
+#[cfg(feature = "openai")]
 pub type OpenAITranscriptionModelOptions =
     crate::providers::openai::ext::audio_options::OpenAiSttOptions;
 

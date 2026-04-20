@@ -101,9 +101,9 @@ Reasoning:
 
 - The result-side metadata contract is now close to AI SDK parity, including the optional
   `request` slot on the stable/helper response types.
-- One meaningful shared request-shape divergence still remains: `SttRequest` keeps top-level
-  `language` and `timestamp_granularities`, while AI SDK `TranscriptionModelV4CallOptions` treats
-  those as provider-owned options under `providerOptions`. That refactor should still happen if we
-  want strict structural parity rather than compatibility-first convenience.
+- The shared transcription request shape now also matches the AI SDK boundary more honestly:
+  `SttRequest` no longer keeps top-level `language` or `timestamp_granularities`; those knobs now
+  live where upstream puts them, under provider-owned `providerOptions` (for example
+  `OpenAiSttOptions` / `GroqSttOptions`).
 - If Siumai later introduces richer batched speech/transcription helpers, the stable response shape
   may need the same multi-call metadata discussion that already exists for image/video helpers.

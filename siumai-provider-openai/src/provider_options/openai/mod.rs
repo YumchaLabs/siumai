@@ -20,10 +20,13 @@ pub mod web_search;
 // Re-exports
 #[allow(deprecated)]
 pub use ai_sdk::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
+#[cfg(feature = "openai")]
 pub use ai_sdk::{
-    OpenAIEmbeddingModelOptions, OpenAIFilesOptions, OpenAILanguageModelChatOptions,
-    OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
-    OpenAISpeechModelOptions, OpenAITranscriptionModelOptions,
+    OpenAIEmbeddingModelOptions, OpenAISpeechModelOptions, OpenAITranscriptionModelOptions,
+};
+pub use ai_sdk::{
+    OpenAIFilesOptions, OpenAILanguageModelChatOptions, OpenAILanguageModelCompletionOptions,
+    OpenAILanguageModelResponsesOptions,
 };
 pub use audio::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,

@@ -356,10 +356,15 @@ fn public_surface_openai_provider_ext_compiles() {
     let req = ChatRequest::new(vec![user!("hi")])
         .with_openai_options(OpenAILanguageModelResponsesOptions::new());
     let _ = req;
+    let req = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+        .with_openai_stt_options(OpenAiSttOptions::new().with_language("en"));
+    let _ = req;
 
     fn _assert_req_ext<T: OpenAiChatRequestExt>() {}
+    fn _assert_stt_req_ext<T: OpenAiSttRequestExt>() {}
     fn _assert_resp_ext<T: OpenAiChatResponseExt>() {}
     _assert_req_ext::<ChatRequest>();
+    _assert_stt_req_ext::<SttRequest>();
     _assert_resp_ext::<ChatResponse>();
 
     let _ = siumai::hosted_tools::openai::web_search().build();
@@ -1665,11 +1670,16 @@ fn public_surface_groq_provider_ext_compiles() {
     let _ = size_of::<GroqSourceMetadata>();
     let _ = siumai::provider_ext::groq::tools::browser_search();
     let _ = siumai::provider_ext::groq::provider_tools::browser_search();
+    let req = SttRequest::from_audio(b"abc".to_vec(), "audio/mpeg")
+        .with_groq_stt_options(audio_options::GroqSttOptions::new().with_language("en"));
+    let _ = req;
 
     fn _assert_req_ext<T: GroqChatRequestExt>() {}
+    fn _assert_stt_req_ext<T: GroqSttRequestExt>() {}
     fn _assert_resp_ext<T: GroqChatResponseExt>() {}
     fn _assert_source_ext<T: GroqSourceExt>() {}
     _assert_req_ext::<siumai::prelude::unified::ChatRequest>();
+    _assert_stt_req_ext::<SttRequest>();
     _assert_resp_ext::<ChatResponse>();
     _assert_source_ext::<GroqSource>();
 }

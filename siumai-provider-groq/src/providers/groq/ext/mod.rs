@@ -6,5 +6,5 @@
 pub mod audio_options;
 pub mod request_options;
 
-pub use audio_options::{GroqSttOptions, GroqTtsOptions};
+pub use audio_options::{GroqSttOptions, GroqSttRequestExt, GroqTtsOptions};
 pub use request_options::GroqChatRequestExt;
