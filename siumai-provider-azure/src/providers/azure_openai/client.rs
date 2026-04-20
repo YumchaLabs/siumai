@@ -426,6 +426,7 @@ impl AudioCapability for AzureOpenAiClient {
             metadata: HashMap::new(),
             warnings,
             provider_metadata: None,
+            request: result.request,
             response: result.response,
         })
     }
@@ -434,6 +435,7 @@ impl AudioCapability for AzureOpenAiClient {
         let exec = self.build_audio_executor();
         let request = request.with_model_if_missing(self.config.common_params.model.clone());
         let result = AudioExecutor::stt(&*exec, request).await?;
+        let request = result.request;
         let response = result.response;
         let raw = result.raw;
 
@@ -466,6 +468,7 @@ impl AudioCapability for AzureOpenAiClient {
             metadata,
             warnings: None,
             provider_metadata: None,
+            request,
             response,
         })
     }

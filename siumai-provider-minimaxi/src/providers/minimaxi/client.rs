@@ -421,6 +421,7 @@ impl AudioCapability for MinimaxiClient {
             metadata: Default::default(),
             warnings: None,
             provider_metadata: None,
+            request: result.request,
             response: result.response,
         })
     }

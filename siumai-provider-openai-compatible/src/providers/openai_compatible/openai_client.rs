@@ -1883,6 +1883,7 @@ impl AudioCapability for OpenAiCompatibleClient {
             metadata: std::collections::HashMap::new(),
             warnings: None,
             provider_metadata: None,
+            request: result.request,
             response: result.response,
         })
     }
@@ -1898,6 +1899,7 @@ impl AudioCapability for OpenAiCompatibleClient {
         };
         let exec = self.build_audio_executor().await?;
         let result = AudioExecutor::stt(&*exec, request).await?;
+        let request = result.request;
         let response = result.response;
         let raw = result.raw;
 
@@ -1950,6 +1952,7 @@ impl AudioCapability for OpenAiCompatibleClient {
             metadata,
             warnings: None,
             provider_metadata: None,
+            request,
             response,
         })
     }

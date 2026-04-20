@@ -162,6 +162,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   provider-owned `providerOptions` for that common speech field. Native OpenAI/Azure speech also
   now warns and falls back to `mp3` for unsupported `outputFormat` values, while `language`
   surfaces an explicit warning instead of being silently dropped.
+- Stable speech/transcription result metadata now also preserves AI SDK-style optional `request`
+  envelopes: shared audio execution captures the final JSON request body on HTTP JSON routes,
+  `TtsResponse` / `SttResponse` plus `speech::SpeechResult` / `transcription::TranscriptionResult`
+  expose that best-effort `request.body`, and the audited OpenAI speech path now returns the same
+  debuggable request payload that upstream `OpenAISpeechModel.doGenerate()` exposes.
 - DeepInfra now has a dedicated workstream under
   `docs/workstreams/deepinfra-unified-provider-surface/`, documenting the chosen first-class
   provider architecture and remaining follow-up audit scope.

@@ -46,6 +46,7 @@ impl AudioCapability for GroqClient {
             metadata: std::collections::HashMap::new(),
             warnings: None,
             provider_metadata: None,
+            request: result.request,
             response: result.response,
         })
     }
@@ -76,6 +77,7 @@ impl AudioCapability for GroqClient {
         let exec = builder.build();
         let result = AudioExecutor::stt(&*exec, request).await?;
         let text = result.text;
+        let request = result.request;
         let response = result.response;
         let raw = result.raw;
         let language = raw
@@ -118,6 +120,7 @@ impl AudioCapability for GroqClient {
             metadata,
             warnings: None,
             provider_metadata: None,
+            request,
             response,
         })
     }

@@ -19,6 +19,14 @@ pub struct HttpResponseInfo {
     pub headers: HashMap<String, String>,
 }
 
+/// HTTP request metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpRequestInfo {
+    /// Serialized request body when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
 /// HTTP configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HttpConfig {

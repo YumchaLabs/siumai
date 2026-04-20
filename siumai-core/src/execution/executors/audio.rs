@@ -3,7 +3,7 @@
 use crate::error::LlmError;
 use crate::execution::ExecutionPolicy;
 use crate::execution::transformers::audio::{AudioHttpBody, AudioTransformer};
-use crate::types::{HttpResponseInfo, SttRequest, TtsRequest};
+use crate::types::{HttpRequestInfo, HttpResponseInfo, SttRequest, TtsRequest};
 use reqwest::header::HeaderMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -17,6 +17,8 @@ pub struct TtsExecutionResult {
     pub duration: Option<f32>,
     /// Sample rate in Hz (if available)
     pub sample_rate: Option<u32>,
+    /// Best-effort request metadata for the final request.
+    pub request: Option<HttpRequestInfo>,
     /// Best-effort HTTP response metadata for the final request.
     pub response: Option<HttpResponseInfo>,
 }
@@ -28,6 +30,8 @@ pub struct SttExecutionResult {
     pub text: String,
     /// Raw JSON payload returned by the provider (best-effort)
     pub raw: serde_json::Value,
+    /// Best-effort request metadata for the final request.
+    pub request: Option<HttpRequestInfo>,
     /// Best-effort HTTP response metadata for the final request.
     pub response: Option<HttpResponseInfo>,
 }
@@ -150,6 +154,10 @@ fn build_response_info(headers: &HeaderMap, model_id: Option<&str>) -> HttpRespo
     }
 }
 
+fn build_request_info(body: Option<String>) -> Option<HttpRequestInfo> {
+    body.map(|body| HttpRequestInfo { body: Some(body) })
+}
+
 #[async_trait::async_trait]
 impl AudioExecutor for HttpAudioExecutor {
     async fn tts(&self, req: TtsRequest) -> Result<TtsExecutionResult, LlmError> {
@@ -210,13 +218,15 @@ impl AudioExecutor for HttpAudioExecutor {
                         if let Some(cb) = &before_send {
                             json = cb(&json)?;
                         }
+                        let request = build_request_info(serde_json::to_string(&json).ok());
                         crate::execution::executors::common::execute_bytes_request(
                             &config,
                             &url,
                             crate::execution::executors::common::HttpBody::Json(json),
                             req.http_config.as_ref(),
                         )
-                        .await?
+                        .await
+                        .map(|result| (result, request))?
                     }
                     AudioHttpBody::Multipart(_) => {
                         // Multipart bodies are not cloneable; rebuild per request attempt.
@@ -236,9 +246,11 @@ impl AudioExecutor for HttpAudioExecutor {
                             build_form,
                             req.http_config.as_ref(),
                         )
-                        .await?
+                        .await
+                        .map(|result| (result, None))?
                     }
                 };
+                let (result, request) = result;
                 let response = Some(build_response_info(&result.headers, req.model.as_deref()));
                 let raw_bytes = result.bytes;
 
@@ -263,6 +275,7 @@ impl AudioExecutor for HttpAudioExecutor {
                     audio_data,
                     duration,
                     sample_rate,
+                    request,
                     response,
                 })
             }
@@ -331,6 +344,7 @@ impl AudioExecutor for HttpAudioExecutor {
                         if let Some(cb) = &before_send {
                             json = cb(&json)?;
                         }
+                        let request = build_request_info(serde_json::to_string(&json).ok());
                         crate::execution::executors::common::execute_json_request(
                             &config,
                             &url,
@@ -338,7 +352,8 @@ impl AudioExecutor for HttpAudioExecutor {
                             req.http_config.as_ref(),
                             false,
                         )
-                        .await?
+                        .await
+                        .map(|result| (result, request))?
                     }
                     AudioHttpBody::Multipart(_) => {
                         let req_cloned = req.clone();
@@ -354,15 +369,19 @@ impl AudioExecutor for HttpAudioExecutor {
                             },
                             req.http_config.as_ref(),
                         )
-                        .await?
+                        .await
+                        .map(|result| (result, None))?
                     }
                 };
 
+                let (result, request) = result;
+                let response = Some(build_response_info(&result.headers, req.model.as_deref()));
                 let text = transformer.parse_stt_response(&result.json)?;
                 Ok(SttExecutionResult {
                     text,
                     raw: result.json,
-                    response: Some(build_response_info(&result.headers, req.model.as_deref())),
+                    request,
+                    response,
                 })
             }
         };

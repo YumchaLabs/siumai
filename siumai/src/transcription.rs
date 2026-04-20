@@ -10,7 +10,7 @@
 use crate::retry_api::{RetryOptions, retry_with};
 use siumai_core::error::LlmError;
 use siumai_core::types::{
-    HttpConfig, HttpResponseInfo, ProviderMetadataMap, Warning, WordTimestamp,
+    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, Warning, WordTimestamp,
     merge_provider_metadata, provider_metadata_from_object,
 };
 use std::collections::HashMap;
@@ -64,6 +64,8 @@ pub struct TranscriptionResult {
     pub words: Option<Vec<WordTimestamp>>,
     /// Legacy flat metadata map returned by the provider path.
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Best-effort request metadata for the final request.
+    pub request: Option<HttpRequestInfo>,
     /// Non-fatal provider warnings.
     pub warnings: Vec<Warning>,
     /// Final response metadata envelopes.
@@ -90,6 +92,7 @@ impl TranscriptionResult {
             words: self.words,
             duration: self.duration,
             metadata: self.metadata,
+            request: self.request,
             warnings: (!self.warnings.is_empty()).then_some(self.warnings),
             provider_metadata: (!self.provider_metadata.is_empty())
                 .then_some(self.provider_metadata),
@@ -208,6 +211,7 @@ fn transcription_result_from_response(
         confidence: response.confidence,
         words: response.words,
         metadata: response.metadata,
+        request: response.request,
         warnings: response.warnings.unwrap_or_default(),
         responses: response.response.into_iter().collect(),
         provider_metadata,
@@ -250,7 +254,7 @@ pub async fn transcribe<M: TranscriptionModel + ?Sized>(
 mod tests {
     use super::*;
     use siumai_core::traits::ModelMetadata;
-    use siumai_core::types::HttpResponseInfo;
+    use siumai_core::types::{HttpRequestInfo, HttpResponseInfo};
 
     struct EmptyTranscriptionModel;
 
@@ -274,6 +278,7 @@ mod tests {
                 words: None,
                 duration: None,
                 metadata: HashMap::from([("requestId".to_string(), serde_json::json!("req_1"))]),
+                request: None,
                 warnings: None,
                 provider_metadata: None,
                 response: Some(HttpResponseInfo {
@@ -351,6 +356,9 @@ mod tests {
                         ]),
                     ),
                 ]),
+                request: Some(HttpRequestInfo {
+                    body: Some(r#"{"model":"ready-transcription-model"}"#.to_string()),
+                }),
                 warnings: Some(vec![Warning::other("test warning")]),
                 provider_metadata: None,
                 response: Some(HttpResponseInfo {
@@ -382,12 +390,27 @@ mod tests {
         assert_eq!(result.responses.len(), 1);
         assert_eq!(
             result
+                .request
+                .as_ref()
+                .and_then(|request| request.body.as_deref()),
+            Some(r#"{"model":"ready-transcription-model"}"#)
+        );
+        assert_eq!(
+            result
                 .provider_metadata
                 .get("fake")
                 .and_then(|value| value.as_object())
                 .and_then(|value| value.get("requestId"))
                 .and_then(|value| value.as_str()),
             Some("req_2")
+        );
+
+        let raw = result.into_stt_response();
+        assert_eq!(
+            raw.request
+                .as_ref()
+                .and_then(|request| request.body.as_deref()),
+            Some(r#"{"model":"ready-transcription-model"}"#)
         );
     }
 }

@@ -11,8 +11,8 @@ use crate::retry_api::{RetryOptions, retry_with};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use siumai_core::error::LlmError;
 use siumai_core::types::{
-    HttpConfig, HttpResponseInfo, ProviderMetadataMap, Warning, merge_provider_metadata,
-    provider_metadata_from_object,
+    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, Warning,
+    merge_provider_metadata, provider_metadata_from_object,
 };
 use siumai_core::utils::mime::guess_mime_from_bytes;
 use std::collections::HashMap;
@@ -86,6 +86,8 @@ pub struct SpeechResult {
     pub sample_rate: Option<u32>,
     /// Legacy flat metadata map returned by the provider path.
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Best-effort request metadata for the final request.
+    pub request: Option<HttpRequestInfo>,
     /// Non-fatal provider warnings.
     pub warnings: Vec<Warning>,
     /// Final response metadata envelopes.
@@ -111,6 +113,7 @@ impl SpeechResult {
             duration: self.duration,
             sample_rate: self.sample_rate,
             metadata: self.metadata,
+            request: self.request,
             warnings: (!self.warnings.is_empty()).then_some(self.warnings),
             provider_metadata: (!self.provider_metadata.is_empty())
                 .then_some(self.provider_metadata),
@@ -197,6 +200,7 @@ fn speech_result_from_response(provider_id: &str, response: TtsResponse) -> Spee
         duration: response.duration,
         sample_rate: response.sample_rate,
         metadata: response.metadata,
+        request: response.request,
         warnings: response.warnings.unwrap_or_default(),
         responses: response.response.into_iter().collect(),
         provider_metadata,
@@ -236,7 +240,7 @@ pub async fn synthesize<M: SpeechModel + ?Sized>(
 mod tests {
     use super::*;
     use siumai_core::traits::ModelMetadata;
-    use siumai_core::types::HttpResponseInfo;
+    use siumai_core::types::{HttpRequestInfo, HttpResponseInfo};
 
     struct EmptySpeechModel;
 
@@ -259,6 +263,7 @@ mod tests {
                 duration: None,
                 sample_rate: None,
                 metadata: HashMap::from([("requestId".to_string(), serde_json::json!("req_1"))]),
+                request: None,
                 warnings: None,
                 provider_metadata: None,
                 response: Some(HttpResponseInfo {
@@ -311,6 +316,9 @@ mod tests {
                 duration: Some(1.5),
                 sample_rate: Some(24_000),
                 metadata: HashMap::from([("requestId".to_string(), serde_json::json!("req_2"))]),
+                request: Some(HttpRequestInfo {
+                    body: Some(r#"{"model":"ready-speech-model"}"#.to_string()),
+                }),
                 warnings: Some(vec![Warning::other("test warning")]),
                 provider_metadata: None,
                 response: Some(HttpResponseInfo {
@@ -341,12 +349,27 @@ mod tests {
         assert_eq!(result.responses.len(), 1);
         assert_eq!(
             result
+                .request
+                .as_ref()
+                .and_then(|request| request.body.as_deref()),
+            Some(r#"{"model":"ready-speech-model"}"#)
+        );
+        assert_eq!(
+            result
                 .provider_metadata
                 .get("fake")
                 .and_then(|value| value.as_object())
                 .and_then(|value| value.get("requestId"))
                 .and_then(|value| value.as_str()),
             Some("req_2")
+        );
+
+        let raw = result.into_tts_response();
+        assert_eq!(
+            raw.request
+                .as_ref()
+                .and_then(|request| request.body.as_deref()),
+            Some(r#"{"model":"ready-speech-model"}"#)
         );
     }
 }

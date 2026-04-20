@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::types::{
-    HttpConfig, HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap, Warning,
+    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap, Warning,
 };
 use base64::Engine;
 
@@ -154,6 +154,8 @@ pub struct TtsResponse {
     pub warnings: Option<Vec<Warning>>,
     /// Provider-scoped metadata aligned with AI SDK response metadata roots.
     pub provider_metadata: Option<ProviderMetadataMap>,
+    /// Best-effort request metadata for the final request.
+    pub request: Option<HttpRequestInfo>,
     /// Best-effort HTTP response envelope (timestamp, model id, headers).
     pub response: Option<HttpResponseInfo>,
 }
@@ -323,6 +325,8 @@ pub struct SttResponse {
     pub warnings: Option<Vec<Warning>>,
     /// Provider-scoped metadata aligned with AI SDK response metadata roots.
     pub provider_metadata: Option<ProviderMetadataMap>,
+    /// Best-effort request metadata for the final request.
+    pub request: Option<HttpRequestInfo>,
     /// Best-effort HTTP response envelope (timestamp, model id, headers).
     pub response: Option<HttpResponseInfo>,
 }

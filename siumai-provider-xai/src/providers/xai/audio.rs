@@ -228,6 +228,7 @@ impl AudioCapability for XaiClient {
             metadata: std::collections::HashMap::new(),
             warnings: None,
             provider_metadata: None,
+            request: result.request,
             response: result.response,
         })
     }

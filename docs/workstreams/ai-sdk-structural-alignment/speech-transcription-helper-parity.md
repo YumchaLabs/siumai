@@ -20,6 +20,9 @@ Upstream reference:
 
 - `TtsResponse` and `SttResponse` now carry best-effort final `response` metadata on the stable
   Rust surface, matching the role of AI SDK speech/transcription response metadata more closely.
+- `TtsResponse`, `SttResponse`, `SpeechResult`, and `TranscriptionResult` now also carry an
+  optional best-effort final `request` envelope, so helper callers can inspect the serialized JSON
+  request body on HTTP JSON speech routes without dropping down into ad hoc transport logging.
 - The raw stable audio response types now also expose optional `warnings` plus
   `provider_metadata`, which makes the shared Rust provider contract much closer to AI SDK
   `SpeechModelV4Result` / `TranscriptionModelV4Result` instead of forcing every high-level helper
@@ -34,8 +37,12 @@ Upstream reference:
   instead of being silently dropped.
 - The shared `AudioExecutor` now captures response headers plus model identity for successful TTS
   and STT calls instead of dropping that information below the provider boundary.
+- The shared `AudioExecutor` now also captures best-effort serialized JSON request bodies for
+  successful HTTP JSON speech/STT calls. Multipart routes intentionally keep `request = None`
+  unless a provider-owned path chooses to reconstruct that body itself.
 - OpenAI, OpenAI-compatible, Azure, Groq, xAI, and MiniMaxi audio paths now all preserve that
-  `response` envelope when they lower executor results into stable Rust response structs.
+  `request` / `response` envelope when they lower executor results into stable Rust response
+  structs.
 - The public facade now returns high-level helper result objects instead of exposing only the raw
   provider responses:
   - `speech::synthesize(...)` now returns `speech::SpeechResult` /
@@ -65,8 +72,12 @@ Reasoning:
 - If Rust only added `response: None` at each provider boundary, the surface would compile but the
   higher-level parity would still be false because the specialized error types would lose the final
   response envelope.
-- Putting the metadata capture into `AudioExecutor` keeps the shared contract honest and avoids
-  repeating header-to-map conversion logic across every provider.
+- AI SDK result contracts also reserve a `request` slot, but the upstream OpenAI implementations do
+  not populate it uniformly: speech sets `request.body`, transcription currently does not on the
+  multipart path.
+- Putting the shared metadata capture into `AudioExecutor` keeps the contract honest, preserves the
+  JSON request body where it actually exists, and avoids repeating header/body bookkeeping logic
+  across every provider.
 
 ## Compatibility Notes
 
@@ -80,13 +91,19 @@ Reasoning:
   request contract.
 - Providers that do not use the shared audio executor can still populate `response` manually, but
   the current audited providers now inherit the stable behavior from the executor path directly.
+- The new `request` slot is intentionally best-effort. JSON routes can preserve the final
+  stringified body directly; multipart routes generally cannot without rebuilding provider-specific
+  form-data serialization details, so `None` is the truthful default there.
 - Audio translation still uses the same stable `SttResponse` shape, so provider-owned translation
   paths can preserve the same response metadata contract when available.
 
 ## Remaining Follow-up
 
-- The shared speech/transcription call-option shape is already close to AI SDK parity; the
-  remaining work is now mostly provider-specific feature/runtime coverage rather than shared
-  request/response structure.
+- The result-side metadata contract is now close to AI SDK parity, including the optional
+  `request` slot on the stable/helper response types.
+- One meaningful shared request-shape divergence still remains: `SttRequest` keeps top-level
+  `language` and `timestamp_granularities`, while AI SDK `TranscriptionModelV4CallOptions` treats
+  those as provider-owned options under `providerOptions`. That refactor should still happen if we
+  want strict structural parity rather than compatibility-first convenience.
 - If Siumai later introduces richer batched speech/transcription helpers, the stable response shape
   may need the same multi-call metadata discussion that already exists for image/video helpers.

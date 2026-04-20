@@ -41,7 +41,7 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
     Mock::given(method("POST"))
         .and(path("/v1/audio/speech"))
         .and(header("authorization", "Bearer test-api-key"))
-        .and(body_json(expected))
+        .and(body_json(expected.clone()))
         .respond_with(
             ResponseTemplate::new(200)
                 .set_body_bytes(b"RIFF....WAVE".to_vec())
@@ -75,6 +75,17 @@ async fn openai_tts_sends_json_and_returns_audio_bytes() {
 
     assert_eq!(resp.format, "wav");
     assert_eq!(resp.audio_data, b"RIFF....WAVE".to_vec());
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(
+            &resp
+                .request
+                .as_ref()
+                .and_then(|request| request.body.as_ref())
+                .expect("tts request body should be captured"),
+        )
+        .expect("captured request body should be valid json"),
+        expected
+    );
     assert_eq!(
         resp.warnings,
         Some(vec![siumai::types::Warning::unsupported(

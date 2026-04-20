@@ -79,6 +79,7 @@ impl AudioCapability for OpenAiClient {
             metadata: std::collections::HashMap::new(),
             warnings,
             provider_metadata: None,
+            request: result.request,
             response: result.response,
         })
     }
@@ -98,6 +99,7 @@ impl AudioCapability for OpenAiClient {
         request.model = Some(self.resolved_stt_model(request.model.as_deref()));
         self.merge_default_provider_options_map_non_chat(&mut request.provider_options_map);
         let result = AudioExecutor::stt(&*exec, request).await?;
+        let request = result.request;
         let response = result.response;
         let raw = result.raw;
 
@@ -147,6 +149,7 @@ impl AudioCapability for OpenAiClient {
             metadata,
             warnings: None,
             provider_metadata: None,
+            request,
             response,
         })
     }
@@ -381,6 +384,7 @@ impl AudioCapability for OpenAiClient {
                 metadata,
                 warnings: None,
                 provider_metadata: None,
+                request: None,
                 response,
             });
         }
@@ -398,6 +402,7 @@ impl AudioCapability for OpenAiClient {
             metadata,
             warnings: None,
             provider_metadata: None,
+            request: None,
             response,
         })
     }
