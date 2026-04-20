@@ -44,6 +44,8 @@ impl AudioCapability for OpenAiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
+            warnings: None,
+            provider_metadata: None,
             response: result.response,
         })
     }
@@ -110,6 +112,8 @@ impl AudioCapability for OpenAiClient {
             words,
             duration,
             metadata,
+            warnings: None,
+            provider_metadata: None,
             response,
         })
     }
@@ -342,6 +346,8 @@ impl AudioCapability for OpenAiClient {
                     .and_then(|v| v.as_f64())
                     .map(|d| d as f32),
                 metadata,
+                warnings: None,
+                provider_metadata: None,
                 response,
             });
         }
@@ -357,6 +363,8 @@ impl AudioCapability for OpenAiClient {
             words: None,
             duration: None,
             metadata,
+            warnings: None,
+            provider_metadata: None,
             response,
         })
     }

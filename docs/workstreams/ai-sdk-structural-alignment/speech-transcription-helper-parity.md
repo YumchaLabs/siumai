@@ -20,10 +20,24 @@ Upstream reference:
 
 - `TtsResponse` and `SttResponse` now carry best-effort final `response` metadata on the stable
   Rust surface, matching the role of AI SDK speech/transcription response metadata more closely.
+- The raw stable audio response types now also expose optional `warnings` plus
+  `provider_metadata`, which makes the shared Rust provider contract much closer to AI SDK
+  `SpeechModelV4Result` / `TranscriptionModelV4Result` instead of forcing every high-level helper
+  to invent those slots ad hoc.
 - The shared `AudioExecutor` now captures response headers plus model identity for successful TTS
   and STT calls instead of dropping that information below the provider boundary.
 - OpenAI, OpenAI-compatible, Azure, Groq, xAI, and MiniMaxi audio paths now all preserve that
   `response` envelope when they lower executor results into stable Rust response structs.
+- The public facade now returns high-level helper result objects instead of exposing only the raw
+  provider responses:
+  - `speech::synthesize(...)` now returns `speech::SpeechResult` /
+    `speech::GenerateSpeechResult`.
+  - `transcription::transcribe(...)` now returns `transcription::TranscriptionResult`.
+- Those helper results are intentionally dual-purpose:
+  - they expose AI SDK-style `audio | segments | warnings | responses | provider_metadata`
+  - they also keep compatibility mirrors such as `audio_data`, `format`, `duration`,
+    `sample_rate`, `confidence`, `words`, and `metadata`, so existing Rust call sites do not need
+    a pointless all-at-once rewrite
 - The public helper lane now mirrors AI SDK empty-result semantics more closely:
   - `siumai::speech::synthesize(...)` returns `LlmError::NoSpeechGenerated` when the provider
     succeeds but returns empty audio bytes.
@@ -48,8 +62,11 @@ Reasoning:
 
 ## Compatibility Notes
 
-- This change does not invent a new unified audio helper beyond the current Rust-first
-  `speech::synthesize(...)` and `transcription::transcribe(...)` facades.
+- This change does not invent a second parallel audio helper API; it upgrades the current
+  Rust-first `speech::synthesize(...)` and `transcription::transcribe(...)` facades to the richer
+  high-level result shape while the lower-level raw provider responses remain available through the
+  family traits (`SpeechModel::synthesize` / `TranscriptionModel::transcribe`) and
+  `into_tts_response()` / `into_stt_response()` conversions on the helper results.
 - Providers that do not use the shared audio executor can still populate `response` manually, but
   the current audited providers now inherit the stable behavior from the executor path directly.
 - Audio translation still uses the same stable `SttResponse` shape, so provider-owned translation

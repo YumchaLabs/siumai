@@ -75,6 +75,8 @@ mod tests {
                 duration: None,
                 sample_rate: None,
                 metadata: HashMap::new(),
+                warnings: None,
+                provider_metadata: None,
                 response: None,
             })
         }

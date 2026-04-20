@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use crate::types::{HttpConfig, HttpResponseInfo, ProviderOptionsMap};
+use crate::types::{
+    HttpConfig, HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap, Warning,
+};
 use base64::Engine;
 
 fn should_fill_model_slot(slot: Option<&str>, fallback: &str) -> bool {
@@ -122,6 +124,10 @@ pub struct TtsResponse {
     pub sample_rate: Option<u32>,
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Provider warnings (e.g. unsupported settings).
+    pub warnings: Option<Vec<Warning>>,
+    /// Provider-scoped metadata aligned with AI SDK response metadata roots.
+    pub provider_metadata: Option<ProviderMetadataMap>,
     /// Best-effort HTTP response envelope (timestamp, model id, headers).
     pub response: Option<HttpResponseInfo>,
 }
@@ -287,6 +293,10 @@ pub struct SttResponse {
     pub duration: Option<f32>,
     /// Additional metadata
     pub metadata: HashMap<String, serde_json::Value>,
+    /// Provider warnings (e.g. unsupported settings).
+    pub warnings: Option<Vec<Warning>>,
+    /// Provider-scoped metadata aligned with AI SDK response metadata roots.
+    pub provider_metadata: Option<ProviderMetadataMap>,
     /// Best-effort HTTP response envelope (timestamp, model id, headers).
     pub response: Option<HttpResponseInfo>,
 }

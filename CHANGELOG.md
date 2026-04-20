@@ -147,9 +147,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   bringing the request surface much closer to AI SDK `TranscriptionModelV4CallOptions`.
 - Stable speech/transcription helper semantics now align more closely with AI SDK
   `generateSpeech()` / `transcribe()`: `TtsResponse` and `SttResponse` now preserve best-effort
-  final `response` metadata, the shared audio executor carries that envelope across the audited
-  provider paths, and successful-but-empty `siumai::speech::synthesize(...)` /
-  `siumai::transcription::transcribe(...)` calls now return `LlmError::NoSpeechGenerated` /
+  final `response` metadata, the raw stable audio response structs now also expose optional
+  `warnings` plus `provider_metadata`, the shared audio executor carries that envelope across the
+  audited provider paths, and the public facades now return richer helper result objects
+  (`speech::SpeechResult` / `speech::GenerateSpeechResult` and
+  `transcription::TranscriptionResult`) while still preserving compatibility mirrors for the older
+  Rust fields. Successful-but-empty `siumai::speech::synthesize(...)` /
+  `siumai::transcription::transcribe(...)` calls now also return `LlmError::NoSpeechGenerated` /
   `LlmError::NoTranscriptGenerated` instead of silently returning empty audio/text.
 - DeepInfra now has a dedicated workstream under
   `docs/workstreams/deepinfra-unified-provider-surface/`, documenting the chosen first-class

@@ -93,6 +93,8 @@ mod tests {
                 words: None,
                 duration: None,
                 metadata: HashMap::new(),
+                warnings: None,
+                provider_metadata: None,
                 response: None,
             })
         }

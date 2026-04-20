@@ -392,6 +392,8 @@ impl AudioCapability for AzureOpenAiClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: HashMap::new(),
+            warnings: None,
+            provider_metadata: None,
             response: result.response,
         })
     }
@@ -430,6 +432,8 @@ impl AudioCapability for AzureOpenAiClient {
             words: None,
             duration,
             metadata,
+            warnings: None,
+            provider_metadata: None,
             response,
         })
     }

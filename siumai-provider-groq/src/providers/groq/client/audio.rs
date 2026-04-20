@@ -44,6 +44,8 @@ impl AudioCapability for GroqClient {
             duration: result.duration,
             sample_rate: result.sample_rate,
             metadata: std::collections::HashMap::new(),
+            warnings: None,
+            provider_metadata: None,
             response: result.response,
         })
     }
@@ -114,6 +116,8 @@ impl AudioCapability for GroqClient {
             words,
             duration,
             metadata,
+            warnings: None,
+            provider_metadata: None,
             response,
         })
     }
