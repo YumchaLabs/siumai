@@ -3,6 +3,8 @@
 //! These typed option structs are owned by the Groq provider crate and are serialized into
 //! `providerOptions["groq"]` (Vercel-aligned open options map).
 
+use crate::error::LlmError;
+use crate::types::CustomProviderOptions;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -144,8 +146,109 @@ pub type GroqLanguageModelOptions = GroqOptions;
 #[deprecated(note = "Use `GroqLanguageModelOptions` instead.")]
 pub type GroqProviderOptions = GroqLanguageModelOptions;
 
-/// AI SDK-style alias for Groq transcription-model options.
-pub type GroqTranscriptionModelOptions = crate::providers::groq::ext::audio_options::GroqSttOptions;
+/// AI SDK-style typed options for Groq transcription models.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GroqTranscriptionModelOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_format: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp_granularities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+}
+
+impl GroqTranscriptionModelOptions {
+    /// Create new Groq transcription options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the response format.
+    pub fn with_response_format(mut self, response_format: impl Into<String>) -> Self {
+        self.response_format = Some(response_format.into());
+        self
+    }
+
+    /// Set an optional prompt.
+    pub fn with_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.prompt = Some(prompt.into());
+        self
+    }
+
+    /// Set the sampling temperature.
+    pub fn with_temperature(mut self, temperature: f64) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+
+    /// Set the input language.
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = Some(language.into());
+        self
+    }
+
+    /// Set the timestamp granularity list.
+    pub fn with_timestamp_granularities(mut self, granularities: Vec<String>) -> Self {
+        self.timestamp_granularities = Some(granularities);
+        self
+    }
+
+    /// Control streaming mode.
+    pub fn with_stream(mut self, stream: bool) -> Self {
+        self.stream = Some(stream);
+        self
+    }
+
+    /// Convert to a `(provider_id, json)` entry for `providerOptions`.
+    pub fn into_provider_options_map_entry(self) -> Result<(String, serde_json::Value), LlmError> {
+        self.to_provider_options_map_entry()
+    }
+}
+
+impl CustomProviderOptions for GroqTranscriptionModelOptions {
+    fn provider_id(&self) -> &str {
+        "groq"
+    }
+
+    fn to_json(&self) -> Result<serde_json::Value, LlmError> {
+        let mut obj = serde_json::Map::new();
+        if let Some(v) = self.response_format.as_deref() {
+            obj.insert(
+                "responseFormat".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
+        }
+        if let Some(v) = self.prompt.as_deref() {
+            obj.insert(
+                "prompt".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
+        }
+        if let Some(v) = self.temperature {
+            obj.insert("temperature".to_string(), serde_json::json!(v));
+        }
+        if let Some(v) = self.language.as_deref() {
+            obj.insert(
+                "language".to_string(),
+                serde_json::Value::String(v.to_string()),
+            );
+        }
+        if let Some(v) = self.timestamp_granularities.as_ref() {
+            obj.insert("timestampGranularities".to_string(), serde_json::json!(v));
+        }
+        if let Some(v) = self.stream {
+            obj.insert("stream".to_string(), serde_json::Value::Bool(v));
+        }
+        Ok(serde_json::Value::Object(obj))
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -208,5 +311,26 @@ mod tests {
                 serde_json::json!(expected)
             );
         }
+    }
+
+    #[test]
+    fn groq_transcription_options_serialize_ai_sdk_style_keys() {
+        let value = GroqTranscriptionModelOptions::new()
+            .with_response_format("verbose_json")
+            .with_prompt("prompt")
+            .with_temperature(0.2)
+            .with_language("en")
+            .with_timestamp_granularities(vec!["segment".to_string()])
+            .to_json()
+            .expect("transcription options serialize");
+
+        assert_eq!(value["responseFormat"], serde_json::json!("verbose_json"));
+        assert_eq!(value["prompt"], serde_json::json!("prompt"));
+        assert_eq!(value["temperature"], serde_json::json!(0.2));
+        assert_eq!(value["language"], serde_json::json!("en"));
+        assert_eq!(
+            value["timestampGranularities"],
+            serde_json::json!(["segment"])
+        );
     }
 }

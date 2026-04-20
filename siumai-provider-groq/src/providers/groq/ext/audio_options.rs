@@ -4,6 +4,7 @@
 //! These helpers build `(provider_id, json)` entries for `providerOptions`.
 
 use crate::error::LlmError;
+use crate::provider_options::GroqTranscriptionModelOptions;
 use crate::types::CustomProviderOptions;
 use serde::{Deserialize, Serialize};
 
@@ -47,101 +48,8 @@ impl CustomProviderOptions for GroqTtsOptions {
     }
 }
 
-/// Groq-specific options for STT requests.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-pub struct GroqSttOptions {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub response_format: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prompt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub temperature: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp_granularities: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub stream: Option<bool>,
-}
-
-impl GroqSttOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_response_format(mut self, response_format: impl Into<String>) -> Self {
-        self.response_format = Some(response_format.into());
-        self
-    }
-
-    pub fn with_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.prompt = Some(prompt.into());
-        self
-    }
-
-    pub fn with_temperature(mut self, temperature: f64) -> Self {
-        self.temperature = Some(temperature);
-        self
-    }
-
-    pub fn with_language(mut self, language: impl Into<String>) -> Self {
-        self.language = Some(language.into());
-        self
-    }
-
-    pub fn with_timestamp_granularities(mut self, granularities: Vec<String>) -> Self {
-        self.timestamp_granularities = Some(granularities);
-        self
-    }
-
-    pub fn with_stream(mut self, stream: bool) -> Self {
-        self.stream = Some(stream);
-        self
-    }
-
-    pub fn into_provider_options_map_entry(self) -> Result<(String, serde_json::Value), LlmError> {
-        self.to_provider_options_map_entry()
-    }
-}
-
-impl CustomProviderOptions for GroqSttOptions {
-    fn provider_id(&self) -> &str {
-        "groq"
-    }
-
-    fn to_json(&self) -> Result<serde_json::Value, LlmError> {
-        let mut obj = serde_json::Map::new();
-        if let Some(v) = self.response_format.as_deref() {
-            obj.insert(
-                "responseFormat".to_string(),
-                serde_json::Value::String(v.to_string()),
-            );
-        }
-        if let Some(v) = self.prompt.as_deref() {
-            obj.insert(
-                "prompt".to_string(),
-                serde_json::Value::String(v.to_string()),
-            );
-        }
-        if let Some(v) = self.temperature {
-            obj.insert("temperature".to_string(), serde_json::json!(v));
-        }
-        if let Some(v) = self.language.as_deref() {
-            obj.insert(
-                "language".to_string(),
-                serde_json::Value::String(v.to_string()),
-            );
-        }
-        if let Some(v) = self.timestamp_granularities.as_ref() {
-            obj.insert("timestampGranularities".to_string(), serde_json::json!(v));
-        }
-        if let Some(v) = self.stream {
-            obj.insert("stream".to_string(), serde_json::Value::Bool(v));
-        }
-        Ok(serde_json::Value::Object(obj))
-    }
-}
+/// Legacy non-unified alias for Groq transcription options.
+pub type GroqSttOptions = GroqTranscriptionModelOptions;
 
 #[cfg(test)]
 mod tests {
