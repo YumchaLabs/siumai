@@ -1,11 +1,13 @@
 use std::mem::size_of;
 
 #[test]
+#[allow(deprecated)]
 fn public_surface_unified_imports_compile() {
     use siumai::prelude::unified::*;
 
     let _ = size_of::<ChatRequest>();
     let _ = size_of::<ChatResponse>();
+    let _ = size_of::<CallSettings>();
     let _ = size_of::<JSONValue>();
     let _ = size_of::<CallWarning>();
     let _ = size_of::<CancelHandle>();
@@ -42,6 +44,10 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<*const dyn RerankingModel>();
     let _ = size_of::<*const dyn SpeechModel>();
     let _ = size_of::<*const dyn TranscriptionModel>();
+    let _ = get_total_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
+    let _ = get_step_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
+    let _ = get_chunk_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
+    let _ = get_tool_timeout_ms as fn(Option<&TimeoutConfiguration>, &str) -> Option<u64>;
 }
 
 #[test]

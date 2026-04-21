@@ -199,6 +199,35 @@ impl TimeoutConfiguration {
     }
 }
 
+/// AI SDK-style helper for extracting the total timeout in milliseconds.
+pub const fn get_total_timeout_ms(timeout: Option<&TimeoutConfiguration>) -> Option<u64> {
+    match timeout {
+        Some(timeout) => timeout.total_timeout_ms(),
+        None => None,
+    }
+}
+
+/// AI SDK-style helper for extracting the step timeout in milliseconds.
+pub const fn get_step_timeout_ms(timeout: Option<&TimeoutConfiguration>) -> Option<u64> {
+    match timeout {
+        Some(timeout) => timeout.step_timeout_ms(),
+        None => None,
+    }
+}
+
+/// AI SDK-style helper for extracting the chunk timeout in milliseconds.
+pub const fn get_chunk_timeout_ms(timeout: Option<&TimeoutConfiguration>) -> Option<u64> {
+    match timeout {
+        Some(timeout) => timeout.chunk_timeout_ms(),
+        None => None,
+    }
+}
+
+/// AI SDK-style helper for extracting one tool timeout in milliseconds.
+pub fn get_tool_timeout_ms(timeout: Option<&TimeoutConfiguration>, tool_name: &str) -> Option<u64> {
+    timeout.and_then(|timeout| timeout.tool_timeout_ms(tool_name))
+}
+
 /// AI SDK-style request-facing transport controls.
 #[derive(Debug, Clone, Default)]
 pub struct RequestOptions {
@@ -365,6 +394,244 @@ impl From<&super::CommonParams> for LanguageModelCallOptions {
             seed: value.seed,
             reasoning: None,
         }
+    }
+}
+
+/// Deprecated AI SDK-style combined call settings view.
+///
+/// Prefer using `LanguageModelCallOptions` together with `RequestOptions`.
+#[deprecated(note = "Use `LanguageModelCallOptions` together with `RequestOptions` instead.")]
+#[derive(Debug, Clone, Default)]
+pub struct CallSettings {
+    /// Maximum output tokens requested by the caller.
+    pub max_output_tokens: Option<u32>,
+    /// Sampling temperature.
+    pub temperature: Option<f64>,
+    /// Nucleus sampling.
+    pub top_p: Option<f64>,
+    /// Top-k sampling.
+    pub top_k: Option<f64>,
+    /// Presence penalty.
+    pub presence_penalty: Option<f64>,
+    /// Frequency penalty.
+    pub frequency_penalty: Option<f64>,
+    /// Stop sequences.
+    pub stop_sequences: Option<Vec<String>>,
+    /// Deterministic seed.
+    pub seed: Option<u64>,
+    /// Cross-provider reasoning level.
+    pub reasoning: Option<LanguageModelReasoning>,
+    /// Maximum number of retries. `0` disables retries.
+    pub max_retries: Option<u32>,
+    /// Request-scoped abort signal.
+    pub abort_signal: Option<CancelHandle>,
+    /// Additional HTTP headers. `None` values are filtered when materialized.
+    pub headers: HashMap<String, Option<String>>,
+}
+
+#[allow(deprecated)]
+impl CallSettings {
+    /// Create empty call settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set max output tokens.
+    pub const fn with_max_output_tokens(mut self, max_output_tokens: u32) -> Self {
+        self.max_output_tokens = Some(max_output_tokens);
+        self
+    }
+
+    /// Set temperature.
+    pub const fn with_temperature(mut self, temperature: f64) -> Self {
+        self.temperature = Some(temperature);
+        self
+    }
+
+    /// Set nucleus sampling.
+    pub const fn with_top_p(mut self, top_p: f64) -> Self {
+        self.top_p = Some(top_p);
+        self
+    }
+
+    /// Set top-k sampling.
+    pub const fn with_top_k(mut self, top_k: f64) -> Self {
+        self.top_k = Some(top_k);
+        self
+    }
+
+    /// Set presence penalty.
+    pub const fn with_presence_penalty(mut self, presence_penalty: f64) -> Self {
+        self.presence_penalty = Some(presence_penalty);
+        self
+    }
+
+    /// Set frequency penalty.
+    pub const fn with_frequency_penalty(mut self, frequency_penalty: f64) -> Self {
+        self.frequency_penalty = Some(frequency_penalty);
+        self
+    }
+
+    /// Set stop sequences.
+    pub fn with_stop_sequences(mut self, stop_sequences: Vec<String>) -> Self {
+        self.stop_sequences = Some(stop_sequences);
+        self
+    }
+
+    /// Set deterministic seed.
+    pub const fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
+    /// Set reasoning level.
+    pub fn with_reasoning(mut self, reasoning: LanguageModelReasoning) -> Self {
+        self.reasoning = Some(reasoning);
+        self
+    }
+
+    /// Set max retries.
+    pub const fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = Some(max_retries);
+        self
+    }
+
+    /// Set the abort signal.
+    pub fn with_abort_signal(mut self, abort_signal: CancelHandle) -> Self {
+        self.abort_signal = Some(abort_signal);
+        self
+    }
+
+    /// Set a request header.
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), Some(value.into()));
+        self
+    }
+
+    /// Mark a header as intentionally omitted.
+    pub fn without_header(mut self, key: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), None);
+        self
+    }
+
+    /// Project onto `LanguageModelCallOptions`.
+    pub fn language_model_call_options(&self) -> LanguageModelCallOptions {
+        self.into()
+    }
+
+    /// Project onto `RequestOptions`.
+    pub fn request_options(&self) -> RequestOptions {
+        self.into()
+    }
+
+    /// Materialize only the headers with concrete values.
+    pub fn effective_headers(&self) -> HashMap<String, String> {
+        self.headers
+            .iter()
+            .filter_map(|(key, value)| value.clone().map(|value| (key.clone(), value)))
+            .collect()
+    }
+
+    /// Convert retries into total attempts, where `0` retries means `1` attempt.
+    pub fn max_attempts(&self) -> Option<u32> {
+        self.max_retries.map(|retries| retries.saturating_add(1))
+    }
+}
+
+#[allow(deprecated)]
+impl From<LanguageModelCallOptions> for CallSettings {
+    fn from(value: LanguageModelCallOptions) -> Self {
+        Self {
+            max_output_tokens: value.max_output_tokens,
+            temperature: value.temperature,
+            top_p: value.top_p,
+            top_k: value.top_k,
+            presence_penalty: value.presence_penalty,
+            frequency_penalty: value.frequency_penalty,
+            stop_sequences: value.stop_sequences,
+            seed: value.seed,
+            reasoning: value.reasoning,
+            max_retries: None,
+            abort_signal: None,
+            headers: HashMap::new(),
+        }
+    }
+}
+
+#[allow(deprecated)]
+impl From<RequestOptions> for CallSettings {
+    fn from(value: RequestOptions) -> Self {
+        Self {
+            max_output_tokens: None,
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            stop_sequences: None,
+            seed: None,
+            reasoning: None,
+            max_retries: value.max_retries,
+            abort_signal: value.abort_signal,
+            headers: value.headers,
+        }
+    }
+}
+
+#[allow(deprecated)]
+impl From<&super::CommonParams> for CallSettings {
+    fn from(value: &super::CommonParams) -> Self {
+        LanguageModelCallOptions::from(value).into()
+    }
+}
+
+#[allow(deprecated)]
+impl From<super::CommonParams> for CallSettings {
+    fn from(value: super::CommonParams) -> Self {
+        Self::from(&value)
+    }
+}
+
+#[allow(deprecated)]
+impl From<&CallSettings> for LanguageModelCallOptions {
+    fn from(value: &CallSettings) -> Self {
+        Self {
+            max_output_tokens: value.max_output_tokens,
+            temperature: value.temperature,
+            top_p: value.top_p,
+            top_k: value.top_k,
+            presence_penalty: value.presence_penalty,
+            frequency_penalty: value.frequency_penalty,
+            stop_sequences: value.stop_sequences.clone(),
+            seed: value.seed,
+            reasoning: value.reasoning.clone(),
+        }
+    }
+}
+
+#[allow(deprecated)]
+impl From<CallSettings> for LanguageModelCallOptions {
+    fn from(value: CallSettings) -> Self {
+        Self::from(&value)
+    }
+}
+
+#[allow(deprecated)]
+impl From<&CallSettings> for RequestOptions {
+    fn from(value: &CallSettings) -> Self {
+        RequestOptions {
+            max_retries: value.max_retries,
+            abort_signal: value.abort_signal.clone(),
+            headers: value.headers.clone(),
+            timeout: None,
+        }
+    }
+}
+
+#[allow(deprecated)]
+impl From<CallSettings> for RequestOptions {
+    fn from(value: CallSettings) -> Self {
+        Self::from(&value)
     }
 }
 
@@ -1011,5 +1278,65 @@ mod tests {
                 .and_then(serde_json::Value::as_str),
             Some("task-1")
         );
+    }
+
+    #[test]
+    fn timeout_helper_functions_follow_ai_sdk_semantics() {
+        let timeout = TimeoutConfiguration::settings(
+            TimeoutConfigurationSettings::new()
+                .with_total_ms(1_000)
+                .with_step_ms(200)
+                .with_chunk_ms(50)
+                .with_tool_ms(300)
+                .with_tool_timeout_ms("search", 450),
+        );
+
+        assert_eq!(get_total_timeout_ms(Some(&timeout)), Some(1_000));
+        assert_eq!(get_step_timeout_ms(Some(&timeout)), Some(200));
+        assert_eq!(get_chunk_timeout_ms(Some(&timeout)), Some(50));
+        assert_eq!(get_tool_timeout_ms(Some(&timeout), "search"), Some(450));
+        assert_eq!(get_tool_timeout_ms(Some(&timeout), "other"), Some(300));
+        assert_eq!(get_total_timeout_ms(None), None);
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn call_settings_projects_onto_call_and_request_options() {
+        let abort_signal = CancelHandle::new();
+        let settings = CallSettings::new()
+            .with_max_output_tokens(256)
+            .with_temperature(0.4)
+            .with_top_p(0.8)
+            .with_stop_sequences(vec!["END".to_string()])
+            .with_seed(7)
+            .with_reasoning(LanguageModelReasoning::Medium)
+            .with_max_retries(2)
+            .with_abort_signal(abort_signal.clone())
+            .with_header("x-test", "1")
+            .without_header("x-drop");
+
+        let call_options = settings.language_model_call_options();
+        let request_options = settings.request_options();
+
+        assert_eq!(call_options.max_output_tokens, Some(256));
+        assert_eq!(call_options.temperature, Some(0.4));
+        assert_eq!(call_options.top_p, Some(0.8));
+        assert_eq!(call_options.stop_sequences, Some(vec!["END".to_string()]));
+        assert_eq!(call_options.seed, Some(7));
+        assert_eq!(call_options.reasoning, Some(LanguageModelReasoning::Medium));
+        assert_eq!(request_options.max_retries, Some(2));
+        assert_eq!(request_options.max_attempts(), Some(3));
+        assert!(
+            request_options
+                .abort_signal
+                .as_ref()
+                .is_some_and(|signal| !signal.is_cancelled())
+        );
+        assert_eq!(
+            request_options.effective_headers().get("x-test"),
+            Some(&"1".to_string())
+        );
+        assert!(!request_options.effective_headers().contains_key("x-drop"));
+        assert!(request_options.timeout.is_none());
     }
 }

@@ -1558,11 +1558,12 @@ pub mod prelude {
         pub use siumai_core::transcription::TranscriptionModel;
 
         // Core request/response types for the six stable model families.
+        #[allow(deprecated)]
         pub use siumai_core::types::{
-            AudioStreamEvent, CacheControl, CallWarning, CancelHandle, ChatMessage, ChatRequest,
-            ChatRequestBuilder, ChatResponse, CommonParams, CompletionRequest, CompletionResponse,
-            CompletionTokensDetails, ContentPart, CustomProviderOptions, EmbeddingModelUsage,
-            EmbeddingRequest, EmbeddingResponse, FilePartSource, FinishReason,
+            AudioStreamEvent, CacheControl, CallSettings, CallWarning, CancelHandle, ChatMessage,
+            ChatRequest, ChatRequestBuilder, ChatResponse, CommonParams, CompletionRequest,
+            CompletionResponse, CompletionTokensDetails, ContentPart, CustomProviderOptions,
+            EmbeddingModelUsage, EmbeddingRequest, EmbeddingResponse, FilePartSource, FinishReason,
             GenerateImageRequest, GeneratedImage, HttpConfig, ImageDetail, ImageGenerationRequest,
             ImageGenerationResponse, ImageModelProviderMetadata, ImageModelResponseMetadata,
             ImageModelUsage, JSONValue, LanguageModelCallOptions, LanguageModelInputTokenDetails,
@@ -1574,7 +1575,8 @@ pub mod prelude {
             ResponseMetadata, SchemaValidator, SpeechModelResponseMetadata, StreamRequestOptions,
             SttRequest, SttResponse, TimeoutConfiguration, TimeoutConfigurationSettings, Tool,
             ToolChoice, TranscriptionModelResponseMetadata, TtsRequest, TtsResponse, Usage,
-            VideoModelProviderMetadata, VideoModelResponseMetadata, Warning,
+            VideoModelProviderMetadata, VideoModelResponseMetadata, Warning, get_chunk_timeout_ms,
+            get_step_timeout_ms, get_tool_timeout_ms, get_total_timeout_ms,
         };
 
         pub mod registry {
