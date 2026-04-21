@@ -82,6 +82,12 @@ Status legend:
   `GenerateVideoPrompt`) plus request constructors/helpers built on that union.
 - [x] Return a specialized empty-result video error (`LlmError::NoVideoGenerated`) with final
   response metadata instead of treating successful-but-empty video runs as generic parse failures.
+- [x] Add shared AI SDK-style video metadata carriers plus facade accessors.
+  - stable `VideoModelProviderMetadata` / `VideoModelResponseMetadata` now live on the shared
+    type surface
+  - `GenerateVideoResponseMetadata` now exposes best-effort create/query/logical-call projections
+  - `GenerateVideoResult` / `GenerateMaterializedVideoResult` now expose
+    `video_model_responses()` for the AI SDK-style response list view
 - [ ] Decide whether high-level `generate(...)` should auto-materialize URL-backed final videos by
   default instead of keeping that step explicit.
 - [ ] Decide whether provider-reference-only assets should eventually expose provider-owned download

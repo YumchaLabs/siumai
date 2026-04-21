@@ -140,6 +140,10 @@ This workstream now closes more than just model construction. The stable video l
 - a specialized `LlmError::NoVideoGenerated` result when completed tasks expose no final assets,
   carrying best-effort final response metadata instead of collapsing that case into a generic parse
   failure
+- shared AI SDK-style `VideoModelProviderMetadata` / `VideoModelResponseMetadata` on the stable
+  type surface, plus facade accessors that project task-oriented `create/query` envelopes onto the
+  upstream-style `responses[]` metadata view without pretending the lifecycle is no longer
+  task-based
 - per-call `responses[*].provider_metadata` plus aggregated `provider_metadata`, including
   provider-root fields beyond `videos[]` / `tasks[]` when providers return additional metadata on
   the audited task-query path

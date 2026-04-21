@@ -26,6 +26,9 @@ Last updated: 2026-04-20
   model.
 - Added a specialized `LlmError::NoVideoGenerated` path so successful-but-empty multi-task video
   runs now preserve final response metadata instead of surfacing only a generic parse failure.
+- Added shared AI SDK-style `VideoModelProviderMetadata` / `VideoModelResponseMetadata` on the
+  stable facade and best-effort projection helpers from task-oriented video helper responses onto
+  that shared metadata view.
 - Tightened aggregated `provider_metadata` merging so provider-root fields beyond `videos[]` /
   `tasks[]` are preserved across create/query task metadata on the audited video lanes.
 - Updated the shared `VideoGenerationRequest` shape so `prompt` is optional, matching AI SDK's

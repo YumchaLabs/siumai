@@ -30,6 +30,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<TimeoutConfiguration>();
     let _ = size_of::<TimeoutConfigurationSettings>();
     let _ = size_of::<TranscriptionModelResponseMetadata>();
+    let _ = size_of::<VideoModelProviderMetadata>();
+    let _ = size_of::<VideoModelResponseMetadata>();
     let _ = size_of::<ProviderOptionsMap>();
     let _ = size_of::<LlmError>();
     let _ = size_of::<*const dyn CompletionCapability>();

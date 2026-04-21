@@ -158,6 +158,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `docs/workstreams/video-model-family-alignment/`, documenting the deliberate Rust-first
   task-based contract and the remaining gap against AI SDK `experimental_generateVideo()` default
   URL materialization plus provider-reference download semantics.
+- Shared AI SDK-style video metadata is now exposed on the stable Rust surface:
+  `VideoModelProviderMetadata` and `VideoModelResponseMetadata` live on
+  `siumai::types::*` / `siumai::prelude::unified::*`, and `siumai::video::{GenerateVideoResult,
+  GenerateMaterializedVideoResult, GenerateVideoResponseMetadata}` now provide best-effort
+  accessors that project task-oriented video helper responses onto that shared AI SDK metadata
+  view without hiding the underlying create/query lifecycle.
 - Shared transcription and audio-translation typing now uses a canonical `audio` input plus
   `mediaType` / `providerOptions`, replacing the older stable `audio_data | file_path` split and
   bringing the request surface much closer to AI SDK `TranscriptionModelV4CallOptions`.

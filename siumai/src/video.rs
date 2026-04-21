@@ -15,9 +15,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::header::CONTENT_TYPE;
 use siumai_core::error::LlmError;
 use siumai_core::execution::http::build_http_client_from_config;
-use siumai_core::types::{
-    HttpConfig, HttpResponseInfo, ProviderMetadataMap, ProviderReference, Warning,
-};
+use siumai_core::types::{HttpConfig, HttpResponseInfo, ProviderReference, Warning};
 use siumai_core::utils::mime::{guess_mime_from_bytes, guess_mime_from_path_or_url};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -25,7 +23,8 @@ use tokio::time::{Instant, sleep};
 
 pub use siumai_core::types::{
     GenerateVideoPrompt, VideoGenerationFileData, VideoGenerationInput, VideoGenerationPrompt,
-    VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatus, VideoTaskStatusResponse,
+    VideoGenerationRequest, VideoGenerationResponse, VideoModelProviderMetadata,
+    VideoModelResponseMetadata, VideoTaskStatus, VideoTaskStatusResponse,
 };
 pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4};
 
@@ -128,8 +127,42 @@ pub struct GenerateVideoResponseMetadata {
     pub provider_metadata: GenerateVideoProviderMetadata,
 }
 
+impl GenerateVideoResponseMetadata {
+    /// Best-effort AI SDK-style response metadata for the logical video call.
+    ///
+    /// This prefers the final task-query response when available and otherwise falls back to the
+    /// initial task-creation response.
+    pub fn response_metadata(&self) -> Option<VideoModelResponseMetadata> {
+        self.query_response_metadata()
+            .or_else(|| self.create_response_metadata())
+    }
+
+    /// Best-effort AI SDK-style metadata for the task-creation response.
+    pub fn create_response_metadata(&self) -> Option<VideoModelResponseMetadata> {
+        self.create_response
+            .as_ref()
+            .and_then(|response| self.map_video_model_response_metadata(response))
+    }
+
+    /// Best-effort AI SDK-style metadata for the final task-query response.
+    pub fn query_response_metadata(&self) -> Option<VideoModelResponseMetadata> {
+        self.query_response
+            .as_ref()
+            .and_then(|response| self.map_video_model_response_metadata(response))
+    }
+
+    fn map_video_model_response_metadata(
+        &self,
+        response: &HttpResponseInfo,
+    ) -> Option<VideoModelResponseMetadata> {
+        VideoModelResponseMetadata::try_from(response)
+            .ok()
+            .map(|metadata| metadata.with_provider_metadata(self.provider_metadata.clone()))
+    }
+}
+
 /// Provider-id keyed metadata map used by `GenerateVideoResult`.
-pub type GenerateVideoProviderMetadata = ProviderMetadataMap;
+pub type GenerateVideoProviderMetadata = VideoModelProviderMetadata;
 
 /// Provider-specific metadata for one generated video.
 pub type GeneratedVideoMetadata = HashMap<String, serde_json::Value>;
@@ -317,6 +350,14 @@ impl GenerateVideoResult {
         self.videos.first()
     }
 
+    /// Best-effort AI SDK-style response metadata for each logical generate call.
+    pub fn video_model_responses(&self) -> Vec<VideoModelResponseMetadata> {
+        self.responses
+            .iter()
+            .filter_map(GenerateVideoResponseMetadata::response_metadata)
+            .collect()
+    }
+
     /// The first completed task result, if any.
     pub fn task(&self) -> Option<&VideoTaskStatusResponse> {
         self.tasks.first()
@@ -369,6 +410,14 @@ impl GenerateMaterializedVideoResult {
     /// The first materialized generated video, if any.
     pub fn video(&self) -> Option<&MaterializedVideo> {
         self.videos.first()
+    }
+
+    /// Best-effort AI SDK-style response metadata for each logical generate call.
+    pub fn video_model_responses(&self) -> Vec<VideoModelResponseMetadata> {
+        self.responses
+            .iter()
+            .filter_map(GenerateVideoResponseMetadata::response_metadata)
+            .collect()
     }
 
     /// The first completed task result, if any.
@@ -1575,6 +1624,68 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generate_response_metadata_projects_to_ai_sdk_video_response_view() {
+        let model = FakeGenerateVideoModel::default();
+        let result = generate(
+            &model,
+            VideoGenerationRequest::new("fake-video-model", "animate a robot").with_count(2),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(50)),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = result
+            .responses
+            .first()
+            .and_then(GenerateVideoResponseMetadata::response_metadata)
+            .expect("ai sdk-style response metadata");
+        let create_response = result
+            .responses
+            .first()
+            .and_then(GenerateVideoResponseMetadata::create_response_metadata)
+            .expect("create response metadata");
+        let query_response = result
+            .responses
+            .first()
+            .and_then(GenerateVideoResponseMetadata::query_response_metadata)
+            .expect("query response metadata");
+
+        assert_eq!(create_response.model_id, "fake-video-model");
+        assert_eq!(
+            create_response
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get("x-create"))
+                .map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(query_response.model_id, "fake-video-model");
+        assert_eq!(
+            query_response
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get("x-query"))
+                .map(String::as_str),
+            Some("1")
+        );
+        assert_eq!(response.model_id, "fake-video-model");
+        assert_eq!(
+            response
+                .provider_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("fake-video"))
+                .and_then(|value| value.get("jobType"))
+                .and_then(serde_json::Value::as_str),
+            Some("predictLongRunning")
+        );
+        assert_eq!(result.video_model_responses().len(), 1);
+    }
+
+    #[tokio::test]
     async fn generate_returns_no_video_generated_error_with_final_response_metadata() {
         let model = FakeNoAssetsVideoModel;
         let err = generate(
@@ -1767,5 +1878,6 @@ mod tests {
             result.task().map(|task| task.task_id.as_str()),
             Some("inline-task:inline-video-model")
         );
+        assert!(result.video_model_responses().is_empty());
     }
 }

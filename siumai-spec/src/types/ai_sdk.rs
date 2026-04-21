@@ -26,6 +26,9 @@ pub type ProviderMetadata = ProviderMetadataMap;
 /// AI SDK-style shared image-provider metadata root.
 pub type ImageModelProviderMetadata = ProviderMetadata;
 
+/// AI SDK-style shared video-provider metadata root.
+pub type VideoModelProviderMetadata = ProviderMetadata;
+
 /// A cloneable cancellation handle for request-scoped abort semantics.
 #[derive(Clone, Debug, Default)]
 pub struct CancelHandle {
@@ -664,6 +667,53 @@ impl TryFrom<&HttpResponseInfo> for ImageModelResponseMetadata {
     }
 }
 
+/// AI SDK-style response metadata for video-model helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VideoModelResponseMetadata {
+    /// Timestamp for the start of the response.
+    pub timestamp: DateTime<Utc>,
+    /// Model identifier used for the response.
+    #[serde(rename = "modelId")]
+    pub model_id: String,
+    /// HTTP response headers when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Provider-specific metadata for this call when available.
+    #[serde(rename = "providerMetadata", skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<VideoModelProviderMetadata>,
+}
+
+impl VideoModelResponseMetadata {
+    /// Attach provider metadata when it is not empty.
+    pub fn with_provider_metadata(mut self, provider_metadata: VideoModelProviderMetadata) -> Self {
+        if !provider_metadata.is_empty() {
+            self.provider_metadata = Some(provider_metadata);
+        }
+        self
+    }
+}
+
+impl TryFrom<HttpResponseInfo> for VideoModelResponseMetadata {
+    type Error = &'static str;
+
+    fn try_from(value: HttpResponseInfo) -> Result<Self, Self::Error> {
+        Self::try_from(&value)
+    }
+}
+
+impl TryFrom<&HttpResponseInfo> for VideoModelResponseMetadata {
+    type Error = &'static str;
+
+    fn try_from(value: &HttpResponseInfo) -> Result<Self, Self::Error> {
+        Ok(Self {
+            timestamp: value.timestamp,
+            model_id: value.model_id.clone().ok_or("missing response model id")?,
+            headers: (!value.headers.is_empty()).then_some(value.headers.clone()),
+            provider_metadata: None,
+        })
+    }
+}
+
 /// AI SDK-style response metadata for speech-model helpers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpeechModelResponseMetadata {
@@ -929,5 +979,37 @@ mod tests {
         assert_eq!(language.cached_input_tokens, Some(3));
         assert_eq!(language.output_token_details.reasoning_tokens, Some(2));
         assert_eq!(language.raw, None);
+    }
+
+    #[test]
+    fn video_model_response_metadata_attaches_non_empty_provider_metadata() {
+        let metadata = VideoModelResponseMetadata::try_from(&HttpResponseInfo {
+            timestamp: Utc::now(),
+            model_id: Some("video-model".to_string()),
+            headers: HashMap::from([("x-video".to_string(), "1".to_string())]),
+        })
+        .expect("valid video response metadata")
+        .with_provider_metadata(HashMap::from([(
+            "fake-video".to_string(),
+            serde_json::json!({ "taskId": "task-1" }),
+        )]));
+
+        assert_eq!(metadata.model_id, "video-model");
+        assert_eq!(
+            metadata
+                .headers
+                .as_ref()
+                .and_then(|headers| headers.get("x-video")),
+            Some(&"1".to_string())
+        );
+        assert_eq!(
+            metadata
+                .provider_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.get("fake-video"))
+                .and_then(|value| value.get("taskId"))
+                .and_then(serde_json::Value::as_str),
+            Some("task-1")
+        );
     }
 }

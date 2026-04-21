@@ -1574,7 +1574,7 @@ pub mod prelude {
             ResponseMetadata, SchemaValidator, SpeechModelResponseMetadata, StreamRequestOptions,
             SttRequest, SttResponse, TimeoutConfiguration, TimeoutConfigurationSettings, Tool,
             ToolChoice, TranscriptionModelResponseMetadata, TtsRequest, TtsResponse, Usage,
-            Warning,
+            VideoModelProviderMetadata, VideoModelResponseMetadata, Warning,
         };
 
         pub mod registry {
