@@ -2,40 +2,8 @@
 //!
 //! Provides first-class cancellation handles for streams and long-running operations.
 
+pub use crate::types::CancelHandle;
 use std::future::Future;
-use tokio_util::sync::CancellationToken;
-
-/// A handle that can be used to request cancellation.
-#[derive(Clone, Debug)]
-pub struct CancelHandle {
-    token: CancellationToken,
-}
-
-impl CancelHandle {
-    /// Create a new cancel handle.
-    fn new() -> Self {
-        Self {
-            token: CancellationToken::new(),
-        }
-    }
-
-    /// Request cancellation. Any wrapped streams/futures observing this handle
-    /// will stop as soon as possible. Dropping the cancelled stream will close
-    /// the underlying HTTP connection so providers stop generating tokens.
-    pub fn cancel(&self) {
-        self.token.cancel();
-    }
-
-    /// Check if cancellation was requested.
-    pub fn is_cancelled(&self) -> bool {
-        self.token.is_cancelled()
-    }
-
-    /// A future that resolves when cancellation is requested.
-    pub fn cancelled(&self) -> tokio_util::sync::WaitForCancellationFuture<'_> {
-        self.token.cancelled()
-    }
-}
 
 // Stream-based cancellation is implemented via async_stream to avoid pin projection.
 
@@ -44,7 +12,7 @@ pub fn make_cancellable_stream(
     stream: crate::streaming::ChatStream,
 ) -> (crate::streaming::ChatStream, CancelHandle) {
     let handle = CancelHandle::new();
-    let token = handle.token.clone();
+    let token = handle.token();
     let mut inner = stream;
     let s = async_stream::stream! {
         use futures::StreamExt;
@@ -76,7 +44,7 @@ where
         + 'static,
 {
     let cancel = CancelHandle::new();
-    let token = cancel.token.clone();
+    let token = cancel.token();
     let future = std::sync::Mutex::new(Some(future));
 
     let s = async_stream::stream! {
@@ -138,7 +106,7 @@ where
         + 'static,
 {
     let cancel = CancelHandle::new();
-    let token = cancel.token.clone();
+    let token = cancel.token();
     let future = std::sync::Mutex::new(Some(future));
 
     let s = async_stream::stream! {

@@ -6,6 +6,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- Stable shared request-facing transport types are now exposed on the Rust facade:
+  `CancelHandle`, `TimeoutConfiguration`, `TimeoutConfigurationSettings`, and `RequestOptions`
+  live on `siumai::types::*` / `siumai::prelude::unified::*`; runtime stream internals now also
+  reuse the shared `CancelHandle` type owned by `siumai-spec`, and this slice is tracked under
+  `docs/workstreams/request-options-alignment/`.
 - Stable shared `LanguageModelCallOptions` / `LanguageModelReasoning` are now exposed on the Rust
   facade as AI SDK-style model-facing generation-control projections from `CommonParams`;
   `CommonParamsBuilder` now also supports `max_completion_tokens`, `CommonParams::cache_hash()`

@@ -8,6 +8,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ChatResponse>();
     let _ = size_of::<JSONValue>();
     let _ = size_of::<CallWarning>();
+    let _ = size_of::<CancelHandle>();
     let _ = size_of::<CompletionRequest>();
     let _ = size_of::<CompletionResponse>();
     let _ = size_of::<EmbeddingModelUsage>();
@@ -23,8 +24,11 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LanguageModelResponseMetadata>();
     let _ = size_of::<LanguageModelUsage>();
     let _ = size_of::<ProviderMetadata>();
+    let _ = size_of::<RequestOptions>();
     let _ = size_of::<StreamRequestOptions>();
     let _ = size_of::<SpeechModelResponseMetadata>();
+    let _ = size_of::<TimeoutConfiguration>();
+    let _ = size_of::<TimeoutConfigurationSettings>();
     let _ = size_of::<TranscriptionModelResponseMetadata>();
     let _ = size_of::<ProviderOptionsMap>();
     let _ = size_of::<LlmError>();

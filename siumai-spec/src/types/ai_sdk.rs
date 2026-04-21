@@ -11,6 +11,8 @@ use super::{
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::time::Duration;
+use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 
 /// AI SDK-style JSON value alias.
 pub type JSONValue = serde_json::Value;
@@ -23,6 +25,267 @@ pub type ProviderMetadata = ProviderMetadataMap;
 
 /// AI SDK-style shared image-provider metadata root.
 pub type ImageModelProviderMetadata = ProviderMetadata;
+
+/// A cloneable cancellation handle for request-scoped abort semantics.
+#[derive(Clone, Debug, Default)]
+pub struct CancelHandle {
+    token: CancellationToken,
+}
+
+impl CancelHandle {
+    /// Create a new cancellation handle.
+    pub fn new() -> Self {
+        Self {
+            token: CancellationToken::new(),
+        }
+    }
+
+    /// Request cancellation.
+    pub fn cancel(&self) {
+        self.token.cancel();
+    }
+
+    /// Whether cancellation was requested.
+    pub fn is_cancelled(&self) -> bool {
+        self.token.is_cancelled()
+    }
+
+    /// Future that resolves when cancellation is requested.
+    pub fn cancelled(&self) -> WaitForCancellationFuture<'_> {
+        self.token.cancelled()
+    }
+
+    /// Clone the underlying cancellation token for integrations that need it directly.
+    pub fn token(&self) -> CancellationToken {
+        self.token.clone()
+    }
+}
+
+/// Structured timeout configuration details for request-facing controls.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct TimeoutConfigurationSettings {
+    /// Total timeout in milliseconds.
+    #[serde(rename = "totalMs", skip_serializing_if = "Option::is_none")]
+    pub total_ms: Option<u64>,
+    /// Per-step timeout in milliseconds.
+    #[serde(rename = "stepMs", skip_serializing_if = "Option::is_none")]
+    pub step_ms: Option<u64>,
+    /// Timeout between stream chunks in milliseconds.
+    #[serde(rename = "chunkMs", skip_serializing_if = "Option::is_none")]
+    pub chunk_ms: Option<u64>,
+    /// Default timeout for all tools in milliseconds.
+    #[serde(rename = "toolMs", skip_serializing_if = "Option::is_none")]
+    pub tool_ms: Option<u64>,
+    /// Per-tool timeout overrides keyed by the AI SDK-style `{toolName}Ms` suffix form.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub tools: HashMap<String, u64>,
+}
+
+impl TimeoutConfigurationSettings {
+    /// Create empty timeout settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set total timeout in milliseconds.
+    pub const fn with_total_ms(mut self, total_ms: u64) -> Self {
+        self.total_ms = Some(total_ms);
+        self
+    }
+
+    /// Set per-step timeout in milliseconds.
+    pub const fn with_step_ms(mut self, step_ms: u64) -> Self {
+        self.step_ms = Some(step_ms);
+        self
+    }
+
+    /// Set between-chunk timeout in milliseconds.
+    pub const fn with_chunk_ms(mut self, chunk_ms: u64) -> Self {
+        self.chunk_ms = Some(chunk_ms);
+        self
+    }
+
+    /// Set default tool timeout in milliseconds.
+    pub const fn with_tool_ms(mut self, tool_ms: u64) -> Self {
+        self.tool_ms = Some(tool_ms);
+        self
+    }
+
+    /// Set a tool-specific timeout in milliseconds.
+    pub fn with_tool_timeout_ms(mut self, tool_name: impl AsRef<str>, timeout_ms: u64) -> Self {
+        self.tools
+            .insert(format!("{}Ms", tool_name.as_ref()), timeout_ms);
+        self
+    }
+
+    /// Resolve the tool timeout for the given tool name.
+    pub fn tool_timeout_ms(&self, tool_name: &str) -> Option<u64> {
+        self.tools
+            .get(&format!("{tool_name}Ms"))
+            .copied()
+            .or(self.tool_ms)
+    }
+}
+
+/// AI SDK-style timeout configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum TimeoutConfiguration {
+    /// A single total timeout in milliseconds.
+    Millis(u64),
+    /// Structured timeout configuration.
+    Settings(TimeoutConfigurationSettings),
+}
+
+impl TimeoutConfiguration {
+    /// Create a total-timeout configuration from milliseconds.
+    pub const fn from_millis(total_ms: u64) -> Self {
+        Self::Millis(total_ms)
+    }
+
+    /// Create a structured timeout configuration.
+    pub fn settings(settings: TimeoutConfigurationSettings) -> Self {
+        Self::Settings(settings)
+    }
+
+    /// Total timeout in milliseconds.
+    pub const fn total_timeout_ms(&self) -> Option<u64> {
+        match self {
+            Self::Millis(total_ms) => Some(*total_ms),
+            Self::Settings(settings) => settings.total_ms,
+        }
+    }
+
+    /// Per-step timeout in milliseconds.
+    pub const fn step_timeout_ms(&self) -> Option<u64> {
+        match self {
+            Self::Millis(_) => None,
+            Self::Settings(settings) => settings.step_ms,
+        }
+    }
+
+    /// Per-chunk timeout in milliseconds.
+    pub const fn chunk_timeout_ms(&self) -> Option<u64> {
+        match self {
+            Self::Millis(_) => None,
+            Self::Settings(settings) => settings.chunk_ms,
+        }
+    }
+
+    /// Per-tool timeout in milliseconds.
+    pub fn tool_timeout_ms(&self, tool_name: &str) -> Option<u64> {
+        match self {
+            Self::Millis(_) => None,
+            Self::Settings(settings) => settings.tool_timeout_ms(tool_name),
+        }
+    }
+
+    /// Total timeout as a `Duration`.
+    pub fn total_timeout(&self) -> Option<Duration> {
+        self.total_timeout_ms().map(Duration::from_millis)
+    }
+
+    /// Step timeout as a `Duration`.
+    pub fn step_timeout(&self) -> Option<Duration> {
+        self.step_timeout_ms().map(Duration::from_millis)
+    }
+
+    /// Chunk timeout as a `Duration`.
+    pub fn chunk_timeout(&self) -> Option<Duration> {
+        self.chunk_timeout_ms().map(Duration::from_millis)
+    }
+}
+
+/// AI SDK-style request-facing transport controls.
+#[derive(Debug, Clone, Default)]
+pub struct RequestOptions {
+    /// Maximum number of retries. `0` disables retries.
+    pub max_retries: Option<u32>,
+    /// Request-scoped abort signal.
+    pub abort_signal: Option<CancelHandle>,
+    /// Additional HTTP headers. `None` values are filtered when materialized.
+    pub headers: HashMap<String, Option<String>>,
+    /// Timeout configuration.
+    pub timeout: Option<TimeoutConfiguration>,
+}
+
+impl RequestOptions {
+    /// Create empty request options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set max retries.
+    pub const fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = Some(max_retries);
+        self
+    }
+
+    /// Set the abort signal.
+    pub fn with_abort_signal(mut self, abort_signal: CancelHandle) -> Self {
+        self.abort_signal = Some(abort_signal);
+        self
+    }
+
+    /// Set a request header.
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), Some(value.into()));
+        self
+    }
+
+    /// Mark a header as intentionally omitted.
+    pub fn without_header(mut self, key: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), None);
+        self
+    }
+
+    /// Set timeout configuration.
+    pub fn with_timeout(mut self, timeout: TimeoutConfiguration) -> Self {
+        self.timeout = Some(timeout);
+        self
+    }
+
+    /// Materialize only the headers with concrete values.
+    pub fn effective_headers(&self) -> HashMap<String, String> {
+        self.headers
+            .iter()
+            .filter_map(|(key, value)| value.clone().map(|value| (key.clone(), value)))
+            .collect()
+    }
+
+    /// Total timeout as a `Duration`.
+    pub fn total_timeout(&self) -> Option<Duration> {
+        self.timeout
+            .as_ref()
+            .and_then(TimeoutConfiguration::total_timeout)
+    }
+
+    /// Step timeout as a `Duration`.
+    pub fn step_timeout(&self) -> Option<Duration> {
+        self.timeout
+            .as_ref()
+            .and_then(TimeoutConfiguration::step_timeout)
+    }
+
+    /// Chunk timeout as a `Duration`.
+    pub fn chunk_timeout(&self) -> Option<Duration> {
+        self.timeout
+            .as_ref()
+            .and_then(TimeoutConfiguration::chunk_timeout)
+    }
+
+    /// Per-tool timeout in milliseconds.
+    pub fn tool_timeout_ms(&self, tool_name: &str) -> Option<u64> {
+        self.timeout
+            .as_ref()
+            .and_then(|timeout| timeout.tool_timeout_ms(tool_name))
+    }
+
+    /// Convert retries into total attempts, where `0` retries means `1` attempt.
+    pub fn max_attempts(&self) -> Option<u32> {
+        self.max_retries.map(|retries| retries.saturating_add(1))
+    }
+}
 
 /// AI SDK-style reasoning level for language-model call options.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -551,6 +814,51 @@ mod tests {
 
         assert_eq!(image.model_id, "model-1");
         assert_eq!(transcription.model_id, "model-1");
+    }
+
+    #[test]
+    fn cancel_handle_and_request_timeout_helpers_work() {
+        let cancel = CancelHandle::new();
+        assert!(!cancel.is_cancelled());
+        cancel.cancel();
+        assert!(cancel.is_cancelled());
+
+        let timeout = TimeoutConfiguration::settings(
+            TimeoutConfigurationSettings::new()
+                .with_total_ms(3_000)
+                .with_step_ms(1_000)
+                .with_chunk_ms(250)
+                .with_tool_ms(900)
+                .with_tool_timeout_ms("weather", 1200),
+        );
+
+        let request = RequestOptions::new()
+            .with_max_retries(2)
+            .with_abort_signal(cancel)
+            .with_header("x-test", "1")
+            .without_header("x-drop")
+            .with_timeout(timeout.clone());
+
+        assert_eq!(timeout.total_timeout_ms(), Some(3_000));
+        assert_eq!(timeout.step_timeout_ms(), Some(1_000));
+        assert_eq!(timeout.chunk_timeout_ms(), Some(250));
+        assert_eq!(timeout.tool_timeout_ms("weather"), Some(1_200));
+        assert_eq!(timeout.tool_timeout_ms("other"), Some(900));
+        assert_eq!(request.max_attempts(), Some(3));
+        assert_eq!(
+            request.effective_headers(),
+            HashMap::from([("x-test".to_string(), "1".to_string())])
+        );
+        assert_eq!(request.total_timeout(), Some(Duration::from_millis(3_000)));
+        assert_eq!(request.step_timeout(), Some(Duration::from_millis(1_000)));
+        assert_eq!(request.chunk_timeout(), Some(Duration::from_millis(250)));
+        assert_eq!(request.tool_timeout_ms("weather"), Some(1_200));
+        assert!(
+            request
+                .abort_signal
+                .as_ref()
+                .is_some_and(CancelHandle::is_cancelled)
+        );
     }
 
     #[test]

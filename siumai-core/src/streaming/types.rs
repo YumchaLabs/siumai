@@ -44,5 +44,5 @@ pub struct ChatStreamHandle {
     /// The underlying chat stream
     pub stream: ChatStream,
     /// Handle to cancel the stream
-    pub cancel: crate::utils::cancel::CancelHandle,
+    pub cancel: crate::types::CancelHandle,
 }

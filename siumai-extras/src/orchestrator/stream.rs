@@ -33,7 +33,7 @@ pub struct StreamOrchestration {
     /// Receiver for the aggregated normalized usage across all recorded steps.
     pub total_usage: oneshot::Receiver<Option<Usage>>,
     /// A cancel handle to abort the orchestration.
-    pub cancel: siumai::experimental::utils::cancel::CancelHandle,
+    pub cancel: CancelHandle,
 }
 
 struct DisabledToolResolver;

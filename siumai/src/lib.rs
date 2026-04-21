@@ -1559,7 +1559,7 @@ pub mod prelude {
 
         // Core request/response types for the six stable model families.
         pub use siumai_core::types::{
-            AudioStreamEvent, CacheControl, CallWarning, ChatMessage, ChatRequest,
+            AudioStreamEvent, CacheControl, CallWarning, CancelHandle, ChatMessage, ChatRequest,
             ChatRequestBuilder, ChatResponse, CommonParams, CompletionRequest, CompletionResponse,
             CompletionTokensDetails, ContentPart, CustomProviderOptions, EmbeddingModelUsage,
             EmbeddingRequest, EmbeddingResponse, FilePartSource, FinishReason,
@@ -1570,10 +1570,11 @@ pub mod prelude {
             LanguageModelResponseMetadata, LanguageModelUsage, MediaSource, MessageContent,
             MessageMetadata, MessageRole, ModelInfo, OutputSchema, PromptTokensDetails,
             ProviderDefinedTool, ProviderMetadata, ProviderOptionsMap, ProviderReference,
-            ProviderType, RerankRequest, RerankResponse, ResponseFormat, ResponseMetadata,
-            SchemaValidator, SpeechModelResponseMetadata, StreamRequestOptions, SttRequest,
-            SttResponse, Tool, ToolChoice, TranscriptionModelResponseMetadata, TtsRequest,
-            TtsResponse, Usage, Warning,
+            ProviderType, RequestOptions, RerankRequest, RerankResponse, ResponseFormat,
+            ResponseMetadata, SchemaValidator, SpeechModelResponseMetadata, StreamRequestOptions,
+            SttRequest, SttResponse, TimeoutConfiguration, TimeoutConfigurationSettings, Tool,
+            ToolChoice, TranscriptionModelResponseMetadata, TtsRequest, TtsResponse, Usage,
+            Warning,
         };
 
         pub mod registry {
