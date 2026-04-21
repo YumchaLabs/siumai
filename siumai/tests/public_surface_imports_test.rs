@@ -117,6 +117,72 @@ fn public_surface_unified_imports_compile() {
     assert_eq!(tool_result.tool_call_id, "call_1");
 }
 
+#[tokio::test]
+async fn public_surface_tooling_imports_compile() {
+    use futures::StreamExt;
+    use siumai::tooling::{
+        ExecutableTool, ExecutableTools, ToolExecutionOptions, ToolExecutionResult, ToolSet,
+        dynamic_tool, execute_tool, is_executable_tool, tool,
+    };
+    use siumai::types::Tool;
+
+    let tool = tool(Tool::function(
+        "search",
+        "Search tool",
+        serde_json::json!({ "type": "object" }),
+    ))
+    .with_execute_stream_fn(|_args, options| {
+        assert_eq!(options.tool_call_id, "call_public");
+        Box::pin(futures::stream::iter(vec![Ok(
+            serde_json::json!({ "ok": true }),
+        )]))
+    });
+
+    assert!(is_executable_tool(Some(&tool)));
+
+    let dynamic = dynamic_tool(Tool::function(
+        "dynamic_search",
+        "Dynamic search tool",
+        serde_json::json!({ "type": "object" }),
+    ));
+    assert!(dynamic.runtime_metadata().dynamic());
+
+    let mut results = execute_tool(
+        &tool,
+        serde_json::json!({ "q": "rust" }),
+        ToolExecutionOptions::new("call_public"),
+    )
+    .await
+    .expect("execute tool");
+
+    let first = results
+        .next()
+        .await
+        .expect("preliminary result")
+        .expect("preliminary ok");
+    assert!(matches!(first, ToolExecutionResult::Preliminary { .. }));
+
+    let second = results
+        .next()
+        .await
+        .expect("final result")
+        .expect("final ok");
+    assert!(matches!(second, ToolExecutionResult::Final { .. }));
+
+    let tools: ToolSet = ExecutableTools::from_tools([ExecutableTool::function(
+        "echo",
+        "Echo tool",
+        serde_json::json!({ "type": "object" }),
+        |args| async move { Ok(args) },
+    )]);
+
+    let out = tools
+        .execute("echo", serde_json::json!({ "hello": "world" }))
+        .await
+        .expect("execute by name");
+    assert_eq!(out["hello"], serde_json::json!("world"));
+}
+
 #[test]
 fn registry_handles_compile_as_family_models() {
     use siumai::completion::{CompletionModel, CompletionModelV3};

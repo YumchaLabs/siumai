@@ -11,17 +11,122 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
 
+use async_stream::try_stream;
+use futures::StreamExt;
 use futures::future::BoxFuture;
+use futures::stream::{self, BoxStream};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::LlmError;
-use crate::types::{ChatMessage, Tool, ToolResultOutput};
+use crate::types::{CancelHandle, ChatMessage, Context, ModelMessage, Tool, ToolResultOutput};
 
 /// Async execution function signature for tools.
 pub type ToolExecuteFn =
     Arc<dyn Fn(Value) -> BoxFuture<'static, Result<Value, LlmError>> + Send + Sync>;
+
+/// Async execution function signature for tools that need AI SDK-style execution options.
+pub type ToolExecuteWithOptionsFn = Arc<
+    dyn Fn(Value, ToolExecutionOptions) -> BoxFuture<'static, Result<Value, LlmError>>
+        + Send
+        + Sync,
+>;
+
+/// Raw streaming execution output for tools that produce intermediate values.
+pub type ToolExecuteValueStream = BoxStream<'static, Result<Value, LlmError>>;
+
+/// Streaming execution function signature for tools that emit raw intermediate values.
+///
+/// `execute_tool(...)` normalizes this raw stream into `ToolExecutionResult` events by emitting
+/// every streamed value as `preliminary` and replaying the last value as `final`.
+pub type ToolExecuteStreamFn =
+    Arc<dyn Fn(Value, ToolExecutionOptions) -> ToolExecuteValueStream + Send + Sync>;
+
+/// AI SDK-style execution options passed into runtime tool execution helpers.
+#[derive(Debug, Clone, Default)]
+pub struct ToolExecutionOptions {
+    pub tool_call_id: String,
+    pub messages: Vec<ModelMessage>,
+    pub abort_signal: Option<CancelHandle>,
+    pub context: Context,
+}
+
+impl ToolExecutionOptions {
+    /// Create empty execution options for a tool call id.
+    pub fn new(tool_call_id: impl Into<String>) -> Self {
+        Self {
+            tool_call_id: tool_call_id.into(),
+            ..Self::default()
+        }
+    }
+
+    /// Attach prompt/model messages that initiated the tool call.
+    pub fn with_messages(mut self, messages: Vec<ModelMessage>) -> Self {
+        self.messages = messages;
+        self
+    }
+
+    /// Attach a cancellation handle that tool implementations may observe.
+    pub fn with_abort_signal(mut self, abort_signal: CancelHandle) -> Self {
+        self.abort_signal = Some(abort_signal);
+        self
+    }
+
+    /// Replace the user-defined runtime context object.
+    pub fn with_context(mut self, context: Context) -> Self {
+        self.context = context;
+        self
+    }
+}
+
+/// Normalized tool execution result for AI SDK-style helper/runtime parity.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolExecutionResult {
+    /// Preliminary/intermediate output while the tool is still running.
+    Preliminary { output: Value },
+    /// Final output of the tool execution.
+    Final { output: Value },
+}
+
+impl ToolExecutionResult {
+    /// Create a preliminary result.
+    pub fn preliminary(output: Value) -> Self {
+        Self::Preliminary { output }
+    }
+
+    /// Create a final result.
+    pub fn final_result(output: Value) -> Self {
+        Self::Final { output }
+    }
+
+    /// Check whether this result is preliminary.
+    pub fn is_preliminary(&self) -> bool {
+        matches!(self, Self::Preliminary { .. })
+    }
+
+    /// Check whether this result is final.
+    pub fn is_final(&self) -> bool {
+        matches!(self, Self::Final { .. })
+    }
+
+    /// Borrow the output payload.
+    pub fn output(&self) -> &Value {
+        match self {
+            Self::Preliminary { output } | Self::Final { output } => output,
+        }
+    }
+
+    /// Consume the result and return its output payload.
+    pub fn into_output(self) -> Value {
+        match self {
+            Self::Preliminary { output } | Self::Final { output } => output,
+        }
+    }
+}
+
+/// Normalized tool execution stream returned by AI SDK-style helper/runtime wrappers.
+pub type ToolExecutionStream = BoxStream<'static, Result<ToolExecutionResult, LlmError>>;
 
 /// Context passed to runtime tool-result model-output mappers.
 #[derive(Debug, Clone)]
@@ -200,6 +305,8 @@ impl ToolRuntimeMetadata {
 pub struct ExecutableTool {
     tool: Tool,
     execute: Option<ToolExecuteFn>,
+    execute_with_options: Option<ToolExecuteWithOptionsFn>,
+    execute_stream: Option<ToolExecuteStreamFn>,
     to_model_output: Option<ToolModelOutputFn>,
     runtime_metadata: ToolRuntimeMetadata,
 }
@@ -208,7 +315,12 @@ impl std::fmt::Debug for ExecutableTool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ExecutableTool")
             .field("name", &self.name())
-            .field("has_execute", &self.execute.is_some())
+            .field("has_execute", &self.has_execute())
+            .field(
+                "has_execute_with_options",
+                &self.execute_with_options.is_some(),
+            )
+            .field("has_execute_stream", &self.execute_stream.is_some())
             .field("has_to_model_output", &self.to_model_output.is_some())
             .field("runtime_metadata", &self.runtime_metadata)
             .finish()
@@ -221,6 +333,8 @@ impl ExecutableTool {
         Self {
             tool,
             execute: None,
+            execute_with_options: None,
+            execute_stream: None,
             to_model_output: None,
             runtime_metadata: ToolRuntimeMetadata::default(),
         }
@@ -228,7 +342,53 @@ impl ExecutableTool {
 
     /// Bind an executor to an existing tool schema.
     pub fn with_execute(mut self, execute: ToolExecuteFn) -> Self {
+        self.execute_with_options = None;
+        self.execute_stream = None;
         self.execute = Some(execute);
+        self
+    }
+
+    /// Bind an executor that receives AI SDK-style execution options.
+    pub fn with_execute_with_options(mut self, execute: ToolExecuteWithOptionsFn) -> Self {
+        self.execute = None;
+        self.execute_stream = None;
+        self.execute_with_options = Some(execute);
+        self
+    }
+
+    /// Bind a streaming executor that emits raw intermediate values.
+    pub fn with_execute_stream(mut self, execute: ToolExecuteStreamFn) -> Self {
+        self.execute = None;
+        self.execute_with_options = None;
+        self.execute_stream = Some(execute);
+        self
+    }
+
+    /// Bind an executor that receives AI SDK-style execution options.
+    pub fn with_execute_with_options_fn<F, Fut>(mut self, execute: F) -> Self
+    where
+        F: Fn(Value, ToolExecutionOptions) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Value, LlmError>> + Send + 'static,
+    {
+        self.execute = None;
+        self.execute_stream = None;
+        self.execute_with_options = Some(Arc::new(move |args, options| {
+            Box::pin(execute(args, options))
+        }));
+        self
+    }
+
+    /// Bind a streaming executor that emits raw intermediate values.
+    pub fn with_execute_stream_fn<F, S>(mut self, execute: F) -> Self
+    where
+        F: Fn(Value, ToolExecutionOptions) -> S + Send + Sync + 'static,
+        S: futures::Stream<Item = Result<Value, LlmError>> + Send + 'static,
+    {
+        self.execute = None;
+        self.execute_with_options = None;
+        self.execute_stream = Some(Arc::new(move |args, options| {
+            Box::pin(execute(args, options))
+        }));
         self
     }
 
@@ -358,6 +518,8 @@ impl ExecutableTool {
         Self {
             tool,
             execute: Some(exec),
+            execute_with_options: None,
+            execute_stream: None,
             to_model_output: None,
             runtime_metadata: ToolRuntimeMetadata::default(),
         }
@@ -418,6 +580,8 @@ impl ExecutableTool {
         Self {
             tool,
             execute: Some(exec),
+            execute_with_options: None,
+            execute_stream: None,
             to_model_output: None,
             runtime_metadata: ToolRuntimeMetadata::default(),
         }
@@ -459,15 +623,50 @@ impl ExecutableTool {
         &self.runtime_metadata
     }
 
+    /// Whether this tool exposes any executable runtime binding.
+    pub const fn has_execute(&self) -> bool {
+        self.execute.is_some()
+            || self.execute_with_options.is_some()
+            || self.execute_stream.is_some()
+    }
+
+    /// Execute the tool as a normalized preliminary/final stream with AI SDK-style options.
+    pub async fn execute_stream(
+        &self,
+        args: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<ToolExecutionStream, LlmError> {
+        execute_tool(self, args, options).await
+    }
+
     /// Execute the tool with JSON arguments.
     pub async fn execute_json(&self, args: Value) -> Result<Value, LlmError> {
-        let exec = self.execute.as_ref().ok_or_else(|| {
-            LlmError::UnsupportedOperation(format!(
-                "Tool '{}' does not have an executor bound.",
+        self.execute_json_with_options(args, ToolExecutionOptions::default())
+            .await
+    }
+
+    /// Execute the tool with JSON arguments and AI SDK-style execution options.
+    pub async fn execute_json_with_options(
+        &self,
+        args: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<Value, LlmError> {
+        let mut stream = self.execute_stream(args, options).await?;
+        let mut final_output = None;
+
+        while let Some(item) = stream.next().await {
+            match item? {
+                ToolExecutionResult::Final { output } => final_output = Some(output),
+                ToolExecutionResult::Preliminary { .. } => {}
+            }
+        }
+
+        final_output.ok_or_else(|| {
+            LlmError::InternalError(format!(
+                "Tool '{}' did not emit a final execution result.",
                 self.name()
             ))
-        })?;
-        exec(args).await
+        })
     }
 
     /// Convert a runtime tool result into a stable model-facing output.
@@ -479,6 +678,80 @@ impl ExecutableTool {
             Some(mapper) => mapper(context).map(Some),
             None => Ok(None),
         }
+    }
+}
+
+/// Alias aligned with AI SDK `ToolSet`.
+pub type ToolSet = ExecutableTools;
+
+/// AI SDK-style helper for wrapping a portable `Tool` into an executable runtime carrier.
+pub fn tool(tool: impl Into<ExecutableTool>) -> ExecutableTool {
+    tool.into()
+}
+
+/// AI SDK-style helper for marking a runtime-defined tool.
+pub fn dynamic_tool(tool: impl Into<ExecutableTool>) -> ExecutableTool {
+    tool.into().with_dynamic(true)
+}
+
+/// AI SDK-style helper for checking whether a tool has an execute binding.
+pub fn is_executable_tool(tool: Option<&ExecutableTool>) -> bool {
+    tool.is_some_and(ExecutableTool::has_execute)
+}
+
+/// Execute a tool and normalize its outputs into preliminary/final events.
+pub async fn execute_tool(
+    tool: &ExecutableTool,
+    input: Value,
+    options: ToolExecutionOptions,
+) -> Result<ToolExecutionStream, LlmError> {
+    if let Some(execute_stream) = &tool.execute_stream {
+        let tool_name = tool.name().to_string();
+        let mut stream = execute_stream(input, options);
+
+        return Ok(Box::pin(try_stream! {
+            let mut last_output = None;
+
+            while let Some(output) = stream.next().await {
+                let output = output?;
+                last_output = Some(output.clone());
+                yield ToolExecutionResult::preliminary(output);
+            }
+
+            let final_output = last_output.ok_or_else(|| {
+                LlmError::InternalError(format!(
+                    "Tool '{}' returned an empty execution stream.",
+                    tool_name
+                ))
+            })?;
+
+            yield ToolExecutionResult::final_result(final_output);
+        }));
+    }
+
+    if let Some(execute_with_options) = &tool.execute_with_options {
+        let output = execute_with_options(input, options).await?;
+        return Ok(Box::pin(stream::once(async move {
+            Ok(ToolExecutionResult::final_result(output))
+        })));
+    }
+
+    if let Some(execute) = &tool.execute {
+        let output = execute(input).await?;
+        return Ok(Box::pin(stream::once(async move {
+            Ok(ToolExecutionResult::final_result(output))
+        })));
+    }
+
+    Err(LlmError::UnsupportedOperation(format!(
+        "Tool '{}' does not have an executor bound.",
+        tool.name()
+    )))
+}
+
+impl From<Tool> for ExecutableTool {
+    fn from(tool: Tool) -> Self {
+        Self::new(tool)
     }
 }
 
@@ -542,10 +815,34 @@ impl ExecutableTools {
 
     /// Execute a tool by name.
     pub async fn execute(&self, name: &str, args: Value) -> Result<Value, LlmError> {
+        self.execute_with_options(name, args, ToolExecutionOptions::default())
+            .await
+    }
+
+    /// Execute a tool by name with AI SDK-style execution options.
+    pub async fn execute_with_options(
+        &self,
+        name: &str,
+        args: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<Value, LlmError> {
         let tool = self
             .get(name)
             .ok_or_else(|| LlmError::NotFound(format!("Tool not found: '{name}'")))?;
-        tool.execute_json(args).await
+        tool.execute_json_with_options(args, options).await
+    }
+
+    /// Execute a tool by name as a normalized preliminary/final stream.
+    pub async fn execute_stream(
+        &self,
+        name: &str,
+        args: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<ToolExecutionStream, LlmError> {
+        let tool = self
+            .get(name)
+            .ok_or_else(|| LlmError::NotFound(format!("Tool not found: '{name}'")))?;
+        tool.execute_stream(args, options).await
     }
 
     /// Convert a runtime tool result into a stable model-facing output by tool name.
@@ -620,6 +917,71 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(out, serde_json::json!({"a":1}));
+    }
+
+    #[tokio::test]
+    async fn execute_tool_normalizes_streaming_outputs() {
+        let tool = tool(Tool::function(
+            "search",
+            "Search tool",
+            serde_json::json!({ "type": "object" }),
+        ))
+        .with_execute_stream_fn(|_args, options| {
+            assert_eq!(options.tool_call_id, "call_1");
+            Box::pin(futures::stream::iter(vec![
+                Ok(serde_json::json!({ "progress": 50 })),
+                Ok(serde_json::json!({ "progress": 100 })),
+            ]))
+        });
+
+        let results = execute_tool(
+            &tool,
+            serde_json::json!({ "q": "rust" }),
+            ToolExecutionOptions::new("call_1"),
+        )
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(results.len(), 3);
+        assert_eq!(
+            results[0].as_ref().unwrap(),
+            &ToolExecutionResult::preliminary(serde_json::json!({ "progress": 50 }))
+        );
+        assert_eq!(
+            results[1].as_ref().unwrap(),
+            &ToolExecutionResult::preliminary(serde_json::json!({ "progress": 100 }))
+        );
+        assert_eq!(
+            results[2].as_ref().unwrap(),
+            &ToolExecutionResult::final_result(serde_json::json!({ "progress": 100 }))
+        );
+    }
+
+    #[tokio::test]
+    async fn tool_set_executes_streams_with_options() {
+        let tools = ExecutableTools::from_tools([tool(Tool::function(
+            "search",
+            "Search tool",
+            serde_json::json!({ "type": "object" }),
+        ))
+        .with_execute_with_options_fn(|args, options| async move {
+            assert_eq!(args["q"], serde_json::json!("rust"));
+            assert_eq!(options.tool_call_id, "call_2");
+            Ok(serde_json::json!({ "ok": true }))
+        })]);
+
+        let out = tools
+            .execute_with_options(
+                "search",
+                serde_json::json!({ "q": "rust" }),
+                ToolExecutionOptions::new("call_2"),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(out, serde_json::json!({ "ok": true }));
     }
 
     #[test]
@@ -751,6 +1113,25 @@ mod tests {
                 })
                 .await
                 .unwrap()
+        );
+    }
+
+    #[test]
+    fn executable_tool_helpers_match_ai_sdk_style_facade() {
+        let executable = tool(Tool::function(
+            "weather",
+            "Weather tool",
+            serde_json::json!({ "type": "object" }),
+        ));
+        assert!(!is_executable_tool(Some(&executable)));
+
+        let executable =
+            executable.with_execute(Arc::new(|args| Box::pin(async move { Ok(args) })));
+        assert!(is_executable_tool(Some(&executable)));
+        assert!(
+            dynamic_tool(executable.clone())
+                .runtime_metadata()
+                .dynamic()
         );
     }
 }

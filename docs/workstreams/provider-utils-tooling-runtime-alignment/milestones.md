@@ -1,0 +1,41 @@
+# Provider Utils Tooling Runtime Alignment - Milestones
+
+Last updated: 2026-04-21
+
+## M1 - Shared execution uplift
+
+Status: in progress
+
+- move normalized `preliminary` / `final` tool execution results into `siumai-core::tooling`
+- keep backward compatibility for one-shot `ExecutableTool` executors
+- add shared execution options and normalized execution stream helpers
+
+## M2 - AI SDK-style tooling facade
+
+Status: in progress
+
+- expose `ToolSet`, `tool(...)`, `dynamic_tool(...)`, `is_executable_tool(...)`,
+  and `execute_tool(...)`
+- add public compile guards for the new tooling surface
+
+## M3 - Extras integration
+
+Status: in progress
+
+- remove extras-owned duplicate `ToolExecutionResult`
+- route `ExecutableTools` resolver execution through shared tooling stream helpers
+
+## M4 - Stable schema builder completion
+
+Status: in progress
+
+- expose `title`, `inputExamples`, `strict`, and function-tool `providerOptions` builders/accessors
+- add stable schema roundtrip coverage
+
+## M5 - Follow-up audit
+
+Status: deferred
+
+- decide whether to unify runtime callback contexts and shared execution options on one message
+  carrier
+- evaluate remaining `provider-utils` infer/helper surfaces

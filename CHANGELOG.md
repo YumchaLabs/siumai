@@ -38,6 +38,15 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   stable `ResponseMetadata` now also preserves optional `headers`, shared warnings now include the
   AI SDK `deprecated` category, and this audit is tracked under
   `docs/workstreams/shared-type-surface-alignment/`.
+- Shared tooling/runtime helpers now align much more closely with AI SDK `provider-utils`:
+  `siumai::tooling` now exposes `ToolExecutionOptions`, `ToolExecutionResult`, streamed
+  `execute_tool(...)`, `ToolSet`, `tool(...)`, `dynamic_tool(...)`, and
+  `is_executable_tool(...)`; `ExecutableTool` now supports both one-shot and streamed execution
+  bindings while normalizing streamed outputs into `preliminary` / `final` results, the extras
+  orchestrator now reuses the shared execution-result type instead of owning a parallel one, and
+  stable tool schemas now expose builders/accessors for `title`, `inputExamples`, `strict`, and
+  function-tool `providerOptions`. This slice is tracked under
+  `docs/workstreams/provider-utils-tooling-runtime-alignment/`.
 - Amazon Bedrock now has provider-owned image generation aligned with the AI SDK
   `image()` / `imageModel()` surface: builder/config-first/registry/public paths all converge on
   the real `/model/{id}/invoke` image runtime, Bedrock now advertises `image_generation`

@@ -456,3 +456,38 @@ fn function_tool_accessors_use_ai_sdk_schema_naming() {
         Some(&serde_json::json!({ "type": "object", "title": "WeatherOutput" }))
     );
 }
+
+#[test]
+fn function_tool_builder_exposes_title_examples_strict_and_provider_options() {
+    let mut provider_options = crate::types::ProviderOptionsMap::default();
+    provider_options.insert("anthropic", serde_json::json!({ "defer_loading": true }));
+    let input_examples = vec![serde_json::json!({
+        "input": { "city": "Tokyo" }
+    })];
+
+    let tool = Tool::function(
+        "weather",
+        "Get weather",
+        serde_json::json!({ "type": "object" }),
+    )
+    .with_title("Weather Tool")
+    .with_input_examples(input_examples.clone())
+    .with_strict(true)
+    .with_provider_options_map(provider_options.clone());
+
+    assert_eq!(tool.title(), Some("Weather Tool"));
+    assert_eq!(tool.input_examples(), Some(input_examples.as_slice()));
+    assert_eq!(tool.strict(), Some(true));
+    assert_eq!(tool.provider_options_map(), Some(&provider_options));
+}
+
+#[test]
+fn provider_defined_tool_roundtrips_optional_title() {
+    let tool = Tool::provider_defined("openai.web_search", "web_search").with_title("Search");
+    let value = serde_json::to_value(&tool).expect("serialize tool");
+
+    assert_eq!(value["title"], serde_json::json!("Search"));
+
+    let decoded: Tool = serde_json::from_value(value).expect("deserialize tool");
+    assert_eq!(decoded.title(), Some("Search"));
+}

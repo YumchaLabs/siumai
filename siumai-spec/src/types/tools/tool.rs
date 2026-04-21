@@ -83,6 +83,25 @@ impl Tool {
         }
     }
 
+    /// Optional display title for the tool.
+    pub fn title(&self) -> Option<&str> {
+        match self {
+            Self::Function { function } => function.title(),
+            Self::ProviderDefined(tool) => tool.title(),
+        }
+    }
+
+    /// Attach an optional display title.
+    pub fn with_title(self, title: impl Into<String>) -> Self {
+        let title = title.into();
+        match self {
+            Self::Function { function } => Self::Function {
+                function: function.with_title(title),
+            },
+            Self::ProviderDefined(tool) => Self::ProviderDefined(tool.with_title(title)),
+        }
+    }
+
     /// Create a function tool with AI SDK-style output schema metadata.
     pub fn function_with_output_schema(
         name: impl Into<String>,
@@ -193,6 +212,58 @@ impl Tool {
         match self {
             Self::Function { function } => Self::Function {
                 function: function.with_output_schema(output_schema),
+            },
+            other => other,
+        }
+    }
+
+    /// Return the optional AI SDK-style input examples metadata.
+    pub fn input_examples(&self) -> Option<&[serde_json::Value]> {
+        self.function_ref().and_then(ToolFunction::input_examples)
+    }
+
+    /// Attach AI SDK-style input examples metadata when this is a function tool.
+    pub fn with_input_examples(
+        self,
+        input_examples: impl IntoIterator<Item = serde_json::Value>,
+    ) -> Self {
+        let input_examples = input_examples.into_iter().collect::<Vec<_>>();
+        match self {
+            Self::Function { function } => Self::Function {
+                function: function.with_input_examples(input_examples),
+            },
+            other => other,
+        }
+    }
+
+    /// Return the optional strict-mode setting.
+    pub fn strict(&self) -> Option<bool> {
+        self.function_ref().and_then(ToolFunction::strict)
+    }
+
+    /// Attach an AI SDK-style strict-mode setting when this is a function tool.
+    pub fn with_strict(self, strict: bool) -> Self {
+        match self {
+            Self::Function { function } => Self::Function {
+                function: function.with_strict(strict),
+            },
+            other => other,
+        }
+    }
+
+    /// Borrow function-tool provider options when this is a function tool.
+    pub fn provider_options_map(&self) -> Option<&crate::types::ProviderOptionsMap> {
+        self.function_ref().map(ToolFunction::provider_options_map)
+    }
+
+    /// Replace function-tool provider options when this is a function tool.
+    pub fn with_provider_options_map(
+        self,
+        provider_options_map: crate::types::ProviderOptionsMap,
+    ) -> Self {
+        match self {
+            Self::Function { function } => Self::Function {
+                function: function.with_provider_options_map(provider_options_map),
             },
             other => other,
         }

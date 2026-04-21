@@ -42,6 +42,9 @@ pub struct ProviderDefinedTool {
     /// Examples: "web_search", "file_search", "code_execution"
     pub name: String,
 
+    /// Optional display title.
+    pub title: Option<String>,
+
     /// Provider-specific configuration arguments.
     ///
     /// This is aligned with Vercel AI SDK's `{ type: "provider", id, name, args }` shape.
@@ -61,10 +64,15 @@ impl serde::Serialize for ProviderDefinedTool {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let field_count = 3 + usize::from(self.supports_deferred_results.is_some());
+        let field_count = 3
+            + usize::from(self.title.is_some())
+            + usize::from(self.supports_deferred_results.is_some());
         let mut st = serializer.serialize_struct("ProviderDefinedTool", field_count)?;
         st.serialize_field("id", &self.id)?;
         st.serialize_field("name", &self.name)?;
+        if let Some(title) = &self.title {
+            st.serialize_field("title", title)?;
+        }
         st.serialize_field("args", &self.args)?;
         if let Some(supports_deferred_results) = self.supports_deferred_results {
             st.serialize_field("supportsDeferredResults", &supports_deferred_results)?;
@@ -85,6 +93,8 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
         struct De {
             id: String,
             name: String,
+            #[serde(default)]
+            title: Option<String>,
             #[serde(default)]
             args: Option<serde_json::Value>,
             #[serde(
@@ -116,6 +126,7 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
         Ok(Self {
             id: de.id,
             name: de.name,
+            title: de.title,
             args,
             supports_deferred_results: de.supports_deferred_results,
         })
@@ -141,9 +152,21 @@ impl ProviderDefinedTool {
         Self {
             id: id.into(),
             name: name.into(),
+            title: None,
             args: serde_json::Value::Object(Default::default()),
             supports_deferred_results: None,
         }
+    }
+
+    /// Optional display title.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Attach a display title.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// Set configuration arguments

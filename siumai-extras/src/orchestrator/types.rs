@@ -9,9 +9,11 @@ use super::prepare_step::PrepareStepFn;
 use super::stop_condition::StopCondition;
 use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai::prelude::unified::*;
-use siumai::tooling::ToolRuntimeMetadata;
+use siumai::tooling::{ToolExecutionOptions, ToolRuntimeMetadata};
 use siumai::types::ProviderMetadataMap;
 use std::collections::HashMap;
+
+pub use siumai::tooling::ToolExecutionResult;
 
 // ---------------------------------------------------------------------------
 // ToolResolver adapters
@@ -21,6 +23,57 @@ use std::collections::HashMap;
 impl ToolResolver for siumai::tooling::ExecutableTools {
     async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, LlmError> {
         self.execute(name, arguments).await
+    }
+
+    async fn call_tool_with_context(
+        &self,
+        name: &str,
+        arguments: Value,
+        context: &OrchestratorContext,
+    ) -> Result<Value, LlmError> {
+        self.execute_with_options(
+            name,
+            arguments,
+            ToolExecutionOptions::default().with_context(
+                context
+                    .as_map()
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ),
+        )
+        .await
+    }
+
+    async fn call_tool_stream(
+        &self,
+        name: &str,
+        arguments: Value,
+    ) -> Result<futures::stream::BoxStream<'static, Result<ToolExecutionResult, LlmError>>, LlmError>
+    {
+        self.execute_stream(name, arguments, ToolExecutionOptions::default())
+            .await
+    }
+
+    async fn call_tool_stream_with_context(
+        &self,
+        name: &str,
+        arguments: Value,
+        context: &OrchestratorContext,
+    ) -> Result<futures::stream::BoxStream<'static, Result<ToolExecutionResult, LlmError>>, LlmError>
+    {
+        self.execute_stream(
+            name,
+            arguments,
+            ToolExecutionOptions::default().with_context(
+                context
+                    .as_map()
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ),
+        )
+        .await
     }
 
     fn runtime_tool_metadata(&self, name: &str) -> Option<ToolRuntimeMetadata> {
@@ -617,58 +670,6 @@ pub enum ToolApproval {
 }
 
 /// Tool execution result - can be preliminary (intermediate) or final.
-#[derive(Debug, Clone)]
-pub enum ToolExecutionResult {
-    /// Preliminary result during tool execution (e.g., progress update).
-    /// The tool is still running and will produce more results.
-    Preliminary {
-        /// The intermediate output value
-        output: Value,
-    },
-    /// Final result of tool execution.
-    /// This is the last result from the tool.
-    Final {
-        /// The final output value
-        output: Value,
-    },
-}
-
-impl ToolExecutionResult {
-    /// Create a preliminary result
-    pub fn preliminary(output: Value) -> Self {
-        Self::Preliminary { output }
-    }
-
-    /// Create a final result
-    pub fn final_result(output: Value) -> Self {
-        Self::Final { output }
-    }
-
-    /// Check if this is a preliminary result
-    pub fn is_preliminary(&self) -> bool {
-        matches!(self, Self::Preliminary { .. })
-    }
-
-    /// Check if this is a final result
-    pub fn is_final(&self) -> bool {
-        matches!(self, Self::Final { .. })
-    }
-
-    /// Get the output value
-    pub fn output(&self) -> &Value {
-        match self {
-            Self::Preliminary { output } | Self::Final { output } => output,
-        }
-    }
-
-    /// Consume and get the output value
-    pub fn into_output(self) -> Value {
-        match self {
-            Self::Preliminary { output } | Self::Final { output } => output,
-        }
-    }
-}
-
 /// A tool resolver abstraction that supports both simple and streaming tool execution.
 ///
 /// # Simple Tool Execution
@@ -870,5 +871,53 @@ impl Default for OrchestratorStreamOptions {
             context: OrchestratorContext::default(),
             common_params: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OrchestratorContext, ToolResolver};
+    use futures::StreamExt;
+    use serde_json::json;
+    use siumai::tooling::tool;
+    use siumai::types::Tool;
+
+    #[tokio::test]
+    async fn executable_tools_resolver_preserves_streamed_tool_execution() {
+        let tools = siumai::tooling::ExecutableTools::from_tools([tool(Tool::function(
+            "search",
+            "Search tool",
+            json!({ "type": "object" }),
+        ))
+        .with_execute_stream_fn(|_args, options| {
+            assert!(options.context.contains_key("tenant"));
+            Box::pin(futures::stream::iter(vec![
+                Ok(json!({ "progress": 50 })),
+                Ok(json!({ "progress": 100 })),
+            ]))
+        })]);
+
+        let mut context = OrchestratorContext::default();
+        context.insert("tenant", json!("acme"));
+
+        let results = ToolResolver::call_tool_stream_with_context(
+            &tools,
+            "search",
+            json!({ "q": "rust" }),
+            &context,
+        )
+        .await
+        .expect("stream tool")
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(results.len(), 3);
+        assert!(results[0].as_ref().expect("preliminary").is_preliminary());
+        assert!(results[1].as_ref().expect("preliminary").is_preliminary());
+        assert!(results[2].as_ref().expect("final").is_final());
+        assert_eq!(
+            results[2].as_ref().expect("final").output(),
+            &json!({ "progress": 100 })
+        );
     }
 }

@@ -7,6 +7,9 @@ use serde::{Deserialize, Serialize};
 pub struct ToolFunction {
     /// Function name
     pub name: String,
+    /// Optional display title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     /// Function description
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub description: String,
@@ -68,6 +71,7 @@ impl ToolFunction {
     ) -> Self {
         Self {
             name: name.into(),
+            title: None,
             description: description.into(),
             parameters,
             output_schema: None,
@@ -75,6 +79,17 @@ impl ToolFunction {
             strict: None,
             provider_options_map: crate::types::ProviderOptionsMap::default(),
         }
+    }
+
+    /// Optional display title.
+    pub fn title(&self) -> Option<&str> {
+        self.title.as_deref()
+    }
+
+    /// Attach a display title.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
     }
 
     /// AI SDK-style view over the input schema.
@@ -106,6 +121,50 @@ impl ToolFunction {
     /// Attach AI SDK-style output schema metadata.
     pub fn with_output_schema(mut self, output_schema: serde_json::Value) -> Self {
         self.output_schema = Some(output_schema);
+        self
+    }
+
+    /// Optional AI SDK-style input examples metadata.
+    pub fn input_examples(&self) -> Option<&[serde_json::Value]> {
+        self.input_examples.as_deref()
+    }
+
+    /// Attach AI SDK-style input examples metadata.
+    pub fn with_input_examples(
+        mut self,
+        input_examples: impl IntoIterator<Item = serde_json::Value>,
+    ) -> Self {
+        self.input_examples = Some(input_examples.into_iter().collect());
+        self
+    }
+
+    /// Optional strict-mode setting.
+    pub const fn strict(&self) -> Option<bool> {
+        self.strict
+    }
+
+    /// Attach a strict-mode setting.
+    pub fn with_strict(mut self, strict: bool) -> Self {
+        self.strict = Some(strict);
+        self
+    }
+
+    /// Borrow the tool-level provider options map.
+    pub fn provider_options_map(&self) -> &crate::types::ProviderOptionsMap {
+        &self.provider_options_map
+    }
+
+    /// Mutably borrow the tool-level provider options map.
+    pub fn provider_options_map_mut(&mut self) -> &mut crate::types::ProviderOptionsMap {
+        &mut self.provider_options_map
+    }
+
+    /// Replace the tool-level provider options map.
+    pub fn with_provider_options_map(
+        mut self,
+        provider_options_map: crate::types::ProviderOptionsMap,
+    ) -> Self {
+        self.provider_options_map = provider_options_map;
         self
     }
 }
