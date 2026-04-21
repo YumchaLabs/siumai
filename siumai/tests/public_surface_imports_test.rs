@@ -169,6 +169,17 @@ fn public_surface_unified_imports_compile() {
         tool_result_output.provider_option("anthropic"),
         Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
     );
+
+    let image_part = ImagePart::new(FilePartSource::url("https://example.com/image.png"))
+        .with_media_type("image/png");
+    assert_eq!(image_part.media_type.as_deref(), Some("image/png"));
+
+    let file_part = FilePart::new(
+        FilePartSource::url("https://example.com/report.pdf"),
+        "application/pdf",
+    )
+    .with_filename("report.pdf");
+    assert_eq!(file_part.filename.as_deref(), Some("report.pdf"));
 }
 
 #[tokio::test]

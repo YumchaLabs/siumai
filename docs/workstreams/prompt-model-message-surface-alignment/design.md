@@ -137,6 +137,17 @@ The older `provider_options()` / `provider_options_mut()` names remain valid; th
 the missing convention-aligned entry points so the shared surface is more regular and easier to
 audit mechanically.
 
+### 9. Add field-level builders for prompt-part optional metadata
+
+Some prompt-owned content parts still had straightforward shared fields that were easy to express
+in upstream object literals but awkward to populate from Rust builders:
+
+- `ImagePart.mediaType`
+- `FilePart.filename`
+
+The stable Rust prompt surface now exposes small focused builders for those fields so callers no
+longer need direct field mutation for the common cases.
+
 ## Follow-up
 
 The next audit step is to keep comparing these prompt-owned structs against `repo-ref/ai` as more

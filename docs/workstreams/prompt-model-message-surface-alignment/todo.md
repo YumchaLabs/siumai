@@ -34,6 +34,8 @@ Status legend:
 - [x] Match the wider shared-type convention on `ToolResultOutput` and
   `ToolResultContentPart` with `provider_options_map*`, `with_provider_options_map(...)`, and
   `provider_option(...)` helpers.
+- [x] Add field-level prompt-part builders for optional `ImagePart.mediaType` and
+  `FilePart.filename`.
 
 ## Track C - Docs and changelog
 

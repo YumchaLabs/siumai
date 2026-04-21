@@ -427,6 +427,12 @@ impl ImagePart {
             provider_options: ProviderOptionsMap::default(),
         }
     }
+
+    /// Attach an optional media type for the image content.
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        self.media_type = Some(media_type.into());
+        self
+    }
 }
 
 /// AI SDK-style file content part.
@@ -457,6 +463,12 @@ impl FilePart {
             media_type: media_type.into(),
             provider_options: ProviderOptionsMap::default(),
         }
+    }
+
+    /// Attach an optional filename for the file content.
+    pub fn with_filename(mut self, filename: impl Into<String>) -> Self {
+        self.filename = Some(filename.into());
+        self
     }
 }
 
@@ -2140,5 +2152,20 @@ mod tests {
             ]))
             .with_provider_options_map(provider_options)
         );
+    }
+
+    #[test]
+    fn image_and_file_parts_expose_field_level_builders() {
+        let image = ImagePart::new(FilePartSource::url("https://example.com/image.png"))
+            .with_media_type("image/png");
+        assert_eq!(image.media_type.as_deref(), Some("image/png"));
+
+        let file = FilePart::new(
+            FilePartSource::url("https://example.com/report.pdf"),
+            "application/pdf",
+        )
+        .with_filename("report.pdf");
+        assert_eq!(file.filename.as_deref(), Some("report.pdf"));
+        assert_eq!(file.media_type, "application/pdf");
     }
 }
