@@ -350,6 +350,67 @@ impl ToolResolver for ContextAwareToolResolver {
     }
 }
 
+/// Runtime-options-aware resolver for validating shared tool execution inputs.
+#[derive(Clone)]
+struct RuntimeOptionsAwareToolResolver {
+    calls: Arc<Mutex<Vec<(String, Value)>>>,
+    options: Arc<Mutex<Vec<siumai::tooling::ToolExecutionOptions>>>,
+}
+
+impl RuntimeOptionsAwareToolResolver {
+    fn new() -> Self {
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            options: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn get_calls(&self) -> Vec<(String, Value)> {
+        self.calls.lock().unwrap().clone()
+    }
+
+    fn get_options(&self) -> Vec<siumai::tooling::ToolExecutionOptions> {
+        self.options.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolResolver for RuntimeOptionsAwareToolResolver {
+    async fn call_tool(&self, name: &str, arguments: Value) -> Result<Value, LlmError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((name.to_string(), arguments.clone()));
+        Ok(json!({
+            "tool": name,
+            "arguments": arguments,
+        }))
+    }
+
+    async fn call_tool_stream_with_runtime_options(
+        &self,
+        name: &str,
+        arguments: Value,
+        options: siumai::tooling::ToolExecutionOptions,
+    ) -> Result<futures::stream::BoxStream<'static, Result<ToolExecutionResult, LlmError>>, LlmError>
+    {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((name.to_string(), arguments.clone()));
+        self.options.lock().unwrap().push(options);
+
+        let output = json!({
+            "tool": name,
+            "arguments": arguments,
+        });
+
+        Ok(Box::pin(futures::stream::once(async move {
+            Ok(ToolExecutionResult::final_result(output))
+        })))
+    }
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -1118,6 +1179,66 @@ async fn test_generate_preprocesses_local_tool_approval_response_and_executes_to
         ToolResultOutput::Json { value, .. } => assert_eq!(value, &json!({"ok": true})),
         _ => panic!("expected json output"),
     }
+}
+
+#[tokio::test]
+async fn test_generate_preprocesses_local_tool_approval_response_preserves_runtime_messages() {
+    let approval_id = "approval_secure_runtime";
+    let messages = vec![
+        ChatMessage::user("Approve local tool with runtime context").build(),
+        create_assistant_tool_approval_request_message(
+            create_tool_call("secure_tool_runtime", json!({"path": "tmp"})),
+            approval_id,
+        ),
+        create_tool_approval_response_message(approval_id, true, None, None),
+    ];
+
+    let model = MockChatModel::new(vec![create_text_response("Local approval continued")]);
+    let resolver = RuntimeOptionsAwareToolResolver::new();
+
+    let mut options = OrchestratorOptions::default();
+    options
+        .context
+        .insert("requestId", json!("req_approval_generate"));
+
+    let (_response, steps) = generate(
+        &model,
+        messages,
+        Some(vec![create_tool("secure_tool_runtime")]),
+        Some(&resolver),
+        &[],
+        options,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(steps.len(), 1);
+    assert_eq!(
+        resolver.get_calls(),
+        vec![("secure_tool_runtime".to_string(), json!({"path": "tmp"}))]
+    );
+
+    let runtime_options = resolver.get_options();
+    assert_eq!(runtime_options.len(), 1);
+    assert_eq!(runtime_options[0].tool_call_id, "call_secure_tool_runtime");
+    assert_eq!(runtime_options[0].messages.len(), 3);
+    assert!(matches!(
+        runtime_options[0].messages.first(),
+        Some(ModelMessage::User(_))
+    ));
+    assert!(matches!(
+        runtime_options[0].messages.get(1),
+        Some(ModelMessage::Assistant(_))
+    ));
+    assert!(matches!(
+        runtime_options[0].messages.get(2),
+        Some(ModelMessage::Tool(_))
+    ));
+    assert_eq!(
+        runtime_options[0].context.get("requestId"),
+        Some(&json!("req_approval_generate"))
+    );
+    assert!(runtime_options[0].abort_signal.is_none());
 }
 
 #[tokio::test]
@@ -1975,6 +2096,79 @@ async fn test_generate_stream_owned_preprocesses_local_tool_approval_response() 
         ToolResultOutput::Json { value, .. } => assert_eq!(value, &json!({"ok": true})),
         _ => panic!("expected json output"),
     }
+}
+
+#[tokio::test]
+async fn test_generate_stream_owned_preprocesses_local_tool_approval_response_preserves_runtime_options()
+ {
+    let approval_id = "approval_stream_runtime";
+    let messages = vec![
+        ChatMessage::user("Approve local stream tool with runtime context").build(),
+        create_assistant_tool_approval_request_message(
+            create_tool_call("stream_secure_runtime", json!({"path": "tmp"})),
+            approval_id,
+        ),
+        create_tool_approval_response_message(approval_id, true, None, None),
+    ];
+
+    let model = MockChatModel::new(vec![create_text_response(
+        "Stream local approval continued",
+    )]);
+    let resolver = RuntimeOptionsAwareToolResolver::new();
+
+    let mut options = OrchestratorStreamOptions::default();
+    options
+        .context
+        .insert("requestId", json!("req_approval_stream"));
+
+    let StreamOrchestration {
+        mut stream, steps, ..
+    } = generate_stream_owned(
+        model,
+        messages,
+        Some(vec![create_tool("stream_secure_runtime")]),
+        Some(resolver.clone()),
+        options,
+    )
+    .await
+    .unwrap();
+
+    while let Some(event) = stream.next().await {
+        event.unwrap();
+    }
+
+    let steps = steps.await.unwrap();
+    assert_eq!(steps.len(), 1);
+
+    assert_eq!(
+        resolver.get_calls(),
+        vec![("stream_secure_runtime".to_string(), json!({"path": "tmp"}))]
+    );
+
+    let runtime_options = resolver.get_options();
+    assert_eq!(runtime_options.len(), 1);
+    assert_eq!(
+        runtime_options[0].tool_call_id,
+        "call_stream_secure_runtime"
+    );
+    assert_eq!(runtime_options[0].messages.len(), 3);
+    assert!(matches!(
+        runtime_options[0].messages.first(),
+        Some(ModelMessage::User(_))
+    ));
+    assert!(matches!(
+        runtime_options[0].messages.get(1),
+        Some(ModelMessage::Assistant(_))
+    ));
+    assert!(matches!(
+        runtime_options[0].messages.get(2),
+        Some(ModelMessage::Tool(_))
+    ));
+    assert_eq!(
+        runtime_options[0].context.get("requestId"),
+        Some(&json!("req_approval_stream"))
+    );
+    assert!(runtime_options[0].abort_signal.is_some());
 }
 
 #[tokio::test]

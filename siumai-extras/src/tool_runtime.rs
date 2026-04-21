@@ -384,7 +384,7 @@ pub(crate) async fn preprocess_tool_approval_responses(
                 approval.tool_call_id.as_str(),
                 approval.input,
                 approval.dynamic,
-                None,
+                Some(messages),
                 context,
                 abort_signal.clone(),
                 on_preliminary_tool_result,

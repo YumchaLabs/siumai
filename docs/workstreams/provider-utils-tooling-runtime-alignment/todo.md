@@ -32,9 +32,10 @@ Status legend:
   semantics derived from `ToolExecutionOptions`.
 - [x] Split approval checks onto a dedicated shared context without `abort_signal`, matching
   upstream `needsApproval(...)` more closely.
-- [ ] Tighten approval-preprocess message reconstruction for resumed approved tool calls instead of
-  falling back to partial runtime options when the exact pre-tool-call inputs are no longer
-  recoverable.
+- [x] Reuse current continuation message history for resumed approved local tool calls, matching
+  AI SDK approval-continuation behavior instead of falling back to empty runtime messages.
+- [-] Add a stricter Rust-only pre-tool-call message-slice helper only if it proves valuable beyond
+  the AI SDK-aligned continuation-history behavior.
 
 ## Track D - Stable tool schema metadata
 

@@ -128,6 +128,21 @@ This slice now closes that gap:
 This keeps the higher-level orchestrator internally Rust-idiomatic while making the tool-runtime
 boundary much closer to the upstream `provider-utils` contract.
 
+### 7. Approval continuation now reuses the current shared message history
+
+The initial uplift still had one remaining mismatch in the approval-continuation path:
+when a local tool approval was accepted and Siumai resumed execution from a trailing
+`tool-approval-response`, the local tool executor received empty/shared-default `messages`.
+
+Upstream AI SDK continuation does not do that. It executes approved local tools against the
+current `initialMessages` history. Siumai now mirrors that behavior by projecting the current
+orchestration message history into shared `ToolExecutionOptions` during approval preprocess, both
+for non-streaming and streaming continuations.
+
+This does not attempt to invent a narrower "pre-tool-call-only" synthetic view. The alignment goal
+here is behavioral parity with `repo-ref/ai`, where approval continuation uses the current prompt
+history as the tool-execution message source.
+
 ## Validation
 
 This workstream is locked by:
@@ -138,9 +153,8 @@ This workstream is locked by:
 
 ## Deferred follow-up
 
-- Audit whether approval-preprocess can reconstruct an exact shared `messages` source for approved
-  tool resumes instead of intentionally falling back to empty/partial runtime options when the
-  original pre-tool-call step input is no longer available.
+- Decide whether Siumai should expose an optional stricter Rust-only "exact pre-tool-call message
+  slice" helper in addition to the AI SDK-aligned continuation behavior that uses current history.
 - Revisit whether provider-defined tools should also carry first-class stable `providerOptions`
   metadata on the portable schema surface.
 - Evaluate whether a Rust-idiomatic equivalent of upstream `InferToolContext` /

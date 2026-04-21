@@ -50,8 +50,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   contract (`onInputStart` over `ToolExecutionOptions`, `onInputDelta` / `onInputAvailable` over
   shared `ModelMessage` / `context` / `abort_signal`, and a dedicated
   `ToolNeedsApprovalContext` for approval checks), streaming orchestrator cancellation now reaches
-  both runtime callbacks and local tool execution, and stable tool schemas now expose
-  builders/accessors for `title`, `inputExamples`, `strict`, and function-tool
+  both runtime callbacks and local tool execution, approval-continuation of approved local tools
+  now also reuses the current shared message history instead of falling back to empty runtime
+  messages, and stable tool schemas now expose builders/accessors for `title`, `inputExamples`,
+  `strict`, and function-tool
   `providerOptions`. This slice is tracked under
   `docs/workstreams/provider-utils-tooling-runtime-alignment/`.
 - Amazon Bedrock now has provider-owned image generation aligned with the AI SDK

@@ -39,10 +39,13 @@ Status: in progress
 - unify runtime callback contexts on top of the shared execution-options contract
 - split approval checks onto a dedicated shared context that mirrors upstream `needsApproval(...)`
 - thread stream cancel handles into tool runtime callbacks and local tool execution
+- reuse current continuation message history for approved local-tool resumes during approval
+  preprocess
 
 ## M6 - Remaining audit gaps
 
 Status: deferred
 
 - evaluate remaining `provider-utils` infer/helper surfaces
-- revisit approval-preprocess message reconstruction for resumed approved tool calls
+- decide whether a Rust-only stricter pre-tool-call message-slice helper is worth adding beyond
+  the AI SDK-aligned continuation-history behavior
