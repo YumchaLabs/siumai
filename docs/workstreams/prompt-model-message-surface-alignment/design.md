@@ -113,6 +113,8 @@ builder-heavy API style:
 - prompt parts and model-message structs expose `provider_options_map()`
 - prompt parts and model-message structs expose `provider_options_map_mut()`
 - prompt parts and model-message structs expose `with_provider_options_map(...)`
+- prompt parts and model-message structs expose `provider_option(...)`
+- prompt parts and model-message structs expose `with_provider_option(...)`
 - `ToolCallPart` also exposes `with_provider_executed(...)` so its optional AI SDK metadata is not
   stranded behind direct field mutation
 

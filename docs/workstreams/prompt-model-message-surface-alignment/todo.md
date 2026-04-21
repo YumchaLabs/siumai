@@ -29,6 +29,8 @@ Status legend:
   and public facade coverage.
 - [x] Keep prompt-owned `providerOptions` fields ergonomic through shared builder/accessor helpers
   on prompt parts and model-message structs.
+- [x] Match the wider shared-type convention by exposing single-provider prompt helpers
+  `with_provider_option(...)` / `provider_option(...)`.
 
 ## Track C - Docs and changelog
 

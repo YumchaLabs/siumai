@@ -882,6 +882,24 @@ macro_rules! impl_prompt_provider_options_builders {
                     self.provider_options = provider_options_map;
                     self
                 }
+
+                /// Set provider options for a provider id on the shared prompt surface.
+                pub fn with_provider_option(
+                    mut self,
+                    provider_id: impl AsRef<str>,
+                    options: serde_json::Value,
+                ) -> Self {
+                    self.provider_options.insert(provider_id, options);
+                    self
+                }
+
+                /// Get provider options for a provider id on the shared prompt surface.
+                pub fn provider_option(
+                    &self,
+                    provider_id: impl AsRef<str>,
+                ) -> Option<&serde_json::Value> {
+                    self.provider_options.get(provider_id)
+                }
             }
         )+
     };
@@ -2082,19 +2100,33 @@ mod tests {
 
         let text_part = TextPart::new("hello").with_provider_options_map(provider_options.clone());
         assert_eq!(text_part.provider_options_map(), &provider_options);
+        assert_eq!(
+            text_part.provider_option("anthropic"),
+            Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
+        );
 
         let tool_call = ToolCallPart::new("call_1", "search", serde_json::json!({ "q": "rust" }))
-            .with_provider_options_map(provider_options.clone())
+            .with_provider_option("openai", serde_json::json!({ "parallelToolCalls": false }))
             .with_provider_executed(true);
-        assert_eq!(tool_call.provider_options_map(), &provider_options);
+        assert_eq!(
+            tool_call.provider_option("openai"),
+            Some(&serde_json::json!({ "parallelToolCalls": false }))
+        );
         assert_eq!(tool_call.provider_executed, Some(true));
 
         let message = AssistantModelMessage::new(AssistantContent::parts(vec![
             AssistantContentPart::Text(text_part.clone()),
             AssistantContentPart::ToolCall(tool_call.clone()),
         ]))
-        .with_provider_options_map(provider_options.clone());
+        .with_provider_option(
+            "anthropic",
+            serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
+        );
         assert_eq!(message.provider_options_map(), &provider_options);
+        assert_eq!(
+            message.provider_option("anthropic"),
+            Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
+        );
 
         let value = serde_json::to_value(&message).expect("serialize assistant model message");
         let roundtrip: AssistantModelMessage =

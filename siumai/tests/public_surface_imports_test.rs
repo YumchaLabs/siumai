@@ -131,21 +131,35 @@ fn public_surface_unified_imports_compile() {
 
     let text_part = TextPart::new("hello").with_provider_options_map(provider_options.clone());
     assert_eq!(text_part.provider_options_map(), &provider_options);
+    assert_eq!(
+        text_part.provider_option("anthropic"),
+        Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
+    );
 
     let tool_call_part = ToolCallPart::new("call_1", "search", serde_json::json!({ "q": "rust" }))
-        .with_provider_options_map(provider_options.clone())
+        .with_provider_option("openai", serde_json::json!({ "parallelToolCalls": false }))
         .with_provider_executed(true);
-    assert_eq!(tool_call_part.provider_options_map(), &provider_options);
+    assert_eq!(
+        tool_call_part.provider_option("openai"),
+        Some(&serde_json::json!({ "parallelToolCalls": false }))
+    );
     assert_eq!(tool_call_part.provider_executed, Some(true));
 
     let assistant_model_message = AssistantModelMessage::new(AssistantContent::parts(vec![
         AssistantContentPart::Text(text_part),
         AssistantContentPart::ToolCall(tool_call_part),
     ]))
-    .with_provider_options_map(provider_options.clone());
+    .with_provider_option(
+        "anthropic",
+        serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
+    );
     assert_eq!(
         assistant_model_message.provider_options_map(),
         &provider_options
+    );
+    assert_eq!(
+        assistant_model_message.provider_option("anthropic"),
+        Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
     );
 }
 
