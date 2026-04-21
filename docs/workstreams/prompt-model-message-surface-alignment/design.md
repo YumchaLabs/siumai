@@ -121,6 +121,22 @@ builder-heavy API style:
 This keeps the stable facade auditable against upstream field presence while remaining ergonomic
 for normal Rust construction patterns.
 
+### 8. Keep tool-result provider-options helpers consistent with the rest of the shared surface
+
+`ToolResultOutput` and nested `ToolResultContentPart` already exposed provider-option storage and
+single-provider insertion helpers, but their API names still lagged behind the wider shared-type
+convention used across requests, image/video inputs, tools, and now prompt-owned message structs.
+
+The stable Rust surface now also exposes:
+
+- `provider_options_map()` and `provider_options_map_mut()` aliases
+- `with_provider_options_map(...)`
+- `provider_option(...)`
+
+The older `provider_options()` / `provider_options_mut()` names remain valid; this slice only adds
+the missing convention-aligned entry points so the shared surface is more regular and easier to
+audit mechanically.
+
 ## Follow-up
 
 The next audit step is to keep comparing these prompt-owned structs against `repo-ref/ai` as more

@@ -31,6 +31,9 @@ Status legend:
   on prompt parts and model-message structs.
 - [x] Match the wider shared-type convention by exposing single-provider prompt helpers
   `with_provider_option(...)` / `provider_option(...)`.
+- [x] Match the wider shared-type convention on `ToolResultOutput` and
+  `ToolResultContentPart` with `provider_options_map*`, `with_provider_options_map(...)`, and
+  `provider_option(...)` helpers.
 
 ## Track C - Docs and changelog
 

@@ -123,6 +123,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `with_provider_executed(...)` helper instead of requiring direct field mutation. Those prompt
   structs now also follow the broader shared-type convention with single-provider convenience
   helpers `with_provider_option(...)` and `provider_option(...)`.
+- Shared `ToolResultOutput` and nested `ToolResultContentPart` provider-option helpers now also
+  follow that same convention: the stable Rust surface keeps the older
+  `provider_options()` / `provider_options_mut()` names, but now also exposes
+  `provider_options_map*`, `with_provider_options_map(...)`, and `provider_option(...)`.
 - Stable prompt/content modeling now includes Vercel-aligned `custom`, `reasoning-file`, and explicit tool-result content variants (`file-data`, `file-url`, `file-reference`, `image-data`, `image-url`, `image-file-reference`) with provider-keyed `providerReference` support. Legacy `file-id` / `image-file-id` inputs remain accepted as compatibility aliases.
 - Stable prompt/content modeling now also includes first-class user `providerReference` support
   for `image` / `file` parts through shared `ProviderReference` and `FilePartSource`, with

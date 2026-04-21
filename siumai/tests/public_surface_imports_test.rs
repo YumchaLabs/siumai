@@ -161,6 +161,14 @@ fn public_surface_unified_imports_compile() {
         assistant_model_message.provider_option("anthropic"),
         Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
     );
+
+    let tool_result_output = ToolResultOutput::json(serde_json::json!({ "ok": true }))
+        .with_provider_options_map(provider_options.clone());
+    assert_eq!(tool_result_output.provider_options_map(), &provider_options);
+    assert_eq!(
+        tool_result_output.provider_option("anthropic"),
+        Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
+    );
 }
 
 #[tokio::test]

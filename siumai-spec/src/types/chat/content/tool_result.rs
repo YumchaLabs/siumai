@@ -513,6 +513,11 @@ impl ToolResultContentPart {
         }
     }
 
+    /// Alias of `provider_options()` that matches the wider shared-type naming convention.
+    pub fn provider_options_map(&self) -> &ProviderOptionsMap {
+        self.provider_options()
+    }
+
     /// Get mutable provider options for the part.
     pub fn provider_options_mut(&mut self) -> &mut ProviderOptionsMap {
         match self {
@@ -543,6 +548,17 @@ impl ToolResultContentPart {
         }
     }
 
+    /// Alias of `provider_options_mut()` that matches the wider shared-type naming convention.
+    pub fn provider_options_map_mut(&mut self) -> &mut ProviderOptionsMap {
+        self.provider_options_mut()
+    }
+
+    /// Replace provider options for this tool result content part.
+    pub fn with_provider_options_map(mut self, provider_options_map: ProviderOptionsMap) -> Self {
+        *self.provider_options_map_mut() = provider_options_map;
+        self
+    }
+
     /// Attach provider-specific request options to this tool result content part.
     pub fn with_provider_option(
         mut self,
@@ -551,6 +567,11 @@ impl ToolResultContentPart {
     ) -> Self {
         self.provider_options_mut().insert(provider_id, value);
         self
+    }
+
+    /// Get provider-specific request options for a provider id on this tool result content part.
+    pub fn provider_option(&self, provider_id: impl AsRef<str>) -> Option<&serde_json::Value> {
+        self.provider_options().get(provider_id)
     }
 }
 
@@ -674,6 +695,28 @@ mod tests {
             serde_json::json!("tool-reference")
         );
     }
+
+    #[test]
+    fn tool_result_output_and_parts_expose_shared_provider_option_helpers() {
+        let mut provider_options = crate::types::ProviderOptionsMap::default();
+        provider_options.insert("openai", serde_json::json!({ "store": false }));
+
+        let part =
+            ToolResultContentPart::custom().with_provider_options_map(provider_options.clone());
+        assert_eq!(part.provider_options_map(), &provider_options);
+        assert_eq!(
+            part.provider_option("openai"),
+            Some(&serde_json::json!({ "store": false }))
+        );
+
+        let output = ToolResultOutput::json(serde_json::json!({ "ok": true }))
+            .with_provider_options_map(provider_options.clone());
+        assert_eq!(output.provider_options_map(), &provider_options);
+        assert_eq!(
+            output.provider_option("openai"),
+            Some(&serde_json::json!({ "store": false }))
+        );
+    }
 }
 
 impl ToolResultOutput {
@@ -701,6 +744,11 @@ impl ToolResultOutput {
         }
     }
 
+    /// Alias of `provider_options()` that matches the wider shared-type naming convention.
+    pub fn provider_options_map(&self) -> &ProviderOptionsMap {
+        self.provider_options()
+    }
+
     /// Get mutable provider options for this output variant.
     pub fn provider_options_mut(&mut self) -> &mut ProviderOptionsMap {
         match self {
@@ -725,6 +773,17 @@ impl ToolResultOutput {
         }
     }
 
+    /// Alias of `provider_options_mut()` that matches the wider shared-type naming convention.
+    pub fn provider_options_map_mut(&mut self) -> &mut ProviderOptionsMap {
+        self.provider_options_mut()
+    }
+
+    /// Replace provider options for this tool result output.
+    pub fn with_provider_options_map(mut self, provider_options_map: ProviderOptionsMap) -> Self {
+        *self.provider_options_map_mut() = provider_options_map;
+        self
+    }
+
     /// Attach provider-specific request options to this tool result output.
     pub fn with_provider_option(
         mut self,
@@ -733,5 +792,10 @@ impl ToolResultOutput {
     ) -> Self {
         self.provider_options_mut().insert(provider_id, value);
         self
+    }
+
+    /// Get provider-specific request options for a provider id on this tool result output.
+    pub fn provider_option(&self, provider_id: impl AsRef<str>) -> Option<&serde_json::Value> {
+        self.provider_options().get(provider_id)
     }
 }
