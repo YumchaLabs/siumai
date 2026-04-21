@@ -25,6 +25,8 @@ Status legend:
 - [x] Add public compile-guard coverage for the new prompt/message types and conversion entry
   points.
 - [x] Add focused unit coverage for prompt standardization and conversion failures.
+- [x] Keep prompt-owned `ToolApprovalResponse` optional fields ergonomic through builder helpers
+  and public facade coverage.
 
 ## Track C - Docs and changelog
 

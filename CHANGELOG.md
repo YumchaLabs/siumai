@@ -114,6 +114,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::ui::{validate_ui_messages, convert_to_model_messages, convert_to_chat_request}`
   exposes the conversion helper lane, the top-level `siumai::types` module is restored, and
   stable `tool-approval-response` parts now preserve optional `providerExecuted`.
+- Stable prompt-owned `ToolApprovalResponse` values now also expose Rust-idiomatic builder helpers
+  for optional `reason` and `providerExecuted`, keeping the public shared prompt surface more
+  symmetric with `ToolCall` / `ToolResult` without changing the underlying AI SDK wire contract.
 - Stable prompt/content modeling now includes Vercel-aligned `custom`, `reasoning-file`, and explicit tool-result content variants (`file-data`, `file-url`, `file-reference`, `image-data`, `image-url`, `image-file-reference`) with provider-keyed `providerReference` support. Legacy `file-id` / `image-file-id` inputs remain accepted as compatibility aliases.
 - Stable prompt/content modeling now also includes first-class user `providerReference` support
   for `image` / `file` parts through shared `ProviderReference` and `FilePartSource`, with

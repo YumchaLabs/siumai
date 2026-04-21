@@ -91,6 +91,16 @@ The shared prompt types implement conversion back into `ChatMessage` / `ChatRequ
 the subset that the prompt contract actually carries. Because the prompt layer is narrower, this
 direction is infallible after prompt validation succeeds.
 
+### 6. Keep prompt-owned optional tool-approval metadata ergonomic on the Rust side
+
+Upstream `ToolApprovalResponse` is just a plain object type, so TypeScript callers set optional
+fields like `reason` and `providerExecuted` directly. On the Rust side, the stable prompt struct
+now exposes matching builder helpers for those optional fields.
+
+This is not a new wire-format feature. It is a Rust-surface ergonomics completion step that keeps
+the prompt-owned approval response shape symmetric with other shared helper structs such as
+`ToolCall` and `ToolResult`.
+
 ## Follow-up
 
 The next audit step is to keep comparing these prompt-owned structs against `repo-ref/ai` as more

@@ -115,6 +115,13 @@ fn public_surface_unified_imports_compile() {
     .with_provider_executed(true)
     .with_dynamic(true);
     assert_eq!(tool_result.tool_call_id, "call_1");
+
+    let approval_response = ToolApprovalResponse::new("approval_1", true)
+        .with_reason("approved")
+        .with_provider_executed(true);
+    assert_eq!(approval_response.approval_id, "approval_1");
+    assert_eq!(approval_response.reason.as_deref(), Some("approved"));
+    assert_eq!(approval_response.provider_executed, Some(true));
 }
 
 #[tokio::test]

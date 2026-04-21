@@ -676,6 +676,18 @@ impl ToolApprovalResponse {
             provider_executed: None,
         }
     }
+
+    /// Attach an optional human-readable approval reason.
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    /// Mark whether the approval response refers to a provider-executed tool call.
+    pub fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1990,5 +2002,25 @@ mod tests {
         .expect_err("missing role must fail");
 
         assert!(err.to_string().contains("data did not match any variant"));
+    }
+
+    #[test]
+    fn tool_approval_response_builder_roundtrips_optional_fields() {
+        let response = ToolApprovalResponse::new("approval_1", true)
+            .with_reason("looks safe")
+            .with_provider_executed(true);
+
+        let value = serde_json::to_value(&response).expect("serialize tool approval response");
+        assert_eq!(value["type"], serde_json::json!("tool-approval-response"));
+        assert_eq!(value["approvalId"], serde_json::json!("approval_1"));
+        assert_eq!(value["approved"], serde_json::json!(true));
+        assert_eq!(value["reason"], serde_json::json!("looks safe"));
+        assert_eq!(value["providerExecuted"], serde_json::json!(true));
+
+        let roundtrip: ToolApprovalResponse =
+            serde_json::from_value(value).expect("deserialize tool approval response");
+        assert_eq!(roundtrip.approval_id, "approval_1");
+        assert_eq!(roundtrip.reason.as_deref(), Some("looks safe"));
+        assert_eq!(roundtrip.provider_executed, Some(true));
     }
 }
