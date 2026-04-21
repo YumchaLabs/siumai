@@ -242,11 +242,12 @@ pub(crate) async fn execute_local_tool_call(
     tool_dynamic: bool,
     step_input_messages: Option<&[ChatMessage]>,
     context: &OrchestratorContext,
+    abort_signal: Option<CancelHandle>,
     on_preliminary_tool_result: Option<&PreliminaryToolResultCallback>,
 ) -> ContentPart {
     let input = execution_args.clone();
     let execution_options =
-        build_tool_execution_options(tool_call_id, step_input_messages, context);
+        build_tool_execution_options(tool_call_id, step_input_messages, context, abort_signal);
     let out_val = match resolver
         .call_tool_stream_with_runtime_options(tool_name, execution_args, execution_options)
         .await
@@ -289,10 +290,11 @@ pub(crate) async fn execute_local_tool_call(
     part
 }
 
-fn build_tool_execution_options(
+pub(crate) fn build_tool_execution_options(
     tool_call_id: &str,
     step_input_messages: Option<&[ChatMessage]>,
     context: &OrchestratorContext,
+    abort_signal: Option<CancelHandle>,
 ) -> ToolExecutionOptions {
     let shared_context = context
         .as_map()
@@ -300,20 +302,16 @@ fn build_tool_execution_options(
         .map(|(key, value)| (key.clone(), value.clone()))
         .collect();
 
-    let options = ToolExecutionOptions::new(tool_call_id).with_context(shared_context);
+    let mut options = ToolExecutionOptions::new(tool_call_id).with_context(shared_context);
+    if let Some(abort_signal) = abort_signal {
+        options = options.with_abort_signal(abort_signal);
+    }
 
     match step_input_messages {
         Some(messages) => options
+            .clone()
             .try_with_chat_messages(messages)
-            .unwrap_or_else(|_error| {
-                ToolExecutionOptions::new(tool_call_id).with_context(
-                    context
-                        .as_map()
-                        .iter()
-                        .map(|(key, value)| (key.clone(), value.clone()))
-                        .collect(),
-                )
-            }),
+            .unwrap_or(options),
         None => options,
     }
 }
@@ -349,6 +347,7 @@ pub(crate) async fn preprocess_tool_approval_responses(
     messages: &[ChatMessage],
     resolver: Option<&dyn ToolResolver>,
     context: &OrchestratorContext,
+    abort_signal: Option<CancelHandle>,
     on_preliminary_tool_result: Option<&PreliminaryToolResultCallback>,
 ) -> Result<ToolApprovalPreprocessResult, LlmError> {
     let approvals = collect_tool_approvals(messages)?;
@@ -387,6 +386,7 @@ pub(crate) async fn preprocess_tool_approval_responses(
                 approval.dynamic,
                 None,
                 context,
+                abort_signal.clone(),
                 on_preliminary_tool_result,
             )
             .await,

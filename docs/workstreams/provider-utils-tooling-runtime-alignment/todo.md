@@ -26,9 +26,15 @@ Status legend:
 
 - [~] Remove the extras-owned duplicate `ToolExecutionResult`.
 - [~] Route `ExecutableTools` resolver execution through shared tooling helpers.
-- [~] Thread non-empty shared `messages` into `ToolExecutionOptions` where the orchestrator has the
-  exact pre-tool-call step input available; approval-preprocess fallback still needs a stricter
-  source-of-truth design.
+- [x] Thread non-empty shared `messages` into `ToolExecutionOptions` where the orchestrator has the
+  exact pre-tool-call step input available.
+- [x] Unify runtime input callbacks onto shared `ModelMessage` / `Context` / `abort_signal`
+  semantics derived from `ToolExecutionOptions`.
+- [x] Split approval checks onto a dedicated shared context without `abort_signal`, matching
+  upstream `needsApproval(...)` more closely.
+- [ ] Tighten approval-preprocess message reconstruction for resumed approved tool calls instead of
+  falling back to partial runtime options when the exact pre-tool-call inputs are no longer
+  recoverable.
 
 ## Track D - Stable tool schema metadata
 
@@ -42,4 +48,4 @@ Status legend:
 ## Track E - Docs and changelog
 
 - [x] Create a dedicated `docs/workstreams/provider-utils-tooling-runtime-alignment/` folder.
-- [ ] Record the tooling/runtime alignment slice in `CHANGELOG.md` `Unreleased`.
+- [x] Record the tooling/runtime alignment slice in `CHANGELOG.md` `Unreleased`.

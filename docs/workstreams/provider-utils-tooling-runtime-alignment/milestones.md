@@ -34,8 +34,15 @@ Status: in progress
 
 ## M5 - Follow-up audit
 
+Status: in progress
+
+- unify runtime callback contexts on top of the shared execution-options contract
+- split approval checks onto a dedicated shared context that mirrors upstream `needsApproval(...)`
+- thread stream cancel handles into tool runtime callbacks and local tool execution
+
+## M6 - Remaining audit gaps
+
 Status: deferred
 
-- decide whether to unify runtime callback contexts and shared execution options on one message
-  carrier
 - evaluate remaining `provider-utils` infer/helper surfaces
+- revisit approval-preprocess message reconstruction for resumed approved tool calls

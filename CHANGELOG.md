@@ -46,8 +46,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   orchestrator now reuses the shared execution-result type instead of owning a parallel one,
   direct local tool execution paths now also forward shared execution options into
   `ExecutableTools` including `tool_call_id`, projected `ModelMessage`s when representable, and
-  shared `context`, and stable tool schemas now expose builders/accessors for `title`,
-  `inputExamples`, `strict`, and function-tool `providerOptions`. This slice is tracked under
+  shared `context`; runtime input callbacks now also project from the same shared execution
+  contract (`onInputStart` over `ToolExecutionOptions`, `onInputDelta` / `onInputAvailable` over
+  shared `ModelMessage` / `context` / `abort_signal`, and a dedicated
+  `ToolNeedsApprovalContext` for approval checks), streaming orchestrator cancellation now reaches
+  both runtime callbacks and local tool execution, and stable tool schemas now expose
+  builders/accessors for `title`, `inputExamples`, `strict`, and function-tool
+  `providerOptions`. This slice is tracked under
   `docs/workstreams/provider-utils-tooling-runtime-alignment/`.
 - Amazon Bedrock now has provider-owned image generation aligned with the AI SDK
   `image()` / `imageModel()` surface: builder/config-first/registry/public paths all converge on

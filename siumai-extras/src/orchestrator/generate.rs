@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet};
 use serde_json::Value;
 
 use crate::tool_runtime::{
-    client_tool_call_count, execute_local_tool_call, execution_denied_tool_result,
-    merge_step_tool_results, preprocess_tool_approval_responses, should_continue_after_tool_step,
-    update_pending_deferred_tool_calls,
+    build_tool_execution_options, client_tool_call_count, execute_local_tool_call,
+    execution_denied_tool_result, merge_step_tool_results, preprocess_tool_approval_responses,
+    should_continue_after_tool_step, update_pending_deferred_tool_calls,
 };
 
 use super::prepare_step::{PrepareStepContext, filter_active_tools};
@@ -23,7 +23,7 @@ use siumai::experimental::observability::telemetry::{
     events::{OrchestratorEvent, OrchestratorStepType, SpanEvent, TelemetryEvent},
 };
 use siumai::prelude::unified::*;
-use siumai::tooling::{ToolInputAvailableContext, ToolRuntimeMetadata};
+use siumai::tooling::{ToolInputAvailableContext, ToolNeedsApprovalContext, ToolRuntimeMetadata};
 
 /// Convert orchestrator ToolChoice to types::ToolChoice
 fn convert_tool_choice(choice: super::prepare_step::ToolChoice) -> ToolChoice {
@@ -114,20 +114,6 @@ fn tool_message_from_part(part: ContentPart) -> ChatMessage {
     }
 }
 
-fn input_available_context(
-    tool_call_id: &str,
-    input: &Value,
-    step_input_messages: &[ChatMessage],
-    context: &super::types::OrchestratorContext,
-) -> ToolInputAvailableContext {
-    ToolInputAvailableContext {
-        tool_call_id: tool_call_id.to_string(),
-        input: input.clone(),
-        messages: step_input_messages.to_vec(),
-        context: context.as_map().clone(),
-    }
-}
-
 /// Orchestrate multi-step generation with optional tool execution.
 ///
 /// This function implements a loop: ask → tool-calls → tool exec → re-ask.
@@ -173,6 +159,7 @@ pub async fn generate(
         &history,
         resolver,
         &current_context,
+        None,
         opts.on_preliminary_tool_result.as_deref(),
     )
     .await?;
@@ -347,24 +334,29 @@ pub async fn generate(
                             }
                         }
 
+                        let execution_options = build_tool_execution_options(
+                            tool_call_id,
+                            Some(&step_input_messages),
+                            &current_context,
+                            None,
+                        );
+
                         if let Some(metadata) = runtime_metadata.as_ref() {
                             metadata
-                                .invoke_on_input_available(input_available_context(
-                                    tool_call_id,
-                                    arguments,
-                                    &step_input_messages,
-                                    &current_context,
-                                ))
+                                .invoke_on_input_available(
+                                    ToolInputAvailableContext::from_execution_options(
+                                        arguments.clone(),
+                                        &execution_options,
+                                    ),
+                                )
                                 .await?;
                         }
 
                         let approval_required = if let Some(metadata) = runtime_metadata.as_ref() {
                             metadata
-                                .needs_approval(input_available_context(
-                                    tool_call_id,
-                                    arguments,
-                                    &step_input_messages,
-                                    &current_context,
+                                .needs_approval(ToolNeedsApprovalContext::from_execution_options(
+                                    arguments.clone(),
+                                    &execution_options,
                                 ))
                                 .await?
                         } else {
@@ -397,6 +389,7 @@ pub async fn generate(
                                     tool_dynamic,
                                     Some(&step_input_messages),
                                     &current_context,
+                                    None,
                                     opts.on_preliminary_tool_result.as_deref(),
                                 )
                                 .await

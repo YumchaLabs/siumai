@@ -163,12 +163,31 @@ pub struct ToolModelOutputContext {
 pub type ToolModelOutputFn =
     Arc<dyn Fn(ToolModelOutputContext) -> Result<ToolResultOutput, LlmError> + Send + Sync>;
 
-/// Runtime context shared by AI SDK-style tool callbacks.
+/// Runtime context shared by AI SDK-style tool input-start callbacks.
+///
+/// This is an alias of the shared execution-options carrier so callback/runtime
+/// metadata stays aligned with the actual tool execution contract.
+pub type ToolRuntimeContext = ToolExecutionOptions;
+
+/// Runtime context passed when tool-approval policy is evaluated.
 #[derive(Debug, Clone, Default)]
-pub struct ToolRuntimeContext {
+pub struct ToolNeedsApprovalContext {
     pub tool_call_id: String,
-    pub messages: Vec<ChatMessage>,
-    pub context: serde_json::Map<String, Value>,
+    pub input: Value,
+    pub messages: Vec<ModelMessage>,
+    pub context: Context,
+}
+
+impl ToolNeedsApprovalContext {
+    /// Build approval context from a parsed input plus shared execution options.
+    pub fn from_execution_options(input: Value, options: &ToolExecutionOptions) -> Self {
+        Self {
+            tool_call_id: options.tool_call_id.clone(),
+            input,
+            messages: options.messages.clone(),
+            context: options.context.clone(),
+        }
+    }
 }
 
 /// Runtime context passed when a tool-input delta becomes available.
@@ -176,8 +195,25 @@ pub struct ToolRuntimeContext {
 pub struct ToolInputDeltaContext {
     pub tool_call_id: String,
     pub input_text_delta: String,
-    pub messages: Vec<ChatMessage>,
-    pub context: serde_json::Map<String, Value>,
+    pub messages: Vec<ModelMessage>,
+    pub abort_signal: Option<CancelHandle>,
+    pub context: Context,
+}
+
+impl ToolInputDeltaContext {
+    /// Build input-delta context from the shared execution options.
+    pub fn from_execution_options(
+        input_text_delta: impl Into<String>,
+        options: &ToolExecutionOptions,
+    ) -> Self {
+        Self {
+            tool_call_id: options.tool_call_id.clone(),
+            input_text_delta: input_text_delta.into(),
+            messages: options.messages.clone(),
+            abort_signal: options.abort_signal.clone(),
+            context: options.context.clone(),
+        }
+    }
 }
 
 /// Runtime context passed when a full tool input becomes available.
@@ -185,13 +221,27 @@ pub struct ToolInputDeltaContext {
 pub struct ToolInputAvailableContext {
     pub tool_call_id: String,
     pub input: Value,
-    pub messages: Vec<ChatMessage>,
-    pub context: serde_json::Map<String, Value>,
+    pub messages: Vec<ModelMessage>,
+    pub abort_signal: Option<CancelHandle>,
+    pub context: Context,
+}
+
+impl ToolInputAvailableContext {
+    /// Build input-available context from a parsed input plus shared execution options.
+    pub fn from_execution_options(input: Value, options: &ToolExecutionOptions) -> Self {
+        Self {
+            tool_call_id: options.tool_call_id.clone(),
+            input,
+            messages: options.messages.clone(),
+            abort_signal: options.abort_signal.clone(),
+            context: options.context.clone(),
+        }
+    }
 }
 
 /// Runtime approval function for AI SDK-style tool execution gating.
 pub type ToolNeedsApprovalFn = Arc<
-    dyn Fn(ToolInputAvailableContext) -> BoxFuture<'static, Result<bool, LlmError>> + Send + Sync,
+    dyn Fn(ToolNeedsApprovalContext) -> BoxFuture<'static, Result<bool, LlmError>> + Send + Sync,
 >;
 
 /// Runtime callback invoked when streaming tool input starts.
@@ -283,7 +333,7 @@ impl ToolRuntimeMetadata {
     /// Evaluate whether this tool requires approval for the given input.
     pub async fn needs_approval(
         &self,
-        context: ToolInputAvailableContext,
+        context: ToolNeedsApprovalContext,
     ) -> Result<bool, LlmError> {
         match &self.needs_approval {
             None => Ok(false),
@@ -442,7 +492,7 @@ impl ExecutableTool {
     /// Configure a runtime approval predicate for this tool.
     pub fn with_needs_approval_fn<F, Fut>(mut self, needs_approval: F) -> Self
     where
-        F: Fn(ToolInputAvailableContext) -> Fut + Send + Sync + 'static,
+        F: Fn(ToolNeedsApprovalContext) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<bool, LlmError>> + Send + 'static,
     {
         self.runtime_metadata.needs_approval =
@@ -983,6 +1033,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn execute_tool_emits_single_final_output_for_one_shot_execution() {
+        let tool = tool(Tool::function(
+            "weather",
+            "Weather tool",
+            serde_json::json!({ "type": "object" }),
+        ))
+        .with_execute_with_options_fn(|args, options| async move {
+            Ok(serde_json::json!({
+                "city": args["city"].clone(),
+                "toolCallId": options.tool_call_id,
+            }))
+        });
+
+        let results = execute_tool(
+            &tool,
+            serde_json::json!({ "city": "Berlin" }),
+            ToolExecutionOptions::new("call_oneshot"),
+        )
+        .await
+        .unwrap()
+        .collect::<Vec<_>>()
+        .await;
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].as_ref().unwrap(),
+            &ToolExecutionResult::final_result(serde_json::json!({
+                "city": "Berlin",
+                "toolCallId": "call_oneshot",
+            }))
+        );
+    }
+
+    #[tokio::test]
     async fn tool_set_executes_streams_with_options() {
         let tools = ExecutableTools::from_tools([tool(Tool::function(
             "search",
@@ -1015,9 +1099,52 @@ mod tests {
 
         assert_eq!(options.messages.len(), 1);
         assert!(matches!(
-            options.messages[0],
-            crate::types::ModelMessage::User(_)
+            options.messages.first(),
+            Some(crate::types::ModelMessage::User(_))
         ));
+    }
+
+    #[test]
+    fn callback_contexts_project_from_shared_execution_options() {
+        let abort_signal = crate::utils::cancel::new_cancel_handle();
+        let options = ToolExecutionOptions::new("call_ctx")
+            .with_messages(vec![
+                crate::types::ModelMessage::try_from(
+                    crate::types::ChatMessage::user("hello").build(),
+                )
+                .expect("user model message"),
+            ])
+            .with_abort_signal(abort_signal.clone())
+            .with_context(Context::from([(
+                "requestId".to_string(),
+                serde_json::json!("req_1"),
+            )]));
+
+        let delta = ToolInputDeltaContext::from_execution_options("{", &options);
+        assert_eq!(delta.tool_call_id, "call_ctx");
+        assert_eq!(delta.input_text_delta, "{");
+        assert!(delta.abort_signal.is_some());
+        assert!(matches!(
+            delta.messages.first(),
+            Some(crate::types::ModelMessage::User(_))
+        ));
+
+        let available = ToolInputAvailableContext::from_execution_options(
+            serde_json::json!({ "city": "Berlin" }),
+            &options,
+        );
+        assert_eq!(available.input["city"], serde_json::json!("Berlin"));
+        assert!(available.abort_signal.is_some());
+
+        let approval = ToolNeedsApprovalContext::from_execution_options(
+            serde_json::json!({ "city": "Berlin" }),
+            &options,
+        );
+        assert_eq!(approval.tool_call_id, "call_ctx");
+        assert_eq!(
+            approval.context.get("requestId"),
+            Some(&serde_json::json!("req_1"))
+        );
     }
 
     #[test]
@@ -1138,14 +1265,11 @@ mod tests {
         assert!(metadata.has_on_input_available());
         assert!(
             metadata
-                .needs_approval(ToolInputAvailableContext {
+                .needs_approval(ToolNeedsApprovalContext {
                     tool_call_id: "call_1".to_string(),
                     input: serde_json::json!({}),
                     messages: Vec::new(),
-                    context: serde_json::Map::from_iter([(
-                        "role".to_string(),
-                        serde_json::json!("viewer"),
-                    )]),
+                    context: Context::from([("role".to_string(), serde_json::json!("viewer"),)]),
                 })
                 .await
                 .unwrap()

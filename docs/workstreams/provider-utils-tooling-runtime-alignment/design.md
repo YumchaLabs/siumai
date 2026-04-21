@@ -40,8 +40,9 @@ extras-specific execution semantics for functionality that should live in the sh
 
 ## Non-goals
 
-- Do not force the entire orchestrator/runtime pipeline to use `ModelMessage` internally in this
-  slice.
+- Do not force the entire orchestrator history/storage layer to abandon `ChatMessage` internally
+  in this slice; the alignment target is the shared tool-runtime boundary, not a full
+  orchestrator-state rewrite.
 - Do not pretend Siumai already threads full AI SDK execution options through every higher-level
   caller; some adapters still only have partial context available.
 - Do not introduce TypeScript-style generic infer helpers mechanically when Rust trait/object
@@ -108,6 +109,25 @@ Stable tool definitions now expose first-class builders/accessors for:
 These metadata fields were already present or clearly intended by the AI SDK-aligned schema design,
 but the Rust builder surface lagged behind.
 
+### 6. Runtime callbacks now project from the shared execution contract
+
+The remaining structural drift after the first uplift was that runtime callbacks still used a
+parallel `ChatMessage` + raw JSON-map context surface even though actual tool execution had already
+moved onto shared `ToolExecutionOptions`.
+
+This slice now closes that gap:
+
+- `onInputStart` uses the shared `ToolExecutionOptions` carrier directly
+- `onInputDelta` and `onInputAvailable` now project from the same shared execution-options object
+  and therefore see `ModelMessage[]`, shared `context`, and `abort_signal`
+- approval checks now use a dedicated `ToolNeedsApprovalContext` so approval policy does not
+  pretend to receive `abort_signal` that upstream `needsApproval(...)` does not expose
+- streaming orchestrator execution now threads the orchestration cancel handle through both runtime
+  callbacks and local tool execution
+
+This keeps the higher-level orchestrator internally Rust-idiomatic while making the tool-runtime
+boundary much closer to the upstream `provider-utils` contract.
+
 ## Validation
 
 This workstream is locked by:
@@ -118,8 +138,9 @@ This workstream is locked by:
 
 ## Deferred follow-up
 
-- Audit whether `ToolExecutionOptions.messages` and runtime callback contexts should be unified on
-  top of `ModelMessage` end-to-end instead of the current mixed shared/runtime representation.
+- Audit whether approval-preprocess can reconstruct an exact shared `messages` source for approved
+  tool resumes instead of intentionally falling back to empty/partial runtime options when the
+  original pre-tool-call step input is no longer available.
 - Revisit whether provider-defined tools should also carry first-class stable `providerOptions`
   metadata on the portable schema surface.
 - Evaluate whether a Rust-idiomatic equivalent of upstream `InferToolContext` /

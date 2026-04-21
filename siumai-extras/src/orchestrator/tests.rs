@@ -984,6 +984,12 @@ async fn test_generate_surfaces_tool_approval_request_from_runtime_metadata() {
 
     let seen_inputs = Arc::new(Mutex::new(Vec::<Value>::new()));
     let seen_inputs_clone = seen_inputs.clone();
+    let seen_messages = Arc::new(Mutex::new(Vec::<Vec<ModelMessage>>::new()));
+    let seen_messages_clone = seen_messages.clone();
+    let seen_contexts = Arc::new(Mutex::new(Vec::<Context>::new()));
+    let seen_contexts_clone = seen_contexts.clone();
+    let seen_abort_flags = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let seen_abort_flags_clone = seen_abort_flags.clone();
     let runtime_metadata = ExecutableTool::function(
         "dangerous_operation",
         "Dangerous operation",
@@ -993,8 +999,17 @@ async fn test_generate_surfaces_tool_approval_request_from_runtime_metadata() {
     .with_needs_approval(true)
     .with_on_input_available_fn(move |context| {
         let seen_inputs = seen_inputs_clone.clone();
+        let seen_messages = seen_messages_clone.clone();
+        let seen_contexts = seen_contexts_clone.clone();
+        let seen_abort_flags = seen_abort_flags_clone.clone();
         async move {
             seen_inputs.lock().unwrap().push(context.input);
+            seen_messages.lock().unwrap().push(context.messages);
+            seen_contexts.lock().unwrap().push(context.context);
+            seen_abort_flags
+                .lock()
+                .unwrap()
+                .push(context.abort_signal.is_some());
             Ok(())
         }
     })
@@ -1005,13 +1020,16 @@ async fn test_generate_surfaces_tool_approval_request_from_runtime_metadata() {
         .with_result("dangerous_operation", json!({"status": "executed"}))
         .with_runtime_metadata("dangerous_operation", runtime_metadata);
 
+    let mut options = OrchestratorOptions::default();
+    options.context.insert("requestId", json!("req_generate"));
+
     let (response, steps) = generate(
         &model,
         vec![ChatMessage::user("Delete it").build()],
         Some(vec![create_tool("dangerous_operation")]),
         Some(&resolver),
         &[],
-        OrchestratorOptions::default(),
+        options,
     )
     .await
     .unwrap();
@@ -1022,6 +1040,16 @@ async fn test_generate_surfaces_tool_approval_request_from_runtime_metadata() {
         seen_inputs.lock().unwrap().as_slice(),
         &[json!({"action": "delete"})]
     );
+    assert_eq!(seen_messages.lock().unwrap().len(), 1);
+    assert!(matches!(
+        seen_messages.lock().unwrap()[0].first(),
+        Some(ModelMessage::User(_))
+    ));
+    assert_eq!(
+        seen_contexts.lock().unwrap()[0].get("requestId"),
+        Some(&json!("req_generate"))
+    );
+    assert_eq!(seen_abort_flags.lock().unwrap().as_slice(), &[false]);
 
     let approval_count = match &response.content {
         MessageContent::MultiModal(parts) => parts
@@ -1752,10 +1780,22 @@ async fn test_generate_stream_owned_emits_runtime_tool_approval_request_and_inpu
 
     let input_start_calls = Arc::new(Mutex::new(Vec::<String>::new()));
     let input_start_calls_clone = input_start_calls.clone();
+    let input_start_messages = Arc::new(Mutex::new(Vec::<Vec<ModelMessage>>::new()));
+    let input_start_messages_clone = input_start_messages.clone();
+    let input_start_contexts = Arc::new(Mutex::new(Vec::<Context>::new()));
+    let input_start_contexts_clone = input_start_contexts.clone();
+    let input_start_abort_flags = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let input_start_abort_flags_clone = input_start_abort_flags.clone();
     let input_deltas = Arc::new(Mutex::new(Vec::<String>::new()));
     let input_deltas_clone = input_deltas.clone();
+    let input_delta_abort_flags = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let input_delta_abort_flags_clone = input_delta_abort_flags.clone();
     let available_inputs = Arc::new(Mutex::new(Vec::<Value>::new()));
     let available_inputs_clone = available_inputs.clone();
+    let available_contexts = Arc::new(Mutex::new(Vec::<Context>::new()));
+    let available_contexts_clone = available_contexts.clone();
+    let available_abort_flags = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let available_abort_flags_clone = available_abort_flags.clone();
 
     let runtime_metadata = ExecutableTool::function(
         "dangerous_stream",
@@ -1766,22 +1806,43 @@ async fn test_generate_stream_owned_emits_runtime_tool_approval_request_and_inpu
     .with_needs_approval(true)
     .with_on_input_start_fn(move |context| {
         let input_start_calls = input_start_calls_clone.clone();
+        let input_start_messages = input_start_messages_clone.clone();
+        let input_start_contexts = input_start_contexts_clone.clone();
+        let input_start_abort_flags = input_start_abort_flags_clone.clone();
         async move {
             input_start_calls.lock().unwrap().push(context.tool_call_id);
+            input_start_messages.lock().unwrap().push(context.messages);
+            input_start_contexts.lock().unwrap().push(context.context);
+            input_start_abort_flags
+                .lock()
+                .unwrap()
+                .push(context.abort_signal.is_some());
             Ok(())
         }
     })
     .with_on_input_delta_fn(move |context| {
         let input_deltas = input_deltas_clone.clone();
+        let input_delta_abort_flags = input_delta_abort_flags_clone.clone();
         async move {
             input_deltas.lock().unwrap().push(context.input_text_delta);
+            input_delta_abort_flags
+                .lock()
+                .unwrap()
+                .push(context.abort_signal.is_some());
             Ok(())
         }
     })
     .with_on_input_available_fn(move |context| {
         let available_inputs = available_inputs_clone.clone();
+        let available_contexts = available_contexts_clone.clone();
+        let available_abort_flags = available_abort_flags_clone.clone();
         async move {
             available_inputs.lock().unwrap().push(context.input);
+            available_contexts.lock().unwrap().push(context.context);
+            available_abort_flags
+                .lock()
+                .unwrap()
+                .push(context.abort_signal.is_some());
             Ok(())
         }
     })
@@ -1792,6 +1853,9 @@ async fn test_generate_stream_owned_emits_runtime_tool_approval_request_and_inpu
         .with_result("dangerous_stream", json!({"ok": true}))
         .with_runtime_metadata("dangerous_stream", runtime_metadata);
 
+    let mut options = OrchestratorStreamOptions::default();
+    options.context.insert("requestId", json!("req_stream"));
+
     let StreamOrchestration {
         mut stream, steps, ..
     } = generate_stream_owned(
@@ -1799,7 +1863,7 @@ async fn test_generate_stream_owned_emits_runtime_tool_approval_request_and_inpu
         vec![ChatMessage::user("Stream dangerous tool").build()],
         Some(vec![create_tool("dangerous_stream")]),
         Some(resolver),
-        OrchestratorStreamOptions::default(),
+        options,
     )
     .await
     .unwrap();
@@ -1825,14 +1889,30 @@ async fn test_generate_stream_owned_emits_runtime_tool_approval_request_and_inpu
         input_start_calls.lock().unwrap().as_slice(),
         &["call_dangerous_stream".to_string()]
     );
+    assert_eq!(input_start_messages.lock().unwrap().len(), 1);
+    assert!(matches!(
+        input_start_messages.lock().unwrap()[0].first(),
+        Some(ModelMessage::User(_))
+    ));
+    assert_eq!(
+        input_start_contexts.lock().unwrap()[0].get("requestId"),
+        Some(&json!("req_stream"))
+    );
+    assert_eq!(input_start_abort_flags.lock().unwrap().as_slice(), &[true]);
     assert_eq!(
         input_deltas.lock().unwrap().as_slice(),
         &["{\"mode\":\"rm\"}".to_string()]
     );
+    assert_eq!(input_delta_abort_flags.lock().unwrap().as_slice(), &[true]);
     assert_eq!(
         available_inputs.lock().unwrap().as_slice(),
         &[json!({"mode": "rm"})]
     );
+    assert_eq!(
+        available_contexts.lock().unwrap()[0].get("requestId"),
+        Some(&json!("req_stream"))
+    );
+    assert_eq!(available_abort_flags.lock().unwrap().as_slice(), &[true]);
 }
 
 #[tokio::test]

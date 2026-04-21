@@ -7,9 +7,9 @@ use serde_json::Value;
 use tokio::sync::oneshot;
 
 use crate::tool_runtime::{
-    client_tool_call_count, execute_local_tool_call, execution_denied_tool_result,
-    merge_step_tool_results, preprocess_tool_approval_responses, should_continue_after_tool_step,
-    update_pending_deferred_tool_calls,
+    build_tool_execution_options, client_tool_call_count, execute_local_tool_call,
+    execution_denied_tool_result, merge_step_tool_results, preprocess_tool_approval_responses,
+    should_continue_after_tool_step, update_pending_deferred_tool_calls,
 };
 
 use super::prepare_step::{PrepareStepContext, filter_active_tools};
@@ -21,7 +21,8 @@ use super::validation::validate_args_with_schema;
 use siumai::experimental::observability::telemetry::TelemetryConfig;
 use siumai::prelude::unified::*;
 use siumai::tooling::{
-    ToolInputAvailableContext, ToolInputDeltaContext, ToolRuntimeContext, ToolRuntimeMetadata,
+    ToolInputAvailableContext, ToolInputDeltaContext, ToolNeedsApprovalContext, ToolRuntimeContext,
+    ToolRuntimeMetadata,
 };
 
 /// Stream handle that carries the stream, step summary, and a cancel handle.
@@ -162,12 +163,14 @@ fn input_start_context(
     tool_call_id: &str,
     step_input_messages: &[ChatMessage],
     context: &super::types::OrchestratorContext,
+    abort_signal: Option<CancelHandle>,
 ) -> ToolRuntimeContext {
-    ToolRuntimeContext {
-        tool_call_id: tool_call_id.to_string(),
-        messages: step_input_messages.to_vec(),
-        context: context.as_map().clone(),
-    }
+    build_tool_execution_options(
+        tool_call_id,
+        Some(step_input_messages),
+        context,
+        abort_signal,
+    )
 }
 
 fn input_delta_context(
@@ -175,13 +178,15 @@ fn input_delta_context(
     delta: &str,
     step_input_messages: &[ChatMessage],
     context: &super::types::OrchestratorContext,
+    abort_signal: Option<CancelHandle>,
 ) -> ToolInputDeltaContext {
-    ToolInputDeltaContext {
-        tool_call_id: tool_call_id.to_string(),
-        input_text_delta: delta.to_string(),
-        messages: step_input_messages.to_vec(),
-        context: context.as_map().clone(),
-    }
+    let execution_options = build_tool_execution_options(
+        tool_call_id,
+        Some(step_input_messages),
+        context,
+        abort_signal,
+    );
+    ToolInputDeltaContext::from_execution_options(delta, &execution_options)
 }
 
 fn input_available_context(
@@ -189,13 +194,31 @@ fn input_available_context(
     input: &Value,
     step_input_messages: &[ChatMessage],
     context: &super::types::OrchestratorContext,
+    abort_signal: Option<CancelHandle>,
 ) -> ToolInputAvailableContext {
-    ToolInputAvailableContext {
-        tool_call_id: tool_call_id.to_string(),
-        input: input.clone(),
-        messages: step_input_messages.to_vec(),
-        context: context.as_map().clone(),
-    }
+    let execution_options = build_tool_execution_options(
+        tool_call_id,
+        Some(step_input_messages),
+        context,
+        abort_signal,
+    );
+    ToolInputAvailableContext::from_execution_options(input.clone(), &execution_options)
+}
+
+fn needs_approval_context(
+    tool_call_id: &str,
+    input: &Value,
+    step_input_messages: &[ChatMessage],
+    context: &super::types::OrchestratorContext,
+    abort_signal: Option<CancelHandle>,
+) -> ToolNeedsApprovalContext {
+    let execution_options = build_tool_execution_options(
+        tool_call_id,
+        Some(step_input_messages),
+        context,
+        abort_signal,
+    );
+    ToolNeedsApprovalContext::from_execution_options(input.clone(), &execution_options)
 }
 
 /// Orchestrate multi-step streaming. Concatenates provider streams across steps.
@@ -310,6 +333,7 @@ where
                 .as_deref()
                 .map(|resolver| resolver as &dyn ToolResolver),
             &current_context,
+            Some(orchestrator_cancel_clone.clone()),
             on_preliminary_tool_result.as_deref(),
         )
         .await
@@ -487,6 +511,7 @@ where
                                                         id,
                                                         &step_input_messages,
                                                         &current_context,
+                                                        Some(orchestrator_cancel_clone.clone()),
                                                     ))
                                                     .await
                                             );
@@ -509,6 +534,7 @@ where
                                                         delta,
                                                         &step_input_messages,
                                                         &current_context,
+                                                        Some(orchestrator_cancel_clone.clone()),
                                                     ))
                                                     .await
                                             );
@@ -536,6 +562,7 @@ where
                                                         id,
                                                         &step_input_messages,
                                                         &current_context,
+                                                        Some(orchestrator_cancel_clone.clone()),
                                                     ))
                                                     .await
                                             );
@@ -559,6 +586,7 @@ where
                                                         delta,
                                                         &step_input_messages,
                                                         &current_context,
+                                                        Some(orchestrator_cancel_clone.clone()),
                                                     ))
                                                     .await
                                             );
@@ -599,6 +627,10 @@ where
                                                                 &input,
                                                                 &step_input_messages,
                                                                 &current_context,
+                                                                Some(
+                                                                    orchestrator_cancel_clone
+                                                                        .clone(),
+                                                                ),
                                                             ),
                                                         )
                                                         .await
@@ -606,22 +638,25 @@ where
                                                 state.input_available_invoked = true;
                                             }
 
-                                            let approval_required = if let Some(metadata) =
-                                                runtime_metadata.as_ref()
-                                            {
-                                                stream_or_break!(
-                                                    metadata
-                                                        .needs_approval(input_available_context(
-                                                            &call.tool_call_id,
-                                                            &input,
-                                                            &step_input_messages,
-                                                            &current_context,
-                                                        ))
-                                                        .await
-                                                )
-                                            } else {
-                                                false
-                                            };
+                                            let approval_required =
+                                                if let Some(metadata) = runtime_metadata.as_ref() {
+                                                    stream_or_break!(
+                                                        metadata
+                                                            .needs_approval(needs_approval_context(
+                                                                &call.tool_call_id,
+                                                                &input,
+                                                                &step_input_messages,
+                                                                &current_context,
+                                                                Some(
+                                                                    orchestrator_cancel_clone
+                                                                        .clone(),
+                                                                ),
+                                                            ))
+                                                            .await
+                                                    )
+                                                } else {
+                                                    false
+                                                };
                                             local_approval_required.insert(
                                                 call.tool_call_id.clone(),
                                                 approval_required,
@@ -821,6 +856,7 @@ where
                                         arguments,
                                         &step_input_messages,
                                         &current_context,
+                                        Some(orchestrator_cancel_clone.clone()),
                                     ))
                                     .await
                             );
@@ -837,11 +873,12 @@ where
                                 if let Some(metadata) = runtime_metadata.as_ref() {
                                     stream_or_break!(
                                         metadata
-                                            .needs_approval(input_available_context(
+                                            .needs_approval(needs_approval_context(
                                                 tool_call_id,
                                                 arguments,
                                                 &step_input_messages,
                                                 &current_context,
+                                                Some(orchestrator_cancel_clone.clone()),
                                             ))
                                             .await
                                     )
@@ -887,6 +924,7 @@ where
                                     tool_dynamic,
                                     Some(&step_input_messages),
                                     &current_context,
+                                    Some(orchestrator_cancel_clone.clone()),
                                     on_preliminary_tool_result.as_deref(),
                                 )
                                 .await
