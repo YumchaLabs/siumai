@@ -11,21 +11,22 @@ Status legend:
 
 ## Track A - Shared execution semantics
 
-- [~] Move normalized tool execution results into `siumai-core::tooling`.
-- [~] Add `ToolExecutionOptions` plus a shared `ToolExecutionStream`.
-- [~] Keep legacy one-shot execution compatible while adding streamed normalization.
+- [x] Move normalized tool execution results into `siumai-core::tooling`.
+- [x] Add `ToolExecutionOptions` plus a shared `ToolExecutionStream`.
+- [x] Keep legacy one-shot execution compatible while adding streamed normalization.
 
 ## Track B - Tooling facade parity
 
-- [~] Expose `ToolSet`, `tool(...)`, `dynamic_tool(...)`, `is_executable_tool(...)`, and
+- [x] Expose `ToolSet`, `tool(...)`, `dynamic_tool(...)`, `is_executable_tool(...)`, and
   `execute_tool(...)`.
-- [ ] Audit whether additional helper names from `provider-utils` are still missing after the
+- [x] Add public compile/run coverage for shared tooling runtime carrier types on the facade.
+- [x] Audit whether additional helper names from `provider-utils` are still missing after the
   current facade uplift.
 
 ## Track C - Extras/orchestrator convergence
 
-- [~] Remove the extras-owned duplicate `ToolExecutionResult`.
-- [~] Route `ExecutableTools` resolver execution through shared tooling helpers.
+- [x] Remove the extras-owned duplicate `ToolExecutionResult`.
+- [x] Route `ExecutableTools` resolver execution through shared tooling helpers.
 - [x] Thread non-empty shared `messages` into `ToolExecutionOptions` where the orchestrator has the
   exact pre-tool-call step input available.
 - [x] Unify runtime input callbacks onto shared `ModelMessage` / `Context` / `abort_signal`
@@ -39,13 +40,14 @@ Status legend:
 
 ## Track D - Stable tool schema metadata
 
-- [~] Expose `title` on stable tool schemas.
-- [~] Expose builder/accessor support for `inputExamples`.
-- [~] Expose builder/accessor support for `strict`.
-- [~] Expose builder/accessor support for function-tool `providerOptions`.
+- [x] Expose `title` on stable tool schemas.
+- [x] Expose builder/accessor support for `inputExamples`.
+- [x] Expose builder/accessor support for `strict`.
+- [x] Expose builder/accessor support for function-tool `providerOptions`.
 - [x] Expose builder/accessor support for provider-defined-tool `providerOptions`.
 
 ## Track E - Docs and changelog
 
 - [x] Create a dedicated `docs/workstreams/provider-utils-tooling-runtime-alignment/` folder.
 - [x] Record the tooling/runtime alignment slice in `CHANGELOG.md` `Unreleased`.
+- [x] Record the deliberate no-mirror decision for TS-only `InferTool*` helper types.

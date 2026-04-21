@@ -55,7 +55,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   messages, and stable tool schemas now expose builders/accessors for `title`, `inputExamples`,
   `strict`, function-tool
   `providerOptions`, and provider-defined-tool
-  `providerOptions`. This slice is tracked under
+  `providerOptions`; public facade compile/run coverage now also locks the shared runtime carrier
+  types (`ToolExecutionStream`, approval/input callback contexts, and runtime metadata accessors),
+  and the follow-up audit explicitly records that upstream TypeScript-only `InferTool*`
+  conditional helpers are intentionally not mirrored as a fake Rust generic surface. This slice is
+  tracked under
   `docs/workstreams/provider-utils-tooling-runtime-alignment/`.
 - Amazon Bedrock now has provider-owned image generation aligned with the AI SDK
   `image()` / `imageModel()` surface: builder/config-first/registry/public paths all converge on

@@ -4,7 +4,7 @@ Last updated: 2026-04-21
 
 ## M1 - Shared execution uplift
 
-Status: in progress
+Status: completed
 
 - move normalized `preliminary` / `final` tool execution results into `siumai-core::tooling`
 - keep backward compatibility for one-shot `ExecutableTool` executors
@@ -12,7 +12,7 @@ Status: in progress
 
 ## M2 - AI SDK-style tooling facade
 
-Status: in progress
+Status: completed
 
 - expose `ToolSet`, `tool(...)`, `dynamic_tool(...)`, `is_executable_tool(...)`,
   and `execute_tool(...)`
@@ -20,7 +20,7 @@ Status: in progress
 
 ## M3 - Extras integration
 
-Status: in progress
+Status: completed
 
 - remove extras-owned duplicate `ToolExecutionResult`
 - route `ExecutableTools` resolver execution through shared tooling stream helpers
@@ -35,7 +35,7 @@ Status: completed
 
 ## M5 - Follow-up audit
 
-Status: in progress
+Status: completed
 
 - unify runtime callback contexts on top of the shared execution-options contract
 - split approval checks onto a dedicated shared context that mirrors upstream `needsApproval(...)`
@@ -45,8 +45,16 @@ Status: in progress
 
 ## M6 - Remaining audit gaps
 
-Status: deferred
+Status: completed
 
 - evaluate remaining `provider-utils` infer/helper surfaces
+- record the deliberate decision not to mirror TS-only `InferTool*` conditional types on the
+  stable Rust facade
+- add public compile/run coverage for the shared runtime carrier types
+
+## M7 - Deferred ideas
+
+Status: deferred
+
 - decide whether a Rust-only stricter pre-tool-call message-slice helper is worth adding beyond
   the AI SDK-aligned continuation-history behavior

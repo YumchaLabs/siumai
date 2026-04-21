@@ -152,9 +152,33 @@ This workstream is locked by:
 - `cargo nextest run -p siumai-spec`
 - `cargo nextest run -p siumai --test public_surface_imports_test`
 
+## Infer/helper audit outcome
+
+After re-checking `repo-ref/ai/packages/provider-utils/src/types/index.ts`,
+`tool.ts`, `tool-set.ts`, and the `infer-tool-*` helpers, the remaining public-surface gap is now
+mostly about TypeScript compile-time ergonomics rather than missing Rust runtime capability.
+
+The deliberate decisions are:
+
+- do not mechanically mirror `InferToolInput` / `InferToolOutput` on the stable Rust surface:
+  upstream uses conditional types to recover compile-time input/output shapes from a generic tool
+  object, while Siumai intentionally exposes a JSON/object-safe runtime carrier
+  (`ExecutableTool` + `ToolExecutionOptions`) on the public facade
+- do not mechanically mirror `InferToolContext` / `InferToolSetContext`: upstream uses
+  `HasRequiredKey` plus `NoInfer` to omit tools whose context type has no required keys, while the
+  Rust side already exposes the real runtime contract directly via shared `Context`,
+  `ToolExecutionOptions`, and optional runtime `context_schema` metadata
+- do not introduce TypeScript-style function-type aliases that pretend to carry the same generic
+  precision as upstream `ToolExecuteFunction` / `ToolNeedsApprovalFunction`; Rust uses explicit
+  runtime structs (`ToolNeedsApprovalContext`, `ToolInputDeltaContext`,
+  `ToolInputAvailableContext`, `ToolModelOutputContext`) because closures and object-safe trait
+  erasure are the honest public contract here
+
+This means the remaining work is to lock the exposed Rust runtime carriers and helper functions
+with public compile/run coverage, not to create a second phantom type system that would only mimic
+TypeScript syntax.
+
 ## Deferred follow-up
 
 - Decide whether Siumai should expose an optional stricter Rust-only "exact pre-tool-call message
   slice" helper in addition to the AI SDK-aligned continuation behavior that uses current history.
-- Evaluate whether a Rust-idiomatic equivalent of upstream `InferToolContext` /
-  `InferToolSetContext` adds enough value to justify the additional generic surface.
