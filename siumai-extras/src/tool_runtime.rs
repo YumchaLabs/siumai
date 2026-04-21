@@ -4,6 +4,7 @@ use crate::orchestrator::{OrchestratorContext, ToolResolver};
 use futures::StreamExt;
 use serde_json::{Value, json};
 use siumai::prelude::unified::*;
+use siumai::tooling::ToolExecutionOptions;
 
 pub(crate) fn merge_step_tool_results(
     response: &ChatResponse,
@@ -239,12 +240,15 @@ pub(crate) async fn execute_local_tool_call(
     tool_call_id: &str,
     execution_args: Value,
     tool_dynamic: bool,
+    step_input_messages: Option<&[ChatMessage]>,
     context: &OrchestratorContext,
     on_preliminary_tool_result: Option<&PreliminaryToolResultCallback>,
 ) -> ContentPart {
     let input = execution_args.clone();
+    let execution_options =
+        build_tool_execution_options(tool_call_id, step_input_messages, context);
     let out_val = match resolver
-        .call_tool_stream_with_context(tool_name, execution_args, context)
+        .call_tool_stream_with_runtime_options(tool_name, execution_args, execution_options)
         .await
     {
         Ok(mut stream) => {
@@ -283,6 +287,35 @@ pub(crate) async fn execute_local_tool_call(
     }
 
     part
+}
+
+fn build_tool_execution_options(
+    tool_call_id: &str,
+    step_input_messages: Option<&[ChatMessage]>,
+    context: &OrchestratorContext,
+) -> ToolExecutionOptions {
+    let shared_context = context
+        .as_map()
+        .iter()
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+
+    let options = ToolExecutionOptions::new(tool_call_id).with_context(shared_context);
+
+    match step_input_messages {
+        Some(messages) => options
+            .try_with_chat_messages(messages)
+            .unwrap_or_else(|_error| {
+                ToolExecutionOptions::new(tool_call_id).with_context(
+                    context
+                        .as_map()
+                        .iter()
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                )
+            }),
+        None => options,
+    }
 }
 
 pub(crate) fn execution_denied_tool_result(
@@ -352,6 +385,7 @@ pub(crate) async fn preprocess_tool_approval_responses(
                 approval.tool_call_id.as_str(),
                 approval.input,
                 approval.dynamic,
+                None,
                 context,
                 on_preliminary_tool_result,
             )

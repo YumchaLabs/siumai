@@ -26,8 +26,9 @@ Status legend:
 
 - [~] Remove the extras-owned duplicate `ToolExecutionResult`.
 - [~] Route `ExecutableTools` resolver execution through shared tooling helpers.
-- [ ] Decide whether higher-level adapters should also thread non-empty shared `messages` into
-  `ToolExecutionOptions`.
+- [~] Thread non-empty shared `messages` into `ToolExecutionOptions` where the orchestrator has the
+  exact pre-tool-call step input available; approval-preprocess fallback still needs a stricter
+  source-of-truth design.
 
 ## Track D - Stable tool schema metadata
 

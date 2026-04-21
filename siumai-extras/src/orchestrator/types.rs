@@ -45,6 +45,15 @@ impl ToolResolver for siumai::tooling::ExecutableTools {
         .await
     }
 
+    async fn call_tool_with_runtime_options(
+        &self,
+        name: &str,
+        arguments: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<Value, LlmError> {
+        self.execute_with_options(name, arguments, options).await
+    }
+
     async fn call_tool_stream(
         &self,
         name: &str,
@@ -74,6 +83,16 @@ impl ToolResolver for siumai::tooling::ExecutableTools {
             ),
         )
         .await
+    }
+
+    async fn call_tool_stream_with_runtime_options(
+        &self,
+        name: &str,
+        arguments: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<futures::stream::BoxStream<'static, Result<ToolExecutionResult, LlmError>>, LlmError>
+    {
+        self.execute_stream(name, arguments, options).await
     }
 
     fn runtime_tool_metadata(&self, name: &str) -> Option<ToolRuntimeMetadata> {
@@ -735,6 +754,20 @@ pub trait ToolResolver: Send + Sync {
         self.call_tool(name, arguments).await
     }
 
+    /// Execute a tool with the richer shared execution options.
+    ///
+    /// Default implementations preserve backward compatibility by forwarding only the
+    /// shared context object into `call_tool_with_context(...)`.
+    async fn call_tool_with_runtime_options(
+        &self,
+        name: &str,
+        arguments: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<Value, LlmError> {
+        let context = OrchestratorContext::from_map(options.context.into_iter().collect());
+        self.call_tool_with_context(name, arguments, &context).await
+    }
+
     /// Execute a tool with streaming support.
     ///
     /// This method allows tools to return intermediate results (preliminary results)
@@ -774,6 +807,22 @@ pub trait ToolResolver: Send + Sync {
     ) -> Result<futures::stream::BoxStream<'static, Result<ToolExecutionResult, LlmError>>, LlmError>
     {
         self.call_tool_stream(name, arguments).await
+    }
+
+    /// Execute a tool stream with the richer shared execution options.
+    ///
+    /// Default implementations preserve backward compatibility by forwarding only the
+    /// shared context object into `call_tool_stream_with_context(...)`.
+    async fn call_tool_stream_with_runtime_options(
+        &self,
+        name: &str,
+        arguments: Value,
+        options: ToolExecutionOptions,
+    ) -> Result<futures::stream::BoxStream<'static, Result<ToolExecutionResult, LlmError>>, LlmError>
+    {
+        let context = OrchestratorContext::from_map(options.context.into_iter().collect());
+        self.call_tool_stream_with_context(name, arguments, &context)
+            .await
     }
 }
 
@@ -879,8 +928,8 @@ mod tests {
     use super::{OrchestratorContext, ToolResolver};
     use futures::StreamExt;
     use serde_json::json;
-    use siumai::tooling::tool;
-    use siumai::types::Tool;
+    use siumai::tooling::{ToolExecutionOptions, tool};
+    use siumai::types::{Tool, UserContent};
 
     #[tokio::test]
     async fn executable_tools_resolver_preserves_streamed_tool_execution() {
@@ -919,5 +968,40 @@ mod tests {
             results[2].as_ref().expect("final").output(),
             &json!({ "progress": 100 })
         );
+    }
+
+    #[tokio::test]
+    async fn executable_tools_resolver_passes_runtime_options_through_shared_tooling() {
+        let tools = siumai::tooling::ExecutableTools::from_tools([tool(Tool::function(
+            "search",
+            "Search tool",
+            json!({ "type": "object" }),
+        ))
+        .with_execute_with_options_fn(|args, options| async move {
+            assert_eq!(args["q"], json!("rust"));
+            assert_eq!(options.tool_call_id, "call_runtime");
+            assert_eq!(options.messages.len(), 1);
+            assert_eq!(options.context.get("tenant"), Some(&json!("acme")));
+            Ok(json!({ "ok": true }))
+        })]);
+
+        let result = ToolResolver::call_tool_with_runtime_options(
+            &tools,
+            "search",
+            json!({ "q": "rust" }),
+            ToolExecutionOptions::new("call_runtime")
+                .with_messages(vec![siumai::types::ModelMessage::User(
+                    siumai::types::UserModelMessage::new(UserContent::text("hello")),
+                )])
+                .with_context(
+                    [("tenant".to_string(), json!("acme"))]
+                        .into_iter()
+                        .collect(),
+                ),
+        )
+        .await
+        .expect("execute tool");
+
+        assert_eq!(result, json!({ "ok": true }));
     }
 }

@@ -122,7 +122,7 @@ async fn public_surface_tooling_imports_compile() {
     use futures::StreamExt;
     use siumai::tooling::{
         ExecutableTool, ExecutableTools, ToolExecutionOptions, ToolExecutionResult, ToolSet,
-        dynamic_tool, execute_tool, is_executable_tool, tool,
+        dynamic_tool, execute_tool, is_executable_tool, model_messages_from_chat_messages, tool,
     };
     use siumai::types::Tool;
 
@@ -146,6 +146,11 @@ async fn public_surface_tooling_imports_compile() {
         serde_json::json!({ "type": "object" }),
     ));
     assert!(dynamic.runtime_metadata().dynamic());
+
+    let shared_messages =
+        model_messages_from_chat_messages(&[siumai::types::ChatMessage::user("hello").build()])
+            .expect("project model messages");
+    assert_eq!(shared_messages.len(), 1);
 
     let mut results = execute_tool(
         &tool,

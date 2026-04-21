@@ -43,9 +43,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `execute_tool(...)`, `ToolSet`, `tool(...)`, `dynamic_tool(...)`, and
   `is_executable_tool(...)`; `ExecutableTool` now supports both one-shot and streamed execution
   bindings while normalizing streamed outputs into `preliminary` / `final` results, the extras
-  orchestrator now reuses the shared execution-result type instead of owning a parallel one, and
-  stable tool schemas now expose builders/accessors for `title`, `inputExamples`, `strict`, and
-  function-tool `providerOptions`. This slice is tracked under
+  orchestrator now reuses the shared execution-result type instead of owning a parallel one,
+  direct local tool execution paths now also forward shared execution options into
+  `ExecutableTools` including `tool_call_id`, projected `ModelMessage`s when representable, and
+  shared `context`, and stable tool schemas now expose builders/accessors for `title`,
+  `inputExamples`, `strict`, and function-tool `providerOptions`. This slice is tracked under
   `docs/workstreams/provider-utils-tooling-runtime-alignment/`.
 - Amazon Bedrock now has provider-owned image generation aligned with the AI SDK
   `image()` / `imageModel()` surface: builder/config-first/registry/public paths all converge on

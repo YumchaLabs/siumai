@@ -885,6 +885,7 @@ where
                                     tool_call_id,
                                     args,
                                     tool_dynamic,
+                                    Some(&step_input_messages),
                                     &current_context,
                                     on_preliminary_tool_result.as_deref(),
                                 )

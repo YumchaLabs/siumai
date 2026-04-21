@@ -20,7 +20,10 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::error::LlmError;
-use crate::types::{CancelHandle, ChatMessage, Context, ModelMessage, Tool, ToolResultOutput};
+use crate::types::{
+    CancelHandle, ChatMessage, Context, ModelMessage, ModelMessageConversionError, Tool,
+    ToolResultOutput,
+};
 
 /// Async execution function signature for tools.
 pub type ToolExecuteFn =
@@ -67,6 +70,15 @@ impl ToolExecutionOptions {
         self
     }
 
+    /// Convert stable chat messages into shared `ModelMessage` values and attach them.
+    pub fn try_with_chat_messages(
+        mut self,
+        messages: &[ChatMessage],
+    ) -> Result<Self, ModelMessageConversionError> {
+        self.messages = model_messages_from_chat_messages(messages)?;
+        Ok(self)
+    }
+
     /// Attach a cancellation handle that tool implementations may observe.
     pub fn with_abort_signal(mut self, abort_signal: CancelHandle) -> Self {
         self.abort_signal = Some(abort_signal);
@@ -78,6 +90,17 @@ impl ToolExecutionOptions {
         self.context = context;
         self
     }
+}
+
+/// Convert stable chat messages into shared `ModelMessage` values.
+pub fn model_messages_from_chat_messages(
+    messages: &[ChatMessage],
+) -> Result<Vec<ModelMessage>, ModelMessageConversionError> {
+    messages
+        .iter()
+        .cloned()
+        .map(ModelMessage::try_from)
+        .collect()
 }
 
 /// Normalized tool execution result for AI SDK-style helper/runtime parity.
@@ -982,6 +1005,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(out, serde_json::json!({ "ok": true }));
+    }
+
+    #[test]
+    fn tool_execution_options_can_project_chat_messages() {
+        let options = ToolExecutionOptions::new("call_3")
+            .try_with_chat_messages(&[crate::types::ChatMessage::user("hello").build()])
+            .expect("chat messages should convert");
+
+        assert_eq!(options.messages.len(), 1);
+        assert!(matches!(
+            options.messages[0],
+            crate::types::ModelMessage::User(_)
+        ));
     }
 
     #[test]
