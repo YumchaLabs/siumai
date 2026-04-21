@@ -253,10 +253,13 @@ impl Tool {
 
     /// Borrow function-tool provider options when this is a function tool.
     pub fn provider_options_map(&self) -> Option<&crate::types::ProviderOptionsMap> {
-        self.function_ref().map(ToolFunction::provider_options_map)
+        match self {
+            Self::Function { function } => Some(function.provider_options_map()),
+            Self::ProviderDefined(tool) => Some(tool.provider_options_map()),
+        }
     }
 
-    /// Replace function-tool provider options when this is a function tool.
+    /// Replace tool-level provider options when this is a function or provider-defined tool.
     pub fn with_provider_options_map(
         self,
         provider_options_map: crate::types::ProviderOptionsMap,
@@ -265,7 +268,9 @@ impl Tool {
             Self::Function { function } => Self::Function {
                 function: function.with_provider_options_map(provider_options_map),
             },
-            other => other,
+            Self::ProviderDefined(tool) => {
+                Self::ProviderDefined(tool.with_provider_options_map(provider_options_map))
+            }
         }
     }
 }

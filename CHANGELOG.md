@@ -53,7 +53,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   both runtime callbacks and local tool execution, approval-continuation of approved local tools
   now also reuses the current shared message history instead of falling back to empty runtime
   messages, and stable tool schemas now expose builders/accessors for `title`, `inputExamples`,
-  `strict`, and function-tool
+  `strict`, function-tool
+  `providerOptions`, and provider-defined-tool
   `providerOptions`. This slice is tracked under
   `docs/workstreams/provider-utils-tooling-runtime-alignment/`.
 - Amazon Bedrock now has provider-owned image generation aligned with the AI SDK

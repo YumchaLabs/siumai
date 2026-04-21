@@ -45,6 +45,13 @@ pub struct ProviderDefinedTool {
     /// Optional display title.
     pub title: Option<String>,
 
+    /// Provider-specific metadata carried on the stable AI SDK-aligned tool surface.
+    ///
+    /// This mirrors the common `providerOptions` field on AI SDK `Tool`, even for
+    /// `type: "provider"` tools. Provider runtimes may choose to ignore or lower
+    /// these options selectively.
+    pub provider_options_map: crate::types::ProviderOptionsMap,
+
     /// Provider-specific configuration arguments.
     ///
     /// This is aligned with Vercel AI SDK's `{ type: "provider", id, name, args }` shape.
@@ -66,12 +73,16 @@ impl serde::Serialize for ProviderDefinedTool {
         use serde::ser::SerializeStruct;
         let field_count = 3
             + usize::from(self.title.is_some())
+            + usize::from(!self.provider_options_map.is_empty())
             + usize::from(self.supports_deferred_results.is_some());
         let mut st = serializer.serialize_struct("ProviderDefinedTool", field_count)?;
         st.serialize_field("id", &self.id)?;
         st.serialize_field("name", &self.name)?;
         if let Some(title) = &self.title {
             st.serialize_field("title", title)?;
+        }
+        if !self.provider_options_map.is_empty() {
+            st.serialize_field("providerOptions", &self.provider_options_map)?;
         }
         st.serialize_field("args", &self.args)?;
         if let Some(supports_deferred_results) = self.supports_deferred_results {
@@ -95,6 +106,8 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
             name: String,
             #[serde(default)]
             title: Option<String>,
+            #[serde(default, rename = "providerOptions", alias = "provider_options")]
+            provider_options_map: crate::types::ProviderOptionsMap,
             #[serde(default)]
             args: Option<serde_json::Value>,
             #[serde(
@@ -127,6 +140,7 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
             id: de.id,
             name: de.name,
             title: de.title,
+            provider_options_map: de.provider_options_map,
             args,
             supports_deferred_results: de.supports_deferred_results,
         })
@@ -153,6 +167,7 @@ impl ProviderDefinedTool {
             id: id.into(),
             name: name.into(),
             title: None,
+            provider_options_map: crate::types::ProviderOptionsMap::default(),
             args: serde_json::Value::Object(Default::default()),
             supports_deferred_results: None,
         }
@@ -166,6 +181,20 @@ impl ProviderDefinedTool {
     /// Attach a display title.
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
+        self
+    }
+
+    /// Borrow provider-defined-tool provider options.
+    pub fn provider_options_map(&self) -> &crate::types::ProviderOptionsMap {
+        &self.provider_options_map
+    }
+
+    /// Replace provider-defined-tool provider options.
+    pub fn with_provider_options_map(
+        mut self,
+        provider_options_map: crate::types::ProviderOptionsMap,
+    ) -> Self {
+        self.provider_options_map = provider_options_map;
         self
     }
 

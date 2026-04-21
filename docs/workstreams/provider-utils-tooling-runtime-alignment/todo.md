@@ -43,8 +43,7 @@ Status legend:
 - [~] Expose builder/accessor support for `inputExamples`.
 - [~] Expose builder/accessor support for `strict`.
 - [~] Expose builder/accessor support for function-tool `providerOptions`.
-- [ ] Audit whether provider-defined tools also need stable `providerOptions` to match upstream
-  expectations more closely.
+- [x] Expose builder/accessor support for provider-defined-tool `providerOptions`.
 
 ## Track E - Docs and changelog
 

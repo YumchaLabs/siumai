@@ -156,6 +156,28 @@ fn provider_defined_tool_supports_deferred_results_roundtrip() {
 }
 
 #[test]
+fn provider_defined_tool_provider_options_roundtrip() {
+    let mut provider_options = crate::types::ProviderOptionsMap::default();
+    provider_options.insert(
+        "anthropic",
+        serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
+    );
+
+    let tool = ProviderDefinedTool::new("anthropic.web_search_20250305", "web_search")
+        .with_provider_options_map(provider_options.clone());
+    let value = serde_json::to_value(&tool).expect("serialize provider-defined tool");
+
+    assert_eq!(
+        value["providerOptions"],
+        serde_json::json!(provider_options)
+    );
+
+    let roundtrip: ProviderDefinedTool =
+        serde_json::from_value(value).expect("deserialize provider-defined tool");
+    assert_eq!(roundtrip.provider_options_map(), &provider_options);
+}
+
+#[test]
 fn provider_defined_tool_deserializes_supports_deferred_results_alias() {
     let tool: ProviderDefinedTool = serde_json::from_value(serde_json::json!({
         "id": "anthropic.web_fetch_20250910",
@@ -490,4 +512,24 @@ fn provider_defined_tool_roundtrips_optional_title() {
 
     let decoded: Tool = serde_json::from_value(value).expect("deserialize tool");
     assert_eq!(decoded.title(), Some("Search"));
+}
+
+#[test]
+fn provider_defined_tool_builder_exposes_provider_options() {
+    let mut provider_options = crate::types::ProviderOptionsMap::default();
+    provider_options.insert(
+        "openai",
+        serde_json::json!({ "includeSearchResults": true }),
+    );
+
+    let tool = Tool::provider_defined("openai.web_search", "web_search")
+        .with_provider_options_map(provider_options.clone());
+
+    assert_eq!(tool.provider_options_map(), Some(&provider_options));
+
+    let value = serde_json::to_value(&tool).expect("serialize tool");
+    assert_eq!(
+        value["providerOptions"],
+        serde_json::json!(provider_options)
+    );
 }

@@ -27,9 +27,10 @@ Status: in progress
 
 ## M4 - Stable schema builder completion
 
-Status: in progress
+Status: completed
 
 - expose `title`, `inputExamples`, `strict`, and function-tool `providerOptions` builders/accessors
+- expose provider-defined-tool `providerOptions` on the stable portable tool surface
 - add stable schema roundtrip coverage
 
 ## M5 - Follow-up audit

@@ -105,6 +105,7 @@ Stable tool definitions now expose first-class builders/accessors for:
 - `inputExamples`
 - `strict`
 - function-tool `providerOptions`
+- provider-defined tool `providerOptions`
 
 These metadata fields were already present or clearly intended by the AI SDK-aligned schema design,
 but the Rust builder surface lagged behind.
@@ -155,7 +156,5 @@ This workstream is locked by:
 
 - Decide whether Siumai should expose an optional stricter Rust-only "exact pre-tool-call message
   slice" helper in addition to the AI SDK-aligned continuation behavior that uses current history.
-- Revisit whether provider-defined tools should also carry first-class stable `providerOptions`
-  metadata on the portable schema surface.
 - Evaluate whether a Rust-idiomatic equivalent of upstream `InferToolContext` /
   `InferToolSetContext` adds enough value to justify the additional generic surface.
