@@ -11,9 +11,26 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<JSONValue>();
     let _ = size_of::<CallWarning>();
     let _ = size_of::<CancelHandle>();
+    let _ = size_of::<DataContent>();
     let _ = size_of::<CompletionRequest>();
     let _ = size_of::<CompletionResponse>();
     let _ = size_of::<EmbeddingModelUsage>();
+    let _ = size_of::<TextPart>();
+    let _ = size_of::<ImagePart>();
+    let _ = size_of::<FilePart>();
+    let _ = size_of::<ReasoningPart>();
+    let _ = size_of::<CustomPart>();
+    let _ = size_of::<ReasoningFilePart>();
+    let _ = size_of::<ToolCallPart>();
+    let _ = size_of::<ToolResultPart>();
+    let _ = size_of::<ToolApprovalRequest>();
+    let _ = size_of::<ToolApprovalResponse>();
+    let _ = size_of::<UserContentPart>();
+    let _ = size_of::<AssistantContentPart>();
+    let _ = size_of::<ToolContentPart>();
+    let _ = size_of::<UserContent>();
+    let _ = size_of::<AssistantContent>();
+    let _ = size_of::<ToolContent>();
     let _ = size_of::<GenerateImageRequest>();
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
@@ -29,12 +46,24 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<RequestOptions>();
     let _ = size_of::<StreamRequestOptions>();
     let _ = size_of::<SpeechModelResponseMetadata>();
+    let _ = size_of::<ModelMessageRole>();
+    let _ = size_of::<SystemModelMessage>();
+    let _ = size_of::<UserModelMessage>();
+    let _ = size_of::<AssistantModelMessage>();
+    let _ = size_of::<ToolModelMessage>();
+    let _ = size_of::<ModelMessage>();
+    let _ = size_of::<PromptInput>();
+    let _ = size_of::<SystemPrompt>();
+    let _ = size_of::<Prompt>();
+    let _ = size_of::<StandardizedPrompt>();
     let _ = size_of::<TimeoutConfiguration>();
     let _ = size_of::<TimeoutConfigurationSettings>();
     let _ = size_of::<TranscriptionModelResponseMetadata>();
     let _ = size_of::<VideoModelProviderMetadata>();
     let _ = size_of::<VideoModelResponseMetadata>();
     let _ = size_of::<ProviderOptionsMap>();
+    let _ = size_of::<ModelMessageConversionError>();
+    let _ = size_of::<PromptValidationError>();
     let _ = size_of::<LlmError>();
     let _ = size_of::<*const dyn CompletionCapability>();
     let _ = size_of::<*const dyn CompletionModel>();
@@ -48,6 +77,21 @@ fn public_surface_unified_imports_compile() {
     let _ = get_step_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_chunk_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_tool_timeout_ms as fn(Option<&TimeoutConfiguration>, &str) -> Option<u64>;
+    let _ = convert_data_content_to_base64_string as fn(&DataContent) -> String;
+
+    let prompt = Prompt::prompt_text("hello").with_system_text("rules");
+    let standardized = prompt.standardize().expect("prompt should standardize");
+    assert_eq!(standardized.messages.len(), 1);
+
+    let model_message =
+        ModelMessage::try_from(ChatMessage::user("hi").build()).expect("user model message");
+    assert!(matches!(model_message, ModelMessage::User(_)));
+
+    let request = ChatRequest::try_from(Prompt::messages(vec![ModelMessage::System(
+        SystemModelMessage::new("rules"),
+    )]))
+    .expect("prompt should convert into chat request");
+    assert_eq!(request.messages.len(), 1);
 }
 
 #[test]
