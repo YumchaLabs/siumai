@@ -74,7 +74,18 @@ When converting into `ModelMessage`, those fields are rejected explicitly with
 
 This validation remains separate from the richer message/content narrowing rules.
 
-### 4. Convert back into the richer chat runtime losslessly where possible
+### 4. Enforce prompt discriminators during deserialization
+
+The shared prompt structs now also require exact prompt-wire discriminators at the serde boundary:
+
+- message `role` must match the target prompt struct exactly
+- part `type` must match the target part struct exactly
+
+This prevents invalid wire payloads from deserializing into superficially well-typed Rust structs
+with the wrong internal discriminator, which is the closest Rust equivalent to the upstream
+`modelMessageSchema` object validation for this layer.
+
+### 5. Convert back into the richer chat runtime losslessly where possible
 
 The shared prompt types implement conversion back into `ChatMessage` / `ChatRequest` by rebuilding
 the subset that the prompt contract actually carries. Because the prompt layer is narrower, this

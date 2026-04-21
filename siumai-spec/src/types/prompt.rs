@@ -11,7 +11,7 @@ use super::{
     MessageMetadata, MessageRole, ProviderMetadataMap, ProviderOptionsMap, ToolResultOutput,
 };
 use base64::Engine;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use thiserror::Error;
 
 /// AI SDK-style inline data content.
@@ -160,6 +160,184 @@ const fn tool_approval_response_part_type() -> PromptContentPartType {
     PromptContentPartType::ToolApprovalResponse
 }
 
+fn deserialize_exact_prompt_content_part_type<'de, D>(
+    deserializer: D,
+    expected: PromptContentPartType,
+) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let actual = PromptContentPartType::deserialize(deserializer)?;
+    if actual == expected {
+        Ok(actual)
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "expected prompt content part type `{}`",
+            prompt_content_part_type_name(expected)
+        )))
+    }
+}
+
+fn deserialize_exact_model_message_role<'de, D>(
+    deserializer: D,
+    expected: ModelMessageRole,
+) -> Result<ModelMessageRole, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let actual = ModelMessageRole::deserialize(deserializer)?;
+    if actual == expected {
+        Ok(actual)
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "expected model message role `{}`",
+            model_message_role_name(expected)
+        )))
+    }
+}
+
+fn deserialize_text_part_type<'de, D>(deserializer: D) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, text_part_type())
+}
+
+fn deserialize_image_part_type<'de, D>(deserializer: D) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, image_part_type())
+}
+
+fn deserialize_file_part_type<'de, D>(deserializer: D) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, file_part_type())
+}
+
+fn deserialize_reasoning_part_type<'de, D>(
+    deserializer: D,
+) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, reasoning_part_type())
+}
+
+fn deserialize_custom_part_type<'de, D>(deserializer: D) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, custom_part_type())
+}
+
+fn deserialize_reasoning_file_part_type<'de, D>(
+    deserializer: D,
+) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, reasoning_file_part_type())
+}
+
+fn deserialize_tool_call_part_type<'de, D>(
+    deserializer: D,
+) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, tool_call_part_type())
+}
+
+fn deserialize_tool_result_part_type<'de, D>(
+    deserializer: D,
+) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, tool_result_part_type())
+}
+
+fn deserialize_tool_approval_request_part_type<'de, D>(
+    deserializer: D,
+) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, tool_approval_request_part_type())
+}
+
+fn deserialize_tool_approval_response_part_type<'de, D>(
+    deserializer: D,
+) -> Result<PromptContentPartType, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_prompt_content_part_type(deserializer, tool_approval_response_part_type())
+}
+
+fn deserialize_system_model_message_role<'de, D>(
+    deserializer: D,
+) -> Result<ModelMessageRole, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_model_message_role(deserializer, system_model_message_role())
+}
+
+fn deserialize_user_model_message_role<'de, D>(
+    deserializer: D,
+) -> Result<ModelMessageRole, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_model_message_role(deserializer, user_model_message_role())
+}
+
+fn deserialize_assistant_model_message_role<'de, D>(
+    deserializer: D,
+) -> Result<ModelMessageRole, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_model_message_role(deserializer, assistant_model_message_role())
+}
+
+fn deserialize_tool_model_message_role<'de, D>(
+    deserializer: D,
+) -> Result<ModelMessageRole, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_exact_model_message_role(deserializer, tool_model_message_role())
+}
+
+fn prompt_content_part_type_name(part_type: PromptContentPartType) -> &'static str {
+    match part_type {
+        PromptContentPartType::Text => "text",
+        PromptContentPartType::Image => "image",
+        PromptContentPartType::File => "file",
+        PromptContentPartType::Reasoning => "reasoning",
+        PromptContentPartType::Custom => "custom",
+        PromptContentPartType::ReasoningFile => "reasoning-file",
+        PromptContentPartType::ToolCall => "tool-call",
+        PromptContentPartType::ToolResult => "tool-result",
+        PromptContentPartType::ToolApprovalRequest => "tool-approval-request",
+        PromptContentPartType::ToolApprovalResponse => "tool-approval-response",
+    }
+}
+
+fn model_message_role_name(role: ModelMessageRole) -> &'static str {
+    match role {
+        ModelMessageRole::System => "system",
+        ModelMessageRole::User => "user",
+        ModelMessageRole::Assistant => "assistant",
+        ModelMessageRole::Tool => "tool",
+    }
+}
+
 /// Conversion failure when narrowing Siumai's richer chat model into the AI SDK prompt contract.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ModelMessageConversionError {
@@ -197,7 +375,7 @@ pub enum PromptValidationError {
 /// AI SDK-style text content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TextPart {
-    #[serde(rename = "type", default = "text_part_type")]
+    #[serde(rename = "type", deserialize_with = "deserialize_text_part_type")]
     part_type: PromptContentPartType,
     pub text: String,
     #[serde(
@@ -222,7 +400,7 @@ impl TextPart {
 /// AI SDK-style image content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ImagePart {
-    #[serde(rename = "type", default = "image_part_type")]
+    #[serde(rename = "type", deserialize_with = "deserialize_image_part_type")]
     part_type: PromptContentPartType,
     pub image: FilePartSource,
     #[serde(
@@ -254,7 +432,7 @@ impl ImagePart {
 /// AI SDK-style file content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FilePart {
-    #[serde(rename = "type", default = "file_part_type")]
+    #[serde(rename = "type", deserialize_with = "deserialize_file_part_type")]
     part_type: PromptContentPartType,
     pub data: FilePartSource,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -285,7 +463,7 @@ impl FilePart {
 /// AI SDK-style reasoning content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReasoningPart {
-    #[serde(rename = "type", default = "reasoning_part_type")]
+    #[serde(rename = "type", deserialize_with = "deserialize_reasoning_part_type")]
     part_type: PromptContentPartType,
     pub text: String,
     #[serde(
@@ -310,7 +488,7 @@ impl ReasoningPart {
 /// AI SDK-style custom content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CustomPart {
-    #[serde(rename = "type", default = "custom_part_type")]
+    #[serde(rename = "type", deserialize_with = "deserialize_custom_part_type")]
     part_type: PromptContentPartType,
     pub kind: String,
     #[serde(
@@ -335,7 +513,10 @@ impl CustomPart {
 /// AI SDK-style reasoning-file content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReasoningFilePart {
-    #[serde(rename = "type", default = "reasoning_file_part_type")]
+    #[serde(
+        rename = "type",
+        deserialize_with = "deserialize_reasoning_file_part_type"
+    )]
     part_type: PromptContentPartType,
     pub data: MediaSource,
     #[serde(rename = "mediaType", alias = "media_type")]
@@ -363,7 +544,7 @@ impl ReasoningFilePart {
 /// AI SDK-style tool-call content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolCallPart {
-    #[serde(rename = "type", default = "tool_call_part_type")]
+    #[serde(rename = "type", deserialize_with = "deserialize_tool_call_part_type")]
     part_type: PromptContentPartType,
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
@@ -405,7 +586,10 @@ impl ToolCallPart {
 /// AI SDK-style tool-result content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolResultPart {
-    #[serde(rename = "type", default = "tool_result_part_type")]
+    #[serde(
+        rename = "type",
+        deserialize_with = "deserialize_tool_result_part_type"
+    )]
     part_type: PromptContentPartType,
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
@@ -440,7 +624,10 @@ impl ToolResultPart {
 /// AI SDK-style tool-approval-request content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolApprovalRequest {
-    #[serde(rename = "type", default = "tool_approval_request_part_type")]
+    #[serde(
+        rename = "type",
+        deserialize_with = "deserialize_tool_approval_request_part_type"
+    )]
     part_type: PromptContentPartType,
     #[serde(rename = "approvalId")]
     pub approval_id: String,
@@ -461,7 +648,10 @@ impl ToolApprovalRequest {
 /// AI SDK-style tool-approval-response content part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolApprovalResponse {
-    #[serde(rename = "type", default = "tool_approval_response_part_type")]
+    #[serde(
+        rename = "type",
+        deserialize_with = "deserialize_tool_approval_response_part_type"
+    )]
     part_type: PromptContentPartType,
     #[serde(rename = "approvalId")]
     pub approval_id: String,
@@ -555,7 +745,7 @@ pub type ToolContent = Vec<ToolContentPart>;
 /// AI SDK-style system model message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SystemModelMessage {
-    #[serde(default = "system_model_message_role")]
+    #[serde(deserialize_with = "deserialize_system_model_message_role")]
     role: ModelMessageRole,
     pub content: String,
     #[serde(
@@ -580,7 +770,7 @@ impl SystemModelMessage {
 /// AI SDK-style user model message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserModelMessage {
-    #[serde(default = "user_model_message_role")]
+    #[serde(deserialize_with = "deserialize_user_model_message_role")]
     role: ModelMessageRole,
     pub content: UserContent,
     #[serde(
@@ -605,7 +795,7 @@ impl UserModelMessage {
 /// AI SDK-style assistant model message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AssistantModelMessage {
-    #[serde(default = "assistant_model_message_role")]
+    #[serde(deserialize_with = "deserialize_assistant_model_message_role")]
     role: ModelMessageRole,
     pub content: AssistantContent,
     #[serde(
@@ -630,7 +820,7 @@ impl AssistantModelMessage {
 /// AI SDK-style tool model message.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolModelMessage {
-    #[serde(default = "tool_model_message_role")]
+    #[serde(deserialize_with = "deserialize_tool_model_message_role")]
     role: ModelMessageRole,
     pub content: ToolContent,
     #[serde(
@@ -1762,5 +1952,43 @@ mod tests {
         let data = DataContent::binary([1_u8, 2, 3]);
         assert_eq!(convert_data_content_to_base64_string(&data), "AQID");
         assert_eq!(data.as_bytes().expect("bytes"), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn text_part_rejects_wrong_discriminator_during_deserialization() {
+        let err = serde_json::from_value::<TextPart>(serde_json::json!({
+            "type": "image",
+            "text": "hello"
+        }))
+        .expect_err("wrong part type must fail");
+
+        assert!(
+            err.to_string()
+                .contains("expected prompt content part type `text`")
+        );
+    }
+
+    #[test]
+    fn system_model_message_rejects_wrong_role_during_deserialization() {
+        let err = serde_json::from_value::<SystemModelMessage>(serde_json::json!({
+            "role": "user",
+            "content": "rules"
+        }))
+        .expect_err("wrong role must fail");
+
+        assert!(
+            err.to_string()
+                .contains("expected model message role `system`")
+        );
+    }
+
+    #[test]
+    fn model_message_requires_explicit_role_when_deserializing() {
+        let err = serde_json::from_value::<ModelMessage>(serde_json::json!({
+            "content": "hello"
+        }))
+        .expect_err("missing role must fail");
+
+        assert!(err.to_string().contains("data did not match any variant"));
     }
 }

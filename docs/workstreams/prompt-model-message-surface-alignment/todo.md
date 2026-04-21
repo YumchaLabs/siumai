@@ -16,6 +16,7 @@ Status legend:
   parts.
 - [x] Keep the shared prompt contract narrower than `ChatMessage` / `ContentPart`.
 - [x] Add explicit prompt validation and narrowing conversion errors.
+- [x] Require exact prompt `role` / `type` discriminators during serde deserialization.
 
 ## Track B - Facade and tests
 

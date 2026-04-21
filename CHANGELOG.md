@@ -25,9 +25,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `ModelMessage`, `Prompt`, `StandardizedPrompt`, the prompt content-part structs, and explicit
   `ModelMessageConversionError` / `PromptValidationError` now live on `siumai::types::*` and
   `siumai::prelude::unified::*`; prompt-owned shared `DataContent` plus
-  `convert_data_content_to_base64_string(...)` now also mirror the AI SDK helper role, the shared
-  conversion layer intentionally narrows richer `ChatMessage` / `ContentPart` values instead of
-  aliasing them directly, and this slice is tracked under
+  `convert_data_content_to_base64_string(...)` now also mirror the AI SDK helper role, prompt
+  role/type discriminators now deserialize strictly instead of accepting mismatched wire values,
+  the shared conversion layer intentionally narrows richer `ChatMessage` / `ContentPart` values
+  instead of aliasing them directly, and this slice is tracked under
   `docs/workstreams/prompt-model-message-surface-alignment/`.
 - Shared AI SDK-style type surface is now exposed on the stable Rust facade: `JSONValue`,
   `CallWarning`, `ProviderMetadata`, `ImageModelProviderMetadata`, `LanguageModelUsage`,

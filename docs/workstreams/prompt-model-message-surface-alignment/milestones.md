@@ -10,6 +10,8 @@ Last updated: 2026-04-21
   parts, `Prompt`, and `StandardizedPrompt`.
 - Added explicit narrowing conversions between `ChatMessage` / `ChatRequest` and the new prompt
   contract, with dedicated validation and conversion error types.
+- Tightened serde deserialization so prompt `role` / `type` discriminators must match their target
+  structs exactly, preventing invalid wire payloads from slipping past the shared prompt boundary.
 - Re-exported the prompt/message shared surface from `siumai::types::*` and
   `siumai::prelude::unified::*`, and covered the public paths with compile guards plus focused unit
   tests.
