@@ -72,6 +72,7 @@
 //! Provider-specific typed options/metadata are intentionally **not** owned by `siumai-core`.
 //! They live in provider crates to reduce coupling and compile cost.
 
+pub mod ai_sdk;
 pub mod audio;
 pub mod chat;
 pub mod common;
@@ -97,6 +98,7 @@ pub mod usage;
 pub mod video;
 
 // Re-export all types for convenience
+pub use ai_sdk::*;
 pub use audio::*;
 pub use chat::*;
 pub use common::*;

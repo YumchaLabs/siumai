@@ -239,7 +239,10 @@ mod chat_tests {
         let tx = GeminiRequestTransformer { config: cfg() };
         let req =
             crate::types::ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
-                .with_model("gemini-2.5-flash")
+                .with_model_params(crate::types::CommonParams::with_model_capacity(
+                    "gemini-2.5-flash".to_string(),
+                    0,
+                ))
                 .with_provider_option(
                     "google",
                     serde_json::json!({

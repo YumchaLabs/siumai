@@ -1617,6 +1617,7 @@ impl BedrockEventConverter {
             created: Some(self.created_at),
             provider: self.provider_id.clone(),
             request_id: None,
+            headers: None,
         }
     }
 

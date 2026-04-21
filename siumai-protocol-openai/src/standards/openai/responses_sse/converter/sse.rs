@@ -80,6 +80,7 @@ impl crate::streaming::SseEventConverter for OpenAiResponsesEventConverter {
                                 created: Some(created),
                                 provider: self.provider_metadata_key.clone(),
                                 request_id: None,
+                                headers: None,
                             },
                         ),
                     });

@@ -6,6 +6,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- Shared AI SDK-style type surface is now exposed on the stable Rust facade: `JSONValue`,
+  `CallWarning`, `ProviderMetadata`, `ImageModelProviderMetadata`, `LanguageModelUsage`,
+  `EmbeddingModelUsage`, `ImageModelUsage`, and the shared request/response metadata structs now
+  live on `siumai::types::*` and `siumai::prelude::unified::*`; stable `ResponseMetadata` now also
+  preserves optional `headers`, shared warnings now include the AI SDK `deprecated` category, and
+  this audit is tracked under `docs/workstreams/shared-type-surface-alignment/`.
 - Amazon Bedrock now has provider-owned image generation aligned with the AI SDK
   `image()` / `imageModel()` surface: builder/config-first/registry/public paths all converge on
   the real `/model/{id}/invoke` image runtime, Bedrock now advertises `image_generation`

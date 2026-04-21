@@ -483,6 +483,7 @@ async fn openai_responses_stream_bridge_finalizes_clean_eof_without_stream_end()
                 created: None,
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             },
         }),
         Ok(ChatStreamEvent::ContentDelta {
@@ -901,6 +902,7 @@ async fn same_protocol_stream_bridge_allows_strict_mode() {
                 created: None,
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             },
         }),
         Ok(ChatStreamEvent::ContentDelta {

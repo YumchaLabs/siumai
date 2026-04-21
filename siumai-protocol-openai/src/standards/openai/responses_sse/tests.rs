@@ -752,6 +752,7 @@ fn responses_stream_proxy_serializes_basic_text_deltas() {
                 created: None,
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -837,6 +838,7 @@ fn responses_stream_proxy_serializes_openai_text_stream_part_delta() {
                 created: None,
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -870,6 +872,7 @@ fn responses_stream_proxy_serializes_v3_text_delta_even_with_non_openai_event_ty
                 created: None,
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -945,6 +948,7 @@ fn responses_stream_proxy_serializes_openai_source_stream_part_as_annotation_add
                 created: None,
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -1121,6 +1125,7 @@ fn responses_stream_proxy_serializes_tool_input_stream_parts_as_function_call_ar
                 created: None,
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -1653,6 +1658,7 @@ fn responses_stream_proxy_serializes_stream_start_and_response_metadata_parts() 
                 created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -1682,6 +1688,7 @@ fn responses_stream_proxy_serializes_text_start_and_end_parts() {
                 created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -1749,6 +1756,7 @@ fn responses_stream_proxy_serializes_reasoning_start_and_end_parts() {
                 created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -1796,6 +1804,7 @@ fn responses_stream_proxy_serializes_finish_part_as_response_completed() {
                 created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -2048,6 +2057,7 @@ fn responses_stream_proxy_preserves_source_metadata_in_completed_response() {
                 created: Some(parse_test_timestamp("2025-01-01T00:00:00.000Z")),
                 provider: "openai".to_string(),
                 request_id: None,
+                headers: None,
             }),
         })
         .expect("serialize response-metadata");
@@ -2263,6 +2273,7 @@ fn responses_stream_proxy_closes_function_call_on_stream_end() {
             created: None,
             provider: "openai".to_string(),
             request_id: None,
+            headers: None,
         },
     });
 

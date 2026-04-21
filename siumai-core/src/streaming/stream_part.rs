@@ -43,6 +43,10 @@ pub enum SharedV3Warning {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         details: Option<String>,
     },
+    Deprecated {
+        setting: String,
+        message: String,
+    },
     Other {
         message: String,
     },
@@ -765,6 +769,9 @@ impl LanguageModelV3StreamPart {
                         crate::types::Warning::Compatibility { feature, details } => {
                             SharedV3Warning::Compatibility { feature, details }
                         }
+                        crate::types::Warning::Deprecated { setting, message } => {
+                            SharedV3Warning::Deprecated { setting, message }
+                        }
                         crate::types::Warning::Other { message } => {
                             SharedV3Warning::Other { message }
                         }
@@ -939,6 +946,9 @@ impl LanguageModelV3StreamPart {
                         SharedV3Warning::Compatibility { feature, details } => {
                             crate::types::Warning::Compatibility { feature, details }
                         }
+                        SharedV3Warning::Deprecated { setting, message } => {
+                            crate::types::Warning::Deprecated { setting, message }
+                        }
                         SharedV3Warning::Other { message } => {
                             crate::types::Warning::Other { message }
                         }
@@ -952,6 +962,7 @@ impl LanguageModelV3StreamPart {
                     created: metadata.timestamp,
                     provider: String::new(),
                     request_id: None,
+                    headers: None,
                 })
             }
             Self::Finish {

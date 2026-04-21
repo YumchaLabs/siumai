@@ -221,6 +221,7 @@ impl OllamaEventConverter {
             created: Some(chrono::Utc::now()),
             provider: "ollama".to_string(),
             request_id: None,
+            headers: None,
         }
     }
 
@@ -235,6 +236,7 @@ impl OllamaEventConverter {
             created: Some(chrono::Utc::now()),
             provider: "ollama".to_string(),
             request_id: None,
+            headers: None,
         }
     }
 }
@@ -582,6 +584,7 @@ mod tests {
                 created: None,
                 provider: "ollama".to_string(),
                 request_id: None,
+                headers: None,
             },
         });
 
@@ -615,6 +618,7 @@ mod tests {
                 created: None,
                 provider: "ollama".to_string(),
                 request_id: None,
+                headers: None,
             },
         });
 

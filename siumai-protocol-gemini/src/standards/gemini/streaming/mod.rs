@@ -908,6 +908,7 @@ impl GeminiEventConverter {
             created: Some(chrono::Utc::now()),
             provider: "gemini".to_string(),
             request_id: None,
+            headers: None,
         }
     }
 }

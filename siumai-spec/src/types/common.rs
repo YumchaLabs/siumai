@@ -4,6 +4,7 @@
 //! `types::params`, `types::http`, and `types::usage`.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Warning from the model provider
 ///
@@ -63,6 +64,13 @@ pub enum Warning {
         #[serde(skip_serializing_if = "Option::is_none")]
         details: Option<String>,
     },
+    /// A deprecated setting or feature is being used.
+    Deprecated {
+        /// The deprecated setting or feature name.
+        setting: String,
+        /// A human-readable message explaining what to use instead.
+        message: String,
+    },
     /// Other warning types
     Other {
         /// Warning message
@@ -100,6 +108,14 @@ impl Warning {
         Self::Compatibility {
             feature: feature.into(),
             details: details.map(|d| d.into()),
+        }
+    }
+
+    /// Create a deprecation warning.
+    pub fn deprecated(setting: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::Deprecated {
+            setting: setting.into(),
+            message: message.into(),
         }
     }
 
@@ -301,11 +317,16 @@ pub struct ResponseMetadata {
         skip_serializing_if = "Option::is_none"
     )]
     pub request_id: Option<String>,
+    /// Response headers when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderType, Warning};
+    use super::{ProviderType, ResponseMetadata, Warning};
+    use chrono::{DateTime, Utc};
+    use std::collections::HashMap;
 
     #[test]
     fn provider_type_maps_deepseek_name() {
@@ -479,5 +500,40 @@ mod tests {
                 details: Some("provider does not support topK".to_string()),
             }
         );
+    }
+
+    #[test]
+    fn deprecated_warning_serializes_with_shared_v4_shape() {
+        let warning = Warning::deprecated("legacyOption", "Use `replacementOption` instead.");
+
+        let value = serde_json::to_value(&warning).expect("serialize warning");
+        assert_eq!(value["type"], serde_json::json!("deprecated"));
+        assert_eq!(value["setting"], serde_json::json!("legacyOption"));
+        assert_eq!(
+            value["message"],
+            serde_json::json!("Use `replacementOption` instead.")
+        );
+    }
+
+    #[test]
+    fn response_metadata_serializes_headers_when_available() {
+        let metadata = ResponseMetadata {
+            id: Some("resp_1".to_string()),
+            model: Some("gpt-4o".to_string()),
+            created: Some(
+                DateTime::parse_from_rfc3339("2026-04-21T09:00:00Z")
+                    .expect("valid timestamp")
+                    .with_timezone(&Utc),
+            ),
+            provider: "openai".to_string(),
+            request_id: Some("req_1".to_string()),
+            headers: Some(HashMap::from([(
+                "x-request-id".to_string(),
+                "req_1".to_string(),
+            )])),
+        };
+
+        let value = serde_json::to_value(&metadata).expect("serialize metadata");
+        assert_eq!(value["headers"]["x-request-id"], serde_json::json!("req_1"));
     }
 }

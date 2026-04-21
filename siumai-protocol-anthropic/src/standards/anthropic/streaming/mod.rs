@@ -790,6 +790,7 @@ impl AnthropicEventConverter {
             created: Some(chrono::Utc::now()),
             provider: "anthropic".to_string(),
             request_id: None,
+            headers: None,
         }
     }
 
@@ -823,6 +824,7 @@ impl AnthropicEventConverter {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             }),
         })
     }
@@ -986,6 +988,7 @@ impl AnthropicEventConverter {
                         created: Some(chrono::Utc::now()),
                         provider: "anthropic".to_string(),
                         request_id: None,
+                        headers: None,
                     };
                     let mut out: Vec<ChatStreamEvent> = Vec::new();
                     self.append_stream_start_events(&mut out, metadata);

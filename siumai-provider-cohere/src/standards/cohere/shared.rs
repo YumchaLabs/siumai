@@ -99,6 +99,7 @@ pub fn response_metadata(
         created: None,
         provider: provider_id.to_string(),
         request_id: None,
+        headers: None,
     }
 }
 

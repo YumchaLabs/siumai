@@ -177,6 +177,7 @@ mod tests {
                     created: None,
                     provider: "test".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             }),
             Ok(ChatStreamEvent::ContentDelta {

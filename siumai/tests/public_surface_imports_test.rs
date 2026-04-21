@@ -6,10 +6,24 @@ fn public_surface_unified_imports_compile() {
 
     let _ = size_of::<ChatRequest>();
     let _ = size_of::<ChatResponse>();
+    let _ = size_of::<JSONValue>();
+    let _ = size_of::<CallWarning>();
     let _ = size_of::<CompletionRequest>();
     let _ = size_of::<CompletionResponse>();
+    let _ = size_of::<EmbeddingModelUsage>();
     let _ = size_of::<GenerateImageRequest>();
+    let _ = size_of::<ImageModelProviderMetadata>();
+    let _ = size_of::<ImageModelResponseMetadata>();
+    let _ = size_of::<ImageModelUsage>();
+    let _ = size_of::<LanguageModelInputTokenDetails>();
+    let _ = size_of::<LanguageModelOutputTokenDetails>();
+    let _ = size_of::<LanguageModelRequestMetadata>();
+    let _ = size_of::<LanguageModelResponseMetadata>();
+    let _ = size_of::<LanguageModelUsage>();
+    let _ = size_of::<ProviderMetadata>();
     let _ = size_of::<StreamRequestOptions>();
+    let _ = size_of::<SpeechModelResponseMetadata>();
+    let _ = size_of::<TranscriptionModelResponseMetadata>();
     let _ = size_of::<ProviderOptionsMap>();
     let _ = size_of::<LlmError>();
     let _ = size_of::<*const dyn CompletionCapability>();

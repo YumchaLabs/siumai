@@ -36,6 +36,7 @@ impl TestStreamingProvider {
                     created: None,
                     provider: "test".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             },
             ChatStreamEvent::ContentDelta {
@@ -83,6 +84,7 @@ impl TestStreamingProvider {
                     created: None,
                     provider: "test".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             },
             ChatStreamEvent::ToolCallDelta {
@@ -132,6 +134,7 @@ impl TestStreamingProvider {
                     created: None,
                     provider: "test".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             },
             ChatStreamEvent::ContentDelta {

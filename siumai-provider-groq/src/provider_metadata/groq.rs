@@ -93,6 +93,7 @@ impl GroqChatResponseExt for crate::types::ChatResponse {
             created: meta.timestamp,
             provider: "groq".to_string(),
             request_id: None,
+            headers: None,
         })
     }
 }
