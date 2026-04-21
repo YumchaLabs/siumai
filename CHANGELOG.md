@@ -117,6 +117,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Stable prompt-owned `ToolApprovalResponse` values now also expose Rust-idiomatic builder helpers
   for optional `reason` and `providerExecuted`, keeping the public shared prompt surface more
   symmetric with `ToolCall` / `ToolResult` without changing the underlying AI SDK wire contract.
+- Stable prompt/content shared structs now also expose first-class Rust builders/accessors for
+  upstream `providerOptions` on text/image/file/reasoning/custom/tool parts and all four
+  model-message variants, and prompt `ToolCallPart` now also has a dedicated
+  `with_provider_executed(...)` helper instead of requiring direct field mutation.
 - Stable prompt/content modeling now includes Vercel-aligned `custom`, `reasoning-file`, and explicit tool-result content variants (`file-data`, `file-url`, `file-reference`, `image-data`, `image-url`, `image-file-reference`) with provider-keyed `providerReference` support. Legacy `file-id` / `image-file-id` inputs remain accepted as compatibility aliases.
 - Stable prompt/content modeling now also includes first-class user `providerReference` support
   for `image` / `file` parts through shared `ProviderReference` and `FilePartSource`, with

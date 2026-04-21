@@ -27,6 +27,8 @@ Status legend:
 - [x] Add focused unit coverage for prompt standardization and conversion failures.
 - [x] Keep prompt-owned `ToolApprovalResponse` optional fields ergonomic through builder helpers
   and public facade coverage.
+- [x] Keep prompt-owned `providerOptions` fields ergonomic through shared builder/accessor helpers
+  on prompt parts and model-message structs.
 
 ## Track C - Docs and changelog
 

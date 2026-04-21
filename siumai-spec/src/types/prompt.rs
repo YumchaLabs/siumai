@@ -581,6 +581,12 @@ impl ToolCallPart {
             provider_executed: None,
         }
     }
+
+    /// Mark whether the tool call was executed by the provider.
+    pub fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
 }
 
 /// AI SDK-style tool-result content part.
@@ -853,6 +859,48 @@ impl ToolModelMessage {
         }
     }
 }
+
+macro_rules! impl_prompt_provider_options_builders {
+    ($($ty:ty),+ $(,)?) => {
+        $(
+            impl $ty {
+                /// Borrow provider options carried on the shared prompt surface.
+                pub fn provider_options_map(&self) -> &ProviderOptionsMap {
+                    &self.provider_options
+                }
+
+                /// Mutably borrow provider options carried on the shared prompt surface.
+                pub fn provider_options_map_mut(&mut self) -> &mut ProviderOptionsMap {
+                    &mut self.provider_options
+                }
+
+                /// Replace provider options carried on the shared prompt surface.
+                pub fn with_provider_options_map(
+                    mut self,
+                    provider_options_map: ProviderOptionsMap,
+                ) -> Self {
+                    self.provider_options = provider_options_map;
+                    self
+                }
+            }
+        )+
+    };
+}
+
+impl_prompt_provider_options_builders!(
+    TextPart,
+    ImagePart,
+    FilePart,
+    ReasoningPart,
+    CustomPart,
+    ReasoningFilePart,
+    ToolCallPart,
+    ToolResultPart,
+    SystemModelMessage,
+    UserModelMessage,
+    AssistantModelMessage,
+    ToolModelMessage,
+);
 
 /// AI SDK-style model message union.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2022,5 +2070,43 @@ mod tests {
         assert_eq!(roundtrip.approval_id, "approval_1");
         assert_eq!(roundtrip.reason.as_deref(), Some("looks safe"));
         assert_eq!(roundtrip.provider_executed, Some(true));
+    }
+
+    #[test]
+    fn prompt_parts_and_messages_expose_provider_options_builders() {
+        let mut provider_options = ProviderOptionsMap::default();
+        provider_options.insert(
+            "anthropic",
+            serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
+        );
+
+        let text_part = TextPart::new("hello").with_provider_options_map(provider_options.clone());
+        assert_eq!(text_part.provider_options_map(), &provider_options);
+
+        let tool_call = ToolCallPart::new("call_1", "search", serde_json::json!({ "q": "rust" }))
+            .with_provider_options_map(provider_options.clone())
+            .with_provider_executed(true);
+        assert_eq!(tool_call.provider_options_map(), &provider_options);
+        assert_eq!(tool_call.provider_executed, Some(true));
+
+        let message = AssistantModelMessage::new(AssistantContent::parts(vec![
+            AssistantContentPart::Text(text_part.clone()),
+            AssistantContentPart::ToolCall(tool_call.clone()),
+        ]))
+        .with_provider_options_map(provider_options.clone());
+        assert_eq!(message.provider_options_map(), &provider_options);
+
+        let value = serde_json::to_value(&message).expect("serialize assistant model message");
+        let roundtrip: AssistantModelMessage =
+            serde_json::from_value(value).expect("deserialize assistant model message");
+        assert_eq!(roundtrip.provider_options_map(), &provider_options);
+        assert_eq!(
+            roundtrip,
+            AssistantModelMessage::new(AssistantContent::parts(vec![
+                AssistantContentPart::Text(text_part),
+                AssistantContentPart::ToolCall(tool_call),
+            ]))
+            .with_provider_options_map(provider_options)
+        );
     }
 }

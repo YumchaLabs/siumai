@@ -101,6 +101,24 @@ This is not a new wire-format feature. It is a Rust-surface ergonomics completio
 the prompt-owned approval response shape symmetric with other shared helper structs such as
 `ToolCall` and `ToolResult`.
 
+### 7. Expose provider-options builders across prompt-owned structs
+
+The shared prompt/message structs already stored upstream-aligned `providerOptions` on text/image/
+file/reasoning/custom/tool parts and on all four model-message variants, but that field was still
+awkward to populate from Rust because most prompt-owned structs only exposed `new(...)`.
+
+The stable Rust prompt surface now treats that metadata consistently with the rest of Siumai's
+builder-heavy API style:
+
+- prompt parts and model-message structs expose `provider_options_map()`
+- prompt parts and model-message structs expose `provider_options_map_mut()`
+- prompt parts and model-message structs expose `with_provider_options_map(...)`
+- `ToolCallPart` also exposes `with_provider_executed(...)` so its optional AI SDK metadata is not
+  stranded behind direct field mutation
+
+This keeps the stable facade auditable against upstream field presence while remaining ergonomic
+for normal Rust construction patterns.
+
 ## Follow-up
 
 The next audit step is to keep comparing these prompt-owned structs against `repo-ref/ai` as more
