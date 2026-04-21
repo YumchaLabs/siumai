@@ -15,8 +15,10 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
     let _ = size_of::<ImageModelUsage>();
+    let _ = size_of::<LanguageModelCallOptions>();
     let _ = size_of::<LanguageModelInputTokenDetails>();
     let _ = size_of::<LanguageModelOutputTokenDetails>();
+    let _ = size_of::<LanguageModelReasoning>();
     let _ = size_of::<LanguageModelRequestMetadata>();
     let _ = size_of::<LanguageModelResponseMetadata>();
     let _ = size_of::<LanguageModelUsage>();

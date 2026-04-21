@@ -24,6 +24,84 @@ pub type ProviderMetadata = ProviderMetadataMap;
 /// AI SDK-style shared image-provider metadata root.
 pub type ImageModelProviderMetadata = ProviderMetadata;
 
+/// AI SDK-style reasoning level for language-model call options.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LanguageModelReasoning {
+    /// Use the provider's default reasoning level.
+    ProviderDefault,
+    /// Disable reasoning when supported.
+    None,
+    /// Minimal reasoning.
+    Minimal,
+    /// Low reasoning effort.
+    Low,
+    /// Medium reasoning effort.
+    Medium,
+    /// High reasoning effort.
+    High,
+    /// Extra-high reasoning effort.
+    #[serde(rename = "xhigh")]
+    XHigh,
+}
+
+/// AI SDK-style model-facing generation controls.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct LanguageModelCallOptions {
+    /// Maximum output tokens requested by the caller.
+    #[serde(rename = "maxOutputTokens", skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    /// Sampling temperature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// Nucleus sampling.
+    #[serde(rename = "topP", skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    /// Top-k sampling.
+    #[serde(rename = "topK", skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<f64>,
+    /// Presence penalty.
+    #[serde(rename = "presencePenalty", skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f64>,
+    /// Frequency penalty.
+    #[serde(rename = "frequencyPenalty", skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f64>,
+    /// Stop sequences.
+    #[serde(rename = "stopSequences", skip_serializing_if = "Option::is_none")]
+    pub stop_sequences: Option<Vec<String>>,
+    /// Deterministic seed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+    /// Cross-provider reasoning level.
+    ///
+    /// Siumai does not yet have a stable cross-provider request lane for this field, so
+    /// `From<CommonParams>` leaves it empty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<LanguageModelReasoning>,
+}
+
+impl From<super::CommonParams> for LanguageModelCallOptions {
+    fn from(value: super::CommonParams) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl From<&super::CommonParams> for LanguageModelCallOptions {
+    fn from(value: &super::CommonParams) -> Self {
+        Self {
+            max_output_tokens: value.max_completion_tokens.or(value.max_tokens),
+            temperature: value.temperature,
+            top_p: value.top_p,
+            top_k: value.top_k,
+            presence_penalty: value.presence_penalty,
+            frequency_penalty: value.frequency_penalty,
+            stop_sequences: value.stop_sequences.clone(),
+            seed: value.seed,
+            reasoning: None,
+        }
+    }
+}
+
 /// AI SDK-style language-model input token detail shape.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct LanguageModelInputTokenDetails {
@@ -480,6 +558,18 @@ mod tests {
         let embedding = EmbeddingModelUsage::from(EmbeddingUsage::new(12, 12));
         let mut image = ImageModelUsage::new(Some(3), Some(5), Some(8));
         image.merge(&ImageModelUsage::new(Some(2), None, Some(2)));
+        let call_options = LanguageModelCallOptions::from(&super::super::CommonParams {
+            model: "gpt-5".to_string(),
+            temperature: Some(0.7),
+            max_tokens: Some(128),
+            max_completion_tokens: Some(256),
+            top_p: Some(0.9),
+            top_k: Some(40.0),
+            stop_sequences: Some(vec!["END".to_string()]),
+            seed: Some(7),
+            frequency_penalty: Some(0.2),
+            presence_penalty: Some(0.1),
+        });
         let mut language = LanguageModelUsage::from(
             Usage::builder()
                 .with_input_tokens(super::super::UsageInputTokens {
@@ -520,6 +610,10 @@ mod tests {
         assert_eq!(image.input_tokens, Some(5));
         assert_eq!(image.output_tokens, Some(5));
         assert_eq!(image.total_tokens, Some(10));
+        assert_eq!(call_options.max_output_tokens, Some(256));
+        assert_eq!(call_options.temperature, Some(0.7));
+        assert_eq!(call_options.stop_sequences, Some(vec!["END".to_string()]));
+        assert_eq!(call_options.reasoning, None);
         assert_eq!(language.input_tokens, Some(12));
         assert_eq!(language.output_tokens, Some(7));
         assert_eq!(language.total_tokens, Some(19));

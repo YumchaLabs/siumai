@@ -95,6 +95,7 @@ impl CommonParams {
             .map(|t| (t * 1000.0) as u64)
             .hash(&mut hasher);
         self.max_tokens.hash(&mut hasher);
+        self.max_completion_tokens.hash(&mut hasher);
         self.top_p.map(|t| (t * 1000.0) as u64).hash(&mut hasher);
         self.top_k.map(|t| (t * 1000.0) as u64).hash(&mut hasher);
         self.frequency_penalty
@@ -175,6 +176,7 @@ pub struct CommonParamsBuilder {
     model: String,
     temperature: Option<f64>,
     max_tokens: Option<u32>,
+    max_completion_tokens: Option<u32>,
     top_p: Option<f64>,
     top_k: Option<f64>,
     stop_sequences: Option<Vec<String>>,
@@ -209,6 +211,12 @@ impl CommonParamsBuilder {
     /// Set the max tokens
     pub fn max_tokens(mut self, max_tokens: u32) -> Self {
         self.max_tokens = Some(max_tokens);
+        self
+    }
+
+    /// Set the max completion tokens
+    pub fn max_completion_tokens(mut self, max_completion_tokens: u32) -> Self {
+        self.max_completion_tokens = Some(max_completion_tokens);
         self
     }
 
@@ -280,7 +288,7 @@ impl CommonParamsBuilder {
             model: self.model,
             temperature: self.temperature,
             max_tokens: self.max_tokens,
-            max_completion_tokens: None,
+            max_completion_tokens: self.max_completion_tokens,
             top_p: self.top_p,
             top_k: self.top_k,
             stop_sequences: self.stop_sequences,
@@ -352,5 +360,34 @@ mod tests {
             ..Default::default()
         };
         assert!(params.validate_params().is_err());
+    }
+
+    #[test]
+    fn common_params_builder_preserves_max_completion_tokens() {
+        let params = CommonParams::builder()
+            .model("gpt-5")
+            .max_tokens(128)
+            .max_completion_tokens(256)
+            .build()
+            .expect("build params");
+
+        assert_eq!(params.max_tokens, Some(128));
+        assert_eq!(params.max_completion_tokens, Some(256));
+    }
+
+    #[test]
+    fn common_params_cache_hash_changes_with_max_completion_tokens() {
+        let left = CommonParams {
+            model: "gpt-5".to_string(),
+            max_completion_tokens: Some(128),
+            ..Default::default()
+        };
+        let right = CommonParams {
+            model: "gpt-5".to_string(),
+            max_completion_tokens: Some(256),
+            ..Default::default()
+        };
+
+        assert_ne!(left.cache_hash(), right.cache_hash());
     }
 }
