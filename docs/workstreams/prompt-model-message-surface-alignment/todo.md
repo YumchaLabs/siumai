@@ -36,6 +36,8 @@ Status legend:
   `provider_option(...)` helpers.
 - [x] Add field-level prompt-part builders for optional `ImagePart.mediaType` and
   `FilePart.filename`.
+- [x] Add upstream-compatible optional `mediaType` support on tool-result `file-url` content
+  parts.
 
 ## Track C - Docs and changelog
 

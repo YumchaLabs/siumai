@@ -189,6 +189,12 @@ pub enum ToolResultContentPart {
     FileUrl {
         url: String,
         #[serde(
+            rename = "mediaType",
+            alias = "media_type",
+            skip_serializing_if = "Option::is_none"
+        )]
+        media_type: Option<String>,
+        #[serde(
             rename = "providerOptions",
             alias = "provider_options",
             default,
@@ -459,8 +465,21 @@ impl ToolResultContentPart {
     pub fn file_url(url: impl Into<String>) -> Self {
         Self::FileUrl {
             url: url.into(),
+            media_type: None,
             provider_options: ProviderOptionsMap::default(),
         }
+    }
+
+    /// Set the optional media type for a file-url content part.
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        if let Self::FileUrl {
+            media_type: current,
+            ..
+        } = &mut self
+        {
+            *current = Some(media_type.into());
+        }
+        self
     }
 
     /// Create a file-id content part.
@@ -605,6 +624,8 @@ mod tests {
             "application/pdf",
             Some("report.pdf".to_string()),
         );
+        let file_url = ToolResultContentPart::file_url("https://example.com/report.pdf")
+            .with_media_type("application/pdf");
 
         let file_id_json = serde_json::to_value(&file_id).expect("serialize file-reference part");
         assert_eq!(file_id_json["type"], serde_json::json!("file-reference"));
@@ -622,6 +643,13 @@ mod tests {
         assert_eq!(file_data_json["filename"], serde_json::json!("report.pdf"));
         assert_eq!(
             file_data_json["mediaType"],
+            serde_json::json!("application/pdf")
+        );
+
+        let file_url_json = serde_json::to_value(&file_url).expect("serialize file-url part");
+        assert_eq!(file_url_json["type"], serde_json::json!("file-url"));
+        assert_eq!(
+            file_url_json["mediaType"],
             serde_json::json!("application/pdf")
         );
     }
@@ -675,7 +703,8 @@ mod tests {
     fn content_output_json_value_preserves_explicit_tool_result_parts() {
         let output = ToolResultOutput::content(vec![
             ToolResultContentPart::image_data("aGVsbG8=", "image/png"),
-            ToolResultContentPart::file_url("https://example.com/report.pdf"),
+            ToolResultContentPart::file_url("https://example.com/report.pdf")
+                .with_media_type("application/pdf"),
             ToolResultContentPart::custom()
                 .with_provider_option("anthropic", serde_json::json!({ "type": "tool-reference" })),
         ]);
@@ -689,6 +718,7 @@ mod tests {
             arr[1]["url"],
             serde_json::json!("https://example.com/report.pdf")
         );
+        assert_eq!(arr[1]["mediaType"], serde_json::json!("application/pdf"));
         assert_eq!(arr[2]["type"], serde_json::json!("custom"));
         assert_eq!(
             arr[2]["providerOptions"]["anthropic"]["type"],
@@ -715,6 +745,22 @@ mod tests {
         assert_eq!(
             output.provider_option("openai"),
             Some(&serde_json::json!({ "store": false }))
+        );
+    }
+
+    #[test]
+    fn file_url_content_accepts_optional_media_type() {
+        let part: ToolResultContentPart = serde_json::from_value(serde_json::json!({
+            "type": "file-url",
+            "url": "https://example.com/report.pdf",
+            "mediaType": "application/pdf"
+        }))
+        .expect("deserialize file-url with mediaType");
+
+        assert_eq!(
+            part,
+            ToolResultContentPart::file_url("https://example.com/report.pdf")
+                .with_media_type("application/pdf")
         );
     }
 }

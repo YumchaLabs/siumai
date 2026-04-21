@@ -130,6 +130,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Prompt `ImagePart` and `FilePart` now also expose focused field-level builders for shared
   optional metadata (`with_media_type(...)` and `with_filename(...)`) so common prompt payloads no
   longer require direct struct-field mutation on the stable Rust surface.
+- Nested tool-result `file-url` content parts now also preserve the upstream optional
+  `mediaType` field on the stable Rust surface, with serde roundtrip support and a focused
+  `with_media_type(...)` builder.
 - Stable prompt/content modeling now includes Vercel-aligned `custom`, `reasoning-file`, and explicit tool-result content variants (`file-data`, `file-url`, `file-reference`, `image-data`, `image-url`, `image-file-reference`) with provider-keyed `providerReference` support. Legacy `file-id` / `image-file-id` inputs remain accepted as compatibility aliases.
 - Stable prompt/content modeling now also includes first-class user `providerReference` support
   for `image` / `file` parts through shared `ProviderReference` and `FilePartSource`, with

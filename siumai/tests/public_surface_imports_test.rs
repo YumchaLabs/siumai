@@ -170,6 +170,15 @@ fn public_surface_unified_imports_compile() {
         Some(&serde_json::json!({ "cacheControl": { "type": "ephemeral" } }))
     );
 
+    let file_url_part =
+        siumai::types::ToolResultContentPart::file_url("https://example.com/report.pdf")
+            .with_media_type("application/pdf");
+    let file_url_json = serde_json::to_value(&file_url_part).expect("serialize file url part");
+    assert_eq!(
+        file_url_json["mediaType"],
+        serde_json::json!("application/pdf")
+    );
+
     let image_part = ImagePart::new(FilePartSource::url("https://example.com/image.png"))
         .with_media_type("image/png");
     assert_eq!(image_part.media_type.as_deref(), Some("image/png"));

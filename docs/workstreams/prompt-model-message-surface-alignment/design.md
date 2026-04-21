@@ -148,6 +148,15 @@ in upstream object literals but awkward to populate from Rust builders:
 The stable Rust prompt surface now exposes small focused builders for those fields so callers no
 longer need direct field mutation for the common cases.
 
+### 10. Close the `ToolResultContentPart::FileUrl.mediaType` structural gap
+
+The upstream shared `file-url` tool-result part supports an optional `mediaType` field during the
+current migration period. Siumai's stable `ToolResultContentPart::FileUrl` shape had already
+mirrored `url` and `providerOptions`, but was still missing that optional media type field.
+
+This slice adds the missing field plus a focused `with_media_type(...)` builder, and locks the
+shape with serde/unit/facade coverage.
+
 ## Follow-up
 
 The next audit step is to keep comparing these prompt-owned structs against `repo-ref/ai` as more
