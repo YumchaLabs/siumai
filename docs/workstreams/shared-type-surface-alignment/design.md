@@ -57,8 +57,12 @@ not provider-owned:
   - `JSONValue`
   - `CallWarning`
   - `ProviderMetadata`
+  - `ProviderOptions`
+  - `Context`
   - `ImageModelProviderMetadata`
 - usage/data structures:
+  - `ToolCall`
+  - `ToolResult`
   - `LanguageModelUsage`
   - `LanguageModelInputTokenDetails`
   - `LanguageModelOutputTokenDetails`
@@ -80,6 +84,10 @@ important shared carriers need explicit Rust structs:
 
 - `LanguageModelUsage` is now a projection from `Usage`, because the AI package shape is not the
   same as provider V4 usage
+- `ProviderOptions` and `Context` are honest aliases onto the existing open JSON-object carriers
+- `ToolCall` and `ToolResult` are passive Rust data structures that mirror the provider-utils
+  helper shape without pretending Siumai already has one exact runtime source for every typed tool
+  helper result
 - `EmbeddingModelUsage` stays the audited one-field shape `{ tokens }`
 - `ImageModelUsage` mirrors the AI package `ImageModelV4Usage` token totals
 - request/response metadata structs expose the AI package fields directly and convert from the

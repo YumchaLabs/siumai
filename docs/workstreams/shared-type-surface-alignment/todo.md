@@ -16,6 +16,8 @@ Status legend:
 - [x] Add a dedicated `siumai-spec/src/types/ai_sdk.rs` module for shared AI SDK-style public
   names.
 - [x] Expose `JSONValue`, `CallWarning`, `ProviderMetadata`, and `ImageModelProviderMetadata`.
+- [x] Expose `ProviderOptions` and `Context`.
+- [x] Expose provider-utils-style `ToolCall` and `ToolResult`.
 - [x] Expose `EmbeddingModelUsage`, `ImageModelUsage`, and `LanguageModelUsage`.
 - [x] Expose `LanguageModelRequestMetadata`, `LanguageModelResponseMetadata`,
   `ImageModelResponseMetadata`, `SpeechModelResponseMetadata`, and

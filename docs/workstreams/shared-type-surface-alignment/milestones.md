@@ -18,6 +18,7 @@ Status: done
 - widen `ResponseMetadata` with optional `headers`
 - widen `Warning` with `Deprecated { setting, message }`
 - add conversion helpers from existing runtime carriers
+- expose provider-utils-style `ProviderOptions`, `Context`, `ToolCall`, and `ToolResult`
 
 ## M3 - Public facade exposure
 

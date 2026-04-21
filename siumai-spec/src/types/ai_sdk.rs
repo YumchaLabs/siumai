@@ -5,8 +5,8 @@
 //! without pretending the runtime wiring is more complete than it is today.
 
 use super::{
-    EmbeddingUsage, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, ResponseMetadata,
-    Usage, Warning,
+    EmbeddingUsage, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap,
+    ResponseMetadata, ToolResultOutput, Usage, Warning,
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -23,11 +23,121 @@ pub type CallWarning = Warning;
 /// AI SDK-style shared provider-metadata root.
 pub type ProviderMetadata = ProviderMetadataMap;
 
+/// AI SDK-style shared provider-options root.
+pub type ProviderOptions = ProviderOptionsMap;
+
+/// AI SDK-style shared execution context object.
+pub type Context = HashMap<String, JSONValue>;
+
 /// AI SDK-style shared image-provider metadata root.
 pub type ImageModelProviderMetadata = ProviderMetadata;
 
 /// AI SDK-style shared video-provider metadata root.
 pub type VideoModelProviderMetadata = ProviderMetadata;
+
+/// AI SDK-style typed tool call view returned by higher-level text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolCall<NAME = String, INPUT = JSONValue> {
+    /// ID of the tool call. This ID is used to match the tool call with the tool result.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Name of the tool being called.
+    #[serde(rename = "toolName")]
+    pub tool_name: NAME,
+    /// Tool arguments.
+    pub input: INPUT,
+    /// Whether the tool call will be executed by the provider.
+    #[serde(
+        rename = "providerExecuted",
+        alias = "provider_executed",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_executed: Option<bool>,
+    /// Whether the tool is dynamic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+}
+
+impl<NAME, INPUT> ToolCall<NAME, INPUT> {
+    /// Create a typed tool call.
+    pub fn new(tool_call_id: impl Into<String>, tool_name: NAME, input: INPUT) -> Self {
+        Self {
+            tool_call_id: tool_call_id.into(),
+            tool_name,
+            input,
+            provider_executed: None,
+            dynamic: None,
+        }
+    }
+
+    /// Mark whether the tool call is provider-executed.
+    pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Mark whether the tool call is dynamic.
+    pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
+        self.dynamic = Some(dynamic);
+        self
+    }
+}
+
+/// AI SDK-style typed tool result view returned by higher-level text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolResult<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// ID of the tool call. This ID is used to match the tool call with the tool result.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Name of the tool that was called.
+    #[serde(rename = "toolName")]
+    pub tool_name: NAME,
+    /// Tool input.
+    pub input: INPUT,
+    /// Tool output.
+    pub output: OUTPUT,
+    /// Whether the tool result was executed by the provider.
+    #[serde(
+        rename = "providerExecuted",
+        alias = "provider_executed",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_executed: Option<bool>,
+    /// Whether the tool is dynamic.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+}
+
+impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
+    /// Create a typed tool result.
+    pub fn new(
+        tool_call_id: impl Into<String>,
+        tool_name: NAME,
+        input: INPUT,
+        output: OUTPUT,
+    ) -> Self {
+        Self {
+            tool_call_id: tool_call_id.into(),
+            tool_name,
+            input,
+            output,
+            provider_executed: None,
+            dynamic: None,
+        }
+    }
+
+    /// Mark whether the tool result is provider-executed.
+    pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Mark whether the tool is dynamic.
+    pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
+        self.dynamic = Some(dynamic);
+        self
+    }
+}
 
 /// A cloneable cancellation handle for request-scoped abort semantics.
 #[derive(Clone, Debug, Default)]
@@ -1297,6 +1407,45 @@ mod tests {
         assert_eq!(get_tool_timeout_ms(Some(&timeout), "search"), Some(450));
         assert_eq!(get_tool_timeout_ms(Some(&timeout), "other"), Some(300));
         assert_eq!(get_total_timeout_ms(None), None);
+    }
+
+    #[test]
+    fn provider_utils_style_tool_and_context_types_are_available() {
+        let mut context = Context::new();
+        context.insert("tenant".to_string(), serde_json::json!("acme"));
+
+        let mut provider_options = ProviderOptions::default();
+        provider_options.insert("openai", serde_json::json!({ "serviceTier": "flex" }));
+
+        let tool_call = ToolCall::new(
+            "call_1",
+            "search".to_string(),
+            serde_json::json!({ "q": "rust" }),
+        )
+        .with_provider_executed(true)
+        .with_dynamic(true);
+
+        let tool_result = ToolResult::new(
+            "call_1",
+            "search".to_string(),
+            serde_json::json!({ "q": "rust" }),
+            ToolResultOutput::json(serde_json::json!({ "ok": true })),
+        )
+        .with_provider_executed(true)
+        .with_dynamic(true);
+
+        assert_eq!(context.get("tenant"), Some(&serde_json::json!("acme")));
+        assert_eq!(
+            provider_options
+                .get("openai")
+                .and_then(|value| value.get("serviceTier"))
+                .and_then(serde_json::Value::as_str),
+            Some("flex")
+        );
+        assert_eq!(tool_call.tool_call_id, "call_1");
+        assert_eq!(tool_call.provider_executed, Some(true));
+        assert_eq!(tool_result.tool_call_id, "call_1");
+        assert_eq!(tool_result.dynamic, Some(true));
     }
 
     #[test]

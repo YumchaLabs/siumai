@@ -11,6 +11,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<JSONValue>();
     let _ = size_of::<CallWarning>();
     let _ = size_of::<CancelHandle>();
+    let _ = size_of::<Context>();
     let _ = size_of::<DataContent>();
     let _ = size_of::<CompletionRequest>();
     let _ = size_of::<CompletionResponse>();
@@ -43,6 +44,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LanguageModelResponseMetadata>();
     let _ = size_of::<LanguageModelUsage>();
     let _ = size_of::<ProviderMetadata>();
+    let _ = size_of::<ProviderOptions>();
     let _ = size_of::<RequestOptions>();
     let _ = size_of::<StreamRequestOptions>();
     let _ = size_of::<SpeechModelResponseMetadata>();
@@ -64,6 +66,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ProviderOptionsMap>();
     let _ = size_of::<ModelMessageConversionError>();
     let _ = size_of::<PromptValidationError>();
+    let _ = size_of::<ToolCall<String, JSONValue>>();
+    let _ = size_of::<ToolResult<String, JSONValue, ToolResultOutput>>();
     let _ = size_of::<LlmError>();
     let _ = size_of::<*const dyn CompletionCapability>();
     let _ = size_of::<*const dyn CompletionModel>();
@@ -92,6 +96,25 @@ fn public_surface_unified_imports_compile() {
     )]))
     .expect("prompt should convert into chat request");
     assert_eq!(request.messages.len(), 1);
+
+    let tool_call = ToolCall::new(
+        "call_1",
+        "search".to_string(),
+        serde_json::json!({ "q": "rust" }),
+    )
+    .with_provider_executed(true)
+    .with_dynamic(true);
+    assert_eq!(tool_call.tool_call_id, "call_1");
+
+    let tool_result = ToolResult::new(
+        "call_1",
+        "search".to_string(),
+        serde_json::json!({ "q": "rust" }),
+        ToolResultOutput::json(serde_json::json!({ "ok": true })),
+    )
+    .with_provider_executed(true)
+    .with_dynamic(true);
+    assert_eq!(tool_result.tool_call_id, "call_1");
 }
 
 #[test]
