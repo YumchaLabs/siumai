@@ -1,6 +1,6 @@
 #![cfg(feature = "xai")]
 
-use siumai::files::{self, UploadFileData, UploadFileOptions};
+use siumai::files::{self, UploadFileOptions};
 use siumai::provider_ext::xai::{XaiConfig, options::XaiFilesOptions};
 use siumai_core::client::LlmClient;
 use siumai_core::error::LlmError;
@@ -86,7 +86,7 @@ async fn xai_upload_helper_uses_provider_owned_files_lane() {
 
     let result = files::upload(
         &client,
-        UploadFileData::Bytes(b"hey".to_vec()),
+        b"hey".to_vec(),
         UploadFileOptions::new()
             .with_filename("hello.txt")
             .with_provider_option(
@@ -104,14 +104,10 @@ async fn xai_upload_helper_uses_provider_owned_files_lane() {
 
     assert_eq!(result.provider_reference.get("xai"), Some("file-123"));
     assert_eq!(result.filename.as_deref(), Some("hello.txt"));
-    assert_eq!(result.media_type.as_deref(), Some("text/plain"));
-    assert_eq!(
-        result
-            .provider_metadata
-            .as_ref()
-            .and_then(|metadata| metadata.get("xai"))
-            .and_then(|metadata| metadata.get("createdAt")),
-        Some(&serde_json::json!(1712345678))
+    assert_eq!(result.media_type, None);
+    assert!(
+        result.provider_metadata.is_none(),
+        "upload helper should not synthesize xAI provider metadata from generic shared file fields"
     );
 
     let requests = transport.take_multipart_requests();

@@ -1,5 +1,5 @@
 use base64::Engine;
-use siumai::files::{self, UploadFileData, UploadFileOptions};
+use siumai::files::{self, UploadFileOptions};
 use siumai::prelude::unified::*;
 use siumai_core::client::LlmClient;
 use siumai_core::traits::FileManagementCapability;
@@ -36,9 +36,10 @@ impl MockFilesClient {
 impl FileManagementCapability for MockFilesClient {
     async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
         *self.last_upload.lock().expect("lock upload") = Some(request.clone());
+        let file_id_suffix = request.filename.as_deref().unwrap_or("generated");
 
         Ok(FileObject {
-            id: format!("file_{}", request.filename),
+            id: format!("file_{file_id_suffix}"),
             filename: request.filename,
             bytes: request.content.len() as u64,
             created_at: 1,
@@ -106,22 +107,21 @@ async fn upload_detects_media_type_and_builds_provider_reference() {
     let client = MockFilesClient::new("openai");
     let png_bytes = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
 
-    let result = files::upload(
-        &client,
-        UploadFileData::Bytes(png_bytes),
-        UploadFileOptions::new(),
-    )
-    .await
-    .expect("upload result");
+    let result = files::upload(&client, png_bytes, UploadFileOptions::new())
+        .await
+        .expect("upload result");
 
     let request = client.take_last_upload();
-    assert_eq!(request.filename, "blob");
+    assert_eq!(request.filename, None);
     assert_eq!(request.purpose, "assistants");
     assert_eq!(request.mime_type.as_deref(), Some("image/png"));
 
-    assert_eq!(result.provider_reference.get("openai"), Some("file_blob"));
-    assert_eq!(result.media_type.as_deref(), Some("image/png"));
-    assert_eq!(result.filename.as_deref(), Some("blob"));
+    assert_eq!(
+        result.provider_reference.get("openai"),
+        Some("file_generated")
+    );
+    assert_eq!(result.media_type, None);
+    assert_eq!(result.filename, None);
     assert!(
         result
             .provider_metadata
@@ -136,16 +136,17 @@ async fn upload_detects_media_type_and_builds_provider_reference() {
             .provider_metadata
             .as_ref()
             .and_then(|metadata| metadata.get("openai"))
-            .and_then(|metadata| metadata.get("createdAt")),
-        Some(&serde_json::json!(1))
+            .and_then(|metadata| metadata.get("serverChecksum")),
+        Some(&serde_json::json!("abc123"))
     );
-    assert_eq!(
+    assert!(
         result
             .provider_metadata
             .as_ref()
             .and_then(|metadata| metadata.get("openai"))
-            .and_then(|metadata| metadata.get("serverChecksum")),
-        Some(&serde_json::json!("abc123"))
+            .and_then(|metadata| metadata.get("createdAt"))
+            .is_none(),
+        "upload helper should not synthesize generic file fields into providerMetadata"
     );
 }
 
@@ -156,17 +157,37 @@ async fn upload_base64_text_falls_back_to_text_plain() {
 
     let result = files::upload(
         &client,
-        UploadFileData::Base64(base64),
+        base64,
         UploadFileOptions::new().with_filename("note.txt"),
     )
     .await
     .expect("upload result");
 
     let request = client.take_last_upload();
-    assert_eq!(request.filename, "note.txt");
+    assert_eq!(request.filename.as_deref(), Some("note.txt"));
     assert_eq!(request.mime_type.as_deref(), Some("text/plain"));
-    assert_eq!(result.media_type.as_deref(), Some("text/plain"));
+    assert_eq!(result.media_type, None);
     assert_eq!(result.filename.as_deref(), Some("note.txt"));
+}
+
+#[tokio::test]
+async fn upload_accepts_shared_data_content_directly() {
+    let client = MockFilesClient::new("openai");
+
+    let result = files::upload(
+        &client,
+        DataContent::binary(b"hello from shared data".to_vec()),
+        UploadFileOptions::new().with_filename("shared.txt"),
+    )
+    .await
+    .expect("upload result");
+
+    let request = client.take_last_upload();
+    assert_eq!(request.filename.as_deref(), Some("shared.txt"));
+    assert_eq!(request.content, b"hello from shared data");
+    assert_eq!(request.mime_type.as_deref(), Some("text/plain"));
+    assert_eq!(result.media_type, None);
+    assert_eq!(result.filename.as_deref(), Some("shared.txt"));
 }
 
 #[tokio::test]
@@ -174,7 +195,7 @@ async fn upload_rejects_url_inputs() {
     let client = MockFilesClient::new("openai");
     let error = files::upload(
         &client,
-        UploadFileData::Url("https://example.com/file.pdf".to_string()),
+        "https://example.com/file.pdf",
         UploadFileOptions::new(),
     )
     .await
@@ -189,11 +210,27 @@ async fn upload_rejects_url_inputs() {
 }
 
 #[tokio::test]
+async fn upload_rejects_invalid_base64_with_shared_data_content_message() {
+    let client = MockFilesClient::new("openai");
+    let error = files::upload(&client, "***not-base64***", UploadFileOptions::new())
+        .await
+        .expect_err("invalid base64 upload should fail");
+
+    match error {
+        LlmError::InvalidInput(message) => {
+            assert!(message.contains("Invalid data content"));
+            assert!(message.contains("not a base64-encoded media"));
+        }
+        other => panic!("expected invalid input, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn upload_requires_explicit_purpose_for_minimaxi() {
     let client = MockFilesClient::new("minimaxi");
     let error = files::upload(
         &client,
-        UploadFileData::Bytes(b"hello".to_vec()),
+        b"hello".to_vec(),
         UploadFileOptions::new().with_filename("sample.txt"),
     )
     .await
@@ -213,7 +250,7 @@ async fn upload_passes_provider_options_to_file_api() {
 
     files::upload(
         &client,
-        UploadFileData::Bytes(b"hello".to_vec()),
+        b"hello".to_vec(),
         UploadFileOptions::new()
             .with_filename("hello.txt")
             .with_provider_option(
@@ -241,15 +278,14 @@ async fn upload_passes_provider_options_to_file_api() {
 async fn upload_google_family_uses_google_namespace_in_result() {
     let client = MockFilesClient::new("gemini");
 
-    let result = files::upload(
-        &client,
-        UploadFileData::Bytes(b"hello".to_vec()),
-        UploadFileOptions::new(),
-    )
-    .await
-    .expect("upload result");
+    let result = files::upload(&client, b"hello".to_vec(), UploadFileOptions::new())
+        .await
+        .expect("upload result");
 
-    assert_eq!(result.provider_reference.get("google"), Some("file_blob"));
+    assert_eq!(
+        result.provider_reference.get("google"),
+        Some("file_generated")
+    );
     assert_eq!(result.provider_reference.get("gemini"), None);
     assert!(
         result
@@ -274,7 +310,7 @@ async fn upload_google_family_warns_when_filename_is_explicit() {
 
     let result = files::upload(
         &client,
-        UploadFileData::Bytes(b"hello".to_vec()),
+        b"hello".to_vec(),
         UploadFileOptions::new().with_filename("custom-name.txt"),
     )
     .await

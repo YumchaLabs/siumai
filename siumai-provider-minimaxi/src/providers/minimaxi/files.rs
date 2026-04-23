@@ -105,7 +105,7 @@ fn map_file_object(provider: &str, raw: &serde_json::Value) -> Result<FileObject
     let filename = raw
         .get("filename")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| LlmError::ParseError(format!("{provider}: missing 'file.filename'")))?;
+        .map(ToOwned::to_owned);
 
     let bytes = raw
         .get("bytes")
@@ -137,7 +137,7 @@ fn map_file_object(provider: &str, raw: &serde_json::Value) -> Result<FileObject
 
     Ok(FileObject {
         id: id.to_string(),
-        filename: filename.to_string(),
+        filename,
         bytes: bytes.max(0) as u64,
         created_at: created_at.max(0) as u64,
         purpose: purpose.to_string(),
@@ -218,12 +218,6 @@ impl MinimaxiFiles {
             )));
         }
 
-        if request.filename.is_empty() {
-            return Err(LlmError::InvalidInput(
-                "Filename cannot be empty".to_string(),
-            ));
-        }
-
         // MiniMaxi upload currently documents a restricted purpose set.
         let supported = ["voice_clone", "prompt_audio", "t2a_async_input"];
         if !supported.contains(&request.purpose.as_str()) {
@@ -256,22 +250,22 @@ impl FileManagementCapability for MinimaxiFiles {
 
         let purpose = request.purpose.clone();
         let filename = request.filename.clone();
-        let mime_type = request
-            .mime_type
-            .clone()
-            .unwrap_or_else(|| crate::utils::guess_mime(Some(&request.content), Some(&filename)));
+        let mime_type = request.mime_type.clone().unwrap_or_else(|| {
+            crate::utils::guess_mime(Some(&request.content), filename.as_deref())
+        });
         let content = request.content.clone();
 
         let res = execute_multipart_request(
             &cfg,
             &url,
             move || {
-                let part = reqwest::multipart::Part::bytes(content.clone())
-                    .file_name(filename.clone())
-                    .mime_str(&mime_type)
-                    .map_err(|e| {
-                        LlmError::InvalidParameter(format!("Invalid MIME type '{mime_type}': {e}"))
-                    })?;
+                let mut part = reqwest::multipart::Part::bytes(content.clone());
+                if let Some(filename) = filename.clone() {
+                    part = part.file_name(filename);
+                }
+                let part = part.mime_str(&mime_type).map_err(|e| {
+                    LlmError::InvalidParameter(format!("Invalid MIME type '{mime_type}': {e}"))
+                })?;
                 Ok(reqwest::multipart::Form::new()
                     .text("purpose", purpose.clone())
                     .part("file", part))

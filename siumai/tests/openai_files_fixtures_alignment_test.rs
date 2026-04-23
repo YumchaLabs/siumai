@@ -104,7 +104,7 @@ async fn openai_files_lifecycle_upload_list_retrieve_content_delete() {
     let uploaded = client
         .upload_file(FileUploadRequest {
             content: b"hello".to_vec(),
-            filename: "hello.txt".to_string(),
+            filename: Some("hello.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: HashMap::new(),
@@ -133,7 +133,7 @@ async fn openai_files_lifecycle_upload_list_retrieve_content_delete() {
         .retrieve_file("file_123".to_string())
         .await
         .expect("retrieve ok");
-    assert_eq!(retrieved.filename, "hello.txt");
+    assert_eq!(retrieved.filename.as_deref(), Some("hello.txt"));
 
     let content = client
         .get_file_content("file_123".to_string())
@@ -188,7 +188,7 @@ async fn openai_files_upload_provider_options_override_wire_fields() {
     let uploaded = client
         .upload_file(FileUploadRequest {
             content: b"hello".to_vec(),
-            filename: "hello.txt".to_string(),
+            filename: Some("hello.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: HashMap::new(),

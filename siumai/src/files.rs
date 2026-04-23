@@ -1,13 +1,12 @@
 //! High-level file upload helpers aligned with AI SDK `uploadFile`.
 
 use async_trait::async_trait;
-use base64::{Engine, engine::general_purpose::STANDARD};
 use siumai_core::client::LlmClient;
 use siumai_core::error::LlmError;
 use siumai_core::traits::FileManagementCapability;
 use siumai_core::types::{
-    FileObject, FileUploadRequest, HttpConfig, ProviderMetadataMap, ProviderOptionsMap,
-    ProviderReference, Warning,
+    DataContent, FileObject, FileUploadRequest, HttpConfig, InvalidDataContentError,
+    ProviderMetadataMap, ProviderOptionsMap, ProviderReference, Warning,
 };
 use siumai_core::utils::mime::guess_mime_from_bytes;
 use std::borrow::Cow;
@@ -16,52 +15,12 @@ use std::collections::HashMap;
 /// Provider-id keyed metadata map used by `UploadFileResult`.
 pub type UploadFileProviderMetadata = ProviderMetadataMap;
 
-/// Upload input data for `files::upload`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum UploadFileData {
-    /// Raw file bytes.
-    Bytes(Vec<u8>),
-    /// Base64-encoded file bytes.
-    Base64(String),
-    /// URL input is intentionally rejected at runtime to match AI SDK `uploadFile`.
-    Url(String),
-}
-
-impl UploadFileData {
-    /// Create upload data from raw bytes.
-    pub fn bytes(data: Vec<u8>) -> Self {
-        Self::Bytes(data)
-    }
-
-    /// Create upload data from a base64 string.
-    pub fn base64(data: impl Into<String>) -> Self {
-        Self::Base64(data.into())
-    }
-
-    /// Create upload data from a URL string.
-    pub fn url(url: impl Into<String>) -> Self {
-        Self::Url(url.into())
-    }
-}
-
-impl From<Vec<u8>> for UploadFileData {
-    fn from(value: Vec<u8>) -> Self {
-        Self::Bytes(value)
-    }
-}
-
-impl From<&[u8]> for UploadFileData {
-    fn from(value: &[u8]) -> Self {
-        Self::Bytes(value.to_vec())
-    }
-}
-
 /// Options for `files::upload`.
 #[derive(Debug, Clone, Default)]
 pub struct UploadFileOptions {
     /// Optional media type. When absent, media type is inferred from bytes and text heuristics.
     pub media_type: Option<String>,
-    /// Optional filename. When absent, `blob` is used.
+    /// Optional filename. When absent, the upload request omits a filename.
     pub filename: Option<String>,
     /// Optional provider upload purpose.
     ///
@@ -169,8 +128,8 @@ pub struct UploadFilePayload {
     pub data: Vec<u8>,
     /// Resolved media type.
     pub media_type: String,
-    /// Resolved filename.
-    pub filename: String,
+    /// Explicit filename when supplied by the caller.
+    pub filename: Option<String>,
     /// Whether the caller explicitly supplied a filename.
     pub filename_was_explicit: bool,
     /// Optional provider upload purpose.
@@ -203,22 +162,25 @@ pub trait FileUploadProvider: Send + Sync {
 }
 
 /// Upload a file through a high-level files API surface.
-pub async fn upload<A: UploadFileApi + ?Sized>(
+pub async fn upload<A, D>(
     api: &A,
-    data: UploadFileData,
+    data: D,
     options: UploadFileOptions,
-) -> Result<UploadFileResult, LlmError> {
-    let bytes = decode_upload_data(data)?;
+) -> Result<UploadFileResult, LlmError>
+where
+    A: UploadFileApi + ?Sized,
+    D: Into<DataContent>,
+{
+    let bytes = decode_upload_data(data.into())?;
     let filename_was_explicit = options.filename.is_some();
     let media_type = options
         .media_type
         .unwrap_or_else(|| detect_media_type(&bytes));
-    let filename = options.filename.unwrap_or_else(default_upload_filename);
 
     api.upload_prepared_file(UploadFilePayload {
         data: bytes,
         media_type,
-        filename,
+        filename: options.filename,
         filename_was_explicit,
         purpose: options.purpose,
         metadata: options.metadata,
@@ -315,96 +277,33 @@ impl FileUploadProvider for siumai_provider_xai::providers::xai::XaiClient {
 }
 
 #[cfg(feature = "anthropic")]
-#[async_trait]
-impl UploadFileApi for siumai_provider_anthropic::providers::anthropic::files::AnthropicFiles {
-    fn provider_id(&self) -> Cow<'static, str> {
+impl FileUploadProvider for siumai_provider_anthropic::providers::anthropic::files::AnthropicFiles {
+    fn upload_file_provider_id(&self) -> Cow<'static, str> {
         Cow::Borrowed("anthropic")
-    }
-
-    async fn upload_prepared_file(
-        &self,
-        payload: UploadFilePayload,
-    ) -> Result<UploadFileResult, LlmError> {
-        let UploadFilePayload {
-            data,
-            media_type,
-            filename,
-            filename_was_explicit: _filename_was_explicit,
-            purpose,
-            metadata,
-            provider_options,
-            http_config,
-        } = payload;
-
-        let headers = http_config
-            .as_ref()
-            .map(|config| config.headers.clone())
-            .filter(|headers| !headers.is_empty());
-
-        let response = self
-            .upload(
-                filename.clone(),
-                data,
-                Some(media_type.clone()),
-                purpose,
-                headers,
-            )
-            .await?;
-
-        let mut result = upload_result_from_anthropic_file(response, filename, media_type)?;
-
-        if !metadata.is_empty() {
-            result.warnings.push(Warning::compatibility(
-                "metadata",
-                Some("Anthropic file uploads currently ignore UploadFileOptions.metadata."),
-            ));
-        }
-
-        if !provider_options.is_empty() {
-            result.warnings.push(Warning::compatibility(
-                "providerOptions",
-                Some("Anthropic file uploads currently ignore UploadFileOptions.provider_options."),
-            ));
-        }
-
-        if http_config
-            .as_ref()
-            .is_some_and(has_non_header_http_overrides)
-        {
-            result.warnings.push(Warning::compatibility(
-                "httpConfig",
-                Some("Anthropic file uploads currently forward only per-request headers."),
-            ));
-        }
-
-        Ok(result)
     }
 }
 
 #[cfg(feature = "anthropic")]
-#[async_trait]
-impl UploadFileApi for siumai_provider_anthropic::providers::anthropic::AnthropicClient {
-    fn provider_id(&self) -> Cow<'static, str> {
-        Cow::Borrowed("anthropic")
-    }
-
-    async fn upload_prepared_file(
-        &self,
-        payload: UploadFilePayload,
-    ) -> Result<UploadFileResult, LlmError> {
-        self.files().upload_prepared_file(payload).await
+impl FileUploadProvider for siumai_provider_anthropic::providers::anthropic::AnthropicClient {
+    fn upload_file_provider_id(&self) -> Cow<'static, str> {
+        LlmClient::provider_id(self)
     }
 }
 
-fn decode_upload_data(data: UploadFileData) -> Result<Vec<u8>, LlmError> {
+fn decode_upload_data(data: DataContent) -> Result<Vec<u8>, LlmError> {
     match data {
-        UploadFileData::Bytes(data) => Ok(data),
-        UploadFileData::Base64(data) => STANDARD
-            .decode(data)
-            .map_err(|error| LlmError::InvalidInput(format!("Invalid base64 file data: {error}"))),
-        UploadFileData::Url(_) => Err(LlmError::InvalidInput(
-            "URL data is not supported for file uploads. Fetch the URL content first and pass the bytes.".to_string(),
-        )),
+        DataContent::Binary(data) => Ok(data),
+        DataContent::Base64(data) => {
+            if reqwest::Url::parse(&data).is_ok() {
+                return Err(LlmError::InvalidInput(
+                    "URL data is not supported for file uploads. Fetch the URL content first and pass the bytes.".to_string(),
+                ));
+            }
+
+            DataContent::Base64(data)
+                .as_bytes()
+                .map_err(|error: InvalidDataContentError| LlmError::InvalidInput(error.to_string()))
+        }
     }
 }
 
@@ -432,10 +331,6 @@ fn is_likely_text(bytes: &[u8]) -> bool {
         .all(|byte| *byte != 0x00 && (*byte >= 0x20 || matches!(*byte, 0x09 | 0x0A | 0x0D)))
 }
 
-fn default_upload_filename() -> String {
-    "blob".to_string()
-}
-
 async fn upload_via_file_management<F>(
     provider_id: &str,
     api: &F,
@@ -456,6 +351,12 @@ where
     } = payload;
 
     let purpose = resolve_upload_purpose(provider_id, purpose.as_deref())?;
+    let anthropic_has_metadata = provider_id == "anthropic" && !metadata.is_empty();
+    let anthropic_has_provider_options = provider_id == "anthropic" && !provider_options.is_empty();
+    let anthropic_has_non_header_http_overrides = provider_id == "anthropic"
+        && http_config
+            .as_ref()
+            .is_some_and(has_non_header_http_overrides);
 
     let file = api
         .upload_file(FileUploadRequest {
@@ -469,12 +370,35 @@ where
         })
         .await?;
 
-    let mut result = upload_result_from_file_object(provider_id, file, filename, media_type);
+    let mut result = upload_result_from_file_object(provider_id, file);
 
     if matches!(provider_id, "gemini" | "google") && filename_was_explicit {
         result
             .warnings
             .push(Warning::unsupported("filename", None::<String>));
+    }
+
+    if provider_id == "anthropic" {
+        if anthropic_has_metadata {
+            result.warnings.push(Warning::compatibility(
+                "metadata",
+                Some("Anthropic file uploads currently ignore UploadFileOptions.metadata."),
+            ));
+        }
+
+        if anthropic_has_provider_options {
+            result.warnings.push(Warning::compatibility(
+                "providerOptions",
+                Some("Anthropic file uploads currently ignore UploadFileOptions.provider_options."),
+            ));
+        }
+
+        if anthropic_has_non_header_http_overrides {
+            result.warnings.push(Warning::compatibility(
+                "httpConfig",
+                Some("Anthropic file uploads currently forward only per-request headers."),
+            ));
+        }
     }
 
     Ok(result)
@@ -497,7 +421,7 @@ fn resolve_upload_purpose(provider_id: &str, purpose: Option<&str>) -> Result<St
         | "openai-compatible" | "openaicompatible" | "perplexity" | "togetherai" | "xai" => {
             Ok("assistants".to_string())
         }
-        "gemini" | "google" => Ok(String::new()),
+        "anthropic" | "gemini" | "google" => Ok(String::new()),
         "minimaxi" => Err(LlmError::InvalidInput(
             "MiniMaxi file uploads require UploadFileOptions.purpose.".to_string(),
         )),
@@ -507,131 +431,20 @@ fn resolve_upload_purpose(provider_id: &str, purpose: Option<&str>) -> Result<St
     }
 }
 
-fn upload_result_from_file_object(
-    provider_id: &str,
-    file: FileObject,
-    fallback_filename: String,
-    fallback_media_type: String,
-) -> UploadFileResult {
+fn upload_result_from_file_object(provider_id: &str, file: FileObject) -> UploadFileResult {
     let provider_namespace = upload_provider_namespace(provider_id);
-    let mut provider_metadata = file.metadata;
-    provider_metadata.insert(
-        "filename".to_string(),
-        serde_json::Value::String(file.filename.clone()),
-    );
-    provider_metadata.insert(
-        "purpose".to_string(),
-        serde_json::Value::String(file.purpose.clone()),
-    );
-    provider_metadata.insert("bytes".to_string(), serde_json::json!(file.bytes));
-    provider_metadata.insert("createdAt".to_string(), serde_json::json!(file.created_at));
-    provider_metadata.insert(
-        "status".to_string(),
-        serde_json::Value::String(file.status.clone()),
-    );
-    if let Some(mime_type) = file.mime_type.as_ref() {
-        provider_metadata
-            .entry("mimeType".to_string())
-            .or_insert_with(|| serde_json::Value::String(mime_type.clone()));
-    }
-
-    let filename = non_empty_string(file.filename).or_else(|| non_empty_string(fallback_filename));
-    let media_type = file
-        .mime_type
-        .and_then(non_empty_string)
-        .or_else(|| non_empty_string(fallback_media_type));
+    let provider_metadata = (!file.metadata.is_empty())
+        .then(|| wrap_provider_metadata(provider_namespace, file.metadata));
+    let filename = non_empty_optional_string(file.filename);
+    let media_type = non_empty_optional_string(file.mime_type);
 
     UploadFileResult {
         provider_reference: ProviderReference::single(provider_namespace, file.id),
         media_type,
         filename,
-        provider_metadata: Some(wrap_provider_metadata(
-            provider_namespace,
-            provider_metadata,
-        )),
+        provider_metadata,
         warnings: Vec::new(),
     }
-}
-
-#[cfg(feature = "anthropic")]
-fn upload_result_from_anthropic_file(
-    file: siumai_provider_anthropic::providers::anthropic::files::AnthropicFile,
-    fallback_filename: String,
-    fallback_media_type: String,
-) -> Result<UploadFileResult, LlmError> {
-    let file_id = file
-        .id
-        .clone()
-        .filter(|id| !id.trim().is_empty())
-        .ok_or_else(|| {
-            LlmError::ParseError("Anthropic file upload response missing file id".to_string())
-        })?;
-
-    let mut provider_metadata = HashMap::new();
-
-    if let Some(file_type) = file.r#type.clone().filter(|value| !value.trim().is_empty()) {
-        provider_metadata.insert("type".to_string(), serde_json::Value::String(file_type));
-    }
-
-    if let Some(filename) = file
-        .extra
-        .get("filename")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-    {
-        provider_metadata.insert(
-            "filename".to_string(),
-            serde_json::Value::String(filename.to_string()),
-        );
-    }
-
-    if let Some(mime_type) = file
-        .extra
-        .get("mime_type")
-        .and_then(serde_json::Value::as_str)
-        .filter(|value| !value.trim().is_empty())
-    {
-        provider_metadata.insert(
-            "mimeType".to_string(),
-            serde_json::Value::String(mime_type.to_string()),
-        );
-    }
-
-    if let Some(size_bytes) = file.extra.get("size_bytes") {
-        provider_metadata.insert("sizeBytes".to_string(), size_bytes.clone());
-    }
-
-    if let Some(created_at) = file.extra.get("created_at") {
-        provider_metadata.insert("createdAt".to_string(), created_at.clone());
-    }
-
-    if let Some(downloadable) = file.extra.get("downloadable") {
-        provider_metadata.insert("downloadable".to_string(), downloadable.clone());
-    }
-
-    for (key, value) in file.extra {
-        provider_metadata.entry(key).or_insert(value);
-    }
-
-    let filename = provider_metadata
-        .get("filename")
-        .and_then(serde_json::Value::as_str)
-        .map(ToOwned::to_owned)
-        .or_else(|| non_empty_string(fallback_filename));
-
-    let media_type = provider_metadata
-        .get("mimeType")
-        .and_then(serde_json::Value::as_str)
-        .map(ToOwned::to_owned)
-        .or_else(|| non_empty_string(fallback_media_type));
-
-    Ok(UploadFileResult {
-        provider_reference: ProviderReference::single("anthropic", file_id),
-        media_type,
-        filename,
-        provider_metadata: Some(wrap_provider_metadata("anthropic", provider_metadata)),
-        warnings: Vec::new(),
-    })
 }
 
 fn wrap_provider_metadata(
@@ -655,7 +468,10 @@ fn non_empty_string(value: impl Into<String>) -> Option<String> {
     }
 }
 
-#[cfg(feature = "anthropic")]
+fn non_empty_optional_string(value: Option<String>) -> Option<String> {
+    value.and_then(non_empty_string)
+}
+
 fn has_non_header_http_overrides(http_config: &HttpConfig) -> bool {
     http_config.timeout.is_some()
         || http_config.connect_timeout.is_some()

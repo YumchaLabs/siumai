@@ -118,13 +118,6 @@ impl OpenAiFiles {
         //
         // Let the provider return the authoritative error when inputs are invalid.
 
-        // Validate filename
-        if request.filename.is_empty() {
-            return Err(LlmError::InvalidInput(
-                "Filename cannot be empty".to_string(),
-            ));
-        }
-
         // Validate purpose is non-empty
         if request.purpose.trim().is_empty() {
             return Err(LlmError::InvalidInput(

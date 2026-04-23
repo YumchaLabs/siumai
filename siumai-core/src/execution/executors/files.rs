@@ -525,7 +525,7 @@ mod tests {
         fn transform_file_object(&self, raw: &serde_json::Value) -> Result<FileObject, LlmError> {
             Ok(FileObject {
                 id: raw["id"].as_str().unwrap_or("x").to_string(),
-                filename: "a.txt".into(),
+                filename: Some("a.txt".to_string()),
                 bytes: 0,
                 created_at: 0,
                 purpose: "assistants".into(),
@@ -629,7 +629,7 @@ mod tests {
 
         let req = crate::types::FileUploadRequest {
             content: vec![1, 2, 3],
-            filename: "a.txt".into(),
+            filename: Some("a.txt".to_string()),
             mime_type: Some("text/plain".into()),
             purpose: "assistants".into(),
             metadata: Default::default(),
@@ -668,7 +668,7 @@ mod tests {
         hc.headers.insert("x-req".into(), "R".into());
         let req = crate::types::FileUploadRequest {
             content: vec![1, 2, 3],
-            filename: "a.txt".into(),
+            filename: Some("a.txt".to_string()),
             mime_type: Some("text/plain".into()),
             purpose: "assistants".into(),
             metadata: Default::default(),

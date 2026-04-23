@@ -95,17 +95,16 @@ impl GeminiFiles {
         }
     }
 
+    /// Get the provider-facing display name.
+    pub fn provider_name(&self) -> &str {
+        self.config.provider_name()
+    }
+
     /// Validate file upload request
     fn validate_upload_request(&self, request: &FileUploadRequest) -> Result<(), LlmError> {
         if request.content.is_empty() {
             return Err(LlmError::InvalidInput(
                 "File content cannot be empty".to_string(),
-            ));
-        }
-
-        if request.filename.is_empty() {
-            return Err(LlmError::InvalidInput(
-                "Filename cannot be empty".to_string(),
             ));
         }
 
@@ -150,6 +149,7 @@ impl GeminiFiles {
 impl std::fmt::Debug for GeminiFiles {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("GeminiFiles")
+            .field("provider_name", &self.provider_name())
             .field("base_url", &self.config.base_url)
             .field("has_interceptors", &(!self.http_interceptors.is_empty()))
             .field("has_retry", &self.retry_options.is_some())
@@ -255,12 +255,18 @@ impl GeminiFiles {
                 req = req.headers(headers.clone());
             }
             let resp = req.send().await.map_err(|e| {
-                LlmError::HttpError(format!("Failed to download Gemini file URI: {e}"))
+                LlmError::HttpError(format!(
+                    "Failed to download {} file URI: {e}",
+                    self.provider_name()
+                ))
             })?;
 
             if resp.status().is_success() {
                 let bytes = resp.bytes().await.map_err(|e| {
-                    LlmError::HttpError(format!("Failed to read Gemini file bytes: {e}"))
+                    LlmError::HttpError(format!(
+                        "Failed to read {} file bytes: {e}",
+                        self.provider_name()
+                    ))
                 })?;
                 return Ok(bytes.to_vec());
             }
@@ -291,9 +297,10 @@ impl GeminiFiles {
             )));
         }
 
-        Err(LlmError::HttpError(
-            "Too many redirects while downloading Gemini URI".to_string(),
-        ))
+        Err(LlmError::HttpError(format!(
+            "Too many redirects while downloading {} URI",
+            self.provider_name()
+        )))
     }
 
     /// Check if a file exists.

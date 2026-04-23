@@ -120,15 +120,16 @@ impl XaiFiles {
         options: Option<&XaiFilesOptions>,
     ) -> Result<reqwest::multipart::Form, LlmError> {
         let mime_type = request.mime_type.clone().unwrap_or_else(|| {
-            crate::utils::guess_mime(Some(&request.content), Some(&request.filename))
+            crate::utils::guess_mime(Some(&request.content), request.filename.as_deref())
         });
 
-        let part = reqwest::multipart::Part::bytes(request.content.clone())
-            .file_name(request.filename.clone())
-            .mime_str(&mime_type)
-            .map_err(|err| {
-                LlmError::InvalidParameter(format!("Invalid MIME type '{mime_type}': {err}"))
-            })?;
+        let mut part = reqwest::multipart::Part::bytes(request.content.clone());
+        if let Some(filename) = request.filename.clone() {
+            part = part.file_name(filename);
+        }
+        let part = part.mime_str(&mime_type).map_err(|err| {
+            LlmError::InvalidParameter(format!("Invalid MIME type '{mime_type}': {err}"))
+        })?;
 
         let mut form = reqwest::multipart::Form::new().part("file", part);
 
@@ -277,9 +278,7 @@ fn map_xai_file_object(
         LlmError::ParseError("Failed to parse xAI file response: missing file id".to_string())
     })?;
 
-    let filename = get_string_field(value, &["filename", "name"])
-        .or_else(|| request.map(|request| request.filename.clone()))
-        .unwrap_or_else(|| "blob".to_string());
+    let filename = get_string_field(value, &["filename", "name"]);
 
     let bytes = get_u64_field(value, &["bytes", "size_bytes"])
         .or_else(|| request.map(|request| request.content.len() as u64))
@@ -294,8 +293,7 @@ fn map_xai_file_object(
     let status = get_string_field(value, &["status", "processing_status"])
         .unwrap_or_else(|| "uploaded".to_string());
 
-    let mime_type = get_string_field(value, &["mime_type", "content_type"])
-        .or_else(|| request.and_then(|request| request.mime_type.clone()));
+    let mime_type = get_string_field(value, &["mime_type", "content_type"]);
 
     let known_fields = HashSet::from([
         "id",
@@ -478,7 +476,7 @@ mod tests {
         );
         let request = FileUploadRequest {
             content: b"hey".to_vec(),
-            filename: "hello.txt".to_string(),
+            filename: Some("hello.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: HashMap::new(),
@@ -488,7 +486,7 @@ mod tests {
 
         let result = files.upload_file(request).await.expect("upload result");
         assert_eq!(result.id, "file-123");
-        assert_eq!(result.filename, "hello.txt");
+        assert_eq!(result.filename.as_deref(), Some("hello.txt"));
 
         let requests = transport.take_multipart_requests();
         assert_eq!(requests.len(), 1);
@@ -518,7 +516,7 @@ mod tests {
         .expect("parsed xai docs-shaped file");
 
         assert_eq!(file.id, "file-123");
-        assert_eq!(file.filename, "hello.txt");
+        assert_eq!(file.filename.as_deref(), Some("hello.txt"));
         assert_eq!(file.bytes, 12);
         assert_eq!(file.status, "completed");
         assert_eq!(file.mime_type.as_deref(), Some("text/plain"));
