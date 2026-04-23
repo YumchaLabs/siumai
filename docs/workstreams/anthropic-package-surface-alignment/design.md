@@ -1,6 +1,6 @@
 # Anthropic Package Surface Alignment - Design
 
-Last updated: 2026-04-15
+Last updated: 2026-04-22
 
 ## Problem
 
@@ -18,6 +18,9 @@ provider-owned/package boundary:
 - tool-level `providerOptions.anthropic` for function tools still lacked a public typed
   `AnthropicToolOptions` helper even though the Anthropic protocol/runtime already understood part
   of that shape
+- the package-level `forwardAnthropicContainerIdFromLastStep(...)` helper from the audited
+  `@ai-sdk/anthropic` index had no provider-owned/stable Rust counterpart even though Siumai
+  already surfaced the same Anthropic container metadata
 - `@ai-sdk/amazon-bedrock` also re-exports `AnthropicProviderOptions`, but the stable Rust Bedrock
   facade did not mirror that cross-package edge at all
 
@@ -59,9 +62,35 @@ The Anthropic provider/package surface now also exposes:
 
 - `AnthropicLanguageModelOptions = AnthropicOptions`
 - deprecated `AnthropicProviderOptions = AnthropicLanguageModelOptions`
-- `AnthropicMessageMetadata = AnthropicMetadata`
+- `AnthropicMessageMetadata`
+- `find_anthropic_container_id_from_last_step(...)`
+- `forward_anthropic_container_id_from_last_step(...)`
 
-These aliases are intentionally thin type aliases rather than duplicate structs.
+`AnthropicMessageMetadata` is now a dedicated typed struct instead of a thin alias to
+`AnthropicMetadata`.
+
+That split is intentional:
+
+- `AnthropicMessageMetadata` mirrors the narrower AI SDK typed message-metadata contract
+  (`usage`, `stopSequence`, `iterations`, `container`, `contextManagement`)
+- `AnthropicMessageMetadata.container` now uses dedicated required-field message container/skill
+  structs, so the narrow public surface no longer inherits the wider helper's optional
+  `id` / `expiresAt` / skill-field looseness
+- `AnthropicMetadata` remains the wider Rust helper that can derive convenience fields such as
+  `service_tier`, `server_tool_use`, or reasoning replay metadata from the raw nested usage/content
+  lane
+
+This keeps the public typed package surface honest without deleting the broader Rust helper API.
+
+The container-forward helpers are intentionally package-owned helpers rather than orchestrator-only
+utilities:
+
+- the provider package now exports `find_anthropic_container_id_from_last_step(...)` for callers
+  that only need the latest container id
+- it also exports `forward_anthropic_container_id_from_last_step(...)`, returning a stable
+  `ProviderOptionsMap` override that mirrors the upstream prepare-step helper output
+- the input stays generic over any history that can yield optional `ProviderMetadataMap`
+  references, so callers are not forced onto one specific orchestrator step type
 
 ### 3. Re-export the same names on the stable `siumai::provider_ext::anthropic` facade
 
@@ -113,6 +142,50 @@ So the chosen compromise is:
 This preserves a clean Cargo boundary while still making the stable facade closer to the audited AI
 SDK package surface in the combined-feature case.
 
+### 6. Follow-on: consolidate native structured output and task budget onto `output_config`
+
+After the initial package-surface/name audit, a second Anthropic drift remained in the request
+layer when compared with the current
+`repo-ref/ai/packages/anthropic/src/anthropic-messages-language-model.ts`:
+
+- native structured JSON output was still lowered to deprecated `output_format` instead of
+  `output_config.format`
+- `effort`, future `task_budget`, and native structured-output writes were assembled through
+  separate overlay paths that could overwrite one another
+- the provider-owned typed surface still lacked upstream `inferenceGeo`, narrowed `effort` to
+  exclude `xhigh`, and treated adaptive thinking as a bare tag so `display` was lost
+- the request bridge/normalizer still restored the old `output_format` path first, so exact
+  same-protocol inspection drifted away from the request builder
+- `container.skills` still used one flattened local struct, so the audited public split between
+  Anthropic `skillId` and custom `providerReference` was lost on typed serde and bridge
+  normalization
+- stream-time structured-output mode inference used an older "tools present => jsonTool" rule
+  instead of the same `supportsNativeStructuredOutput` gate used by the request body
+
+The chosen follow-on design is:
+
+- `structuredOutputMode = outputFormat` now lowers native JSON Schema only to
+  `output_config.format`
+- the legacy `output_format` lane stays only as a compatibility/fallback path for older
+  `json_object`-style behavior where the audited AI SDK still uses it
+- Anthropic request overlays now build one shared `output_config` object so `format`, `effort`,
+  and `task_budget` can coexist without field loss
+- the provider-owned typed Anthropic options now expose `taskBudget`, `inferenceGeo`,
+  `AnthropicThinkingDisplay`, and the full audited effort enum including `xhigh`, including fluent
+  builder/config helpers and beta-header inference where applicable
+- bridge-side request normalization now prefers `output_config.format` and restores
+  `output_config.task_budget` back onto `providerOptions.anthropic.taskBudget`, while still
+  accepting legacy `output_format`
+- `container.skills` now uses the upstream discriminated union shape end-to-end: typed provider
+  options keep `anthropic -> skillId` and `custom -> providerReference`, request overlays lower
+  custom provider references onto native Anthropic `skill_id`, and same-protocol request
+  normalization restores the custom public shape instead of collapsing it to `skillId`
+- adaptive thinking `display` now survives normalize -> overlay -> finalize request shaping
+  instead of disappearing when Anthropic thinking is rebuilt
+- streaming mode selection now uses the same native structured-output predicate as the request-body
+  builder, so having tools no longer forces a false downgrade to the JSON-tool path on supported
+  models
+
 ## Validation
 
 This workstream is locked by:
@@ -120,12 +193,41 @@ This workstream is locked by:
 - alias tests in `siumai-provider-anthropic/src/provider_options/anthropic/mod.rs`
 - tool helper/merge tests in
   `siumai-provider-anthropic/src/providers/anthropic/ext/{request_options,tools}.rs`
-- metadata alias tests in `siumai-protocol-anthropic/src/provider_metadata/anthropic.rs`
+- typed metadata surface tests in `siumai-protocol-anthropic/src/provider_metadata/anthropic.rs`
+- non-stream fixture assertions in `siumai/tests/anthropic_messages_fixtures_alignment_test.rs`
+  now also lock the audited `AnthropicMessageMetadata` web-search shape including explicit `null`
+  `stopSequence` / `iterations` / `container` / `contextManagement`
+- stream-end fixture assertions in
+  `siumai/tests/anthropic_messages_stream_fixtures_alignment_test.rs` now lock that same typed
+  shape on the public streaming finish surface
 - protocol tool-conversion tests in
   `siumai-protocol-anthropic/src/standards/anthropic/utils/tools.rs`
 - stable public compile guards in `siumai/tests/public_surface_imports_test.rs`
+- package-helper tests in
+  `siumai-provider-anthropic/src/providers/anthropic/prepare_step.rs`
+- request-option/body-overlay tests in
+  `siumai-protocol-anthropic/src/standards/anthropic/request_options.rs`
+  now lock merged `output_config.{format,effort,task_budget}`
+- transformer tests in
+  `siumai-protocol-anthropic/src/standards/anthropic/transformers.rs`
+  now pin native structured output on `output_config.format`
+- provider-spec tests in `siumai-provider-anthropic/src/providers/anthropic/spec.rs`
+  now lock task-budget beta-header inference
+- typed-option serde tests in
+  `siumai-provider-anthropic/src/provider_options/anthropic/mod.rs` now lock `xhigh` effort,
+  adaptive thinking `display`, and `inferenceGeo`
+- bridge/public-path tests in `siumai/src/experimental_bridge/request/tests.rs` and
+  `siumai/tests/provider_public_path_parity_test.rs` now pin `output_config.format` round-trips
+  plus the `container.skills` custom `providerReference` restoration path
+- the `anthropic-code-execution-20250825.2` fixture assertion in
+  `siumai/tests/anthropic_messages_fixtures_alignment_test.rs` now also locks typed container
+  metadata instead of an outdated `container: null` expectation
 
 ## Remaining follow-up
 
 - Re-check if other Anthropic package-index exports need stable facade mirrors after the next AI SDK
   update.
+- Re-audit the next upstream Anthropic request changelog for additional `output_config` fields so
+  Siumai keeps one merged native output-config lane instead of reintroducing parallel overlays.
+- Re-audit whether upstream Anthropic adds further adaptive-thinking or inference policy enums so
+  the Rust typed surface does not fall back behind the audited union shapes again.

@@ -351,6 +351,41 @@ fn best_effort_openai_responses_bridge_returns_json_and_report() {
     );
 }
 
+#[cfg(feature = "openai")]
+#[test]
+fn strict_openai_responses_bridge_rejects_non_provider_executed_tool_approval_response() {
+    let request = ChatRequest::builder()
+        .message(ChatMessage {
+            role: siumai_core::types::MessageRole::Tool,
+            content: siumai_core::types::MessageContent::MultiModal(vec![
+                ContentPart::tool_approval_response("approval_local", true),
+            ]),
+            provider_options: ProviderOptionsMap::default(),
+            metadata: Default::default(),
+        })
+        .model("gpt-4.1")
+        .build();
+
+    let bridged = bridge_chat_request_to_openai_responses_json(
+        &request,
+        Some(BridgeTarget::OpenAiResponses),
+        BridgeMode::Strict,
+    )
+    .expect("bridge");
+
+    assert!(bridged.is_rejected());
+    assert!(bridged.report.is_rejected());
+    assert!(
+        bridged.report.warnings.iter().any(|warning| {
+            warning
+                .message
+                .contains("provider-executed approval responses")
+        }),
+        "expected provider-executed approval warning, got {:?}",
+        bridged.report.warnings
+    );
+}
+
 #[cfg(all(feature = "anthropic", feature = "openai"))]
 #[test]
 fn anthropic_direct_pair_bridge_flattens_system_and_forces_responses_store_policy() {
@@ -1028,7 +1063,7 @@ fn openai_direct_pair_bridge_lifts_response_format_and_reasoning_effort() {
 
     let value = bridged.value.expect("json body");
     assert_eq!(
-        value["output_format"]["type"],
+        value["output_config"]["format"]["type"],
         serde_json::json!("json_schema")
     );
     assert_eq!(value["output_config"]["effort"], serde_json::json!("high"));
@@ -1924,19 +1959,24 @@ fn anthropic_messages_request_normalization_restores_system_thinking_and_provide
             "name": "weather",
             "disable_parallel_tool_use": true
         },
-        "output_format": {
-            "type": "json_schema",
-            "strict": true,
-            "schema": {
-                "type": "object",
-                "properties": {
-                    "value": { "type": "string" }
+        "output_config": {
+            "format": {
+                "type": "json_schema",
+                "strict": true,
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string" }
+                    }
                 }
+            },
+            "effort": "high",
+            "task_budget": {
+                "type": "tokens",
+                "total": 400000,
+                "remaining": 215000
             }
         },
-        "output_config": {
-            "effort": "high"
-        }
     });
 
     let normalized = bridge_anthropic_messages_json_to_chat_request(&value).expect("parse");
@@ -2004,6 +2044,14 @@ fn anthropic_messages_request_normalization_restores_system_thinking_and_provide
         json!("outputFormat")
     );
     assert_eq!(anthropic_options["effort"], json!("high"));
+    assert_eq!(
+        anthropic_options["taskBudget"],
+        json!({
+            "type": "tokens",
+            "total": 400000,
+            "remaining": 215000
+        })
+    );
 
     let tools = normalized.tools.expect("tools");
     assert_eq!(tools.len(), 2);
@@ -2129,6 +2177,65 @@ fn bridge_anthropic_messages_json_to_chat_request_restores_sdk_shaped_request_pr
             },
             "speed": "fast"
         }))
+    );
+}
+
+#[cfg(feature = "anthropic")]
+#[test]
+fn bridge_anthropic_messages_json_to_chat_request_restores_custom_container_skill_provider_reference()
+ {
+    let value = json!({
+        "model": "claude-3-haiku-20240307",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "Hello" }
+                ]
+            }
+        ],
+        "max_tokens": 4096,
+        "container": {
+            "id": "container-1",
+            "skills": [
+                {
+                    "type": "custom",
+                    "skill_id": "skill_custom_1",
+                    "version": "latest"
+                },
+                {
+                    "type": "anthropic",
+                    "skill_id": "pptx",
+                    "version": "latest"
+                }
+            ]
+        }
+    });
+
+    let normalized = bridge_anthropic_messages_json_to_chat_request(&value).expect("parse");
+    let anthropic_options = normalized
+        .provider_option("anthropic")
+        .expect("anthropic options");
+
+    assert_eq!(
+        anthropic_options["container"],
+        json!({
+            "id": "container-1",
+            "skills": [
+                {
+                    "type": "custom",
+                    "providerReference": {
+                        "anthropic": "skill_custom_1"
+                    },
+                    "version": "latest"
+                },
+                {
+                    "type": "anthropic",
+                    "skillId": "pptx",
+                    "version": "latest"
+                }
+            ]
+        })
     );
 }
 

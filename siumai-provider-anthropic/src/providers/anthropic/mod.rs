@@ -13,6 +13,7 @@ pub mod message_batches;
 pub mod middleware;
 pub mod model_constants;
 pub mod models;
+pub mod prepare_step;
 pub mod skills;
 pub mod spec;
 pub mod streaming;
@@ -26,18 +27,16 @@ pub mod utils;
 pub use builder::AnthropicBuilder;
 pub use client::AnthropicClient;
 pub use config::*;
-pub use files::{
-    AnthropicFile, AnthropicFileDeleteResponse, AnthropicFiles, AnthropicListFilesResponse,
-};
+pub use files::AnthropicFiles;
 pub use message_batches::{
     AnthropicCreateMessageBatchRequest, AnthropicListMessageBatchesResponse, AnthropicMessageBatch,
     AnthropicMessageBatchRequest, AnthropicMessageBatches,
 };
 pub use middleware::AnthropicToolWarningsMiddleware;
-pub use skills::{
-    AnthropicSkillFile, AnthropicSkillFileContent, AnthropicSkillProviderMetadata,
-    AnthropicSkillUploadResult, AnthropicSkills,
+pub use prepare_step::{
+    find_anthropic_container_id_from_last_step, forward_anthropic_container_id_from_last_step,
 };
+pub use skills::AnthropicSkills;
 pub use tokens::{AnthropicCountTokensResponse, AnthropicTokens};
 pub use types::*;
 
@@ -49,16 +48,18 @@ pub use crate::provider_options::anthropic::{
     AnthropicContextManagementInputTokensValue, AnthropicContextManagementThinkingKeep,
     AnthropicContextManagementThinkingTurnsKeep, AnthropicContextManagementThinkingTurnsKeepKind,
     AnthropicContextManagementToolUsesKeep, AnthropicContextManagementTrigger, AnthropicEffort,
-    AnthropicMcpServer, AnthropicMcpServerType, AnthropicMcpToolConfiguration, AnthropicOptions,
-    AnthropicRequestCacheControl, AnthropicRequestCacheControlTtl,
-    AnthropicRequestCacheControlType, AnthropicRequestMetadata, AnthropicResponseFormat,
-    AnthropicSpeed, AnthropicStructuredOutputMode, AnthropicThinkingConfig, PromptCachingConfig,
-    ThinkingModeConfig,
+    AnthropicInferenceGeo, AnthropicMcpServer, AnthropicMcpServerType,
+    AnthropicMcpToolConfiguration, AnthropicOptions, AnthropicRequestCacheControl,
+    AnthropicRequestCacheControlTtl, AnthropicRequestCacheControlType, AnthropicRequestMetadata,
+    AnthropicResponseFormat, AnthropicSpeed, AnthropicStructuredOutputMode, AnthropicTaskBudget,
+    AnthropicTaskBudgetType, AnthropicThinkingConfig, AnthropicThinkingDisplay,
+    PromptCachingConfig, ThinkingModeConfig,
 };
 
 // Typed provider metadata views (protocol-owned; re-exported via this provider for ergonomics).
 pub use crate::provider_metadata::anthropic::{
     AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock, AnthropicContentPartExt,
+    AnthropicMessageContainerMetadata, AnthropicMessageContainerSkill, AnthropicMessageMetadata,
     AnthropicMetadata, AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
     AnthropicToolCaller,
 };

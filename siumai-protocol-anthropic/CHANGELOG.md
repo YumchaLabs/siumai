@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Anthropic native structured output now follows the current AI SDK request contract more closely:
+  native JSON Schema output lowers to `output_config.format` instead of deprecated
+  `output_format`, request-option overlays merge `output_config.format`, `output_config.effort`,
+  and `output_config.task_budget` onto one shared object instead of overwriting sibling fields,
+  request normalization/bridge restoration now prefer `output_config.format` while remaining
+  backward-compatible with legacy `output_format`, and stream-side structured-output mode
+  selection now stays consistent with the final request body even when tools are present.
+- Anthropic request-option normalization/body finalization now also preserve the remaining audited
+  provider option fields more faithfully: `inferenceGeo` lowers to native `inference_geo`, and
+  adaptive thinking `display` survives the normalize -> overlay -> finalize path instead of being
+  dropped when Anthropic thinking is rebuilt.
+- Anthropic container-skill request shaping now follows the current AI SDK public contract more
+  closely: request overlays lower custom `providerReference.anthropic` values onto native
+  `container.skills[].skill_id`, while same-protocol request normalization restores custom skills
+  back onto `providerReference` instead of flattening every skill to `skillId`.
 - Anthropic request and cache conversion now accept prompt-side provider-owned user image/document
   references, mapping them onto native `source: { type: "file", file_id }` blocks and resolving
   canonical `ProviderReference` entries only from the Anthropic provider namespace.
@@ -23,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   final request bodies add `budget_tokens` onto `max_tokens` before known-model capping even when
   thinking came from legacy provider-specific params rather than only from provider options.
 - Anthropic streaming now preserves extended usage fields such as `cache_creation_input_tokens`, `cache_read_input_tokens`, `server_tool_use`, and `service_tier` in terminal responses and SSE re-serialization, and terminal `Usage.raw` now keeps the full provider-native Anthropic usage object instead of a trimmed subset.
+- Typed Anthropic metadata now distinguishes the narrow AI SDK-style `AnthropicMessageMetadata`
+  shape from the wider Rust `AnthropicMetadata` helper, and `AnthropicChatResponseExt` exposes
+  both `anthropic_message_metadata*()` and `anthropic_metadata*()` accessors accordingly.
+- The narrow `AnthropicMessageMetadata.container` surface now also uses dedicated required-field
+  message container/skill structs, while the wider `AnthropicMetadata` helper keeps tolerating
+  partial container data for compatibility and intermediate replay paths.
 - Typed Anthropic metadata extraction now derives nested `usage` fields and aliases consistently, so provider metadata round-trips keep raw usage fidelity.
 - Anthropic Messages JSON replay now derives `input_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`, and `output_tokens` from the normalized AI SDK-style usage model when raw provider usage is missing or partial.
 - Anthropic Messages response parsing now keeps the full provider-native `usage` payload on both `Usage.raw` and `provider_metadata.anthropic.usage`, so nested/forward-compatible Anthropic usage fields survive AI SDK-style raw snapshots instead of being trimmed to a local subset.

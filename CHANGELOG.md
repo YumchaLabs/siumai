@@ -6,6 +6,48 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- `@ai-sdk/google-vertex` package-surface parity is now tighter on the Rust facade:
+  `provider_ext::google_vertex` / `providers::vertex` now expose `VERSION` plus a dedicated
+  `GoogleVertexProviderSettings` input struct with `into_builder()` /
+  `into_builder_for_model(...)`, `GoogleVertexBuilder` now mirrors the upstream non-callable
+  `image` / `imageModel` / `video` / `videoModel` family helpers, curated grouped Vertex model ids
+  now cover the current audited chat/embedding/image/video package contracts (including
+  `text-embedding-005`, `gemini-embedding-2-preview`, `imagen-4.0-ultra-generate-001`, and
+  `gemini-2.5-flash-image`), `GoogleVertexClient::supported_models()` now reuses that same curated
+  source instead of only returning the configured model id, `generateId` now has an honest Rust
+  analogue all the way through settings/builder/config into the Vertex chat/stream Gemini
+  transformer runtime (so custom stable tool/source IDs actually work), the provider-option surface
+  now also exposes typed Rust enums for the audited Vertex image/video enum domains plus fluent
+  `VertexEmbeddingOptions` builders, Vertex Imagen result parsing now keeps the audited
+  `revisedPrompt` semantics on `GeneratedImage.revised_prompt`, Vertex video result metadata no
+  longer duplicates inline/base64 payloads into public `provider_metadata.videos[]` while the
+  task-based runtime preserves a hidden raw-video carrier for reconstruction, and the slice is tracked under
+  `docs/workstreams/google-vertex-package-surface-alignment/`.
+- `@ai-sdk/google-vertex/anthropic` package-surface parity is now materially tighter too:
+  `provider_ext::anthropic_vertex` / `providers::anthropic_vertex` now expose a dedicated
+  `GoogleVertexAnthropicProviderSettings` carrier, package-level constructor aliases
+  `vertex_anthropic()` / `create_vertex_anthropic()`, the audited Vertex-supported Anthropic tool
+  subset under `tools` plus `provider_tools` / `hosted_tools`, and the narrower typed Anthropic
+  metadata names (`AnthropicMessageMetadata`, `AnthropicMessageContainerMetadata`,
+  `AnthropicMessageContainerSkill`, `AnthropicUsageIteration`) alongside the older wide helper.
+  The same wrapper path now also exposes `GoogleVertexAnthropicMessagesModelId`, and its curated
+  `models::{chat, ALL_CHAT}` subset is updated to the current audited upstream union instead of the
+  stale local `*-latest` aliases. Anthropic-on-Vertex construction is also no longer artificially
+  `base_url`-only on the audited paths: provider builder, settings wrapper, and
+  registry/unified-builder factory paths now all derive the canonical
+  `/publishers/anthropic/models` base URL from explicit `project + location` or
+  `GOOGLE_VERTEX_PROJECT` + `GOOGLE_VERTEX_LOCATION`, while still honoring explicit `base_url`
+  overrides. This slice is tracked under
+  `docs/workstreams/anthropic-vertex-package-surface-alignment/`.
+- Google Vertex Gemini image runtime now follows the audited `@ai-sdk/google-vertex` split more
+  honestly: `gemini-* image` model ids route through `:generateContent` instead of the Imagen
+  `:predict` path, generate/edit/variation now serialize as Gemini multi-part image requests with
+  `responseModalities = ["IMAGE"]`, `aspectRatio` and `seed` map into Gemini
+  `generationConfig`, Gemini-specific open image options now stay scoped to
+  `providerOptions.vertex` on the image-model lane, `mask` and `n > 1` now reject on the Gemini
+  image path, and the shared image executor now lets providers opt out of forced URL
+  materialization so Vertex Gemini can preserve native URL-backed `fileData.fileUri` inputs on
+  edit/variation.
 - Stable shared request-facing transport types are now exposed on the Rust facade:
   `CancelHandle`, `TimeoutConfiguration`, `TimeoutConfigurationSettings`, and `RequestOptions`
   live on `siumai::types::*` / `siumai::prelude::unified::*`; runtime stream internals now also
@@ -89,19 +131,45 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `CompletionRequest` carry it as runtime-only state, and `siumai::text::StreamOptions` plus
   `siumai::completion::StreamOptions` now map `include_raw_chunks` to that lane instead of
   overloading `providerOptions`.
+- The shared OpenAI Responses stream bridge now upgrades more legacy V3 payloads directly onto
+  the stable runtime `Part` lane: when provider-prefixed custom events already carry canonical
+  `raw`, `custom`, `file`, or `reasoning-file` stream-part JSON, the bridge now emits
+  `ChatStreamEvent::Part` instead of preserving them as loose provider-scoped `Custom` events.
+- DeepInfra text-family custom base-URL handling now matches the audited
+  `repo-ref/ai/packages/deepinfra/src/deepinfra-provider.ts` contract more closely: compat
+  DeepInfra config/builder paths now normalize root, `/openai`, and `/inference` inputs onto the
+  shared `/openai` text-family prefix; top-level builder/provider/config/registry streaming paths
+  now emit equivalent `/openai/chat/completions` requests when callers pass a root base URL; and
+  the public-path regression suite now also pins that `includeRawChunks` stays runtime-only plus
+  that finish-time `metadataExtractor` merging survives on those DeepInfra stream lanes.
+- DeepInfra package-surface aliases are now a bit more complete on the Rust side:
+  `provider_ext::deepinfra` now also exports provider-scoped
+  `DeepInfraChatModelId` / `DeepInfraCompletionModelId` /
+  `DeepInfraEmbeddingModelId` / `DeepInfraImageModelId` string aliases, and both provider-crate
+  plus top-level public-surface tests now lock those names.
+- `provider_ext::deepinfra` now also exposes package-level unified-provider entry helpers:
+  `deepinfra()` and `create_deepinfra()` both return the unified `SiumaiBuilder` surface, while
+  the module docs now make it explicit that `DeepInfraClient` / `DeepInfraConfig` are the
+  lower-level compat text-family aliases rather than the full hybrid provider entrypoint.
 - Stable text-completion family support aligned with AI SDK `completionModel()`:
   `CompletionRequest` / `CompletionResponse`, core `CompletionModel` capability/model contracts,
   registry `completion_model(...)` handles, and facade `siumai::completion::{complete, stream,
   stream_with_cancel}` are now public.
 - Stable high-level file upload support aligned with AI SDK `uploadFile()`:
-  `siumai::files::upload(...)` now exposes public `UploadFileData`, `UploadFileOptions`,
-  `UploadFileResult`, and `UploadFileProviderMetadata`, auto-detects media types from bytes,
-  rejects URL inputs, defaults missing filenames to `blob`, returns canonical `providerReference`,
-  and ships built-in adapters for the current file-capable unified/provider clients.
+  `siumai::files::upload(...)` now exposes public `UploadFileOptions`, `UploadFileResult`, and
+  `UploadFileProviderMetadata`, auto-detects request media types from bytes, rejects URL inputs,
+  returns canonical `providerReference`, accepts shared `DataContent` plus direct byte/string
+  carriers, and ships built-in adapters for the current file-capable unified/provider clients.
 - Stable high-level file uploads now also expose canonical `providerOptions` like AI SDK
   `FilesV4`: shared `FileUploadRequest` plus `UploadFileOptions` carry provider-owned upload
   knobs, OpenAI/Azure honor provider-scoped `purpose` / `expiresAfter`, and Gemini honors
   `displayName` plus polling controls on the upload path.
+- Anthropic beta file management now also reuses the shared AI SDK-style file contract end-to-end:
+  `AnthropicFiles` / `AnthropicClient` implement `FileManagementCapability`, upload/list/
+  retrieve/delete now use shared file-management request/result structs directly, the high-level
+  helper no longer needs an Anthropic-only upload bridge, and the redundant provider-local file
+  wrapper layer has been removed. This slice is tracked under
+  `docs/workstreams/anthropic-files-shared-contract-alignment/`.
 - Stable high-level skill upload support aligned with AI SDK `uploadSkill()`:
   `siumai::skills::upload(...)` now exposes public `UploadSkillFile`, `UploadSkillOptions`,
   `UploadSkillResult`, and `UploadSkillProviderMetadata`; a shared `SkillsCapability` now also
@@ -114,6 +182,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::ui::{validate_ui_messages, convert_to_model_messages, convert_to_chat_request}`
   exposes the conversion helper lane, the top-level `siumai::types` module is restored, and
   stable `tool-approval-response` parts now preserve optional `providerExecuted`.
+- Public AI SDK package facades now also expose package-level provider entry helpers directly on
+  their own namespaces: compat-promoted wrappers
+  `provider_ext::{mistral,perplexity,fireworks,moonshotai,deepinfra}` plus the audited
+  provider-owned facades (`openai`, `anthropic`, `azure`, `bedrock`, `cohere`, `togetherai`,
+  `google_vertex::vertex`, `groq`, `xai`, `deepseek`) now mirror the upstream
+  `provider` + `createProvider` export pattern instead of forcing callers back to unrelated root
+  namespaces.
 - Stable prompt-owned `ToolApprovalResponse` values now also expose Rust-idiomatic builder helpers
   for optional `reason` and `providerExecuted`, keeping the public shared prompt surface more
   symmetric with `ToolCall` / `ToolResult` without changing the underlying AI SDK wire contract.
@@ -123,6 +198,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `with_provider_executed(...)` helper instead of requiring direct field mutation. Those prompt
   structs now also follow the broader shared-type convention with single-provider convenience
   helpers `with_provider_option(...)` and `provider_option(...)`.
+- Runtime `ContentPart::Image` now also preserves optional shared `mediaType`, so prompt
+  `ImagePart.mediaType` no longer gets dropped when projecting `ModelMessage` values back into the
+  richer chat runtime; bridges that already know image MIME types now retain them instead of
+  defaulting immediately to `image/jpeg`.
 - Shared `ToolResultOutput` and nested `ToolResultContentPart` provider-option helpers now also
   follow that same convention: the stable Rust surface keeps the older
   `provider_options()` / `provider_options_mut()` names, but now also exposes
@@ -133,10 +212,52 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Nested tool-result `file-url` content parts now also preserve the upstream optional
   `mediaType` field on the stable Rust surface, with serde roundtrip support and a focused
   `with_media_type(...)` builder.
-- Stable prompt/content modeling now includes Vercel-aligned `custom`, `reasoning-file`, and explicit tool-result content variants (`file-data`, `file-url`, `file-reference`, `image-data`, `image-url`, `image-file-reference`) with provider-keyed `providerReference` support. Legacy `file-id` / `image-file-id` inputs remain accepted as compatibility aliases.
+- Stable prompt/content modeling now includes Vercel-aligned `custom`, `reasoning-file`, and explicit tool-result content variants, and provider-backed tool-result parts now preserve the upstream distinction between deprecated `file-id` / `image-file-id` and canonical `file-reference` / `image-file-reference`. Rust serde roundtrips now keep the correct tags and payload keys (`fileId` vs `providerReference`), and OpenAI Responses tool-output normalization now emits canonical provider-reference maps.
 - Stable prompt/content modeling now also includes first-class user `providerReference` support
   for `image` / `file` parts through shared `ProviderReference` and `FilePartSource`, with
   builder helpers for both part-level and message-level construction.
+- OpenAI Responses request/history alignment now matches the upstream AI SDK approval boundary:
+  only provider-executed `tool-approval-response` parts serialize to
+  `mcp_approval_response`, request-bridge inspection now reports non-provider-executed approval
+  responses as lossy for that target, and normalization restores `providerExecuted: true` from the
+  corresponding OpenAI wire item.
+- Shared prompt execution validation now also mirrors the upstream AI SDK split between prompt
+  standardization and provider-facing history checks: Rust now exposes dedicated
+  `MissingToolResultsError` and `PromptExecutionError`, `Prompt::standardize()` remains
+  shape-only, and `Prompt::standardize_for_execution()` / `Prompt::to_chat_request()` enforce the
+  non-provider-executed tool-call result rule before runtime request conversion.
+- Shared `DataContent` is now reusable across more public Rust helper families instead of being
+  effectively trapped inside prompt-only APIs: `SttRequest`, `AudioTranslationRequest`,
+  `ImageEditInput`, `VideoGenerationInput`, and `files::UploadFileData` now expose direct
+  `from_data_content(...)` construction lanes, audio/image/video payload wrappers now also convert
+  to and from shared `DataContent`, and this slice is tracked under
+  `docs/workstreams/shared-data-content-surface-alignment/`.
+- Shared `DataContent` decoding failures now also surface through a stable
+  `InvalidDataContentError` instead of leaking `base64::DecodeError` from the shared public
+  payload accessors; `DataContent`, audio/image/video file payload wrappers, and the corresponding
+  request helper accessors now all use that error lane, and invalid base64 file uploads now reuse
+  the same semantic message path. This slice is tracked under
+  `docs/workstreams/data-content-error-surface-alignment/`.
+- `files::UploadFileData` now also matches the upstream AI SDK `uploadFile` input boundary more
+  closely by removing the explicit `Url` variant; URL-like string inputs are still detected and
+  rejected at runtime with the same unsupported-upload message, but the stable Rust type shape no
+  longer implies that URL uploads are a first-class supported input form. This slice is tracked
+  under `docs/workstreams/upload-file-input-shape-alignment/`.
+- `files::upload(...)` now also accepts shared `DataContent` directly instead of forcing callers to
+  first materialize `UploadFileData`; the helper remains compatible with existing `UploadFileData`
+  and direct byte inputs, but the public call boundary is now much closer in spirit to the AI SDK
+  `uploadFile` helper. This slice is tracked under
+  `docs/workstreams/upload-file-call-boundary-alignment/`.
+- The now-redundant `files::UploadFileData` compatibility wrapper has been removed entirely; upload
+  helpers now rely on shared `DataContent` plus direct byte/string conversions, while preserving
+  the same runtime rejection of URL-like string uploads. This slice is tracked under
+  `docs/workstreams/upload-file-wrapper-removal-alignment/`.
+- High-level upload-file result shaping now also matches the upstream AI SDK helper more closely:
+  shared `FileUploadRequest` / `FileObject` filenames are optional, missing filenames are no
+  longer normalized to `blob`, `UploadFileResult.filename` / `media_type` are no longer backfilled
+  from request-time fallbacks, and helper `providerMetadata` is now limited to provider-owned
+  extra fields instead of injected generic file bookkeeping. This slice is tracked under
+  `docs/workstreams/upload-file-result-surface-alignment/`.
 - Shared image edit typing now exposes AI SDK-style multi-input `images[]` + `mask` semantics through
   public `ImageEditInput` and `ImageEditFileData` types on the extensions/facade surface.
 - Shared image request typing now exposes top-level `aspectRatio` across generation/edit/variation
@@ -196,6 +317,34 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::video::generate_materialized(...)` download URL-backed videos on demand, preserve
   byte/base64 accessors on the materialized file representation, and keep provider-reference-only
   assets as an explicit unsupported path instead of pretending they are generically downloadable.
+- The high-level Rust video helper now also matches AI SDK `experimental_generateVideo()` more
+  closely at the result boundary: `siumai::video::generate(...)` now auto-materializes URL-backed
+  final videos by default, `GenerateVideoResult` / `GenerateMaterializedVideoResult` now expose an
+  AI SDK-style first `video` alongside `videos`, `GeneratedVideo` now has direct `bytes()` /
+  `base64()` accessors for already-inline assets, and callers can still opt out of default URL
+  downloads or pass helper-level download `HttpConfig`. Non-downloadable schemes such as current
+  Vertex `gs://...` outputs now stay URL-backed with a warning instead of failing helper-level
+  materialization. This slice is tracked under
+  `docs/workstreams/video-generate-result-materialization-alignment/`.
+- Provider-reference-only final video assets now also have a shared provider-owned materialization
+  hook on the task-oriented video family: `MaterializedVideoAsset` now lives on the shared video
+  type surface, `VideoGenerationCapability` / `VideoModelV3` expose
+  `materialize_video_reference(...)`, `siumai::video::generate(...)` best-effort materializes
+  those references through the same model-capability dispatch path, and audited Gemini/MiniMaxi
+  providers now reuse their existing file-management runtimes on that path. This slice is tracked
+  under `docs/workstreams/video-provider-reference-materialization-alignment/`.
+- Stable video task-status payloads now also promote provider-owned final assets onto canonical
+  `providerReference`, prefer camelCase serde output (`taskId`, `fileId`, `videoUrl`,
+  `providerReference`, `videoWidth`, `videoHeight`, `baseResp`) while still accepting snake_case
+  compatibility input, and `siumai::video` now consumes that canonical reference before falling
+  back to legacy `fileId` inference. Top-level public-path parity now also locks the audited query
+  split: Gemini returns canonical `providerReference`, while Vertex stays on raw `videoUrl`
+  without fabricating a shared provider reference, and the feature-gated Gemini provider-local
+  video regression lane now compiles again under the real `google` test feature. Direct
+  `GeminiVideo::new(...)` helper construction now also reuses `GeminiConfig.http_transport` for
+  task polling when no explicit transport override is passed. Video-family metadata readers now
+  also accept upstream `google-vertex` alias roots on the read path while preserving the stable
+  Rust aggregation root under `vertex`.
 - Video-family batching and result shaping now align more closely with AI SDK
   `experimental_generateVideo()`: object-safe `max_videos_per_call()` metadata now lives on
   `VideoGenerationCapability` / `VideoModelV3` / registry video handles, audited defaults are
@@ -214,8 +363,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   text-or-image prompt union.
 - Video model family alignment now also has a dedicated workstream under
   `docs/workstreams/video-model-family-alignment/`, documenting the deliberate Rust-first
-  task-based contract and the remaining gap against AI SDK `experimental_generateVideo()` default
-  URL materialization plus provider-reference download semantics.
+  task-based contract and the remaining provider-owned download gap against the upstream helper.
 - Shared AI SDK-style video metadata is now exposed on the stable Rust surface:
   `VideoModelProviderMetadata` and `VideoModelResponseMetadata` live on
   `siumai::types::*` / `siumai::prelude::unified::*`, and `siumai::video::{GenerateVideoResult,
@@ -291,11 +439,19 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `provider_ext::anthropic` exposes `AnthropicLanguageModelOptions`, deprecated
   `AnthropicProviderOptions`, `AnthropicMessageMetadata`, `AnthropicUsageIteration`, and
   `AnthropicToolOptions`; Anthropic request/tool helper writes now merge onto existing
-  `providerOptions.anthropic` objects; the Anthropic tool path now forwards
-  `eagerInputStreaming`; and the stable Bedrock facade conditionally mirrors the upstream
-  `AnthropicProviderOptions` cross-export when both `anthropic` and `bedrock` features are
-  enabled. The audit is documented under
+  `providerOptions.anthropic` objects; `AnthropicMessageMetadata` is now a dedicated narrow typed
+  struct rather than a thin alias to the wider `AnthropicMetadata` helper; the Anthropic tool path
+  now forwards `eagerInputStreaming`; and the stable Bedrock facade conditionally mirrors the
+  upstream `AnthropicProviderOptions` cross-export when both `anthropic` and `bedrock` features
+  are enabled. The audit is documented under
   `docs/workstreams/anthropic-package-surface-alignment/`.
+- Anthropic fixture-backed typed metadata alignment is now tighter too: the audited
+  `anthropic-web-search-tool.1` non-stream and stream-end fixtures now explicitly lock
+  `AnthropicMessageMetadata` to the AI SDK message-metadata shape (`usage` plus explicit `null`
+  `stopSequence` / `iterations` / `container` / `contextManagement`) instead of relying only on
+  lower-level unit tests and synthetic public roundtrips, and the narrow message-metadata
+  container/skill surface now uses dedicated required-field structs rather than inheriting the
+  wider helper container's optional-field looseness.
 - Groq now also exposes AI SDK-style `browser_search()` provider tools on the public Rust facade
   through `provider_ext::groq::{tools, provider_tools}`.
 - Azure now also mirrors the audited `@ai-sdk/azure` option-alias surface on both the
@@ -351,14 +507,47 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - The provider-owned/public Google facade is now much closer to the audited `@ai-sdk/google`
   package surface: `provider_ext::google::{options::*, metadata::*, *}` now exposes
   `GoogleLanguageModelOptions`, `GoogleEmbeddingModelOptions`, `GoogleVideoModelOptions`,
-  `GoogleVideoModelId`, `GoogleFilesUploadOptions`, `GoogleProviderMetadata`, and
-  `GoogleErrorData` plus the upstream deprecated aliases; Google-branded request/upload helpers
-  now lower `serviceTier`, `streamFunctionCallArguments`, embedding `outputDimensionality` /
-  `taskType` / positional multimodal `content`, and video `negativePrompt` /
-  `personGeneration` / `referenceImages` onto the real provider-owned runtime; response metadata
-  now also keeps typed `promptFeedback` alongside `usageMetadata`, `finishMessage`, and
-  `serviceTier`; and Gemini option normalization now preserves `null` entries inside Google
-  embedding `content[]` instead of collapsing text-only positions.
+  `GoogleVideoModelId`, `GoogleFilesUploadOptions`, `GoogleProviderMetadata`,
+  `GoogleProviderSettings`, and `GoogleErrorData` plus the upstream deprecated aliases;
+  Google-branded request/upload helpers now lower `serviceTier`, `streamFunctionCallArguments`,
+  embedding `outputDimensionality` / `taskType` / positional multimodal `content`, and video
+  `negativePrompt` / `personGeneration` / `referenceImages` onto the real provider-owned runtime;
+  response metadata now also keeps typed `promptFeedback` alongside `usageMetadata`,
+  `finishMessage`, and `serviceTier`; `Provider::google()` / `Siumai::builder().google()` plus
+  `provider_ext::google::{google, create_google}` now also mirror the upstream package-level
+  `google` / `createGoogle` entry naming instead of forcing callers onto the internal `gemini`
+  name; `provider_ext::google` now also exposes the package `VERSION` constant plus a deprecated
+  `create_google_generative_ai()` alias for the audited `createGoogleGenerativeAI` root export;
+  `Provider::google()` / `Provider::gemini()` now also mirror the audited non-callable family
+  helper names for chat, embedding, image, and video model selection; and
+  `provider_ext::google::{chat, embedding, image, video, model_sets}` now exposes grouped audited
+  Google model ids for direct package-surface diffing; the provider-owned Gemini support lists now
+  also include `gemini-embedding-2-preview` and the newer audited Veo / Gemini package ids instead
+  of lagging behind the public facade; `GoogleProviderSettings` is now also a dedicated
+  provider-level input struct with `with_api_key`, `with_base_url`, `with_headers`, `with_fetch`,
+  `with_generate_id`, `with_name`, and `into_builder*` helpers instead of a misleading
+  `GeminiConfig` alias; `Provider::google()` / `Provider::gemini()` now also expose a direct
+  `files()` member that returns the provider-owned `GeminiFiles` capability, matching the audited
+  `google.files()` resource-construction story more closely;
+  Gemini builder configuration now honors upstream `GOOGLE_GENERATIVE_AI_API_KEY` as the primary
+  Google package environment-variable fallback while keeping legacy `GEMINI_API_KEY`
+  compatibility; the Google package-alignment docs now explicitly record that Rust still
+  intentionally does not fabricate a callable `GoogleProvider`; and Gemini option normalization now
+  preserves `null` entries inside Google embedding `content[]` instead of collapsing text-only
+  positions.
+- Google package-surface alignment now also closes the previously deferred upstream `generateId`
+  hook: `GoogleProviderSettings::with_generate_id(...)`, `GeminiBuilder::with_generate_id(...)`,
+  and the public `SharedIdGenerator` facade now thread custom stable ID generation through
+  `GeminiConfig`, and Gemini response/streaming transformers consume it for provider-owned
+  tool-call, tool-result, and source ids instead of hard-coded local id generation.
+- Google package-surface alignment now also closes the upstream `name` hook honestly:
+  `GoogleProviderSettings::with_name(...)`, `GeminiBuilder::name(...)`, and
+  `GeminiConfig::with_provider_name(...)` now carry a provider-facing display label through the
+  Google package path; `Provider::google()` defaults that label to `google.generative-ai` while
+  `Provider::gemini()` keeps `gemini`, `GeminiClient::provider_name()` and
+  `GeminiFiles::provider_name()` now expose the resolved label, and provider-facing Gemini error
+  text can use it without changing canonical `provider_id`, `providerReference`, or
+  `providerMetadata` roots.
 - Provider-owned public wrapper surfaces are now also more structurally uniform: the audited
   first-class `provider_ext::<provider>` paths now consistently re-export their native
   `*Builder` types alongside `*Client` / `*Config`, making the Rust facade closer to the audited
@@ -399,6 +588,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
+- OpenAI and Anthropic provider-owned `skills()` resources now consume the shared
+  `SkillUploadRequest` / `SkillUploadResult` contract directly; the redundant public
+  `OpenAiSkill*` / `AnthropicSkill*` wrapper types and bespoke `upload(...)` resource methods
+  have been removed so the provider resource surface matches the audited AI SDK `SkillsV4` split
+  more honestly.
 - Public streaming examples, migration snippets, and gateway bridge samples now treat stable
   `Part(TextDelta)` / `PartWithReplay(TextDelta)` as first-class streamed text instead of
   teaching legacy-only `ContentDelta` consumers.
@@ -423,6 +617,63 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- Anthropic native structured-output alignment is now tighter against the audited
+  `@ai-sdk/anthropic` contract: native JSON Schema output lowers to `output_config.format`
+  instead of the deprecated `output_format` field, `output_config.{format,effort,task_budget}`
+  now merge without clobbering each other, request normalization/bridge round-trips restore
+  `taskBudget` from the same native shape, `container.skills` now preserves the audited public
+  split between Anthropic `skillId` and custom `providerReference`, and stream-time
+  structured-output mode selection no longer falls back to the JSON-tool path merely because
+  tools are present.
+- Anthropic typed option parity is now tighter too: public/provider/shared builder surfaces now
+  expose `taskBudget` and `inferenceGeo` helpers consistently, the typed effort enum now includes
+  upstream `xhigh`, adaptive thinking now preserves `display` through request normalization/body
+  finalization, and Anthropic requests lower those fields onto native `output_config.task_budget`,
+  `inference_geo`, and `thinking.display` instead of silently dropping them.
+- `@ai-sdk/anthropic` package-surface parity now also includes the package-level container carry-
+  forward helper: `provider_ext::anthropic::{find_anthropic_container_id_from_last_step,
+  forward_anthropic_container_id_from_last_step}` mirrors upstream
+  `forwardAnthropicContainerIdFromLastStep(...)` for prepare-step/provider-metadata workflows.
+- OpenAI Responses MCP fixture parity now matches the audited AI SDK request contract again:
+  provider-executed `tool-approval-response` fixtures explicitly set `providerExecuted: true`,
+  restoring exact `mcp_approval_response` request-fixture coverage and the full
+  `openai_responses_*` regression sweep.
+- Shared `FinishReason` serde now serializes `Other(...)` as the AI SDK string-union shape while
+  still accepting the legacy object form on read, fixing failed OpenAI Responses streams where
+  stable `finishReason.unified` must be `"other"` instead of a Rust enum object.
+- OpenAI-family speech request shaping now actually lowers shared `TtsRequest.language` into the
+  JSON body when a provider's audited defaults opt into that field, so the stable typed speech
+  surface no longer carries a dead `language` knob on those paths.
+- The built-in OpenAI-compatible `groq` preset now defaults `supportsStructuredOutputs = true`,
+  matching the audited AI SDK package behavior so Groq JSON Schema requests no longer degrade to
+  `response_format = { "type": "json_object" }` by default.
+- OpenAI Responses request conversion now omits tool-role messages whose parts are all
+  intentionally skipped, preventing false `Tool message missing tool result` errors on AI
+  SDK-shaped histories that contain only non-provider-executed approval responses in a tool
+  message.
+- OpenAI typed control options now also mirror the audited AI SDK surface more closely:
+  `OpenAILanguageModelChatOptions` now exposes `systemMessageMode`, and
+  `OpenAILanguageModelResponsesOptions` now exposes `systemMessageMode`, `forceReasoning`, and
+  `contextManagement`; public OpenAI/Azure option re-exports include the new typed controls, and
+  `/responses` request shaping now lowers `contextManagement[].compactThreshold` to native
+  `context_management[].compact_threshold` while keeping control-only fields off the wire body.
+- OpenAI-compatible chat streaming now matches AI SDK `doStream()` error semantics more closely:
+  explicit top-level `{"error": ...}` chunks and invalid JSON chunks now emit stable `error` plus
+  error `finish` / `StreamEnd` semantics instead of surfacing only transport parse failures, and
+  the shared compat stream audit now also pins finish-time `acceptedPredictionTokens` /
+  `rejectedPredictionTokens` plus public metadata-extractor merging on the streaming path.
+- OpenAI-compatible chat streaming now also matches the audited AI SDK ordering/terminal behavior
+  more closely on two remaining stream edges: if one chunk carries both reasoning and text, the
+  stable `reasoning-*` lane now opens before `text-*`, and explicit
+  `finish_reason = "tool_calls"` chunks now finalize pending stable `tool-input-end` /
+  `tool-call` parts including empty-input tool calls without duplicating already-completed tool
+  calls on later empty chunks.
+- Anthropic-on-Vertex structured-output defaults now also match the audited AI SDK wrapper
+  semantics more closely: JSON-schema requests default to the reserved `json` tool fallback on the
+  Vertex wrapper path instead of drifting back to Anthropic's native model-family heuristic, and
+  the stream converter now receives that same effective mode so request shaping and
+  streamed/non-stream JSON extraction stay aligned across the new audited Vertex Anthropic model
+  ids.
 - OpenAI-compatible generic tool warnings can now defer selected provider-defined tool ids to
   provider-owned middleware, allowing Groq `browser_search` to emit AI SDK-style
   unsupported-model warnings instead of the older generic compat warning.
@@ -462,6 +713,16 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `BedrockClient` now implements provider-owned embedding over the real `/model/{id}/invoke`
   route for Titan/Nova/Cohere model families, and builder/config-first/registry/public paths now
   all agree on the same request shape instead of failing before transport.
+- Provider-crate feature-gated regression coverage now compiles against the current shared
+  request/response structs across the audited provider set: xAI file/video tests were updated for
+  optional upload filenames and `XaiVideoRequestExt`, MiniMaxi tests now distinguish video
+  `prompt: Option<String>` from music `prompt: String`, and Azure native completion metadata now
+  populates the shared `ResponseMetadata.headers` field.
+- Protocol and top-level `all-features` regression coverage now also compile against the same
+  shared contracts: Anthropic protocol streaming fixtures plus top-level
+  experimental-bridge/transcoding tests now instantiate `ResponseMetadata.headers`, and the
+  remaining MiniMaxi/public retry upload tests now follow the shared optional-filename file
+  surface.
 
 - Anthropic public streaming roundtrip coverage now explicitly guards GitHub issue `#17`:
   `siumai::protocol::anthropic::streaming::AnthropicEventConverter` keeps
@@ -511,6 +772,18 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Gemini streaming no longer emits parser-side `gemini:reasoning` custom shadows on top of stable
   `reasoning-*` parts, reducing runtime dual-lane duplication while keeping serializer-side custom
   compatibility handling intact.
+- Gemini GenerateContent streaming now aligns more closely with the audited `@ai-sdk/google`
+  `doStream()` contract on the runtime lane: parser-side output now includes stable
+  `stream-start`, non-tool `text-*`, `file` / `reasoning-file`, successful `finish`, request-opt-in
+  `raw`, and stable `error` parts for top-level `{"error": ...}` payloads plus invalid JSON
+  chunks; request-aware Gemini/Vertex stream transformers now forward
+  `ChatRequest.stream_options.include_raw_chunks`; same-protocol Gemini SSE replay now also lowers
+  direct stable `Error` parts back into provider error envelopes; and EOF fallback closes active
+  text/reasoning lanes before emitting `finish(unknown)` + `StreamEnd` when Google omits a
+  terminal finish reason.
+- Mixed stable/legacy Gemini text and reasoning streams are now deduplicated by first source in
+  `StreamProcessor`, so stable `TextDelta` / `ReasoningDelta` plus compatibility shadows no longer
+  double-count final text or thinking on direct runtime consumers.
 - The shared OpenAI Responses bridge now upgrades only stable-shape legacy custom payloads and no
   longer keeps bespoke `gemini:*` / `anthropic:*` event-type special cases from the removed parser
   shadow era.

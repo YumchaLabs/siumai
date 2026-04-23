@@ -164,15 +164,22 @@ fn parse_anthropic_messages_json_to_chat_request(value: &Value) -> Result<ChatRe
         request.tools = Some(tools);
     }
 
-    if request.response_format.is_none()
-        && let Some(value) = obj.get("output_format")
-        && let Some(format) = parse_json_schema_response_format(value)
-    {
-        request.response_format = Some(format);
-        anthropic_options.insert(
-            "structuredOutputMode".to_string(),
-            Value::String("outputFormat".to_string()),
-        );
+    if request.response_format.is_none() {
+        let output_config_format = obj
+            .get("output_config")
+            .and_then(Value::as_object)
+            .and_then(|output_config| output_config.get("format"));
+        let legacy_output_format = obj.get("output_format");
+
+        if let Some(value) = output_config_format.or(legacy_output_format)
+            && let Some(format) = parse_json_schema_response_format(value)
+        {
+            request.response_format = Some(format);
+            anthropic_options.insert(
+                "structuredOutputMode".to_string(),
+                Value::String("outputFormat".to_string()),
+            );
+        }
     }
 
     if let Some(thinking) = obj.get("thinking")
@@ -202,10 +209,16 @@ fn parse_anthropic_messages_json_to_chat_request(value: &Value) -> Result<ChatRe
             anthropic_options.insert("metadata".to_string(), metadata);
         }
     }
-    if let Some(output_config) = obj.get("output_config").and_then(Value::as_object)
-        && let Some(effort) = output_config.get("effort").and_then(Value::as_str)
-    {
-        anthropic_options.insert("effort".to_string(), Value::String(effort.to_string()));
+    if let Some(output_config) = obj.get("output_config").and_then(Value::as_object) {
+        if let Some(effort) = output_config.get("effort").and_then(Value::as_str) {
+            anthropic_options.insert("effort".to_string(), Value::String(effort.to_string()));
+        }
+        if let Some(task_budget) = output_config.get("task_budget").and_then(Value::as_object) {
+            anthropic_options.insert(
+                "taskBudget".to_string(),
+                map_anthropic_wire_json_to_sdk_shape(&Value::Object(task_budget.clone())),
+            );
+        }
     }
     if let Some(mcp_servers) = obj.get("mcp_servers")
         && mcp_servers.is_array()
@@ -259,6 +272,7 @@ fn map_anthropic_wire_json_to_sdk_shape(value: &Value) -> Value {
             "exclude_tools" => "excludeTools",
             "max_uses" => "maxUses",
             "pause_after_compaction" => "pauseAfterCompaction",
+            "provider_reference" => "providerReference",
             "skill_id" => "skillId",
             "tool_configuration" => "toolConfiguration",
             "user_id" => "userId",
@@ -289,6 +303,30 @@ fn map_anthropic_wire_json_to_sdk_shape(value: &Value) -> Value {
 }
 
 #[cfg(feature = "anthropic")]
+fn restore_anthropic_container_skill_sdk_shape(skill: &mut Value) {
+    let Some(skill_obj) = skill.as_object_mut() else {
+        return;
+    };
+
+    if skill_obj.get("type").and_then(Value::as_str) != Some("custom") {
+        return;
+    }
+
+    if skill_obj.contains_key("providerReference") {
+        return;
+    }
+
+    let Some(Value::String(skill_id)) = skill_obj.remove("skillId") else {
+        return;
+    };
+
+    skill_obj.insert(
+        "providerReference".to_string(),
+        json!({ "anthropic": skill_id }),
+    );
+}
+
+#[cfg(feature = "anthropic")]
 fn map_anthropic_wire_container_to_sdk_shape(value: &Value) -> Option<Value> {
     match value {
         Value::String(id) => {
@@ -299,7 +337,19 @@ fn map_anthropic_wire_container_to_sdk_shape(value: &Value) -> Option<Value> {
             }
         }
         Value::Object(obj) if obj.is_empty() => None,
-        Value::Object(_) => Some(map_anthropic_wire_json_to_sdk_shape(value)),
+        Value::Object(_) => {
+            let mut mapped = map_anthropic_wire_json_to_sdk_shape(value);
+            if let Some(skills) = mapped
+                .as_object_mut()
+                .and_then(|container| container.get_mut("skills"))
+                .and_then(Value::as_array_mut)
+            {
+                for skill in skills {
+                    restore_anthropic_container_skill_sdk_shape(skill);
+                }
+            }
+            Some(mapped)
+        }
         _ => None,
     }
 }
@@ -844,6 +894,7 @@ fn parse_gemini_inline_data_part(
     if mime_type.starts_with("image/") {
         ContentPart::Image {
             source: FilePartSource::base64(data),
+            media_type: Some(mime_type.to_string()),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata,
@@ -878,6 +929,7 @@ fn parse_gemini_file_data_part(
     match mime_type {
         Some(mime) if mime.starts_with("image/") => ContentPart::Image {
             source: FilePartSource::url(file_uri),
+            media_type: Some(mime.to_string()),
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata,
@@ -1429,6 +1481,7 @@ fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, 
     match obj.get("image_url") {
         Some(Value::String(url)) => Ok(ContentPart::Image {
             source: FilePartSource::url(url),
+            media_type: None,
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -1441,6 +1494,7 @@ fn parse_openai_image_url_part(obj: &Map<String, Value>) -> Result<ContentPart, 
                 .map(ImageDetail::from);
             Ok(ContentPart::Image {
                 source: FilePartSource::url(url),
+                media_type: None,
                 detail,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,
@@ -1875,6 +1929,7 @@ fn parse_openai_responses_image_part(obj: &Map<String, Value>) -> ContentPart {
             source: FilePartSource::provider_reference(ProviderReference::single(
                 "openai", file_id,
             )),
+            media_type: None,
             detail: None,
             provider_options,
             provider_metadata: None,
@@ -1890,6 +1945,7 @@ fn parse_openai_responses_image_part(obj: &Map<String, Value>) -> ContentPart {
 
     ContentPart::Image {
         source,
+        media_type: None,
         detail: None,
         provider_options,
         provider_metadata: None,
@@ -2117,7 +2173,13 @@ fn parse_openai_responses_approval_item(obj: &Map<String, Value>) -> Result<Chat
 
     Ok(message_from_parts(
         MessageRole::Tool,
-        vec![ContentPart::tool_approval_response(approval_id, approved)],
+        vec![ContentPart::ToolApprovalResponse {
+            approval_id,
+            approved,
+            reason: optional_string(obj, "reason"),
+            provider_executed: Some(true),
+            provider_options: ProviderOptionsMap::default(),
+        }],
     ))
 }
 
@@ -2153,7 +2215,9 @@ fn parse_openai_responses_tool_output_parts(
             }
             "input_image" | "output_image" => {
                 if let Some(file_id) = optional_string(obj, "file_id") {
-                    parts.push(ToolResultContentPart::image_file_id(file_id));
+                    parts.push(ToolResultContentPart::image_file_reference(
+                        ProviderReference::single("openai", file_id),
+                    ));
                 } else {
                     parts.push(ToolResultContentPart::image_url(
                         optional_string(obj, "image_url").unwrap_or_default(),
@@ -2164,7 +2228,9 @@ fn parse_openai_responses_tool_output_parts(
                 parts.push(if let Some(url) = optional_string(obj, "file_url") {
                     ToolResultContentPart::file_url(url)
                 } else if let Some(file_id) = optional_string(obj, "file_id") {
-                    ToolResultContentPart::file_id(file_id)
+                    ToolResultContentPart::file_reference(ProviderReference::single(
+                        "openai", file_id,
+                    ))
                 } else {
                     ToolResultContentPart::file_data(
                         optional_string(obj, "file_data")
@@ -2375,6 +2441,8 @@ fn parse_anthropic_image_part(obj: &Map<String, Value>) -> Result<ContentPart, L
 
     Ok(ContentPart::Image {
         source: media_source,
+        media_type: optional_string(obj, "media_type")
+            .or_else(|| optional_string(obj, "mime_type")),
         detail: None,
         provider_options: ProviderOptionsMap::default(),
         provider_metadata: None,
@@ -3222,7 +3290,11 @@ fn infer_image_media_type(obj: &Map<String, Value>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    #[cfg(feature = "anthropic")]
+    use super::parse_anthropic_image_part;
+    #[cfg(feature = "openai")]
+    use super::{parse_openai_file_part, parse_openai_responses_image_part};
+    use crate::types::ContentPart;
 
     #[cfg(feature = "openai")]
     #[test]

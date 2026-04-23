@@ -83,6 +83,12 @@ fn has_effort(req: &ChatRequest) -> bool {
     anthropic_provider_options(req).is_some_and(|options| options.get("effort").is_some())
 }
 
+fn has_task_budget(req: &ChatRequest) -> bool {
+    anthropic_provider_options(req).is_some_and(|options| {
+        options.get("taskBudget").is_some() || options.get("task_budget").is_some()
+    })
+}
+
 fn has_mcp_servers(req: &ChatRequest) -> bool {
     anthropic_provider_options(req)
         .and_then(|options| {
@@ -160,17 +166,17 @@ pub(crate) fn collect_request_beta_tokens(req: &ChatRequest) -> Vec<String> {
     let structured_output_mode =
         provider_option_str(req, "structuredOutputMode", "structured_output_mode")
             .unwrap_or("auto");
-    let prefers_output_format =
+    let prefers_native_structured_output =
         structured_output_mode == "outputFormat" || structured_output_mode == "output_format";
     let prefers_json_tool =
         structured_output_mode == "jsonTool" || structured_output_mode == "json_tool";
 
-    let uses_native_output_format = matches!(
+    let uses_native_structured_output = matches!(
         req.response_format,
         Some(crate::types::chat::ResponseFormat::Json { .. })
-    ) && (prefers_output_format
+    ) && (prefers_native_structured_output
         || (!prefers_json_tool && supports_structured_outputs));
-    if uses_native_output_format {
+    if uses_native_structured_output {
         push_token("structured-outputs-2025-11-13");
     }
 
@@ -259,6 +265,10 @@ pub(crate) fn collect_request_beta_tokens(req: &ChatRequest) -> Vec<String> {
 
     if has_effort(req) {
         push_token("effort-2025-11-24");
+    }
+
+    if has_task_budget(req) {
+        push_token("task-budgets-2026-03-13");
     }
 
     if matches!(provider_option_str(req, "speed", "speed"), Some("fast")) {
@@ -441,6 +451,10 @@ impl ProviderSpec for AnthropicSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_options::anthropic::{
+        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicOptions,
+    };
+    use crate::providers::anthropic::ext::request_options::AnthropicChatRequestExt;
 
     #[test]
     fn merge_request_headers_unions_anthropic_beta_features() {
@@ -687,6 +701,38 @@ mod tests {
     }
 
     #[test]
+    fn chat_request_headers_include_task_budget_beta() {
+        let spec = AnthropicSpec::new();
+
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                serde_json::json!({
+                    "taskBudget": {
+                        "type": "tokens",
+                        "total": 400000,
+                        "remaining": 215000
+                    }
+                }),
+            );
+
+        let ctx = ProviderContext::new(
+            "anthropic",
+            "https://api.anthropic.com/v1",
+            None,
+            HashMap::new(),
+        );
+        let headers = spec.chat_request_headers(false, &req, &ctx);
+        let beta = headers.get("anthropic-beta").cloned().unwrap_or_default();
+
+        assert!(
+            beta.split(',')
+                .any(|t| t.trim() == "task-budgets-2026-03-13"),
+            "missing task budget beta token: {beta}"
+        );
+    }
+
+    #[test]
     fn chat_before_send_serializes_container_id_only_as_string() {
         let spec = AnthropicSpec::new();
         let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
@@ -747,6 +793,36 @@ mod tests {
             skills[0].get("skill_id").and_then(|v| v.as_str()),
             Some("pptx")
         );
+    }
+
+    #[test]
+    fn chat_before_send_resolves_custom_container_skill_provider_reference() {
+        let spec = AnthropicSpec::new();
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_anthropic_options(AnthropicOptions::new().with_container(
+                AnthropicContainerConfig {
+                    id: Some("c_1".to_string()),
+                    skills: Some(vec![AnthropicContainerSkill::custom(
+                        crate::types::ProviderReference::single("anthropic", "skill_custom_1"),
+                    )
+                    .with_version("latest")]),
+                },
+            ));
+
+        let hook = spec
+            .chat_before_send(
+                &req,
+                &ProviderContext::new("anthropic", "", None, HashMap::new()),
+            )
+            .expect("hook");
+
+        let out = hook(&serde_json::json!({"model":"m","messages":[],"max_tokens":1}))
+            .expect("apply hook");
+
+        let skills = out["container"]["skills"].as_array().expect("skills array");
+        assert_eq!(skills[0]["type"], serde_json::json!("custom"));
+        assert_eq!(skills[0]["skill_id"], serde_json::json!("skill_custom_1"));
+        assert_eq!(skills[0]["version"], serde_json::json!("latest"));
     }
 
     #[test]

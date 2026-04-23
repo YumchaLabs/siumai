@@ -314,6 +314,18 @@ pub mod provider_ext {
             OpenAiBuilder, OpenAiClient, OpenAiConfig,
         };
 
+        /// Create the OpenAI provider builder.
+        pub fn openai() -> OpenAiBuilder {
+            crate::Provider::openai()
+        }
+
+        /// Create the OpenAI provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createOpenAI()`.
+        pub fn create_openai() -> OpenAiBuilder {
+            openai()
+        }
+
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         ///
         /// This mirrors the Vercel AI SDK `{ type: "provider", id, name, args }` convention.
@@ -352,12 +364,13 @@ pub mod provider_ext {
             pub use siumai_provider_openai::provider_options::openai::{
                 ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
                 ChatCompletionModalities, InputAudio, InputAudioFormat,
+                OpenAIContextManagementConfig, OpenAIContextManagementType,
                 OpenAIEmbeddingModelOptions, OpenAIFilesOptions, OpenAILanguageModelChatOptions,
                 OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
                 OpenAISpeechModelOptions, OpenAITranscriptionModelOptions, OpenAiOptions,
                 OpenAiWebSearchOptions, PredictionContent, PredictionContentData, ReasoningEffort,
-                ResponsesApiConfig, ServiceTier, TextVerbosity, Truncation, UserLocationWrapper,
-                WebSearchLocation,
+                ResponsesApiConfig, ServiceTier, SystemMessageMode, TextVerbosity, Truncation,
+                UserLocationWrapper, WebSearchLocation,
             };
             #[allow(deprecated)]
             pub use siumai_provider_openai::provider_options::openai::{
@@ -373,13 +386,14 @@ pub mod provider_ext {
         }
         pub use options::{
             ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
-            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAIEmbeddingModelOptions,
-            OpenAIFilesOptions, OpenAILanguageModelChatOptions,
-            OpenAILanguageModelCompletionOptions, OpenAILanguageModelResponsesOptions,
-            OpenAISpeechModelOptions, OpenAITranscriptionModelOptions, OpenAiChatRequestExt,
-            OpenAiEmbeddingOptions, OpenAiEmbeddingRequestExt, OpenAiOptions, OpenAiSttOptions,
-            OpenAiSttRequestExt, OpenAiTtsOptions, OpenAiWebSearchOptions, PredictionContent,
-            PredictionContentData, ReasoningEffort, ResponsesApiConfig, ServiceTier, TextVerbosity,
+            ChatCompletionModalities, InputAudio, InputAudioFormat, OpenAIContextManagementConfig,
+            OpenAIContextManagementType, OpenAIEmbeddingModelOptions, OpenAIFilesOptions,
+            OpenAILanguageModelChatOptions, OpenAILanguageModelCompletionOptions,
+            OpenAILanguageModelResponsesOptions, OpenAISpeechModelOptions,
+            OpenAITranscriptionModelOptions, OpenAiChatRequestExt, OpenAiEmbeddingOptions,
+            OpenAiEmbeddingRequestExt, OpenAiOptions, OpenAiSttOptions, OpenAiSttRequestExt,
+            OpenAiTtsOptions, OpenAiWebSearchOptions, PredictionContent, PredictionContentData,
+            ReasoningEffort, ResponsesApiConfig, ServiceTier, SystemMessageMode, TextVerbosity,
             Truncation, UserLocationWrapper, WebSearchLocation,
         };
         #[allow(deprecated)]
@@ -396,9 +410,7 @@ pub mod provider_ext {
         /// Provider-specific resources not covered by the unified families.
         pub mod resources {
             pub use siumai_provider_openai::providers::openai::{
-                OpenAiFiles, OpenAiModels, OpenAiModeration, OpenAiRerank, OpenAiSkillFile,
-                OpenAiSkillFileContent, OpenAiSkillProviderMetadata, OpenAiSkillUploadResult,
-                OpenAiSkills,
+                OpenAiFiles, OpenAiModels, OpenAiModeration, OpenAiRerank, OpenAiSkills,
             };
         }
 
@@ -487,6 +499,12 @@ pub mod provider_ext {
 
     #[cfg(feature = "openai")]
     pub mod mistral {
+        /// Lower-level Mistral text-family compat client/config aliases.
+        ///
+        /// These map to the shared OpenAI-compatible runtime used by the audited Mistral
+        /// `chat` and `embedding` lanes. For the unified AI SDK-style provider surface, use
+        /// [`mistral()`], [`create_mistral()`], [`crate::Provider::mistral()`], or
+        /// [`crate::provider::SiumaiBuilder::mistral()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
             MistralClient, MistralConfig,
         };
@@ -496,6 +514,21 @@ pub mod provider_ext {
             pub use siumai_provider_openai_compatible::providers::openai_compatible::mistral::{
                 self, chat, embedding,
             };
+        }
+
+        /// Create the unified Mistral provider builder.
+        ///
+        /// This mirrors the AI SDK package-level `mistral` export more closely than the lower
+        /// level `MistralClient`/`MistralConfig` compat aliases.
+        pub fn mistral() -> crate::provider::SiumaiBuilder {
+            crate::Provider::mistral()
+        }
+
+        /// Create the unified Mistral provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createMistral()`.
+        pub fn create_mistral() -> crate::provider::SiumaiBuilder {
+            mistral()
         }
 
         /// Typed provider options (`provider_options_map["mistral"]`).
@@ -515,6 +548,12 @@ pub mod provider_ext {
 
     #[cfg(feature = "openai")]
     pub mod perplexity {
+        /// Lower-level Perplexity text-family compat client/config aliases.
+        ///
+        /// These map to the shared OpenAI-compatible runtime used by the audited Perplexity chat
+        /// wrapper. For the unified AI SDK-style provider surface, use [`perplexity()`],
+        /// [`create_perplexity()`], [`crate::Provider::perplexity()`], or
+        /// [`crate::provider::SiumaiBuilder::perplexity()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
             PerplexityClient, PerplexityConfig,
         };
@@ -524,6 +563,21 @@ pub mod provider_ext {
             pub use siumai_provider_openai_compatible::providers::openai_compatible::perplexity::{
                 self, chat,
             };
+        }
+
+        /// Create the unified Perplexity provider builder.
+        ///
+        /// This mirrors the AI SDK package-level `perplexity` export more closely than the lower
+        /// level `PerplexityClient`/`PerplexityConfig` compat aliases.
+        pub fn perplexity() -> crate::provider::SiumaiBuilder {
+            crate::Provider::perplexity()
+        }
+
+        /// Create the unified Perplexity provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createPerplexity()`.
+        pub fn create_perplexity() -> crate::provider::SiumaiBuilder {
+            perplexity()
         }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["perplexity"]`).
@@ -555,6 +609,13 @@ pub mod provider_ext {
 
     #[cfg(feature = "openai")]
     pub mod fireworks {
+        /// Lower-level Fireworks text-family compat client/config aliases.
+        ///
+        /// These map to the shared OpenAI-compatible runtime used by Fireworks chat,
+        /// completion, embedding, and transcription lanes. For the unified AI SDK-style provider
+        /// surface that also owns image generation/edit routing, use [`fireworks()`],
+        /// [`create_fireworks()`], [`crate::Provider::fireworks()`], or
+        /// [`crate::provider::SiumaiBuilder::fireworks()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
             FireworksClient, FireworksConfig, FireworksEmbeddingModelId, FireworksErrorData,
             FireworksImageModelId,
@@ -565,6 +626,21 @@ pub mod provider_ext {
             pub use siumai_provider_openai_compatible::providers::openai_compatible::fireworks::{
                 self, chat, completion, embedding, image,
             };
+        }
+
+        /// Create the unified Fireworks provider builder.
+        ///
+        /// This mirrors the AI SDK package-level `fireworks` export more closely than the lower
+        /// level `FireworksClient`/`FireworksConfig` compat aliases.
+        pub fn fireworks() -> crate::provider::SiumaiBuilder {
+            crate::Provider::fireworks()
+        }
+
+        /// Create the unified Fireworks provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createFireworks()`.
+        pub fn create_fireworks() -> crate::provider::SiumaiBuilder {
+            fireworks()
         }
 
         /// Typed provider options (`provider_options_map["fireworks"]`).
@@ -591,6 +667,12 @@ pub mod provider_ext {
 
     #[cfg(feature = "openai")]
     pub mod moonshotai {
+        /// Lower-level MoonshotAI text-family compat client/config aliases.
+        ///
+        /// These map to the shared OpenAI-compatible runtime used by the audited MoonshotAI
+        /// chat-only wrapper. For the unified AI SDK-style provider surface, use [`moonshotai()`],
+        /// [`create_moonshotai()`], [`crate::Provider::moonshotai()`], or
+        /// [`crate::provider::SiumaiBuilder::moonshotai()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
             MoonshotAIChatModelId, MoonshotAIClient, MoonshotAIConfig,
         };
@@ -600,6 +682,21 @@ pub mod provider_ext {
             pub use siumai_provider_openai_compatible::providers::openai_compatible::moonshotai::{
                 self, recommended,
             };
+        }
+
+        /// Create the unified MoonshotAI provider builder.
+        ///
+        /// This mirrors the AI SDK package-level `moonshotai` export more closely than the lower
+        /// level `MoonshotAIClient`/`MoonshotAIConfig` compat aliases.
+        pub fn moonshotai() -> crate::provider::SiumaiBuilder {
+            crate::Provider::moonshotai()
+        }
+
+        /// Create the unified MoonshotAI provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createMoonshotAI()`.
+        pub fn create_moonshotai() -> crate::provider::SiumaiBuilder {
+            moonshotai()
         }
 
         /// Typed provider options (`provider_options_map["moonshotai"]`).
@@ -623,8 +720,16 @@ pub mod provider_ext {
 
     #[cfg(feature = "deepinfra")]
     pub mod deepinfra {
+        /// Lower-level DeepInfra text-family compat client/config aliases.
+        ///
+        /// These map to the shared OpenAI-compatible runtime used by DeepInfra chat,
+        /// completion, and embedding lanes. For the unified AI SDK-style provider surface
+        /// that also owns image generation/edit routing, use [`deepinfra()`],
+        /// [`create_deepinfra()`], [`crate::Provider::deepinfra()`], or
+        /// [`crate::provider::SiumaiBuilder::deepinfra()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            DeepInfraClient, DeepInfraConfig, DeepInfraErrorData,
+            DeepInfraChatModelId, DeepInfraClient, DeepInfraCompletionModelId, DeepInfraConfig,
+            DeepInfraEmbeddingModelId, DeepInfraErrorData, DeepInfraImageModelId,
         };
 
         /// Curated DeepInfra model constants aligned with the audited AI SDK package subset.
@@ -632,6 +737,21 @@ pub mod provider_ext {
             pub use siumai_provider_openai_compatible::providers::openai_compatible::deepinfra::{
                 self, chat, completion, embedding, image,
             };
+        }
+
+        /// Create the unified DeepInfra provider builder.
+        ///
+        /// This mirrors the AI SDK package-level `deepinfra` export more closely than the lower
+        /// level `DeepInfraClient`/`DeepInfraConfig` compat aliases.
+        pub fn deepinfra() -> crate::provider::SiumaiBuilder {
+            crate::Provider::deepinfra()
+        }
+
+        /// Create the unified DeepInfra provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createDeepInfra()`.
+        pub fn create_deepinfra() -> crate::provider::SiumaiBuilder {
+            deepinfra()
         }
 
         pub use models::{chat, completion, deepinfra as model_sets, embedding, image};
@@ -654,6 +774,18 @@ pub mod provider_ext {
         pub use siumai_provider_amazon_bedrock::providers::bedrock::{
             BedrockBuilder, BedrockClient, BedrockConfig,
         };
+
+        /// Create the Bedrock provider builder.
+        pub fn bedrock() -> BedrockBuilder {
+            crate::Provider::bedrock()
+        }
+
+        /// Create the Bedrock provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createAmazonBedrock()`.
+        pub fn create_amazon_bedrock() -> BedrockBuilder {
+            bedrock()
+        }
 
         /// Anthropic provider tool factories re-exported on the Bedrock surface like AI SDK.
         #[cfg(feature = "anthropic")]
@@ -725,6 +857,18 @@ pub mod provider_ext {
             CohereBuilder, CohereClient, CohereConfig,
         };
 
+        /// Create the Cohere provider builder.
+        pub fn cohere() -> CohereBuilder {
+            crate::Provider::cohere()
+        }
+
+        /// Create the Cohere provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createCohere()`.
+        pub fn create_cohere() -> CohereBuilder {
+            cohere()
+        }
+
         pub mod models {
             pub use siumai_provider_cohere::providers::cohere::models::{
                 self as model_sets, chat, embedding, rerank,
@@ -761,6 +905,18 @@ pub mod provider_ext {
         pub use siumai_provider_togetherai::providers::togetherai::{
             TogetherAIErrorData, TogetherAiBuilder, TogetherAiClient, TogetherAiConfig,
         };
+
+        /// Create the unified TogetherAI provider builder.
+        pub fn togetherai() -> crate::provider::SiumaiBuilder {
+            crate::Provider::togetherai()
+        }
+
+        /// Create the unified TogetherAI provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createTogetherAI()`.
+        pub fn create_togetherai() -> crate::provider::SiumaiBuilder {
+            togetherai()
+        }
 
         pub mod models {
             pub use siumai_provider_togetherai::providers::togetherai::models::{
@@ -801,11 +957,25 @@ pub mod provider_ext {
             AzureOpenAiSpec, AzureUrlConfig,
         };
 
+        /// Create the unified Azure provider builder.
+        pub fn azure() -> crate::provider::SiumaiBuilder {
+            crate::Provider::azure()
+        }
+
+        /// Create the unified Azure provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createAzure()`.
+        pub fn create_azure() -> crate::provider::SiumaiBuilder {
+            azure()
+        }
+
         /// Typed provider options (`provider_options_map["azure"]`).
         pub mod options {
             pub use siumai_provider_azure::provider_options::{
                 AzureOpenAiOptions, AzureReasoningEffort, AzureResponsesApiConfig,
+                OpenAIContextManagementConfig, OpenAIContextManagementType,
                 OpenAILanguageModelChatOptions, OpenAILanguageModelResponsesOptions,
+                SystemMessageMode,
             };
             #[allow(deprecated)]
             pub use siumai_provider_azure::provider_options::{
@@ -815,8 +985,8 @@ pub mod provider_ext {
         }
         pub use options::{
             AzureOpenAiChatRequestExt, AzureOpenAiOptions, AzureReasoningEffort,
-            AzureResponsesApiConfig, OpenAILanguageModelChatOptions,
-            OpenAILanguageModelResponsesOptions,
+            AzureResponsesApiConfig, OpenAIContextManagementConfig, OpenAIContextManagementType,
+            OpenAILanguageModelChatOptions, OpenAILanguageModelResponsesOptions, SystemMessageMode,
         };
         #[allow(deprecated)]
         pub use options::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
@@ -839,6 +1009,18 @@ pub mod provider_ext {
         pub use siumai_provider_anthropic::providers::anthropic::{
             AnthropicBuilder, AnthropicClient, AnthropicConfig,
         };
+
+        /// Create the Anthropic provider builder.
+        pub fn anthropic() -> AnthropicBuilder {
+            crate::Provider::anthropic()
+        }
+
+        /// Create the Anthropic provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createAnthropic()`.
+        pub fn create_anthropic() -> AnthropicBuilder {
+            anthropic()
+        }
 
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         pub mod tools {
@@ -867,12 +1049,13 @@ pub mod provider_ext {
                 AnthropicContextManagementThinkingTurnsKeep,
                 AnthropicContextManagementThinkingTurnsKeepKind,
                 AnthropicContextManagementToolUsesKeep, AnthropicContextManagementTrigger,
-                AnthropicEffort, AnthropicLanguageModelOptions, AnthropicMcpServer,
-                AnthropicMcpServerType, AnthropicMcpToolConfiguration, AnthropicOptions,
-                AnthropicProviderOptions, AnthropicRequestCacheControl,
+                AnthropicEffort, AnthropicInferenceGeo, AnthropicLanguageModelOptions,
+                AnthropicMcpServer, AnthropicMcpServerType, AnthropicMcpToolConfiguration,
+                AnthropicOptions, AnthropicProviderOptions, AnthropicRequestCacheControl,
                 AnthropicRequestCacheControlTtl, AnthropicRequestCacheControlType,
                 AnthropicRequestMetadata, AnthropicResponseFormat, AnthropicSpeed,
-                AnthropicStructuredOutputMode, AnthropicThinkingConfig, AnthropicToolAllowedCaller,
+                AnthropicStructuredOutputMode, AnthropicTaskBudget, AnthropicTaskBudgetType,
+                AnthropicThinkingConfig, AnthropicThinkingDisplay, AnthropicToolAllowedCaller,
                 AnthropicToolOptions, PromptCachingConfig, ThinkingModeConfig,
             };
             pub use siumai_provider_anthropic::providers::anthropic::ext::AnthropicChatRequestExt;
@@ -886,12 +1069,13 @@ pub mod provider_ext {
             AnthropicContextManagementThinkingKeep, AnthropicContextManagementThinkingTurnsKeep,
             AnthropicContextManagementThinkingTurnsKeepKind,
             AnthropicContextManagementToolUsesKeep, AnthropicContextManagementTrigger,
-            AnthropicEffort, AnthropicLanguageModelOptions, AnthropicMcpServer,
-            AnthropicMcpServerType, AnthropicMcpToolConfiguration, AnthropicOptions,
-            AnthropicProviderOptions, AnthropicRequestCacheControl,
+            AnthropicEffort, AnthropicInferenceGeo, AnthropicLanguageModelOptions,
+            AnthropicMcpServer, AnthropicMcpServerType, AnthropicMcpToolConfiguration,
+            AnthropicOptions, AnthropicProviderOptions, AnthropicRequestCacheControl,
             AnthropicRequestCacheControlTtl, AnthropicRequestCacheControlType,
             AnthropicRequestMetadata, AnthropicResponseFormat, AnthropicSpeed,
-            AnthropicStructuredOutputMode, AnthropicThinkingConfig, AnthropicToolAllowedCaller,
+            AnthropicStructuredOutputMode, AnthropicTaskBudget, AnthropicTaskBudgetType,
+            AnthropicThinkingConfig, AnthropicThinkingDisplay, AnthropicToolAllowedCaller,
             AnthropicToolOptions, PromptCachingConfig, ThinkingModeConfig,
         };
 
@@ -899,16 +1083,22 @@ pub mod provider_ext {
         pub mod metadata {
             pub use siumai_provider_anthropic::provider_metadata::anthropic::{
                 AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-                AnthropicContentPartExt, AnthropicMessageMetadata, AnthropicMetadata,
+                AnthropicContentPartExt, AnthropicMessageContainerMetadata,
+                AnthropicMessageContainerSkill, AnthropicMessageMetadata, AnthropicMetadata,
                 AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
                 AnthropicToolCaller, AnthropicUsageIteration,
             };
         }
         pub use metadata::{
             AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-            AnthropicContentPartExt, AnthropicMessageMetadata, AnthropicMetadata,
+            AnthropicContentPartExt, AnthropicMessageContainerMetadata,
+            AnthropicMessageContainerSkill, AnthropicMessageMetadata, AnthropicMetadata,
             AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
             AnthropicToolCaller, AnthropicUsageIteration,
+        };
+        pub use siumai_provider_anthropic::providers::anthropic::{
+            find_anthropic_container_id_from_last_step,
+            forward_anthropic_container_id_from_last_step,
         };
 
         /// Non-unified Anthropic extension APIs (request extensions, tool helpers, thinking, etc.).
@@ -922,12 +1112,10 @@ pub mod provider_ext {
         /// Provider-specific resources not covered by the unified families.
         pub mod resources {
             pub use siumai_provider_anthropic::providers::anthropic::{
-                AnthropicCountTokensResponse, AnthropicCreateMessageBatchRequest, AnthropicFile,
-                AnthropicFileDeleteResponse, AnthropicFiles, AnthropicListFilesResponse,
+                AnthropicCountTokensResponse, AnthropicCreateMessageBatchRequest, AnthropicFiles,
                 AnthropicListMessageBatchesResponse, AnthropicMessageBatch,
-                AnthropicMessageBatchRequest, AnthropicMessageBatches, AnthropicSkillFile,
-                AnthropicSkillFileContent, AnthropicSkillProviderMetadata,
-                AnthropicSkillUploadResult, AnthropicSkills, AnthropicTokens,
+                AnthropicMessageBatchRequest, AnthropicMessageBatches, AnthropicSkills,
+                AnthropicTokens,
             };
         }
 
@@ -937,8 +1125,161 @@ pub mod provider_ext {
 
     #[cfg(feature = "google")]
     pub mod gemini {
+        #[allow(deprecated)]
+        pub use siumai_provider_gemini::providers::gemini::GoogleGenerativeAIProviderSettings;
         pub use siumai_provider_gemini::providers::gemini::types::GeminiConfig;
-        pub use siumai_provider_gemini::providers::gemini::{GeminiBuilder, GeminiClient};
+        pub use siumai_provider_gemini::providers::gemini::{
+            GeminiBuilder, GeminiClient, GoogleProviderSettings, SharedIdGenerator, VERSION,
+        };
+
+        /// Curated model-id groups aligned with the audited `@ai-sdk/google` package surface.
+        pub mod models {
+            /// Google/Gemini language-model ids exported by the audited AI SDK package.
+            pub mod chat {
+                pub const GEMINI_2_0_FLASH: &str = "gemini-2.0-flash";
+                pub const GEMINI_2_0_FLASH_001: &str = "gemini-2.0-flash-001";
+                pub const GEMINI_2_0_FLASH_LITE: &str = "gemini-2.0-flash-lite";
+                pub const GEMINI_2_0_FLASH_LITE_001: &str = "gemini-2.0-flash-lite-001";
+                pub const GEMINI_2_5_PRO: &str = "gemini-2.5-pro";
+                pub const GEMINI_2_5_FLASH: &str = "gemini-2.5-flash";
+                pub const GEMINI_2_5_FLASH_IMAGE: &str = "gemini-2.5-flash-image";
+                pub const GEMINI_2_5_FLASH_LITE: &str = "gemini-2.5-flash-lite";
+                pub const GEMINI_2_5_FLASH_PREVIEW_TTS: &str = "gemini-2.5-flash-preview-tts";
+                pub const GEMINI_2_5_PRO_PREVIEW_TTS: &str = "gemini-2.5-pro-preview-tts";
+                pub const GEMINI_2_5_FLASH_NATIVE_AUDIO_LATEST: &str =
+                    "gemini-2.5-flash-native-audio-latest";
+                pub const GEMINI_2_5_FLASH_NATIVE_AUDIO_PREVIEW_09_2025: &str =
+                    "gemini-2.5-flash-native-audio-preview-09-2025";
+                pub const GEMINI_2_5_FLASH_NATIVE_AUDIO_PREVIEW_12_2025: &str =
+                    "gemini-2.5-flash-native-audio-preview-12-2025";
+                pub const GEMINI_2_5_COMPUTER_USE_PREVIEW_10_2025: &str =
+                    "gemini-2.5-computer-use-preview-10-2025";
+                pub const GEMINI_3_PRO_PREVIEW: &str = "gemini-3-pro-preview";
+                pub const GEMINI_3_PRO_IMAGE_PREVIEW: &str = "gemini-3-pro-image-preview";
+                pub const GEMINI_3_FLASH_PREVIEW: &str = "gemini-3-flash-preview";
+                pub const GEMINI_3_1_PRO_PREVIEW: &str = "gemini-3.1-pro-preview";
+                pub const GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS: &str =
+                    "gemini-3.1-pro-preview-customtools";
+                pub const GEMINI_3_1_FLASH_IMAGE_PREVIEW: &str = "gemini-3.1-flash-image-preview";
+                pub const GEMINI_3_1_FLASH_LITE_PREVIEW: &str = "gemini-3.1-flash-lite-preview";
+                pub const GEMINI_3_1_FLASH_TTS_PREVIEW: &str = "gemini-3.1-flash-tts-preview";
+                pub const GEMINI_PRO_LATEST: &str = "gemini-pro-latest";
+                pub const GEMINI_FLASH_LATEST: &str = "gemini-flash-latest";
+                pub const GEMINI_FLASH_LITE_LATEST: &str = "gemini-flash-lite-latest";
+                pub const DEEP_RESEARCH_PRO_PREVIEW_12_2025: &str =
+                    "deep-research-pro-preview-12-2025";
+                pub const NANO_BANANA_PRO_PREVIEW: &str = "nano-banana-pro-preview";
+                pub const AQA: &str = "aqa";
+                pub const GEMINI_ROBOTICS_ER_1_5_PREVIEW: &str = "gemini-robotics-er-1.5-preview";
+                pub const GEMMA_3_1B_IT: &str = "gemma-3-1b-it";
+                pub const GEMMA_3_4B_IT: &str = "gemma-3-4b-it";
+                pub const GEMMA_3N_E4B_IT: &str = "gemma-3n-e4b-it";
+                pub const GEMMA_3N_E2B_IT: &str = "gemma-3n-e2b-it";
+                pub const GEMMA_3_12B_IT: &str = "gemma-3-12b-it";
+                pub const GEMMA_3_27B_IT: &str = "gemma-3-27b-it";
+
+                pub const ALL: &[&str] = &[
+                    GEMINI_2_0_FLASH,
+                    GEMINI_2_0_FLASH_001,
+                    GEMINI_2_0_FLASH_LITE,
+                    GEMINI_2_0_FLASH_LITE_001,
+                    GEMINI_2_5_PRO,
+                    GEMINI_2_5_FLASH,
+                    GEMINI_2_5_FLASH_IMAGE,
+                    GEMINI_2_5_FLASH_LITE,
+                    GEMINI_2_5_FLASH_PREVIEW_TTS,
+                    GEMINI_2_5_PRO_PREVIEW_TTS,
+                    GEMINI_2_5_FLASH_NATIVE_AUDIO_LATEST,
+                    GEMINI_2_5_FLASH_NATIVE_AUDIO_PREVIEW_09_2025,
+                    GEMINI_2_5_FLASH_NATIVE_AUDIO_PREVIEW_12_2025,
+                    GEMINI_2_5_COMPUTER_USE_PREVIEW_10_2025,
+                    GEMINI_3_PRO_PREVIEW,
+                    GEMINI_3_PRO_IMAGE_PREVIEW,
+                    GEMINI_3_FLASH_PREVIEW,
+                    GEMINI_3_1_PRO_PREVIEW,
+                    GEMINI_3_1_PRO_PREVIEW_CUSTOMTOOLS,
+                    GEMINI_3_1_FLASH_IMAGE_PREVIEW,
+                    GEMINI_3_1_FLASH_LITE_PREVIEW,
+                    GEMINI_3_1_FLASH_TTS_PREVIEW,
+                    GEMINI_PRO_LATEST,
+                    GEMINI_FLASH_LATEST,
+                    GEMINI_FLASH_LITE_LATEST,
+                    DEEP_RESEARCH_PRO_PREVIEW_12_2025,
+                    NANO_BANANA_PRO_PREVIEW,
+                    AQA,
+                    GEMINI_ROBOTICS_ER_1_5_PREVIEW,
+                    GEMMA_3_1B_IT,
+                    GEMMA_3_4B_IT,
+                    GEMMA_3N_E4B_IT,
+                    GEMMA_3N_E2B_IT,
+                    GEMMA_3_12B_IT,
+                    GEMMA_3_27B_IT,
+                ];
+            }
+
+            /// Google embedding-model ids exported by the audited AI SDK package.
+            pub mod embedding {
+                pub const GEMINI_EMBEDDING_001: &str = "gemini-embedding-001";
+                pub const GEMINI_EMBEDDING_2_PREVIEW: &str = "gemini-embedding-2-preview";
+
+                pub const ALL: &[&str] = &[GEMINI_EMBEDDING_001, GEMINI_EMBEDDING_2_PREVIEW];
+            }
+
+            /// Google image-model ids exported by the audited AI SDK package.
+            pub mod image {
+                pub const IMAGEN_4_0_GENERATE_001: &str = "imagen-4.0-generate-001";
+                pub const IMAGEN_4_0_ULTRA_GENERATE_001: &str = "imagen-4.0-ultra-generate-001";
+                pub const IMAGEN_4_0_FAST_GENERATE_001: &str = "imagen-4.0-fast-generate-001";
+                pub const GEMINI_2_5_FLASH_IMAGE: &str = "gemini-2.5-flash-image";
+                pub const GEMINI_3_PRO_IMAGE_PREVIEW: &str = "gemini-3-pro-image-preview";
+                pub const GEMINI_3_1_FLASH_IMAGE_PREVIEW: &str = "gemini-3.1-flash-image-preview";
+
+                pub const ALL: &[&str] = &[
+                    IMAGEN_4_0_GENERATE_001,
+                    IMAGEN_4_0_ULTRA_GENERATE_001,
+                    IMAGEN_4_0_FAST_GENERATE_001,
+                    GEMINI_2_5_FLASH_IMAGE,
+                    GEMINI_3_PRO_IMAGE_PREVIEW,
+                    GEMINI_3_1_FLASH_IMAGE_PREVIEW,
+                ];
+            }
+
+            /// Google video-model ids exported by the audited AI SDK package.
+            pub mod video {
+                pub const VEO_3_1_FAST_GENERATE_PREVIEW: &str = "veo-3.1-fast-generate-preview";
+                pub const VEO_3_1_GENERATE_PREVIEW: &str = "veo-3.1-generate-preview";
+                pub const VEO_3_1_GENERATE: &str = "veo-3.1-generate";
+                pub const VEO_3_1_LITE_GENERATE_PREVIEW: &str = "veo-3.1-lite-generate-preview";
+                pub const VEO_3_0_GENERATE_001: &str = "veo-3.0-generate-001";
+                pub const VEO_3_0_FAST_GENERATE_001: &str = "veo-3.0-fast-generate-001";
+                pub const VEO_2_0_GENERATE_001: &str = "veo-2.0-generate-001";
+
+                pub const ALL: &[&str] = &[
+                    VEO_3_1_FAST_GENERATE_PREVIEW,
+                    VEO_3_1_GENERATE_PREVIEW,
+                    VEO_3_1_GENERATE,
+                    VEO_3_1_LITE_GENERATE_PREVIEW,
+                    VEO_3_0_GENERATE_001,
+                    VEO_3_0_FAST_GENERATE_001,
+                    VEO_2_0_GENERATE_001,
+                ];
+            }
+
+            /// Group aliases that mirror the common public provider-facade convention.
+            pub mod model_sets {
+                pub const ALL_CHAT: &[&str] = super::chat::ALL;
+                pub const ALL_EMBEDDING: &[&str] = super::embedding::ALL;
+                pub const ALL_IMAGE: &[&str] = super::image::ALL;
+                pub const ALL_VIDEO: &[&str] = super::video::ALL;
+
+                pub const CHAT: &[&str] = ALL_CHAT;
+                pub const EMBEDDING: &[&str] = ALL_EMBEDDING;
+                pub const IMAGE: &[&str] = ALL_IMAGE;
+                pub const VIDEO: &[&str] = ALL_VIDEO;
+            }
+        }
+
+        pub use models::{chat, embedding, image, model_sets, video};
 
         /// Provider tool factories that return `Tool` directly (Vercel-aligned).
         pub mod tools {
@@ -1039,6 +1380,27 @@ pub mod provider_ext {
     /// This is a stable alias for the Gemini provider extension surface.
     #[cfg(feature = "google")]
     pub mod google {
+        /// Create the Google provider builder.
+        pub fn google() -> super::gemini::GeminiBuilder {
+            crate::Provider::google()
+        }
+
+        /// Create the Google provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createGoogle()`.
+        pub fn create_google() -> super::gemini::GeminiBuilder {
+            google()
+        }
+
+        /// Create the Google provider builder.
+        ///
+        /// Deprecated analogue of AI SDK `createGoogleGenerativeAI()`.
+        #[allow(deprecated)]
+        #[deprecated(note = "Use `create_google` instead.")]
+        pub fn create_google_generative_ai() -> super::gemini::GeminiBuilder {
+            create_google()
+        }
+
         pub use super::gemini::*;
     }
 
@@ -1046,7 +1408,20 @@ pub mod provider_ext {
     pub mod google_vertex {
         pub use siumai_provider_google_vertex::providers::vertex::{
             GoogleVertexBuilder, GoogleVertexClient, GoogleVertexConfig,
+            GoogleVertexProviderSettings, SharedIdGenerator, VERSION,
         };
+
+        /// Create the Google Vertex provider builder.
+        pub fn vertex() -> GoogleVertexBuilder {
+            crate::Provider::vertex()
+        }
+
+        /// Create the Google Vertex provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createVertex()`.
+        pub fn create_vertex() -> GoogleVertexBuilder {
+            vertex()
+        }
 
         /// Curated Google Vertex model constants aligned with the audited public subset.
         pub mod models {
@@ -1096,9 +1471,10 @@ pub mod provider_ext {
             pub use siumai_provider_google_vertex::provider_options::vertex::{
                 GoogleVertexEmbeddingModelOptions, GoogleVertexImageModelOptions,
                 GoogleVertexReferenceImage, GoogleVertexVideoModelId,
-                GoogleVertexVideoModelOptions, VertexEmbeddingOptions, VertexImagenEditOptions,
-                VertexImagenInlineImage, VertexImagenMaskImageConfig, VertexImagenOptions,
-                VertexImagenReferenceImage,
+                GoogleVertexVideoModelOptions, VertexEmbeddingOptions, VertexImagenEditMode,
+                VertexImagenEditOptions, VertexImagenInlineImage, VertexImagenMaskImageConfig,
+                VertexImagenMaskMode, VertexImagenOptions, VertexImagenReferenceImage,
+                VertexImagenSafetySetting, VertexImagenSampleImageSize, VertexPersonGeneration,
             };
             pub use siumai_provider_google_vertex::providers::vertex::{
                 VertexEmbeddingRequestExt, VertexImagenRequestExt, VertexVideoRequestExt,
@@ -1113,9 +1489,11 @@ pub mod provider_ext {
         pub use options::{
             GoogleVertexEmbeddingModelOptions, GoogleVertexImageModelOptions,
             GoogleVertexReferenceImage, GoogleVertexVideoModelId, GoogleVertexVideoModelOptions,
-            VertexEmbeddingOptions, VertexEmbeddingRequestExt, VertexImagenEditOptions,
-            VertexImagenInlineImage, VertexImagenMaskImageConfig, VertexImagenOptions,
-            VertexImagenReferenceImage, VertexImagenRequestExt, VertexVideoRequestExt,
+            VertexEmbeddingOptions, VertexEmbeddingRequestExt, VertexImagenEditMode,
+            VertexImagenEditOptions, VertexImagenInlineImage, VertexImagenMaskImageConfig,
+            VertexImagenMaskMode, VertexImagenOptions, VertexImagenReferenceImage,
+            VertexImagenRequestExt, VertexImagenSafetySetting, VertexImagenSampleImageSize,
+            VertexPersonGeneration, VertexVideoRequestExt,
         };
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["vertex"]`).
@@ -1245,8 +1623,21 @@ pub mod provider_ext {
     #[cfg(feature = "google-vertex")]
     pub mod anthropic_vertex {
         pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
+            GoogleVertexAnthropicMessagesModelId, GoogleVertexAnthropicProviderSettings,
             VertexAnthropicBuilder, VertexAnthropicClient, VertexAnthropicConfig,
         };
+
+        /// Create the Anthropic-on-Vertex provider builder.
+        pub fn vertex_anthropic() -> VertexAnthropicBuilder {
+            crate::Provider::vertex_anthropic()
+        }
+
+        /// Create the Anthropic-on-Vertex provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createVertexAnthropic()`.
+        pub fn create_vertex_anthropic() -> VertexAnthropicBuilder {
+            vertex_anthropic()
+        }
 
         /// Curated Anthropic-on-Vertex model constants aligned with the audited public subset.
         pub mod models {
@@ -1255,19 +1646,38 @@ pub mod provider_ext {
             };
         }
 
+        /// Provider tool factories that return `Tool` directly (Vertex Anthropic supported subset).
+        pub mod tools {
+            pub use siumai_provider_google_vertex::providers::anthropic_vertex::tools::*;
+        }
+
+        /// Provider-executed tool builders and typed helper inputs.
+        pub mod hosted_tools {
+            pub use siumai_provider_google_vertex::providers::anthropic_vertex::hosted_tools::*;
+        }
+
+        /// Compatibility alias for older imports.
+        pub mod provider_tools {
+            pub use siumai_provider_google_vertex::providers::anthropic_vertex::provider_tools::*;
+        }
+
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["anthropic"]`).
         pub mod metadata {
             pub use siumai_provider_google_vertex::providers::anthropic_vertex::{
                 AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-                AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse,
-                AnthropicSource, AnthropicToolCallMetadata, AnthropicToolCaller,
+                AnthropicContentPartExt, AnthropicMessageContainerMetadata,
+                AnthropicMessageContainerSkill, AnthropicMessageMetadata, AnthropicMetadata,
+                AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
+                AnthropicToolCaller, AnthropicUsageIteration,
             };
         }
 
         pub use metadata::{
             AnthropicChatResponseExt, AnthropicCitation, AnthropicCitationsBlock,
-            AnthropicContentPartExt, AnthropicMetadata, AnthropicServerToolUse, AnthropicSource,
-            AnthropicToolCallMetadata, AnthropicToolCaller,
+            AnthropicContentPartExt, AnthropicMessageContainerMetadata,
+            AnthropicMessageContainerSkill, AnthropicMessageMetadata, AnthropicMetadata,
+            AnthropicServerToolUse, AnthropicSource, AnthropicToolCallMetadata,
+            AnthropicToolCaller, AnthropicUsageIteration,
         };
 
         /// Typed provider options (`provider_options_map["anthropic"]` on the Vertex wrapper path).
@@ -1295,6 +1705,18 @@ pub mod provider_ext {
         pub use siumai_provider_deepseek::providers::deepseek::{
             DeepSeekBuilder, DeepSeekClient, DeepSeekConfig, DeepSeekErrorData,
         };
+
+        /// Create the DeepSeek provider builder.
+        pub fn deepseek() -> DeepSeekBuilder {
+            crate::Provider::deepseek()
+        }
+
+        /// Create the DeepSeek provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createDeepSeek()`.
+        pub fn create_deepseek() -> DeepSeekBuilder {
+            deepseek()
+        }
 
         /// Curated DeepSeek model constants aligned with the audited AI SDK chat surface.
         pub mod models {
@@ -1344,6 +1766,18 @@ pub mod provider_ext {
         pub use siumai_provider_xai::providers::xai::{
             XaiBuilder, XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId,
         };
+
+        /// Create the xAI provider builder.
+        pub fn xai() -> XaiBuilder {
+            crate::Provider::xai()
+        }
+
+        /// Create the xAI provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createXai()`.
+        pub fn create_xai() -> XaiBuilder {
+            xai()
+        }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["xai"]`).
         pub mod metadata {
@@ -1408,6 +1842,18 @@ pub mod provider_ext {
     #[cfg(feature = "groq")]
     pub mod groq {
         pub use siumai_provider_groq::providers::groq::{GroqBuilder, GroqClient, GroqConfig};
+
+        /// Create the Groq provider builder.
+        pub fn groq() -> GroqBuilder {
+            crate::Provider::groq()
+        }
+
+        /// Create the Groq provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createGroq()`.
+        pub fn create_groq() -> GroqBuilder {
+            groq()
+        }
 
         /// Typed response metadata helpers (`ChatResponse.provider_metadata["groq"]`).
         pub mod metadata {
@@ -1526,8 +1972,8 @@ pub mod prelude {
         #[doc(hidden)]
         pub use crate::Provider;
         pub use crate::files::{
-            FileUploadProvider, UploadFileApi, UploadFileData, UploadFileOptions,
-            UploadFileProviderMetadata, UploadFileResult,
+            FileUploadProvider, UploadFileApi, UploadFileOptions, UploadFileProviderMetadata,
+            UploadFileResult,
         };
         #[doc(hidden)]
         pub use crate::provider::Siumai;
@@ -1568,21 +2014,22 @@ pub mod prelude {
             FilePartSource, FinishReason, GenerateImageRequest, GeneratedImage, HttpConfig,
             ImageDetail, ImageGenerationRequest, ImageGenerationResponse,
             ImageModelProviderMetadata, ImageModelResponseMetadata, ImageModelUsage, ImagePart,
-            JSONValue, LanguageModelCallOptions, LanguageModelInputTokenDetails,
-            LanguageModelOutputTokenDetails, LanguageModelReasoning, LanguageModelRequestMetadata,
-            LanguageModelResponseMetadata, LanguageModelUsage, MediaSource, MessageContent,
-            MessageMetadata, MessageRole, ModelInfo, ModelMessage, ModelMessageConversionError,
-            ModelMessageRole, OutputSchema, Prompt, PromptInput, PromptTokensDetails,
-            PromptValidationError, ProviderDefinedTool, ProviderMetadata, ProviderOptions,
-            ProviderOptionsMap, ProviderReference, ProviderType, ReasoningFilePart, ReasoningPart,
-            RequestOptions, RerankRequest, RerankResponse, ResponseFormat, ResponseMetadata,
-            SchemaValidator, SpeechModelResponseMetadata, StandardizedPrompt, StreamRequestOptions,
-            SttRequest, SttResponse, SystemModelMessage, SystemPrompt, TextPart,
-            TimeoutConfiguration, TimeoutConfigurationSettings, Tool, ToolApprovalRequest,
-            ToolApprovalResponse, ToolCall, ToolCallPart, ToolChoice, ToolContent, ToolContentPart,
-            ToolModelMessage, ToolResult, ToolResultOutput, ToolResultPart,
-            TranscriptionModelResponseMetadata, TtsRequest, TtsResponse, Usage, UserContent,
-            UserContentPart, UserModelMessage, VideoModelProviderMetadata,
+            InvalidDataContentError, JSONValue, LanguageModelCallOptions,
+            LanguageModelInputTokenDetails, LanguageModelOutputTokenDetails,
+            LanguageModelReasoning, LanguageModelRequestMetadata, LanguageModelResponseMetadata,
+            LanguageModelUsage, MediaSource, MessageContent, MessageMetadata, MessageRole,
+            MissingToolResultsError, ModelInfo, ModelMessage, ModelMessageConversionError,
+            ModelMessageRole, OutputSchema, Prompt, PromptExecutionError, PromptInput,
+            PromptTokensDetails, PromptValidationError, ProviderDefinedTool, ProviderMetadata,
+            ProviderOptions, ProviderOptionsMap, ProviderReference, ProviderType,
+            ReasoningFilePart, ReasoningPart, RequestOptions, RerankRequest, RerankResponse,
+            ResponseFormat, ResponseMetadata, SchemaValidator, SpeechModelResponseMetadata,
+            StandardizedPrompt, StreamRequestOptions, SttRequest, SttResponse, SystemModelMessage,
+            SystemPrompt, TextPart, TimeoutConfiguration, TimeoutConfigurationSettings, Tool,
+            ToolApprovalRequest, ToolApprovalResponse, ToolCall, ToolCallPart, ToolChoice,
+            ToolContent, ToolContentPart, ToolModelMessage, ToolResult, ToolResultOutput,
+            ToolResultPart, TranscriptionModelResponseMetadata, TtsRequest, TtsResponse, Usage,
+            UserContent, UserContentPart, UserModelMessage, VideoModelProviderMetadata,
             VideoModelResponseMetadata, Warning, convert_data_content_to_base64_string,
             get_chunk_timeout_ms, get_step_timeout_ms, get_tool_timeout_ms, get_total_timeout_ms,
         };
@@ -1727,6 +2174,12 @@ impl Provider {
         )
     }
 
+    /// Create a Google client builder alias (AI SDK package-aligned).
+    #[cfg(feature = "google")]
+    pub fn google() -> siumai_provider_gemini::providers::gemini::GeminiBuilder {
+        Self::gemini().name("google.generative-ai")
+    }
+
     /// Create a TogetherAI unified builder.
     ///
     /// This aligns with the AI SDK-style provider surface:
@@ -1841,6 +2294,13 @@ impl Provider {
         siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder::new(
             crate::builder::BuilderBase::default(),
         )
+    }
+
+    /// AI SDK package-aligned alias for `anthropic_vertex()`.
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex_anthropic()
+    -> siumai_provider_google_vertex::providers::anthropic_vertex::VertexAnthropicBuilder {
+        Self::anthropic_vertex()
     }
 
     /// Create a DeepSeek client builder

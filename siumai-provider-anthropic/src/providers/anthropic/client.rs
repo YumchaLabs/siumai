@@ -634,10 +634,9 @@ mod tests {
         HttpTransportStreamResponse,
     };
     use crate::provider_options::anthropic::{
-        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicContainerSkillType,
-        AnthropicContextManagementConfig, AnthropicContextManagementEdit,
-        AnthropicContextManagementInputTokensValue, AnthropicEffort, AnthropicOptions,
-        AnthropicStructuredOutputMode, ThinkingModeConfig,
+        AnthropicContainerConfig, AnthropicContainerSkill, AnthropicContextManagementConfig,
+        AnthropicContextManagementEdit, AnthropicContextManagementInputTokensValue,
+        AnthropicEffort, AnthropicOptions, AnthropicStructuredOutputMode, ThinkingModeConfig,
     };
     use crate::providers::anthropic::AnthropicConfig;
     use crate::providers::anthropic::ext::request_options::AnthropicChatRequestExt;
@@ -1324,11 +1323,9 @@ mod tests {
                     .with_effort(AnthropicEffort::High)
                     .with_container(AnthropicContainerConfig {
                         id: Some("container-1".to_string()),
-                        skills: Some(vec![AnthropicContainerSkill {
-                            skill_type: AnthropicContainerSkillType::Anthropic,
-                            skill_id: "pptx".to_string(),
-                            version: Some("latest".to_string()),
-                        }]),
+                        skills: Some(vec![
+                            AnthropicContainerSkill::anthropic("pptx").with_version("latest"),
+                        ]),
                     }),
             );
         request.common_params.model = "claude-sonnet-4-5".to_string();
