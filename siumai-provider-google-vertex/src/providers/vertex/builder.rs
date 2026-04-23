@@ -9,9 +9,10 @@ use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
 use crate::types::{CommonParams, HttpConfig};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::{GoogleVertexClient, GoogleVertexConfig};
+use super::{GoogleVertexClient, GoogleVertexConfig, SharedIdGenerator};
 
 #[derive(Clone)]
 pub struct GoogleVertexBuilder {
@@ -21,6 +22,7 @@ pub struct GoogleVertexBuilder {
     project: Option<String>,
     location: Option<String>,
     token_provider: Option<Arc<dyn TokenProvider>>,
+    generate_id: Option<SharedIdGenerator>,
     common_params: CommonParams,
 }
 
@@ -33,6 +35,7 @@ impl GoogleVertexBuilder {
             project: None,
             location: None,
             token_provider: None,
+            generate_id: None,
             common_params: CommonParams::default(),
         }
     }
@@ -67,6 +70,36 @@ impl GoogleVertexBuilder {
         self
     }
 
+    /// Set a custom stable ID generator aligned with AI SDK `generateId`.
+    pub fn with_generate_id<F>(mut self, generate_id: F) -> Self
+    where
+        F: Fn() -> String + Send + Sync + 'static,
+    {
+        self.generate_id = Some(Arc::new(generate_id));
+        self
+    }
+
+    /// Set a shared custom stable ID generator aligned with AI SDK `generateId`.
+    pub fn with_shared_generate_id(mut self, generate_id: SharedIdGenerator) -> Self {
+        self.generate_id = Some(generate_id);
+        self
+    }
+
+    /// Set default HTTP headers used for all Vertex requests built from this builder.
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.core.http_config.headers.extend(headers);
+        self
+    }
+
+    /// Set a single default HTTP header used for all Vertex requests built from this builder.
+    pub fn header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.core
+            .http_config
+            .headers
+            .insert(name.into(), value.into());
+        self
+    }
+
     /// Set the model id (unified via common_params).
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
         self.common_params.model = model.into();
@@ -85,6 +118,32 @@ impl GoogleVertexBuilder {
     /// not specify a model.
     pub fn embedding_model<S: Into<String>>(self, model: S) -> Self {
         self.model(model)
+    }
+
+    /// Set the image model id (Vercel-aligned naming: `imageModel(modelId)`).
+    ///
+    /// Note: the actual image generation/edit settings remain request-owned on the stable
+    /// image family surface. This helper only selects the default model id.
+    pub fn image_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `image_model(...)` (Vercel-aligned naming: `image(modelId)`).
+    pub fn image<S: Into<String>>(self, model: S) -> Self {
+        self.image_model(model)
+    }
+
+    /// Set the video model id (Vercel-aligned naming: `videoModel(modelId)`).
+    ///
+    /// Note: Siumai keeps the current Vertex video runtime task-based. This helper only
+    /// selects the default model id used by the task-oriented video family surface.
+    pub fn video_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `video_model(...)` (Vercel-aligned naming: `video(modelId)`).
+    pub fn video<S: Into<String>>(self, model: S) -> Self {
+        self.video_model(model)
     }
 
     /// Set temperature on the shared common params surface.
@@ -280,6 +339,9 @@ impl GoogleVertexBuilder {
         if let Some(transport) = self.core.http_transport.clone() {
             cfg = cfg.with_http_transport(transport);
         }
+        if let Some(generate_id) = self.generate_id.clone() {
+            cfg = cfg.with_shared_generate_id(generate_id);
+        }
         if let Some(api_key) = api_key {
             cfg = cfg.with_api_key(api_key);
         }
@@ -345,6 +407,21 @@ mod config_first_tests {
     }
 
     #[test]
+    fn into_config_preserves_custom_generate_id() {
+        let cfg = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .model("gemini-2.5-pro")
+            .with_generate_id(|| "vertex-builder-id".to_string())
+            .into_config()
+            .expect("into_config");
+
+        assert_eq!(
+            cfg.generate_id.as_ref().map(|generate_id| generate_id()),
+            Some("vertex-builder-id".to_string())
+        );
+    }
+
+    #[test]
     fn build_and_into_config_converge_on_config_first_client_construction() {
         let builder = GoogleVertexBuilder::new(BuilderBase::default())
             .api_key("test-key")
@@ -376,6 +453,59 @@ mod config_first_tests {
             built.common_params().stop_sequences,
             from_config.common_params().stop_sequences
         );
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn google_vertex_builder_family_aliases_route_to_model() {
+        let language = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .language_model("gemini-2.5-flash")
+            .into_config()
+            .expect("language_model config");
+        assert_eq!(language.model, "gemini-2.5-flash");
+
+        let embedding = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .embedding_model("text-embedding-005")
+            .into_config()
+            .expect("embedding_model config");
+        assert_eq!(embedding.model, "text-embedding-005");
+
+        let text_embedding = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .text_embedding_model("gemini-embedding-2-preview")
+            .into_config()
+            .expect("text_embedding_model config");
+        assert_eq!(text_embedding.model, "gemini-embedding-2-preview");
+
+        let image = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .image("imagen-4.0-ultra-generate-001")
+            .into_config()
+            .expect("image config");
+        assert_eq!(image.model, "imagen-4.0-ultra-generate-001");
+
+        let image_model = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .image_model("gemini-2.5-flash-image")
+            .into_config()
+            .expect("image_model config");
+        assert_eq!(image_model.model, "gemini-2.5-flash-image");
+
+        let video = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .video("veo-3.1-generate-preview")
+            .into_config()
+            .expect("video config");
+        assert_eq!(video.model, "veo-3.1-generate-preview");
+
+        let video_model = GoogleVertexBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .video_model("veo-3.1-fast-generate-001")
+            .into_config()
+            .expect("video_model config");
+        assert_eq!(video_model.model, "veo-3.1-fast-generate-001");
     }
 }
 

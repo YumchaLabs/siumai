@@ -8,6 +8,129 @@
 use base64::Engine;
 use serde::{Deserialize, Serialize};
 
+/// Vertex Imagen safety-setting values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VertexImagenSafetySetting {
+    #[serde(rename = "block_low_and_above")]
+    BlockLowAndAbove,
+    #[serde(rename = "block_medium_and_above")]
+    BlockMediumAndAbove,
+    #[serde(rename = "block_only_high")]
+    BlockOnlyHigh,
+    #[serde(rename = "block_none")]
+    BlockNone,
+}
+
+impl VertexImagenSafetySetting {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::BlockLowAndAbove => "block_low_and_above",
+            Self::BlockMediumAndAbove => "block_medium_and_above",
+            Self::BlockOnlyHigh => "block_only_high",
+            Self::BlockNone => "block_none",
+        }
+    }
+}
+
+impl From<VertexImagenSafetySetting> for String {
+    fn from(value: VertexImagenSafetySetting) -> Self {
+        value.as_str().to_string()
+    }
+}
+
+/// Vertex Imagen sample-image-size values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VertexImagenSampleImageSize {
+    #[serde(rename = "1K")]
+    OneK,
+    #[serde(rename = "2K")]
+    TwoK,
+}
+
+impl VertexImagenSampleImageSize {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OneK => "1K",
+            Self::TwoK => "2K",
+        }
+    }
+}
+
+impl From<VertexImagenSampleImageSize> for String {
+    fn from(value: VertexImagenSampleImageSize) -> Self {
+        value.as_str().to_string()
+    }
+}
+
+/// Vertex Imagen edit-mode values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VertexImagenEditMode {
+    #[serde(rename = "EDIT_MODE_INPAINT_INSERTION")]
+    InpaintInsertion,
+    #[serde(rename = "EDIT_MODE_INPAINT_REMOVAL")]
+    InpaintRemoval,
+    #[serde(rename = "EDIT_MODE_OUTPAINT")]
+    Outpaint,
+    #[serde(rename = "EDIT_MODE_CONTROLLED_EDITING")]
+    ControlledEditing,
+    #[serde(rename = "EDIT_MODE_PRODUCT_IMAGE")]
+    ProductImage,
+    #[serde(rename = "EDIT_MODE_BGSWAP")]
+    BackgroundSwap,
+}
+
+impl VertexImagenEditMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InpaintInsertion => "EDIT_MODE_INPAINT_INSERTION",
+            Self::InpaintRemoval => "EDIT_MODE_INPAINT_REMOVAL",
+            Self::Outpaint => "EDIT_MODE_OUTPAINT",
+            Self::ControlledEditing => "EDIT_MODE_CONTROLLED_EDITING",
+            Self::ProductImage => "EDIT_MODE_PRODUCT_IMAGE",
+            Self::BackgroundSwap => "EDIT_MODE_BGSWAP",
+        }
+    }
+}
+
+impl From<VertexImagenEditMode> for String {
+    fn from(value: VertexImagenEditMode) -> Self {
+        value.as_str().to_string()
+    }
+}
+
+/// Vertex Imagen mask-mode values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VertexImagenMaskMode {
+    #[serde(rename = "MASK_MODE_DEFAULT")]
+    Default,
+    #[serde(rename = "MASK_MODE_USER_PROVIDED")]
+    UserProvided,
+    #[serde(rename = "MASK_MODE_DETECTION_BOX")]
+    DetectionBox,
+    #[serde(rename = "MASK_MODE_CLOTHING_AREA")]
+    ClothingArea,
+    #[serde(rename = "MASK_MODE_PARSED_PERSON")]
+    ParsedPerson,
+}
+
+impl VertexImagenMaskMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "MASK_MODE_DEFAULT",
+            Self::UserProvided => "MASK_MODE_USER_PROVIDED",
+            Self::DetectionBox => "MASK_MODE_DETECTION_BOX",
+            Self::ClothingArea => "MASK_MODE_CLOTHING_AREA",
+            Self::ParsedPerson => "MASK_MODE_PARSED_PERSON",
+        }
+    }
+}
+
+impl From<VertexImagenMaskMode> for String {
+    fn from(value: VertexImagenMaskMode) -> Self {
+        value.as_str().to_string()
+    }
+}
+
 /// Vertex AI inline image value used by Imagen requests.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VertexImagenInlineImage {
@@ -54,7 +177,7 @@ pub struct VertexImagenMaskImageConfig {
 impl VertexImagenMaskImageConfig {
     pub fn user_provided() -> Self {
         Self {
-            mask_mode: Some("MASK_MODE_USER_PROVIDED".to_string()),
+            mask_mode: Some(VertexImagenMaskMode::UserProvided.into()),
             dilation: None,
         }
     }
@@ -292,14 +415,15 @@ impl VertexImagenOptions {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::provider_options::vertex::VertexPersonGeneration;
 
     #[test]
     fn serde_edit_options_matches_vercel_shape() {
         let options = VertexImagenOptions::new().with_edit(
             VertexImagenEditOptions::new()
-                .with_mode("EDIT_MODE_INPAINT_REMOVAL")
+                .with_mode(VertexImagenEditMode::InpaintRemoval)
                 .with_base_steps(50)
-                .with_mask_mode("MASK_MODE_USER_PROVIDED")
+                .with_mask_mode(VertexImagenMaskMode::UserProvided)
                 .with_mask_dilation(0.01),
         );
 
@@ -355,11 +479,11 @@ mod tests {
         let value = serde_json::to_value(
             VertexImagenOptions::new()
                 .with_negative_prompt("blurry")
-                .with_person_generation("allow_adult")
-                .with_safety_setting("block_medium_and_above")
+                .with_person_generation(VertexPersonGeneration::AllowAdult)
+                .with_safety_setting(VertexImagenSafetySetting::BlockMediumAndAbove)
                 .with_add_watermark(false)
                 .with_storage_uri("gs://bucket/images/")
-                .with_sample_image_size("2K"),
+                .with_sample_image_size(VertexImagenSampleImageSize::TwoK),
         )
         .expect("serialize VertexImagenOptions");
 
@@ -392,5 +516,29 @@ mod tests {
         assert_eq!(options.add_watermark, Some(true));
         assert_eq!(options.storage_uri.as_deref(), Some("gs://bucket/images/"));
         assert_eq!(options.sample_image_size.as_deref(), Some("1K"));
+    }
+
+    #[test]
+    fn typed_enums_serialize_to_ai_sdk_strings() {
+        assert_eq!(
+            serde_json::to_value(VertexPersonGeneration::AllowAdult).unwrap(),
+            serde_json::json!("allow_adult")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenSafetySetting::BlockMediumAndAbove).unwrap(),
+            serde_json::json!("block_medium_and_above")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenSampleImageSize::TwoK).unwrap(),
+            serde_json::json!("2K")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenEditMode::InpaintInsertion).unwrap(),
+            serde_json::json!("EDIT_MODE_INPAINT_INSERTION")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenMaskMode::UserProvided).unwrap(),
+            serde_json::json!("MASK_MODE_USER_PROVIDED")
+        );
     }
 }

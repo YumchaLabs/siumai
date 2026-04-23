@@ -123,6 +123,75 @@ impl VertexAnthropicSpec {
             budget_tokens,
         })
     }
+
+    fn configured_structured_output_mode(
+        req: &ChatRequest,
+    ) -> Option<anthropic::params::StructuredOutputMode> {
+        let obj = req.provider_options_map.get("anthropic")?.as_object()?;
+        let mode = obj
+            .get("structured_output_mode")
+            .or_else(|| obj.get("structuredOutputMode"))
+            .and_then(|value| value.as_str())?;
+
+        match mode {
+            "outputFormat" | "output_format" | "output-format" => {
+                Some(anthropic::params::StructuredOutputMode::OutputFormat)
+            }
+            "jsonTool" | "json_tool" | "json-tool" => {
+                Some(anthropic::params::StructuredOutputMode::JsonTool)
+            }
+            _ => None,
+        }
+    }
+
+    fn effective_structured_output_mode(
+        req: &ChatRequest,
+    ) -> Option<anthropic::params::StructuredOutputMode> {
+        if !matches!(
+            req.response_format,
+            Some(crate::types::chat::ResponseFormat::Json { .. })
+        ) {
+            return None;
+        }
+
+        match Self::configured_structured_output_mode(req) {
+            Some(anthropic::params::StructuredOutputMode::OutputFormat) => {
+                Some(anthropic::params::StructuredOutputMode::OutputFormat)
+            }
+            _ => Some(anthropic::params::StructuredOutputMode::JsonTool),
+        }
+    }
+
+    fn request_with_effective_structured_output_mode(req: &ChatRequest) -> ChatRequest {
+        let Some(mode) = Self::effective_structured_output_mode(req) else {
+            return req.clone();
+        };
+        if mode != anthropic::params::StructuredOutputMode::JsonTool {
+            return req.clone();
+        }
+
+        let mut out = req.clone();
+        match out.provider_options_map.get("anthropic").cloned() {
+            Some(serde_json::Value::Object(mut obj)) => {
+                obj.insert(
+                    "structured_output_mode".to_string(),
+                    serde_json::json!("jsonTool"),
+                );
+                out.provider_options_map
+                    .insert("anthropic", serde_json::Value::Object(obj));
+            }
+            _ => {
+                out.provider_options_map.insert(
+                    "anthropic",
+                    serde_json::json!({
+                        "structured_output_mode": "jsonTool"
+                    }),
+                );
+            }
+        }
+
+        out
+    }
 }
 
 #[derive(Clone)]
@@ -148,7 +217,8 @@ impl crate::execution::transformers::request::RequestTransformer
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        let mut body = self.inner.transform_chat(req)?;
+        let req = VertexAnthropicSpec::request_with_effective_structured_output_mode(req);
+        let mut body = self.inner.transform_chat(&req)?;
         let Some(obj) = body.as_object_mut() else {
             return Err(LlmError::ParseError(
                 "Anthropic transformer did not return a JSON object".to_string(),
@@ -257,9 +327,11 @@ impl ProviderSpec for VertexAnthropicSpec {
         _ctx: &ProviderContext,
     ) -> ChatTransformers {
         let stream_transformer = if req.stream {
-            let converter = anthropic::streaming::AnthropicEventConverter::new(
-                anthropic::params::AnthropicParams::default(),
-            );
+            let mut stream_params = anthropic::params::AnthropicParams::default();
+            if let Some(mode) = Self::effective_structured_output_mode(req) {
+                stream_params = stream_params.with_structured_output_mode(mode);
+            }
+            let converter = anthropic::streaming::AnthropicEventConverter::new(stream_params);
             let stream_tx = anthropic::transformers::AnthropicStreamChunkTransformer {
                 provider_id: "anthropic-vertex".to_string(),
                 inner: converter,

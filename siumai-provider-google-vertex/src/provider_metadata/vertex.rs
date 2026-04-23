@@ -73,7 +73,10 @@ impl VertexChatResponseExt for crate::types::ChatResponse {
             .provider_metadata
             .as_ref()
             .and_then(|metadata| {
-                crate::types::provider_metadata::provider_metadata_object(metadata, "vertex")
+                crate::types::provider_metadata::provider_metadata_object_any(
+                    metadata,
+                    &["vertex", "google-vertex"],
+                )
             })?
             .clone();
         serde_json::from_value(serde_json::Value::Object(meta)).ok()
@@ -122,7 +125,9 @@ impl VertexContentPartExt for crate::types::ContentPart {
             | ContentPart::ToolApprovalRequest { .. } => return None,
         };
 
-        let inner = provider_metadata.get("vertex")?;
+        let inner = provider_metadata
+            .get("vertex")
+            .or_else(|| provider_metadata.get("google-vertex"))?;
         serde_json::from_value(inner.clone()).ok()
     }
 }
@@ -132,14 +137,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn vertex_metadata_reads_vertex_namespace_only() {
+    fn vertex_metadata_prefers_vertex_namespace_over_google_vertex_alias() {
         let mut response =
             crate::types::ChatResponse::new(crate::types::MessageContent::Text("ok".to_string()));
 
-        let mut google_inner = HashMap::new();
-        google_inner.insert(
+        let mut google_vertex_inner = HashMap::new();
+        google_vertex_inner.insert(
             "thoughtSignature".to_string(),
-            serde_json::json!("google-sig"),
+            serde_json::json!("google-vertex-sig"),
         );
         let mut vertex_inner = HashMap::new();
         vertex_inner.insert(
@@ -165,8 +170,8 @@ mod tests {
 
         let mut outer = HashMap::new();
         outer.insert(
-            "google".to_string(),
-            serde_json::Value::Object(google_inner.into_iter().collect()),
+            "google-vertex".to_string(),
+            serde_json::Value::Object(google_vertex_inner.into_iter().collect()),
         );
         outer.insert(
             "vertex".to_string(),
@@ -198,22 +203,28 @@ mod tests {
     }
 
     #[test]
-    fn vertex_metadata_returns_none_when_only_google_namespace_exists() {
+    fn vertex_metadata_reads_google_vertex_alias_when_vertex_namespace_is_missing() {
         let mut response =
             crate::types::ChatResponse::new(crate::types::MessageContent::Text("ok".to_string()));
-        let mut google_inner = HashMap::new();
-        google_inner.insert(
+        let mut google_vertex_inner = HashMap::new();
+        google_vertex_inner.insert(
             "thoughtSignature".to_string(),
-            serde_json::json!("google-sig"),
+            serde_json::json!("google-vertex-sig"),
         );
         let mut outer = HashMap::new();
         outer.insert(
-            "google".to_string(),
-            serde_json::Value::Object(google_inner.into_iter().collect()),
+            "google-vertex".to_string(),
+            serde_json::Value::Object(google_vertex_inner.into_iter().collect()),
         );
         response.provider_metadata = Some(outer);
 
-        assert!(response.vertex_metadata().is_none());
+        let parsed = response
+            .vertex_metadata()
+            .expect("google-vertex alias metadata");
+        assert_eq!(
+            parsed.thought_signature.as_deref(),
+            Some("google-vertex-sig")
+        );
     }
 
     #[test]
@@ -231,5 +242,25 @@ mod tests {
 
         let parsed = part.vertex_metadata().expect("vertex part metadata");
         assert_eq!(parsed.thought_signature.as_deref(), Some("sig_reasoning"));
+    }
+
+    #[test]
+    fn vertex_content_part_metadata_reads_google_vertex_alias() {
+        let part = crate::types::ContentPart::Reasoning {
+            text: "thinking".to_string(),
+            provider_options: crate::types::ProviderOptionsMap::default(),
+            provider_metadata: Some(HashMap::from([(
+                "google-vertex".to_string(),
+                serde_json::json!({
+                    "thoughtSignature": "sig_google_vertex"
+                }),
+            )])),
+        };
+
+        let parsed = part.vertex_metadata().expect("google-vertex part metadata");
+        assert_eq!(
+            parsed.thought_signature.as_deref(),
+            Some("sig_google_vertex")
+        );
     }
 }

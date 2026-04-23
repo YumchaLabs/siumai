@@ -1,12 +1,15 @@
 pub mod embedding;
 pub mod imagen;
+pub mod shared;
 pub mod video;
 
 pub use embedding::VertexEmbeddingOptions;
 pub use imagen::{
-    VertexImagenEditOptions, VertexImagenInlineImage, VertexImagenMaskImageConfig,
-    VertexImagenOptions, VertexImagenReferenceImage,
+    VertexImagenEditMode, VertexImagenEditOptions, VertexImagenInlineImage,
+    VertexImagenMaskImageConfig, VertexImagenMaskMode, VertexImagenOptions,
+    VertexImagenReferenceImage, VertexImagenSafetySetting, VertexImagenSampleImageSize,
 };
+pub use shared::VertexPersonGeneration;
 #[allow(deprecated)]
 pub use video::{
     GoogleVertexReferenceImage, GoogleVertexVideoModelId, GoogleVertexVideoModelOptions,
@@ -33,15 +36,13 @@ mod tests {
             GoogleVertexVideoModelOptions::new()
                 .with_poll_interval_ms(500)
                 .with_poll_timeout_ms(30_000)
-                .with_person_generation("allow_adult")
+                .with_person_generation(VertexPersonGeneration::AllowAdult)
                 .with_negative_prompt("blurry")
                 .with_generate_audio(true)
                 .with_gcs_output_directory("gs://bucket/output/")
                 .with_reference_images(vec![
-                    GoogleVertexReferenceImage::new()
-                        .with_bytes_base64_encoded("Zm9v"),
-                    GoogleVertexReferenceImage::new()
-                        .with_gcs_uri("gs://bucket/reference.png"),
+                    GoogleVertexReferenceImage::new().with_bytes_base64_encoded("Zm9v"),
+                    GoogleVertexReferenceImage::new().with_gcs_uri("gs://bucket/reference.png"),
                 ])
                 .with_extra_field("customFlag", serde_json::json!(true)),
         )
@@ -81,5 +82,29 @@ mod tests {
         assert_eq!(options.negative_prompt, deprecated_options.negative_prompt);
         assert_eq!(options.generate_audio, deprecated_options.generate_audio);
         assert_eq!(model_id, "veo-3.1-generate-preview");
+    }
+
+    #[test]
+    fn typed_vertex_option_enums_serialize_to_ai_sdk_strings() {
+        assert_eq!(
+            serde_json::to_value(VertexPersonGeneration::AllowAll).unwrap(),
+            serde_json::json!("allow_all")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenSafetySetting::BlockMediumAndAbove).unwrap(),
+            serde_json::json!("block_medium_and_above")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenSampleImageSize::TwoK).unwrap(),
+            serde_json::json!("2K")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenEditMode::InpaintInsertion).unwrap(),
+            serde_json::json!("EDIT_MODE_INPAINT_INSERTION")
+        );
+        assert_eq!(
+            serde_json::to_value(VertexImagenMaskMode::UserProvided).unwrap(),
+            serde_json::json!("MASK_MODE_USER_PROVIDED")
+        );
     }
 }

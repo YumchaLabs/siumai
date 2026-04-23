@@ -9,16 +9,34 @@ use std::sync::Arc;
 
 use super::{VertexAnthropicClient, VertexAnthropicConfig};
 
+fn normalize_non_empty(value: impl Into<String>) -> Option<String> {
+    let value = value.into();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn load_optional_env_var(name: &str) -> Option<String> {
+    std::env::var(name).ok().and_then(normalize_non_empty)
+}
+
 /// Anthropic on Vertex AI builder。
 ///
 /// 该 builder 采用 config-first 思路：
-/// - `base_url` 必填（显式 Vertex publisher 前缀）
+/// - `base_url` 可显式指定
+/// - 若未指定 `base_url`，可通过 `project + location`（或对应 env）派生 Vertex Anthropic
+///   publisher base URL
 /// - 认证优先通过 `Authorization: Bearer ...` header 传入
 /// - `fetch(...)` / `with_http_transport(...)` 与统一入口保持一致
 #[derive(Clone)]
 pub struct VertexAnthropicBuilder {
     pub(crate) core: ProviderCore,
     base_url: Option<String>,
+    project: Option<String>,
+    location: Option<String>,
     model: Option<String>,
     token_provider: Option<Arc<dyn crate::auth::TokenProvider>>,
     default_provider_options_map: crate::types::ProviderOptionsMap,
@@ -47,6 +65,8 @@ impl VertexAnthropicBuilder {
         Self {
             core: ProviderCore::new(base),
             base_url: None,
+            project: None,
+            location: None,
             model: None,
             token_provider: None,
             default_provider_options_map: crate::types::ProviderOptionsMap::default(),
@@ -56,6 +76,18 @@ impl VertexAnthropicBuilder {
     /// 设置 Vertex publisher base URL。
     pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         self.base_url = Some(base_url.into());
+        self
+    }
+
+    /// 设置 Vertex project。
+    pub fn project<S: Into<String>>(mut self, project: S) -> Self {
+        self.project = Some(project.into());
+        self
+    }
+
+    /// 设置 Vertex location / region。
+    pub fn location<S: Into<String>>(mut self, location: S) -> Self {
+        self.location = Some(location.into());
         self
     }
 
@@ -244,12 +276,34 @@ impl VertexAnthropicBuilder {
         self
     }
 
+    fn resolve_base_url(&self) -> Result<String, LlmError> {
+        if let Some(base_url) = self.base_url.clone().and_then(normalize_non_empty) {
+            return Ok(base_url.trim_end_matches('/').to_string());
+        }
+
+        let project = self
+            .project
+            .clone()
+            .and_then(normalize_non_empty)
+            .or_else(|| load_optional_env_var("GOOGLE_VERTEX_PROJECT"));
+        let location = self
+            .location
+            .clone()
+            .and_then(normalize_non_empty)
+            .or_else(|| load_optional_env_var("GOOGLE_VERTEX_LOCATION"));
+
+        match (project, location) {
+            (Some(project), Some(location)) => Ok(
+                crate::auth::vertex::google_vertex_anthropic_base_url(&project, &location),
+            ),
+            _ => Err(LlmError::ConfigurationError(
+                "Anthropic on Vertex requires `base_url` or explicit project+location (or env vars GOOGLE_VERTEX_PROJECT + GOOGLE_VERTEX_LOCATION)".to_string(),
+            )),
+        }
+    }
+
     pub fn into_config(self) -> Result<VertexAnthropicConfig, LlmError> {
-        let base_url = self.base_url.ok_or_else(|| {
-            LlmError::ConfigurationError(
-                "Anthropic on Vertex requires a non-empty base_url".to_string(),
-            )
-        })?;
+        let base_url = self.resolve_base_url()?;
 
         let model = self.model.ok_or_else(|| {
             LlmError::ConfigurationError(
@@ -349,6 +403,34 @@ mod tests {
             Some("Bearer test-token")
         );
         assert_eq!(cfg.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn into_config_derives_base_url_from_project_and_location() {
+        let cfg = VertexAnthropicBuilder::new(BuilderBase::default())
+            .project("demo-project")
+            .location("global")
+            .model("claude-3-5-sonnet-20241022")
+            .into_config()
+            .expect("into_config");
+
+        assert_eq!(
+            cfg.base_url,
+            crate::auth::vertex::google_vertex_anthropic_base_url("demo-project", "global")
+        );
+    }
+
+    #[test]
+    fn explicit_base_url_overrides_project_and_location() {
+        let cfg = VertexAnthropicBuilder::new(BuilderBase::default())
+            .base_url("https://example.com/custom/")
+            .project("demo-project")
+            .location("global")
+            .model("claude-3-5-sonnet-20241022")
+            .into_config()
+            .expect("into_config");
+
+        assert_eq!(cfg.base_url, "https://example.com/custom");
     }
 
     #[test]

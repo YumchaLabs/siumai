@@ -79,6 +79,19 @@ struct VertexGeneratedVideo {
     mime_type: Option<String>,
 }
 
+fn vertex_provider_metadata_video(video: &VertexGeneratedVideo) -> serde_json::Value {
+    let mut value = serde_json::Map::new();
+
+    if let Some(gcs_uri) = video.gcs_uri.as_ref() {
+        value.insert("gcsUri".to_string(), serde_json::json!(gcs_uri));
+    }
+    if let Some(mime_type) = video.mime_type.as_ref() {
+        value.insert("mimeType".to_string(), serde_json::json!(mime_type));
+    }
+
+    serde_json::Value::Object(value)
+}
+
 fn build_vertex_headers(custom_headers: &HashMap<String, String>) -> Result<HeaderMap, LlmError> {
     let builder = HttpHeaderBuilder::new()
         .with_json_content_type()
@@ -405,14 +418,27 @@ fn build_create_request_body(
 fn build_status_metadata(
     response: &VertexOperationResponse,
 ) -> Result<HashMap<String, serde_json::Value>, LlmError> {
+    let provider_videos = response
+        .videos
+        .iter()
+        .map(vertex_provider_metadata_video)
+        .collect::<Vec<_>>();
     let mut metadata = HashMap::new();
     metadata.insert(
         "vertex".to_string(),
         serde_json::json!({
-            "videos": response.videos,
+            "videos": provider_videos,
             "raiMediaFilteredCount": response.rai_media_filtered_count
         }),
     );
+    if !response.videos.is_empty() {
+        metadata.insert(
+            "_siumai".to_string(),
+            serde_json::json!({
+                "generatedVideos": response.videos
+            }),
+        );
+    }
     Ok(metadata)
 }
 
@@ -540,6 +566,7 @@ pub(super) async fn query_video_task(
             status: VideoTaskStatus::Processing,
             file_id: None,
             video_url: None,
+            provider_reference: None,
             duration: None,
             video_width: None,
             video_height: None,
@@ -553,6 +580,7 @@ pub(super) async fn query_video_task(
             status: VideoTaskStatus::Fail,
             file_id: None,
             video_url: None,
+            provider_reference: None,
             duration: None,
             video_width: None,
             video_height: None,
@@ -574,17 +602,13 @@ pub(super) async fn query_video_task(
             .videos
             .iter()
             .find_map(|video| video.gcs_uri.clone());
-        let first_http_url = operation_response.videos.iter().find_map(|video| {
-            video.gcs_uri.as_ref().and_then(|uri| {
-                (uri.starts_with("http://") || uri.starts_with("https://")).then(|| uri.clone())
-            })
-        });
 
         VideoTaskStatusResponse {
             task_id: operation.name,
             status: VideoTaskStatus::Success,
-            file_id: first_url,
-            video_url: first_http_url,
+            file_id: None,
+            video_url: first_url,
+            provider_reference: None,
             duration: None,
             video_width: None,
             video_height: None,
@@ -601,6 +625,7 @@ pub(super) async fn query_video_task(
             status: VideoTaskStatus::Fail,
             file_id: None,
             video_url: None,
+            provider_reference: None,
             duration: None,
             video_width: None,
             video_height: None,
@@ -906,11 +931,12 @@ mod tests {
         .expect("query video task");
 
         assert_eq!(response.status, VideoTaskStatus::Success);
+        assert_eq!(response.file_id, None);
         assert_eq!(
-            response.file_id.as_deref(),
+            response.video_url.as_deref(),
             Some("gs://bucket/output/video.mp4")
         );
-        assert_eq!(response.video_url, None);
+        assert!(response.provider_reference().is_none());
         assert_eq!(
             response
                 .metadata
@@ -924,9 +950,30 @@ mod tests {
             response
                 .metadata
                 .get("vertex")
+                .and_then(|value| value.get("videos"))
+                .and_then(|value| value.as_array())
+                .and_then(|videos| videos.get(1))
+                .and_then(|video| video.get("bytesBase64Encoded")),
+            None
+        );
+        assert_eq!(
+            response
+                .metadata
+                .get("vertex")
                 .and_then(|value| value.get("raiMediaFilteredCount"))
                 .and_then(|value| value.as_u64()),
             Some(1)
+        );
+        assert_eq!(
+            response
+                .metadata
+                .get("_siumai")
+                .and_then(|value| value.get("generatedVideos"))
+                .and_then(|value| value.as_array())
+                .and_then(|videos| videos.get(1))
+                .and_then(|video| video.get("bytesBase64Encoded"))
+                .and_then(|value| value.as_str()),
+            Some("Zm9v")
         );
 
         let req = transport.take().expect("captured request");

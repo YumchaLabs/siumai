@@ -23,6 +23,19 @@ use crate::streaming::ChatStream;
 use crate::traits::{ChatCapability, ModelListingCapability};
 use crate::types::{ChatMessage, ChatRequest, ChatResponse, ModelInfo};
 
+fn default_vertex_anthropic_provider_options_map() -> crate::types::ProviderOptionsMap {
+    let mut map = crate::types::ProviderOptionsMap::default();
+    map.insert(
+        "anthropic",
+        serde_json::to_value(
+            VertexAnthropicOptions::new()
+                .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool),
+        )
+        .expect("Vertex Anthropic default options should serialize"),
+    );
+    map
+}
+
 /// Minimal config for Vertex Anthropic client (delegate to SiumaiBuilder for common params)
 #[derive(Clone)]
 pub struct VertexAnthropicConfig {
@@ -67,7 +80,9 @@ impl VertexAnthropicConfig {
             base_url: base_url.into(),
             model: model.into(),
             http_config: crate::types::HttpConfig::default(),
-            default_provider_options_map: crate::types::ProviderOptionsMap::default(),
+            // AI SDK's Vertex Anthropic wrapper disables native structured outputs by default and
+            // therefore routes JSON schema requests through the reserved `json` tool fallback.
+            default_provider_options_map: default_vertex_anthropic_provider_options_map(),
             http_transport: None,
             token_provider: None,
             http_interceptors: Vec::new(),
@@ -821,28 +836,30 @@ mod tests {
         ));
         body.push_str("\n\n");
         body.push_str(
-            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"json","input":{}}}"#,
         );
         body.push_str("\n\n");
 
         let part1 =
             serde_json::to_string("{\"value\":\"te").expect("serialize anthropic-vertex text part");
         body.push_str(&format!(
-            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{part1}}}}}"#
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":{part1}}}}}"#
         ));
         body.push_str("\n\n");
 
         let part2 = serde_json::to_string("st\"}").expect("serialize anthropic-vertex text part");
         body.push_str(&format!(
-            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{part2}}}}}"#
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":{part2}}}}}"#
         ));
         body.push_str("\n\n");
 
         body.push_str(r#"data: {"type":"content_block_stop","index":0}"#);
         body.push_str("\n\n");
         body.push_str(
-            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":15,"output_tokens":4}}"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":15,"output_tokens":4}}"#,
         );
+        body.push_str("\n\n");
+        body.push_str(r#"data: {"type":"message_stop"}"#);
         body.push_str("\n\n");
         body.into_bytes()
     }
@@ -854,14 +871,14 @@ mod tests {
         ));
         body.push_str("\n\n");
         body.push_str(
-            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"json","input":{}}}"#,
         );
         body.push_str("\n\n");
 
         let partial =
             serde_json::to_string("{\"value\":").expect("serialize anthropic-vertex partial");
         body.push_str(&format!(
-            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{partial}}}}}"#
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":{partial}}}}}"#
         ));
         body.push_str("\n\n");
         body.into_bytes()
@@ -874,12 +891,16 @@ mod tests {
             "role": "assistant",
             "content": [
                 {
-                    "type": "text",
-                    "text": "{\"value\":\"test\"}"
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "json",
+                    "input": {
+                        "value": "test"
+                    }
                 }
             ],
             "model": model,
-            "stop_reason": "end_turn",
+            "stop_reason": "tool_use",
             "stop_sequence": null,
             "usage": {
                 "input_tokens": 15,
@@ -1031,15 +1052,22 @@ mod tests {
             req.body["anthropic_version"],
             serde_json::json!("vertex-2023-10-16")
         );
+        assert!(req.body.get("output_format").is_none());
+        assert_eq!(req.body["tool_choice"]["type"], serde_json::json!("any"));
         assert_eq!(
-            req.body["output_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "schema": vertex_anthropic_json_schema()
-            })
+            req.body["tool_choice"]["disable_parallel_tool_use"],
+            serde_json::json!(true)
+        );
+        let tools = req.body["tools"].as_array().expect("anthropic tools array");
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("json")
+                    && tool.get("input_schema") == Some(&vertex_anthropic_json_schema())
+            }),
+            "expected reserved json tool in request body: {:?}",
+            req.body["tools"]
         );
         assert!(req.body.get("model").is_none());
-        assert!(req.body.get("tools").is_none());
     }
 
     fn assert_vertex_anthropic_structured_output_request(
@@ -1056,16 +1084,23 @@ mod tests {
             req.body["anthropic_version"],
             serde_json::json!("vertex-2023-10-16")
         );
+        assert!(req.body.get("output_format").is_none());
+        assert_eq!(req.body["tool_choice"]["type"], serde_json::json!("any"));
         assert_eq!(
-            req.body["output_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "schema": vertex_anthropic_json_schema()
-            })
+            req.body["tool_choice"]["disable_parallel_tool_use"],
+            serde_json::json!(true)
+        );
+        let tools = req.body["tools"].as_array().expect("anthropic tools array");
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("json")
+                    && tool.get("input_schema") == Some(&vertex_anthropic_json_schema())
+            }),
+            "expected reserved json tool in request body: {:?}",
+            req.body["tools"]
         );
         assert!(req.body.get("stream").is_none());
         assert!(req.body.get("model").is_none());
-        assert!(req.body.get("tools").is_none());
     }
 
     fn assert_vertex_anthropic_reasoning_request(
@@ -1159,7 +1194,7 @@ mod tests {
     fn vertex_anthropic_llmclient_exposes_chat_capability() {
         let cfg = VertexAnthropicConfig {
             base_url: "https://example.invalid".to_string(),
-            model: "claude-3-5-sonnet-20241022".to_string(),
+            model: "claude-3-5-sonnet-v2@20241022".to_string(),
             http_config: crate::types::HttpConfig::default(),
             default_provider_options_map: crate::types::ProviderOptionsMap::default(),
             http_transport: None,
@@ -1180,7 +1215,7 @@ mod tests {
     #[test]
     fn vertex_anthropic_config_http_convenience_helpers() {
         let config =
-            VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-20241022")
+            VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-v2@20241022")
                 .with_timeout(Duration::from_secs(14))
                 .with_connect_timeout(Duration::from_secs(4))
                 .with_http_stream_disable_compression(true)
@@ -1198,10 +1233,24 @@ mod tests {
     }
 
     #[test]
+    fn vertex_anthropic_config_defaults_structured_output_to_json_tool() {
+        let config = VertexAnthropicConfig::new("https://example.invalid", "claude-sonnet-4-6");
+
+        let value = config
+            .default_provider_options_map
+            .get("anthropic")
+            .expect("anthropic options present");
+        assert_eq!(
+            value["structured_output_mode"],
+            serde_json::json!("jsonTool")
+        );
+    }
+
+    #[test]
     fn prepare_chat_request_for_stream_sets_stream_and_fills_defaults() {
         let cfg = VertexAnthropicConfig::new(
             "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
-            "claude-3-5-sonnet-20241022",
+            "claude-3-5-sonnet-v2@20241022",
         )
         .with_http_config(crate::types::HttpConfig::default());
         let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
@@ -1215,14 +1264,17 @@ mod tests {
             .expect("prepare stream request");
 
         assert!(prepared.stream);
-        assert_eq!(prepared.common_params.model, "claude-3-5-sonnet-20241022");
+        assert_eq!(
+            prepared.common_params.model,
+            "claude-3-5-sonnet-v2@20241022"
+        );
         assert!(prepared.http_config.is_some());
     }
 
     #[test]
     fn prepare_chat_request_merges_config_default_provider_options_before_request_overrides() {
         let cfg =
-            VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-20241022")
+            VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-v2@20241022")
                 .with_thinking_mode(VertexAnthropicThinkingMode::enabled(Some(2048)))
                 .with_structured_output_mode(VertexAnthropicStructuredOutputMode::JsonTool)
                 .with_send_reasoning(false);
@@ -1262,13 +1314,13 @@ mod tests {
     fn prepare_chat_request_for_non_stream_clears_stream_and_preserves_explicit_model() {
         let cfg = VertexAnthropicConfig::new(
             "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
-            "claude-3-5-sonnet-20241022",
+            "claude-3-5-sonnet-v2@20241022",
         )
         .with_http_config(crate::types::HttpConfig::default());
         let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()
-            .model("claude-3-7-sonnet-20250219")
+            .model("claude-3-7-sonnet@20250219")
             .messages(vec![ChatMessage::user("hi").build()])
             .stream(true)
             .build();
@@ -1278,14 +1330,14 @@ mod tests {
             .expect("prepare non-stream request");
 
         assert!(!prepared.stream);
-        assert_eq!(prepared.common_params.model, "claude-3-7-sonnet-20250219");
+        assert_eq!(prepared.common_params.model, "claude-3-7-sonnet@20250219");
         assert!(prepared.http_config.is_some());
     }
 
     #[test]
     fn prepare_chat_request_merges_missing_common_params_and_vertex_defaults() {
         let cfg =
-            VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-20241022")
+            VertexAnthropicConfig::new("https://example.invalid", "claude-3-5-sonnet-v2@20241022")
                 .with_http_config(crate::types::HttpConfig::default())
                 .with_provider_options_map({
                     let mut map = crate::types::ProviderOptionsMap::new();
@@ -1307,12 +1359,19 @@ mod tests {
             .expect("prepare stream request");
 
         assert!(prepared.stream);
-        assert_eq!(prepared.common_params.model, "claude-3-5-sonnet-20241022");
+        assert_eq!(
+            prepared.common_params.model,
+            "claude-3-5-sonnet-v2@20241022"
+        );
         assert!(prepared.http_config.is_some());
         let options = prepared
             .provider_options_map
             .get("anthropic")
             .expect("anthropic options present");
+        assert_eq!(
+            options["structured_output_mode"],
+            serde_json::json!("jsonTool")
+        );
         assert_eq!(options["send_reasoning"], serde_json::json!(false));
         assert_eq!(
             options["disable_parallel_tool_use"],
@@ -1325,14 +1384,14 @@ mod tests {
         let transport = CaptureTransport::default();
         let cfg = VertexAnthropicConfig::new(
             "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
-            "claude-3-5-sonnet-20241022",
+            "claude-3-5-sonnet-v2@20241022",
         )
         .with_authorization("Bearer test-token")
         .with_http_transport(Arc::new(transport.clone()));
         let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()
-            .model("claude-3-7-sonnet-20250219")
+            .model("claude-3-7-sonnet@20250219")
             .messages(vec![ChatMessage::user("hi").build()])
             .build();
 
@@ -1346,7 +1405,7 @@ mod tests {
         assert!(
             captured
                 .url
-                .contains("/models/claude-3-7-sonnet-20250219:rawPredict"),
+                .contains("/models/claude-3-7-sonnet@20250219:rawPredict"),
             "unexpected url: {}",
             captured.url
         );
@@ -1358,14 +1417,14 @@ mod tests {
         let transport = CaptureTransport::default();
         let cfg = VertexAnthropicConfig::new(
             "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic",
-            "claude-3-5-sonnet-20241022",
+            "claude-3-5-sonnet-v2@20241022",
         )
         .with_authorization("Bearer test-token")
         .with_http_transport(Arc::new(transport.clone()));
         let client = VertexAnthropicClient::from_config(cfg).expect("from_config ok");
 
         let request = ChatRequest::builder()
-            .model("claude-3-7-sonnet-20250219")
+            .model("claude-3-7-sonnet@20250219")
             .messages(vec![ChatMessage::user("hi").build()])
             .build();
 
@@ -1379,7 +1438,7 @@ mod tests {
         assert!(
             captured
                 .url
-                .contains("/models/claude-3-7-sonnet-20250219:streamRawPredict"),
+                .contains("/models/claude-3-7-sonnet@20250219:streamRawPredict"),
             "unexpected url: {}",
             captured.url
         );
@@ -1389,7 +1448,7 @@ mod tests {
     #[tokio::test]
     async fn anthropic_vertex_client_structured_output_stream_end_extracts_json_and_preserves_stream_end()
      {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic";
         let transport = FixtureStreamTransport::new(
             vertex_anthropic_structured_output_success_stream_body(model),
@@ -1444,7 +1503,7 @@ mod tests {
     #[tokio::test]
     async fn anthropic_vertex_client_structured_output_response_extracts_json_and_preserves_response()
      {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic";
         let transport = FixtureJsonTransport::new(
             vertex_anthropic_structured_output_success_response_body(model),
@@ -1479,7 +1538,7 @@ mod tests {
 
     #[tokio::test]
     async fn anthropic_vertex_client_structured_output_response_returns_invalid_json_error() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic";
         let transport = FixtureJsonTransport::new(
             vertex_anthropic_structured_output_invalid_response_body(model),
@@ -1512,7 +1571,7 @@ mod tests {
 
     #[tokio::test]
     async fn anthropic_vertex_client_reasoning_response_preserves_metadata_and_request_shape() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic";
         let transport = FixtureJsonTransport::new(vertex_anthropic_reasoning_response_body(model));
         let client = VertexAnthropicClient::from_config(
@@ -1555,7 +1614,7 @@ mod tests {
 
     #[tokio::test]
     async fn anthropic_vertex_client_reasoning_stream_preserves_metadata_and_request_shape() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic";
         let transport = FixtureStreamTransport::new(vertex_anthropic_reasoning_stream_body(model));
         let client = VertexAnthropicClient::from_config(
@@ -1614,7 +1673,7 @@ mod tests {
 
     #[tokio::test]
     async fn anthropic_vertex_client_structured_output_stream_returns_incomplete_json_error() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.invalid/v1/projects/p/locations/us/publishers/anthropic";
         let transport = FixtureStreamTransport::new(
             vertex_anthropic_structured_output_interrupted_stream_body(model),

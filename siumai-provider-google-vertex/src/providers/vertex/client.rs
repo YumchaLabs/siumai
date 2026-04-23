@@ -3,11 +3,13 @@
 //! This client owns the provider-specific Vertex runtime for:
 //! - Gemini chat via `generateContent`
 //! - Vertex text embeddings via `:predict`
+//! - Gemini image generation/edit/variation via `generateContent`
 //! - Imagen image generation/editing via `:predict`
 //! - Veo video task creation/status via `:predictLongRunning` and `:fetchPredictOperation`
 
 use async_trait::async_trait;
 use reqwest::Client as HttpClient;
+use siumai_protocol_gemini::standards::gemini::types::{GeminiConfig, SharedIdGenerator};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -77,13 +79,32 @@ fn requests_can_be_coalesced(
 }
 
 fn vertex_image_max_images_per_call(model_id: &str, base_url: &str) -> u32 {
-    if model_id.starts_with("gemini-") {
+    let normalized = normalize_vertex_model_id(model_id);
+    if normalized.starts_with("gemini-") {
         10
-    } else if crate::standards::vertex_imagen::is_vertex_imagen_model(model_id, base_url) {
+    } else if crate::standards::vertex_imagen::is_vertex_imagen_model(&normalized, base_url) {
         4
     } else {
         4
     }
+}
+
+fn normalize_vertex_model_id(model: &str) -> String {
+    let trimmed = model.trim().trim_matches('/');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if let Some(pos) = trimmed.rfind("/models/") {
+        return trimmed[(pos + "/models/".len())..].to_string();
+    }
+    if let Some(rest) = trimmed.strip_prefix("models/") {
+        return rest.to_string();
+    }
+    trimmed.to_string()
+}
+
+fn is_vertex_gemini_image_model(model_id: &str) -> bool {
+    normalize_vertex_model_id(model_id).starts_with("gemini-")
 }
 
 fn coalesce_batch_requests(
@@ -188,6 +209,8 @@ pub struct GoogleVertexConfig {
     /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
     pub http_transport:
         Option<std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>>,
+    /// Optional custom stable ID generator aligned with AI SDK `generateId`.
+    pub generate_id: Option<SharedIdGenerator>,
     /// Optional Bearer token provider (e.g., ADC). When present, an `Authorization` header
     /// will be injected automatically if one is not already set.
     pub token_provider: Option<Arc<dyn TokenProvider>>,
@@ -231,6 +254,7 @@ impl GoogleVertexConfig {
             api_key: None,
             http_config: crate::types::HttpConfig::default(),
             http_transport: None,
+            generate_id: None,
             token_provider: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
@@ -312,6 +336,19 @@ impl GoogleVertexConfig {
         transport: std::sync::Arc<dyn crate::execution::http::transport::HttpTransport>,
     ) -> Self {
         self.http_transport = Some(transport);
+        self
+    }
+
+    pub fn with_generate_id<F>(mut self, generate_id: F) -> Self
+    where
+        F: Fn() -> String + Send + Sync + 'static,
+    {
+        self.generate_id = Some(Arc::new(generate_id));
+        self
+    }
+
+    pub fn with_shared_generate_id(mut self, generate_id: SharedIdGenerator) -> Self {
+        self.generate_id = Some(generate_id);
         self
     }
 
@@ -451,6 +488,44 @@ impl GoogleVertexClient {
         super::context::build_context(&self.config).await
     }
 
+    fn gemini_chat_config(&self) -> GeminiConfig {
+        let model = if self.common_params.model.trim().is_empty() {
+            self.config.model.clone()
+        } else {
+            self.common_params.model.clone()
+        };
+        let mut common_params = self.common_params.clone();
+        common_params.model = model.clone();
+
+        let mut gemini_config = GeminiConfig::default()
+            .with_base_url(self.config.base_url.clone())
+            .with_model(model)
+            .with_common_params(common_params);
+        gemini_config.provider_metadata_key = Some("vertex".to_string());
+        if let Some(generate_id) = self.config.generate_id.clone() {
+            gemini_config = gemini_config.with_shared_generate_id(generate_id);
+        }
+        gemini_config
+    }
+
+    fn gemini_image_config(&self) -> GeminiConfig {
+        self.gemini_chat_config()
+    }
+
+    fn image_spec_for_model(&self, model: &str) -> Arc<dyn ProviderSpec> {
+        if is_vertex_gemini_image_model(model) {
+            Arc::new(
+                crate::standards::vertex_gemini_image::VertexGeminiImageStandard::new()
+                    .with_gemini_config(self.gemini_image_config())
+                    .create_spec("vertex"),
+            )
+        } else {
+            Arc::new(
+                crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
+            )
+        }
+    }
+
     fn prepare_chat_request(
         &self,
         mut request: ChatRequest,
@@ -478,6 +553,7 @@ impl GoogleVertexClient {
         let ctx = self.build_context().await;
         let spec = Arc::new(
             crate::standards::vertex_generative_ai::VertexGenerativeAiStandard::new()
+                .with_gemini_config(self.gemini_chat_config())
                 .create_spec("vertex"),
         );
         let bundle = spec.choose_chat_transformers(&request, &ctx);
@@ -511,6 +587,7 @@ impl GoogleVertexClient {
         let ctx = self.build_context().await;
         let spec = Arc::new(
             crate::standards::vertex_generative_ai::VertexGenerativeAiStandard::new()
+                .with_gemini_config(self.gemini_chat_config())
                 .create_spec("vertex"),
         );
         let bundle = spec.choose_chat_transformers(&request, &ctx);
@@ -583,9 +660,7 @@ impl ImageGenerationCapability for GoogleVertexClient {
         request.http_config = Some(http_config);
 
         let ctx = self.build_context().await;
-        let spec = Arc::new(
-            crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
-        );
+        let spec = self.image_spec_for_model(request.model.as_deref().unwrap_or(""));
 
         let mut builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
             .with_spec(spec)
@@ -630,9 +705,7 @@ impl ImageExtras for GoogleVertexClient {
         request.http_config = Some(http_config);
 
         let ctx = self.build_context().await;
-        let spec = Arc::new(
-            crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
-        );
+        let spec = self.image_spec_for_model(request.model.as_deref().unwrap_or(""));
 
         let mut builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
             .with_spec(spec)
@@ -671,9 +744,7 @@ impl ImageExtras for GoogleVertexClient {
         request.http_config = Some(http_config);
 
         let ctx = self.build_context().await;
-        let spec = Arc::new(
-            crate::standards::vertex_imagen::VertexImagenStandard::new().create_spec("vertex"),
-        );
+        let spec = self.image_spec_for_model(request.model.as_deref().unwrap_or(""));
 
         let mut builder = ImageExecutorBuilder::new("vertex", self.http_client.clone())
             .with_spec(spec)
@@ -887,7 +958,7 @@ impl LlmClient for GoogleVertexClient {
     }
 
     fn supported_models(&self) -> Vec<String> {
-        vec![self.config.model.clone()]
+        super::models::get_default_models()
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -997,7 +1068,8 @@ mod tests {
         HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
         HttpTransportStreamResponse,
     };
-    use crate::types::{ChatStreamEvent, FinishReason, ResponseFormat};
+    use crate::streaming::LanguageModelV3StreamPart;
+    use crate::types::{ChatStreamEvent, ChatStreamPart, FinishReason, ResponseFormat};
     use async_trait::async_trait;
     use futures_util::StreamExt;
     use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
@@ -1115,6 +1187,61 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct FixtureJsonTransport {
+        last: Arc<Mutex<Option<HttpTransportRequest>>>,
+        body: Arc<Vec<u8>>,
+    }
+
+    impl FixtureJsonTransport {
+        fn new(body: Vec<u8>) -> Self {
+            Self {
+                last: Arc::new(Mutex::new(None)),
+                body: Arc::new(body),
+            }
+        }
+
+        fn take(&self) -> Option<HttpTransportRequest> {
+            self.last.lock().expect("lock").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for FixtureJsonTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last.lock().expect("lock") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: (*self.body).clone(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportStreamResponse {
+                status: 501,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(
+                    br#"{"error":{"type":"test_error","message":"stream unsupported in test"}}"#
+                        .to_vec(),
+                ),
+            })
+        }
+    }
+
     fn vertex_json_schema() -> serde_json::Value {
         serde_json::json!({
             "type": "object",
@@ -1220,11 +1347,92 @@ mod tests {
         )
     }
 
+    fn vertex_tool_call_and_source_response_body() -> Vec<u8> {
+        serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                        ]
+                    },
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            { "web": { "uri": "https://example.com", "title": "Example" } }
+                        ]
+                    },
+                    "finishReason": "STOP"
+                }
+            ],
+            "modelVersion": "gemini-2.5-flash"
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    fn vertex_tool_call_and_source_stream_body() -> Vec<u8> {
+        vertex_sse_body(
+            &[
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                                ]
+                            },
+                            "groundingMetadata": {
+                                "groundingChunks": [
+                                    { "web": { "uri": "https://example.com", "title": "Example" } }
+                                ]
+                            }
+                        }
+                    ]
+                }),
+                serde_json::json!({
+                    "candidates": [
+                        {
+                            "finishReason": "STOP"
+                        }
+                    ]
+                }),
+            ],
+            true,
+        )
+    }
+
     fn header_value(req: &HttpTransportRequest, name: &str) -> Option<String> {
         req.headers
             .get(name)
             .and_then(|value| value.to_str().ok())
             .map(ToString::to_string)
+    }
+
+    fn vertex_gemini_image_response_body() -> Vec<u8> {
+        serde_json::to_vec(&serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            {
+                                "inlineData": {
+                                    "mimeType": "image/png",
+                                    "data": "base64-generated-image"
+                                }
+                            }
+                        ],
+                        "role": "model"
+                    },
+                    "finishReason": "STOP"
+                }
+            ],
+            "usageMetadata": {
+                "promptTokenCount": 10,
+                "candidatesTokenCount": 100,
+                "totalTokenCount": 110
+            }
+        }))
+        .expect("serialize vertex gemini image response")
     }
 
     fn assert_vertex_structured_output_stream_request(req: &HttpTransportRequest) {
@@ -1311,6 +1519,368 @@ mod tests {
         );
         assert!(config.http_config.stream_disable_compression);
         assert_eq!(config.http_interceptors.len(), 1);
+    }
+
+    #[test]
+    fn google_vertex_config_preserves_custom_generate_id() {
+        let config = GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash")
+            .with_generate_id(|| "vertex-config-id".to_string());
+
+        assert_eq!(
+            config.generate_id.as_ref().map(|generate_id| generate_id()),
+            Some("vertex-config-id".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_generate_images_routes_gemini_image_models_through_generate_content() {
+        let transport = FixtureJsonTransport::new(vertex_gemini_image_response_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash-image")
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let response = client
+            .generate_images(ImageGenerationRequest {
+                prompt: "A beautiful sunset".to_string(),
+                aspect_ratio: Some("16:9".to_string()),
+                seed: Some(12_345),
+                size: Some("1024x1024".to_string()),
+                ..Default::default()
+            })
+            .await
+            .expect("vertex gemini image response");
+
+        assert_eq!(response.images.len(), 1);
+        assert_eq!(
+            response.images[0].b64_json.as_deref(),
+            Some("base64-generated-image")
+        );
+        assert_eq!(
+            response.warnings,
+            Some(vec![crate::types::Warning::unsupported(
+                "size",
+                Some("This model does not support the `size` option. Use `aspectRatio` instead."),
+            )])
+        );
+
+        let request = transport.take().expect("captured image request");
+        assert!(
+            request
+                .url
+                .contains("/models/gemini-2.5-flash-image:generateContent?key=test-key"),
+            "unexpected url: {}",
+            request.url
+        );
+        assert!(header_value(&request, "x-goog-api-key").is_none());
+        assert_eq!(
+            request.body["generationConfig"]["responseModalities"],
+            serde_json::json!(["IMAGE"])
+        );
+        assert_eq!(
+            request.body["generationConfig"]["imageConfig"]["aspectRatio"],
+            serde_json::json!("16:9")
+        );
+        assert_eq!(
+            request.body["generationConfig"]["seed"],
+            serde_json::json!(12_345)
+        );
+        assert_eq!(
+            request.body["contents"][0]["parts"],
+            serde_json::json!([{ "text": "A beautiful sunset" }])
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_generate_images_for_gemini_models_forward_vertex_provider_options() {
+        let transport = FixtureJsonTransport::new(vertex_gemini_image_response_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash-image")
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let response = client
+            .generate_images(
+                ImageGenerationRequest {
+                    prompt: "A watercolor otter".to_string(),
+                    ..Default::default()
+                }
+                .with_provider_option(
+                    "vertex",
+                    serde_json::json!({
+                        "mediaResolution": "MEDIA_RESOLUTION_MEDIUM",
+                        "imageConfig": {
+                            "imageSize": "1536x1024"
+                        }
+                    }),
+                ),
+            )
+            .await
+            .expect("vertex gemini image response");
+
+        assert_eq!(response.images.len(), 1);
+
+        let request = transport.take().expect("captured image request");
+        assert_eq!(
+            request.body["generationConfig"]["responseModalities"],
+            serde_json::json!(["IMAGE"])
+        );
+        assert_eq!(
+            request.body["generationConfig"]["mediaResolution"],
+            serde_json::json!("MEDIA_RESOLUTION_MEDIUM")
+        );
+        assert_eq!(
+            request.body["generationConfig"]["imageConfig"]["imageSize"],
+            serde_json::json!("1536x1024")
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_generate_images_for_gemini_models_ignore_google_alias_provider_options()
+    {
+        let transport = FixtureJsonTransport::new(vertex_gemini_image_response_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash-image")
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let response = client
+            .generate_images(
+                ImageGenerationRequest {
+                    prompt: "A watercolor otter".to_string(),
+                    ..Default::default()
+                }
+                .with_provider_option(
+                    "google",
+                    serde_json::json!({
+                        "mediaResolution": "MEDIA_RESOLUTION_MEDIUM",
+                        "imageConfig": {
+                            "imageSize": "1536x1024"
+                        }
+                    }),
+                ),
+            )
+            .await
+            .expect("vertex gemini image response");
+
+        assert_eq!(response.images.len(), 1);
+
+        let request = transport.take().expect("captured image request");
+        assert_eq!(
+            request.body["generationConfig"]["responseModalities"],
+            serde_json::json!(["IMAGE"])
+        );
+        assert!(
+            request.body["generationConfig"]
+                .get("mediaResolution")
+                .is_none()
+        );
+        assert!(
+            request.body["generationConfig"]
+                .get("imageConfig")
+                .is_none(),
+            "unexpected imageConfig: {}",
+            request.body["generationConfig"]
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_edit_image_routes_gemini_image_models_through_generate_content() {
+        let transport = FixtureJsonTransport::new(vertex_gemini_image_response_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash-image")
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let response = client
+            .edit_image(ImageEditRequest {
+                prompt: "Add a hat to this cat".to_string(),
+                images: vec![crate::types::ImageEditInput::base64_with_media_type(
+                    "base64-source-image",
+                    "image/png",
+                )],
+                ..Default::default()
+            })
+            .await
+            .expect("vertex gemini image edit response");
+
+        assert_eq!(response.images.len(), 1);
+
+        let request = transport.take().expect("captured edit request");
+        assert!(
+            request
+                .url
+                .contains("/models/gemini-2.5-flash-image:generateContent?key=test-key"),
+            "unexpected url: {}",
+            request.url
+        );
+        assert_eq!(
+            request.body["contents"][0]["parts"],
+            serde_json::json!([
+                { "text": "Add a hat to this cat" },
+                {
+                    "inlineData": {
+                        "mimeType": "image/png",
+                        "data": "base64-source-image"
+                    }
+                }
+            ])
+        );
+        assert_eq!(
+            request.body["generationConfig"]["responseModalities"],
+            serde_json::json!(["IMAGE"])
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_edit_image_for_gemini_models_preserves_url_inputs_as_file_data() {
+        let transport = FixtureJsonTransport::new(vertex_gemini_image_response_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash-image")
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let response = client
+            .edit_image(ImageEditRequest {
+                prompt: "Add a hat to this cat".to_string(),
+                images: vec![crate::types::ImageEditInput::url(
+                    "https://example.com/cat.png",
+                )],
+                ..Default::default()
+            })
+            .await
+            .expect("vertex gemini image edit response");
+
+        assert_eq!(response.images.len(), 1);
+
+        let request = transport.take().expect("captured edit request");
+        assert_eq!(
+            request.body["contents"][0]["parts"][1],
+            serde_json::json!({
+                "fileData": {
+                    "fileUri": "https://example.com/cat.png",
+                    "mimeType": "image/jpeg"
+                }
+            })
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_create_variation_routes_gemini_image_models_through_generate_content() {
+        let transport = FixtureJsonTransport::new(vertex_gemini_image_response_body());
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash-image")
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let response = client
+            .create_variation(crate::types::ImageVariationRequest {
+                image: crate::types::ImageEditInput::base64_with_media_type(
+                    "base64-source-image",
+                    "image/png",
+                ),
+                aspect_ratio: Some("1:1".to_string()),
+                seed: Some(7),
+                extra_params: std::collections::HashMap::from([(
+                    "prompt".to_string(),
+                    serde_json::json!("Make it watercolor"),
+                )]),
+                ..Default::default()
+            })
+            .await
+            .expect("vertex gemini image variation response");
+
+        assert_eq!(response.images.len(), 1);
+
+        let request = transport.take().expect("captured variation request");
+        assert!(
+            request
+                .url
+                .contains("/models/gemini-2.5-flash-image:generateContent?key=test-key"),
+            "unexpected url: {}",
+            request.url
+        );
+        assert_eq!(
+            request.body["contents"][0]["parts"],
+            serde_json::json!([
+                { "text": "Make it watercolor" },
+                {
+                    "inlineData": {
+                        "mimeType": "image/png",
+                        "data": "base64-source-image"
+                    }
+                }
+            ])
+        );
+        assert_eq!(
+            request.body["generationConfig"]["imageConfig"]["aspectRatio"],
+            serde_json::json!("1:1")
+        );
+        assert_eq!(
+            request.body["generationConfig"]["seed"],
+            serde_json::json!(7)
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_gemini_image_requests_reject_mask_and_n_greater_than_one() {
+        let transport = CaptureTransport::default();
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash-image")
+                .with_api_key("test-key")
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let count_error = client
+            .generate_images(ImageGenerationRequest {
+                prompt: "A beautiful sunset".to_string(),
+                count: 2,
+                ..Default::default()
+            })
+            .await
+            .expect_err("expected n>1 error");
+        assert!(
+            count_error.to_string().contains(
+                "Gemini image models do not support generating a set number of images per call"
+            ),
+            "unexpected error: {count_error}"
+        );
+
+        let mask_error = client
+            .edit_image(ImageEditRequest {
+                prompt: "Edit this image".to_string(),
+                images: vec![crate::types::ImageEditInput::base64_with_media_type(
+                    "base64-source-image",
+                    "image/png",
+                )],
+                mask: Some(crate::types::ImageEditInput::base64_with_media_type(
+                    "base64-mask-image",
+                    "image/png",
+                )),
+                ..Default::default()
+            })
+            .await
+            .expect_err("expected mask error");
+        assert!(
+            mask_error
+                .to_string()
+                .contains("Gemini image models do not support mask-based image editing."),
+            "unexpected error: {mask_error}"
+        );
+        assert!(transport.take().is_none());
     }
 
     #[test]
@@ -1446,6 +2016,126 @@ mod tests {
         assert_eq!(
             captured.body["contents"][0]["parts"][0]["text"],
             serde_json::json!("hi")
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_chat_response_uses_custom_generate_id_for_tool_calls_and_sources() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let transport = FixtureJsonTransport::new(vertex_tool_call_and_source_response_body());
+        let counter = Arc::new(AtomicUsize::new(0));
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash")
+                .with_api_key("test-key")
+                .with_generate_id({
+                    let counter = Arc::clone(&counter);
+                    move || format!("vertex-chat-id-{}", counter.fetch_add(1, Ordering::Relaxed))
+                })
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let response = client
+            .chat_request(
+                ChatRequest::builder()
+                    .model("gemini-2.5-flash")
+                    .messages(vec![ChatMessage::user("hi").build()])
+                    .build(),
+            )
+            .await
+            .expect("vertex chat response");
+
+        let tool_call = response.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(tool_call.tool_call_id, "vertex-chat-id-0");
+        assert_eq!(
+            response
+                .provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("vertex"))
+                .and_then(|meta| meta.get("sources"))
+                .and_then(|sources| sources.as_array())
+                .and_then(|sources| sources.first())
+                .and_then(|source| source.get("id"))
+                .and_then(|value| value.as_str()),
+            Some("vertex-chat-id-1")
+        );
+
+        let request = transport.take().expect("captured request");
+        assert!(
+            request
+                .url
+                .contains("/models/gemini-2.5-flash:generateContent?key=test-key"),
+            "unexpected url: {}",
+            request.url
+        );
+    }
+
+    #[tokio::test]
+    async fn google_vertex_chat_stream_uses_custom_generate_id_and_include_raw_chunks() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let transport = FixtureStreamTransport::new(vertex_tool_call_and_source_stream_body());
+        let counter = Arc::new(AtomicUsize::new(0));
+        let client = GoogleVertexClient::from_config(
+            GoogleVertexConfig::new("https://example.invalid", "gemini-2.5-flash")
+                .with_api_key("test-key")
+                .with_generate_id({
+                    let counter = Arc::clone(&counter);
+                    move || {
+                        format!(
+                            "vertex-stream-id-{}",
+                            counter.fetch_add(1, Ordering::Relaxed)
+                        )
+                    }
+                })
+                .with_http_transport(Arc::new(transport.clone())),
+        )
+        .expect("from_config ok");
+
+        let events = collect_stream_events(
+            client
+                .chat_stream_request(
+                    ChatRequest::builder()
+                        .model("gemini-2.5-flash")
+                        .messages(vec![ChatMessage::user("hi").build()])
+                        .include_raw_chunks(true)
+                        .stream(true)
+                        .build(),
+                )
+                .await
+                .expect("vertex stream ok"),
+        )
+        .await;
+
+        let source_id = events.iter().find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part: ChatStreamPart::Source { id, .. },
+            } => Some(id.as_str()),
+            _ => None,
+        });
+        let tool_call_id = events.iter().find_map(|event| match event {
+            ChatStreamEvent::ToolCallDelta { id, .. } => Some(id.as_str()),
+            _ => None,
+        });
+        let has_raw = events.iter().any(|event| {
+            matches!(
+                LanguageModelV3StreamPart::try_from_chat_event(event),
+                Some(LanguageModelV3StreamPart::Raw { .. })
+            )
+        });
+
+        assert_eq!(source_id, Some("vertex-stream-id-0"));
+        assert_eq!(tool_call_id, Some("vertex-stream-id-1"));
+        assert!(has_raw, "expected raw stream part in {events:?}");
+
+        let request = transport.take_stream().expect("captured stream request");
+        assert_eq!(
+            request
+                .headers
+                .get("accept")
+                .and_then(|value| value.to_str().ok()),
+            Some("text/event-stream")
         );
     }
 

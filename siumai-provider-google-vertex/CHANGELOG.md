@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `GoogleVertexEmbeddingModelOptions`, `GoogleVertexImageModelOptions`, and deprecated
   `GoogleVertexImageProviderOptions`, all mapped onto the existing native embedding/Imagen typed
   option structures.
+- Anthropic-on-Vertex now also exposes a dedicated AI SDK-style package settings wrapper
+  `GoogleVertexAnthropicProviderSettings`, the audited Vertex-supported Anthropic tool subset under
+  `providers::anthropic_vertex::{tools,provider_tools,hosted_tools}`, and the narrower Anthropic
+  message-metadata names (`AnthropicMessageMetadata`, `AnthropicMessageContainerMetadata`,
+  `AnthropicMessageContainerSkill`, `AnthropicUsageIteration`) on the wrapper surface. The same
+  wrapper path now also exposes `GoogleVertexAnthropicMessagesModelId`, and its curated
+  `models::{chat,ALL_CHAT}` subset is aligned with the current audited upstream model-id union.
 
 ### Fixed
 
@@ -33,6 +40,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   advertises native variation support, variation requests transform into the Imagen `:predict`
   body with reference images plus optional prompt/negative-prompt controls, and URL-backed inputs
   work once the shared executor materializes them before the synchronous transformer runs.
+- Anthropic-on-Vertex construction now mirrors the audited AI SDK package more honestly across the
+  builder/settings/registry paths: explicit `base_url` remains supported, but provider builders and
+  registry-backed unified construction can now also derive the canonical
+  `/publishers/anthropic/models` base URL from explicit `project + location` or
+  `GOOGLE_VERTEX_PROJECT` + `GOOGLE_VERTEX_LOCATION`.
+- Anthropic-on-Vertex structured outputs now default to the same wrapper semantics as the audited
+  AI SDK package: JSON-schema requests use the reserved `json` tool fallback by default on the
+  Vertex path, and the streaming converter now receives the same effective structured-output mode
+  so request shaping and streamed/final JSON extraction do not drift apart across model families.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

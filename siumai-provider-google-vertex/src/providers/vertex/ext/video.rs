@@ -51,9 +51,9 @@ mod tests {
             .with_vertex_video_options(
                 GoogleVertexVideoModelOptions::new()
                     .with_negative_prompt("new negative prompt")
-                    .with_reference_images(vec![GoogleVertexReferenceImage::new().with_gcs_uri(
-                        "gs://bucket/reference.png",
-                    )]),
+                    .with_reference_images(vec![
+                        GoogleVertexReferenceImage::new().with_gcs_uri("gs://bucket/reference.png"),
+                    ]),
             );
 
         let value = request

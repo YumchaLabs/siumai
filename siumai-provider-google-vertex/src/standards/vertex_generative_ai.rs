@@ -10,6 +10,7 @@ use crate::error::LlmError;
 use crate::execution::http::headers::HttpHeaderBuilder;
 use crate::types::ChatRequest;
 use reqwest::header::HeaderMap;
+use siumai_protocol_gemini::standards::gemini::types::GeminiConfig;
 use std::collections::HashMap;
 
 const VERTEX_USER_AGENT: &str = concat!("siumai/google-vertex/", env!("CARGO_PKG_VERSION"));
@@ -39,20 +40,33 @@ fn build_vertex_headers(custom_headers: &HashMap<String, String>) -> Result<Head
 
 /// Vertex Generative AI (Gemini via Vertex) chat standard.
 #[derive(Clone, Default)]
-pub struct VertexGenerativeAiStandard;
+pub struct VertexGenerativeAiStandard {
+    gemini_config: Option<GeminiConfig>,
+}
 
 impl VertexGenerativeAiStandard {
     pub fn new() -> Self {
-        Self
+        Self {
+            gemini_config: None,
+        }
+    }
+
+    pub fn with_gemini_config(mut self, gemini_config: GeminiConfig) -> Self {
+        self.gemini_config = Some(gemini_config);
+        self
     }
 
     pub fn create_spec(&self, provider_id: &'static str) -> VertexGenerativeAiSpec {
-        VertexGenerativeAiSpec { provider_id }
+        VertexGenerativeAiSpec {
+            provider_id,
+            gemini_config: self.gemini_config.clone(),
+        }
     }
 }
 
 pub struct VertexGenerativeAiSpec {
     provider_id: &'static str,
+    gemini_config: Option<GeminiConfig>,
 }
 
 impl ProviderSpec for VertexGenerativeAiSpec {
@@ -77,8 +91,15 @@ impl ProviderSpec for VertexGenerativeAiSpec {
         req: &ChatRequest,
         ctx: &ProviderContext,
     ) -> ChatTransformers {
-        siumai_protocol_gemini::standards::gemini::GeminiChatStandard::new()
-            .create_transformers_with_model(&ctx.provider_id, Some(&req.common_params.model))
+        let mut standard = siumai_protocol_gemini::standards::gemini::GeminiChatStandard::new();
+        if let Some(gemini_config) = self.gemini_config.clone() {
+            standard = standard.with_base_config(gemini_config);
+        }
+        standard.create_transformers_with_model_and_stream_options(
+            &ctx.provider_id,
+            Some(&req.common_params.model),
+            req.stream_options.include_raw_chunks,
+        )
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
