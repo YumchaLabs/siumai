@@ -160,6 +160,86 @@ fn anthropic_stream_web_search_emits_tool_call_and_result() {
 
     assert!(!calls.is_empty(), "expected tool-call for web_search");
     assert!(!results.is_empty(), "expected tool-result for web_search");
+
+    let end = events
+        .iter()
+        .rev()
+        .find_map(|e| match e {
+            ChatStreamEvent::StreamEnd { response } => Some(response),
+            _ => None,
+        })
+        .expect("expected StreamEnd event");
+    let metadata = end
+        .anthropic_message_metadata()
+        .expect("expected typed anthropic message metadata");
+    let serialized = serde_json::to_value(&metadata).expect("serialize anthropic message metadata");
+
+    assert_eq!(
+        metadata
+            .usage
+            .get("input_tokens")
+            .and_then(|value| value.as_u64()),
+        Some(15665)
+    );
+    assert_eq!(
+        metadata
+            .usage
+            .get("output_tokens")
+            .and_then(|value| value.as_u64()),
+        Some(795)
+    );
+    assert_eq!(
+        metadata
+            .usage
+            .get("cache_creation_input_tokens")
+            .and_then(|value| value.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        metadata
+            .usage
+            .get("cache_read_input_tokens")
+            .and_then(|value| value.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        metadata
+            .usage
+            .get("service_tier")
+            .and_then(|value| value.as_str()),
+        Some("standard")
+    );
+    assert_eq!(
+        metadata
+            .usage
+            .get("server_tool_use")
+            .and_then(|value| value.get("web_search_requests"))
+            .and_then(|value| value.as_u64()),
+        Some(1)
+    );
+    assert_eq!(
+        metadata
+            .usage
+            .get("server_tool_use")
+            .and_then(|value| value.get("web_fetch_requests"))
+            .and_then(|value| value.as_u64()),
+        Some(0)
+    );
+    assert_eq!(
+        serialized.as_object().map(|object| object.len()),
+        Some(5),
+        "expected AI SDK message metadata top-level shape"
+    );
+    assert_eq!(
+        serialized.get("stopSequence"),
+        Some(&serde_json::Value::Null)
+    );
+    assert_eq!(serialized.get("iterations"), Some(&serde_json::Value::Null));
+    assert_eq!(serialized.get("container"), Some(&serde_json::Value::Null));
+    assert_eq!(
+        serialized.get("contextManagement"),
+        Some(&serde_json::Value::Null)
+    );
 }
 
 #[test]

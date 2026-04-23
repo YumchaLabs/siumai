@@ -241,15 +241,14 @@ impl ProviderSpec for AnthropicChatSpec {
             req.response_format,
             Some(crate::types::chat::ResponseFormat::Json { .. })
         ) {
-            fn supports_output_format(model: &str) -> bool {
+            fn supports_native_structured_output(model: &str) -> bool {
                 model.starts_with("claude-sonnet-4-5")
                     || model.starts_with("claude-opus-4-5")
                     || model.starts_with("claude-haiku-4-5")
             }
 
-            let tools_empty = req.tools.as_ref().map(|t| t.is_empty()).unwrap_or(true);
             stream_params = stream_params.with_structured_output_mode(
-                if supports_output_format(&req.common_params.model) && tools_empty {
+                if supports_native_structured_output(&req.common_params.model) {
                     super::params::StructuredOutputMode::OutputFormat
                 } else {
                     super::params::StructuredOutputMode::JsonTool

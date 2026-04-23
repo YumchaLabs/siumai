@@ -10128,8 +10128,14 @@ mod anthropic_contract {
         assert_eq!(
             builder_req.body["context_management"],
             serde_json::json!({
-                "clear_at_least": 1,
-                "exclude_tools": ["editor"]
+                "edits": [{
+                    "type": "clear_tool_uses_20250919",
+                    "clear_at_least": {
+                        "type": "input_tokens",
+                        "value": 1
+                    },
+                    "exclude_tools": ["editor"]
+                }]
             })
         );
         assert_eq!(

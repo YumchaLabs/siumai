@@ -238,7 +238,8 @@ fn tool_result_content_value(output: &ToolResultOutput) -> (serde_json::Value, b
                         "type": "text",
                         "text": format!("[Image: {url}]"),
                     }),
-                    ToolResultContentPart::ImageFileId { .. } => {
+                    ToolResultContentPart::ImageFileId { .. }
+                    | ToolResultContentPart::ImageFileReference { .. } => {
                         serde_json::json!({"type": "text", "text": "[Image file id attachment]"})
                     }
                     ToolResultContentPart::FileData {
@@ -264,7 +265,8 @@ fn tool_result_content_value(output: &ToolResultOutput) -> (serde_json::Value, b
                             "url": url,
                         }
                     }),
-                    ToolResultContentPart::FileId { .. } => {
+                    ToolResultContentPart::FileId { .. }
+                    | ToolResultContentPart::FileReference { .. } => {
                         serde_json::json!({"type": "text", "text": "[File id attachment]"})
                     }
                     ToolResultContentPart::Custom { .. } => {

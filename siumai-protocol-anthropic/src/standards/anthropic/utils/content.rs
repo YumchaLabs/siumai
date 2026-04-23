@@ -229,24 +229,29 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                             "text": text
                         }));
                     }
-                    ContentPart::Image { source, .. } => {
+                    ContentPart::Image {
+                        source, media_type, ..
+                    } => {
                         // Anthropic requires base64-encoded images
                         let (media_type, data) = match source {
                             FilePartSource::Media(MediaSource::Base64 { data }) => {
                                 let bytes = base64::engine::general_purpose::STANDARD
                                     .decode(data.as_bytes())
                                     .ok();
-                                let media_type = bytes
-                                    .as_deref()
-                                    .map(super::headers::guess_image_media_type_from_bytes)
-                                    .unwrap_or_else(|| "image/jpeg".to_string());
+                                let media_type = media_type.clone().unwrap_or_else(|| {
+                                    bytes
+                                        .as_deref()
+                                        .map(super::headers::guess_image_media_type_from_bytes)
+                                        .unwrap_or_else(|| "image/jpeg".to_string())
+                                });
                                 (media_type, data.clone())
                             }
                             FilePartSource::Media(MediaSource::Binary { data }) => {
                                 let encoded =
                                     base64::engine::general_purpose::STANDARD.encode(data);
-                                let media_type =
-                                    super::headers::guess_image_media_type_from_bytes(data);
+                                let media_type = media_type.clone().unwrap_or_else(|| {
+                                    super::headers::guess_image_media_type_from_bytes(data)
+                                });
                                 (media_type, encoded)
                             }
                             FilePartSource::Media(MediaSource::Url { url }) => {
@@ -561,7 +566,8 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                                 "text": format!("[Image: {}]", url)
                                             })
                                         }
-                                        ToolResultContentPart::ImageFileId { .. } => {
+                                        ToolResultContentPart::ImageFileId { .. }
+                                        | ToolResultContentPart::ImageFileReference { .. } => {
                                             serde_json::json!({
                                                 "type": "text",
                                                 "text": "[Image file id attachment]"
@@ -596,7 +602,8 @@ pub fn convert_message_content(content: &MessageContent) -> Result<serde_json::V
                                                 }
                                             })
                                         }
-                                        ToolResultContentPart::FileId { .. } => {
+                                        ToolResultContentPart::FileId { .. }
+                                        | ToolResultContentPart::FileReference { .. } => {
                                             serde_json::json!({
                                                 "type": "text",
                                                 "text": "[File id attachment]"

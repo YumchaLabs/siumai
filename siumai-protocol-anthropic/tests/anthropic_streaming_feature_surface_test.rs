@@ -245,6 +245,7 @@ async fn anthropic_public_feature_surface_preserves_thinking_signature_and_singl
                     created: None,
                     provider: "anthropic".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             })
             .expect("serialize start"),

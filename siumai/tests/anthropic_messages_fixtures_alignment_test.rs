@@ -655,6 +655,31 @@ fn anthropic_code_execution_result_preserves_file_id_list() {
         .response
         .transform_chat_response(&raw)
         .expect("transform response");
+    let metadata = resp
+        .anthropic_message_metadata()
+        .expect("expected typed anthropic message metadata");
+    let expected_usage = raw.get("usage").cloned().expect("expected raw usage");
+
+    assert_eq!(
+        serde_json::to_value(&metadata.usage).expect("serialize anthropic usage metadata"),
+        expected_usage
+    );
+    assert!(metadata.stop_sequence.is_none());
+    assert!(metadata.iterations.is_none());
+    assert!(metadata.context_management.is_none());
+
+    let container = metadata
+        .container
+        .expect("expected code execution fixture container metadata");
+    assert!(
+        !container.id.is_empty(),
+        "expected typed message container.id"
+    );
+    assert!(
+        !container.expires_at.is_empty(),
+        "expected typed message container.expiresAt"
+    );
+    assert!(container.skills.is_none());
 
     let MessageContent::MultiModal(parts) = resp.content else {
         panic!("expected multimodal content");

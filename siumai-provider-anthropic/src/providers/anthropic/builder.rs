@@ -2,8 +2,9 @@ use super::client::AnthropicClient;
 use crate::builder::{BuilderBase, ProviderCore};
 use crate::params::AnthropicParams;
 use crate::provider_options::anthropic::{
-    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort, AnthropicOptions,
-    AnthropicStructuredOutputMode, ThinkingModeConfig,
+    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort,
+    AnthropicInferenceGeo, AnthropicOptions, AnthropicStructuredOutputMode, AnthropicTaskBudget,
+    ThinkingModeConfig,
 };
 use crate::retry_api::RetryOptions;
 use crate::{CommonParams, LlmError};
@@ -325,6 +326,16 @@ impl AnthropicBuilder {
     /// Set Anthropic default effort on the focused builder surface.
     pub fn with_anthropic_effort(self, effort: AnthropicEffort) -> Self {
         self.with_anthropic_options(AnthropicOptions::new().with_effort(effort))
+    }
+
+    /// Set Anthropic default task budget on the focused builder surface.
+    pub fn with_anthropic_task_budget(self, task_budget: AnthropicTaskBudget) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_task_budget(task_budget))
+    }
+
+    /// Set Anthropic default inference geo on the focused builder surface.
+    pub fn with_anthropic_inference_geo(self, inference_geo: AnthropicInferenceGeo) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_inference_geo(inference_geo))
     }
 
     /// Set Anthropic default container config on the focused builder surface.

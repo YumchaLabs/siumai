@@ -15,7 +15,7 @@ use eventsource_stream::Event;
 use super::params::AnthropicParams;
 use super::request_options::{
     anthropic_request_body_overlays_needed, apply_anthropic_request_body_overlays,
-    cap_max_tokens_for_known_model, finalize_anthropic_thinking_body,
+    cap_max_tokens_for_known_model, finalize_anthropic_thinking_body, set_output_config_field,
 };
 use super::types::{AnthropicChatResponse, AnthropicSpecificParams};
 use super::utils::{
@@ -301,30 +301,34 @@ impl RequestTransformer for AnthropicRequestTransformer {
                 }
 
                 // Vercel-aligned: request-level `responseFormat: { type: "json", schema }`
-                // uses `output_format` for supported models, otherwise falls back to a reserved
-                // `json` tool + tool_choice.
+                // uses `output_config.format` for supported models, otherwise falls back to a
+                // reserved `json` tool + tool_choice.
                 if let Some(crate::types::chat::ResponseFormat::Json { schema, .. }) =
                     &req.response_format
                 {
-                    fn supports_native_output_format(model: &str) -> bool {
+                    fn supports_native_structured_output(model: &str) -> bool {
                         model.starts_with("claude-sonnet-4-5")
                             || model.starts_with("claude-opus-4-5")
                             || model.starts_with("claude-haiku-4-5")
                     }
 
                     let mode = structured_output_mode(self.provider_options);
-                    let supports = supports_native_output_format(&req.common_params.model);
-                    let use_output_format = match mode {
+                    let supports = supports_native_structured_output(&req.common_params.model);
+                    let use_native_structured_output = match mode {
                         StructuredOutputMode::OutputFormat => true,
                         StructuredOutputMode::JsonTool => false,
                         StructuredOutputMode::Auto => supports,
                     };
 
-                    if use_output_format {
-                        body["output_format"] = serde_json::json!({
-                            "type": "json_schema",
-                            "schema": schema
-                        });
+                    if use_native_structured_output {
+                        set_output_config_field(
+                            &mut body,
+                            "format",
+                            serde_json::json!({
+                                "type": "json_schema",
+                                "schema": schema
+                            }),
+                        );
                     } else {
                         let json_tool = serde_json::json!({
                             "name": "json",
@@ -1009,7 +1013,7 @@ mod tests {
     }
 
     #[test]
-    fn response_format_json_schema_uses_output_format_on_supported_models() {
+    fn response_format_json_schema_uses_output_config_format_on_supported_models() {
         use crate::types::chat::ResponseFormat;
 
         let tx = AnthropicRequestTransformer::default();
@@ -1028,7 +1032,7 @@ mod tests {
 
         let body = tx.transform_chat(&req).expect("transform");
         assert_eq!(
-            body.get("output_format"),
+            body.pointer("/output_config/format"),
             Some(&serde_json::json!({
                 "type": "json_schema",
                 "schema": schema
@@ -1036,7 +1040,7 @@ mod tests {
         );
         assert!(
             body.get("tools").is_none(),
-            "output_format path should not inject the reserved json tool"
+            "output_config.format path should not inject the reserved json tool"
         );
     }
 
@@ -1062,6 +1066,10 @@ mod tests {
         assert!(
             body.get("output_format").is_none(),
             "unsupported models should not use output_format"
+        );
+        assert!(
+            body.pointer("/output_config/format").is_none(),
+            "unsupported models should not use output_config.format"
         );
 
         let tools = body
@@ -1215,6 +1223,11 @@ mod tests {
             "expected json tool fallback, got output_format: {:?}",
             body.get("output_format")
         );
+        assert!(
+            body.pointer("/output_config/format").is_none(),
+            "expected json tool fallback, got output_config.format: {:?}",
+            body.pointer("/output_config/format")
+        );
         assert!(body.get("tools").is_some(), "expected json tool");
         assert_eq!(
             body.get("tool_choice"),
@@ -1223,7 +1236,7 @@ mod tests {
     }
 
     #[test]
-    fn structured_output_auto_uses_output_format_even_with_tools() {
+    fn structured_output_auto_uses_output_config_format_even_with_tools() {
         let tx = AnthropicRequestTransformer::default();
 
         let req = ChatRequest::builder()
@@ -1242,8 +1255,8 @@ mod tests {
         let body = tx.transform_chat(&req).expect("transform");
         assert!(body.get("tools").is_some(), "expected tools in body");
         assert!(
-            body.get("output_format").is_some(),
-            "expected output_format when model supports it"
+            body.pointer("/output_config/format").is_some(),
+            "expected output_config.format when model supports it"
         );
         let tools = body
             .get("tools")
@@ -1253,7 +1266,7 @@ mod tests {
             !tools
                 .iter()
                 .any(|t| t.get("name").and_then(|v| v.as_str()) == Some("json")),
-            "did not expect json tool when using output_format"
+            "did not expect json tool when using output_config.format"
         );
     }
 
@@ -1371,7 +1384,7 @@ mod tests {
             }))
         );
         assert!(
-            body.get("output_format").is_some(),
+            body.pointer("/output_config/format").is_some(),
             "custom provider key should override canonical structuredOutputMode"
         );
     }

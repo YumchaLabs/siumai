@@ -5,8 +5,9 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::provider_options::anthropic::{
-    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort, AnthropicOptions,
-    AnthropicStructuredOutputMode, ThinkingModeConfig,
+    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort,
+    AnthropicInferenceGeo, AnthropicOptions, AnthropicStructuredOutputMode, AnthropicTaskBudget,
+    ThinkingModeConfig,
 };
 use crate::types::{CommonParams, HttpConfig};
 use secrecy::{ExposeSecret, SecretString};
@@ -286,6 +287,16 @@ impl AnthropicConfig {
         self.with_anthropic_options(AnthropicOptions::new().with_effort(effort))
     }
 
+    /// Set Anthropic default task budget on the config-first surface.
+    pub fn with_anthropic_task_budget(self, task_budget: AnthropicTaskBudget) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_task_budget(task_budget))
+    }
+
+    /// Set Anthropic default inference geo on the config-first surface.
+    pub fn with_anthropic_inference_geo(self, inference_geo: AnthropicInferenceGeo) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_inference_geo(inference_geo))
+    }
+
     /// Set Anthropic default container config on the config-first surface.
     pub fn with_anthropic_container(self, container: AnthropicContainerConfig) -> Self {
         self.with_anthropic_options(AnthropicOptions::new().with_container(container))
@@ -451,6 +462,9 @@ mod tests {
             Arc::new(AnthropicDefaultOptionsMiddleware::new(
                 AnthropicOptions::new().with_effort(AnthropicEffort::High),
             )),
+            Arc::new(AnthropicDefaultOptionsMiddleware::new(
+                AnthropicOptions::new().with_inference_geo(AnthropicInferenceGeo::Us),
+            )),
         ];
 
         let req = crate::execution::middleware::lm::language_model::apply_transform_chain(
@@ -487,6 +501,7 @@ mod tests {
             Some(&serde_json::json!(false))
         );
         assert_eq!(options.get("effort"), Some(&serde_json::json!("high")));
+        assert_eq!(options.get("inference_geo"), Some(&serde_json::json!("us")));
     }
 
     #[test]

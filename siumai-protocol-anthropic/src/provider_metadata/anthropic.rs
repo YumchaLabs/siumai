@@ -146,8 +146,37 @@ pub struct AnthropicMetadata {
     pub context_management: Option<AnthropicContextManagement>,
 }
 
-/// AI SDK-style alias for Anthropic message metadata.
-pub type AnthropicMessageMetadata = AnthropicMetadata;
+/// AI SDK-style typed Anthropic message metadata.
+///
+/// This mirrors the narrower `AnthropicMessageMetadata` surface exported by the AI SDK package:
+/// provider-owned message metadata fields live here, while `AnthropicMetadata` remains the wider
+/// Rust helper that can also derive convenience fields from nested usage or reasoning replay data.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AnthropicMessageMetadata {
+    /// Raw Anthropic usage object.
+    #[serde(default = "empty_json_object")]
+    pub usage: serde_json::Value,
+
+    /// Stop sequence that terminated generation.
+    #[serde(rename = "stopSequence", alias = "stop_sequence", default)]
+    pub stop_sequence: Option<String>,
+
+    /// Usage breakdown by Anthropic sampling iteration (for example compaction + message).
+    #[serde(default)]
+    pub iterations: Option<Vec<AnthropicUsageIteration>>,
+
+    /// Container information (code execution / skills; Vercel-aligned provider metadata shape).
+    #[serde(default)]
+    pub container: Option<AnthropicMessageContainerMetadata>,
+
+    /// Context management response (Vercel-aligned provider metadata shape).
+    #[serde(rename = "contextManagement", alias = "context_management", default)]
+    pub context_management: Option<AnthropicContextManagement>,
+}
+
+fn empty_json_object() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
 
 /// Anthropic usage breakdown entry for a single sampling iteration.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -213,6 +242,20 @@ pub struct AnthropicContainerMetadata {
     pub skills: Option<Vec<AnthropicContainerSkill>>,
 }
 
+/// AI SDK-style container metadata carried on `AnthropicMessageMetadata`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnthropicMessageContainerMetadata {
+    /// Identifier for the container used in this request.
+    pub id: String,
+
+    /// Container expiration time as an RFC3339 string.
+    #[serde(rename = "expiresAt")]
+    pub expires_at: String,
+
+    /// Skills loaded in the container (when applicable).
+    pub skills: Option<Vec<AnthropicMessageContainerSkill>>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnthropicContainerSkill {
     /// Skill type ("anthropic" or "custom").
@@ -226,6 +269,77 @@ pub struct AnthropicContainerSkill {
     /// Skill version (or "latest").
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+}
+
+/// AI SDK-style container skill metadata carried on `AnthropicMessageMetadata`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnthropicMessageContainerSkill {
+    /// Skill type ("anthropic" or "custom").
+    #[serde(rename = "type")]
+    pub kind: String,
+
+    /// Skill id.
+    #[serde(rename = "skillId")]
+    pub skill_id: String,
+
+    /// Skill version (or "latest").
+    pub version: String,
+}
+
+impl TryFrom<AnthropicContainerMetadata> for AnthropicMessageContainerMetadata {
+    type Error = ();
+
+    fn try_from(value: AnthropicContainerMetadata) -> Result<Self, Self::Error> {
+        let skills = value
+            .skills
+            .map(|skills| {
+                skills
+                    .into_iter()
+                    .map(TryInto::try_into)
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
+
+        Ok(Self {
+            id: value.id.ok_or(())?,
+            expires_at: value.expires_at.ok_or(())?,
+            skills,
+        })
+    }
+}
+
+impl From<AnthropicMessageContainerMetadata> for AnthropicContainerMetadata {
+    fn from(value: AnthropicMessageContainerMetadata) -> Self {
+        Self {
+            id: Some(value.id),
+            expires_at: Some(value.expires_at),
+            skills: value
+                .skills
+                .map(|skills| skills.into_iter().map(Into::into).collect()),
+        }
+    }
+}
+
+impl TryFrom<AnthropicContainerSkill> for AnthropicMessageContainerSkill {
+    type Error = ();
+
+    fn try_from(value: AnthropicContainerSkill) -> Result<Self, Self::Error> {
+        Ok(Self {
+            kind: value.r#type.ok_or(())?,
+            skill_id: value.skill_id.ok_or(())?,
+            version: value.version.ok_or(())?,
+        })
+    }
+}
+
+impl From<AnthropicMessageContainerSkill> for AnthropicContainerSkill {
+    fn from(value: AnthropicMessageContainerSkill) -> Self {
+        Self {
+            r#type: Some(value.kind),
+            skill_id: Some(value.skill_id),
+            version: Some(value.version),
+        }
+    }
 }
 
 /// Anthropic tool caller information carried on tool-call content parts.
@@ -363,13 +477,79 @@ impl crate::types::provider_metadata::FromMetadata for AnthropicToolCallMetadata
     }
 }
 
+impl crate::types::provider_metadata::FromMetadata for AnthropicMessageMetadata {
+    fn from_metadata(
+        metadata: &std::collections::HashMap<String, serde_json::Value>,
+    ) -> Option<Self> {
+        let AnthropicMetadata {
+            usage,
+            stop_sequence,
+            iterations,
+            container,
+            context_management,
+            ..
+        } = <AnthropicMetadata as crate::types::provider_metadata::FromMetadata>::from_metadata(
+            metadata,
+        )?;
+
+        Some(Self {
+            usage: usage.unwrap_or_else(empty_json_object),
+            stop_sequence,
+            iterations,
+            container: container.and_then(|container| container.try_into().ok()),
+            context_management,
+        })
+    }
+}
+
+impl From<AnthropicMessageMetadata> for AnthropicMetadata {
+    fn from(value: AnthropicMessageMetadata) -> Self {
+        let usage = (!value.usage.is_null()).then_some(value.usage);
+        Self {
+            usage,
+            cache_creation_input_tokens: None,
+            stop_sequence: value.stop_sequence,
+            iterations: value.iterations,
+            cache_read_input_tokens: None,
+            thinking_tokens: None,
+            thinking: None,
+            thinking_signature: None,
+            redacted_thinking_data: None,
+            service_tier: None,
+            server_tool_use: None,
+            citations: None,
+            sources: None,
+            container: value.container.map(Into::into),
+            context_management: value.context_management,
+        }
+    }
+}
+
 /// Typed helper for Anthropic metadata extraction from `ChatResponse`.
 pub trait AnthropicChatResponseExt {
+    fn anthropic_message_metadata(&self) -> Option<AnthropicMessageMetadata>;
+    fn anthropic_message_metadata_with_key(&self, key: &str) -> Option<AnthropicMessageMetadata>;
     fn anthropic_metadata(&self) -> Option<AnthropicMetadata>;
     fn anthropic_metadata_with_key(&self, key: &str) -> Option<AnthropicMetadata>;
 }
 
 impl AnthropicChatResponseExt for crate::types::ChatResponse {
+    fn anthropic_message_metadata(&self) -> Option<AnthropicMessageMetadata> {
+        self.anthropic_message_metadata_with_key("anthropic")
+    }
+
+    fn anthropic_message_metadata_with_key(&self, key: &str) -> Option<AnthropicMessageMetadata> {
+        use crate::types::provider_metadata::FromMetadata;
+
+        self.provider_metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get(key))
+            .and_then(|metadata| metadata.as_object())
+            .and_then(|metadata| {
+                AnthropicMessageMetadata::from_metadata(&metadata.clone().into_iter().collect())
+            })
+    }
+
     fn anthropic_metadata(&self) -> Option<AnthropicMetadata> {
         self.anthropic_metadata_with_key("anthropic")
     }
@@ -641,6 +821,132 @@ mod tests {
     }
 
     #[test]
+    fn anthropic_message_metadata_extracts_narrow_ai_sdk_shape() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut inner = HashMap::new();
+        inner.insert(
+            "usage".to_string(),
+            serde_json::json!({
+                "input_tokens": 17,
+                "output_tokens": 1,
+                "cache_creation_input_tokens": 10,
+                "cache_read_input_tokens": 5
+            }),
+        );
+        inner.insert("stopSequence".to_string(), serde_json::json!("STOP"));
+        inner.insert(
+            "iterations".to_string(),
+            serde_json::json!([
+                {
+                    "type": "message",
+                    "inputTokens": 10,
+                    "outputTokens": 2
+                }
+            ]),
+        );
+        inner.insert(
+            "container".to_string(),
+            serde_json::json!({
+                "id": "container_123",
+                "expiresAt": "2026-04-22T12:00:00Z",
+                "skills": null
+            }),
+        );
+        inner.insert(
+            "contextManagement".to_string(),
+            serde_json::json!({
+                "appliedEdits": [
+                    {
+                        "type": "compact_20260112"
+                    }
+                ]
+            }),
+        );
+
+        let mut outer = HashMap::new();
+        outer.insert(
+            "anthropic".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
+        resp.provider_metadata = Some(outer);
+
+        let meta = resp
+            .anthropic_message_metadata()
+            .expect("anthropic message metadata");
+        assert_eq!(
+            meta.usage
+                .get("cache_read_input_tokens")
+                .and_then(|value| value.as_u64()),
+            Some(5)
+        );
+        assert_eq!(meta.stop_sequence.as_deref(), Some("STOP"));
+        let iterations = meta.iterations.as_ref().expect("iterations");
+        assert_eq!(iterations.len(), 1);
+        assert_eq!(iterations[0].r#type, "message");
+        assert_eq!(
+            meta.container
+                .as_ref()
+                .map(|container| container.id.as_str()),
+            Some("container_123")
+        );
+        assert_eq!(
+            meta.container
+                .as_ref()
+                .map(|container| container.expires_at.as_str()),
+            Some("2026-04-22T12:00:00Z")
+        );
+        assert_eq!(
+            meta.context_management
+                .as_ref()
+                .map(|context| context.applied_edits.len()),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn anthropic_message_metadata_drops_incomplete_container_shape() {
+        let mut resp = crate::types::ChatResponse::new(crate::types::MessageContent::Text(
+            "hello".to_string(),
+        ));
+
+        let mut inner = HashMap::new();
+        inner.insert(
+            "usage".to_string(),
+            serde_json::json!({
+                "input_tokens": 17,
+                "output_tokens": 1
+            }),
+        );
+        inner.insert(
+            "container".to_string(),
+            serde_json::json!({
+                "id": "container_123"
+            }),
+        );
+
+        let mut outer = HashMap::new();
+        outer.insert(
+            "anthropic".to_string(),
+            serde_json::Value::Object(inner.into_iter().collect()),
+        );
+        resp.provider_metadata = Some(outer);
+
+        let meta = resp
+            .anthropic_message_metadata()
+            .expect("anthropic message metadata");
+        assert_eq!(
+            meta.usage
+                .get("input_tokens")
+                .and_then(|value| value.as_u64()),
+            Some(17)
+        );
+        assert!(meta.container.is_none());
+    }
+
+    #[test]
     fn anthropic_tool_call_metadata_parses_caller_fields() {
         let part = crate::types::ContentPart::ToolCall {
             tool_call_id: "call_1".to_string(),
@@ -805,6 +1111,10 @@ mod tests {
     #[test]
     fn message_metadata_alias_deserializes_the_same_shape() {
         let value = serde_json::json!({
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 2
+            },
             "stopSequence": "STOP",
             "iterations": [
                 {
@@ -812,7 +1122,18 @@ mod tests {
                     "inputTokens": 10,
                     "outputTokens": 2
                 }
-            ]
+            ],
+            "container": {
+                "id": "container_123",
+                "expiresAt": "2026-04-22T12:00:00Z",
+                "skills": [
+                    {
+                        "type": "anthropic",
+                        "skillId": "pptx",
+                        "version": "latest"
+                    }
+                ]
+            }
         });
 
         let meta: AnthropicMessageMetadata =
@@ -823,5 +1144,42 @@ mod tests {
         assert_eq!(iterations[0].r#type, "message");
         assert_eq!(iterations[0].input_tokens, 10);
         assert_eq!(iterations[0].output_tokens, 2);
+        let container = meta.container.expect("container");
+        assert_eq!(container.id, "container_123");
+        assert_eq!(container.expires_at, "2026-04-22T12:00:00Z");
+        let skills = container.skills.expect("skills");
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].kind, "anthropic");
+        assert_eq!(skills[0].skill_id, "pptx");
+        assert_eq!(skills[0].version, "latest");
+    }
+
+    #[test]
+    fn message_metadata_serializes_with_explicit_null_keys_like_ai_sdk_shape() {
+        let meta = AnthropicMessageMetadata {
+            usage: serde_json::json!({
+                "input_tokens": 10,
+                "output_tokens": 2
+            }),
+            stop_sequence: None,
+            iterations: None,
+            container: None,
+            context_management: None,
+        };
+
+        let value = serde_json::to_value(meta).expect("serialize anthropic message metadata");
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 2
+                },
+                "stopSequence": null,
+                "iterations": null,
+                "container": null,
+                "contextManagement": null
+            })
+        );
     }
 }

@@ -3,6 +3,20 @@
 use super::*;
 use crate::provider::ids;
 
+fn normalize_non_empty(value: impl Into<String>) -> Option<String> {
+    let value = value.into();
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn load_optional_env_var(name: &str) -> Option<String> {
+    std::env::var(name).ok().and_then(normalize_non_empty)
+}
+
 /// Anthropic on Vertex AI provider factory
 ///
 /// This factory builds `anthropic-vertex` clients that communicate with
@@ -47,16 +61,31 @@ impl ProviderFactory for AnthropicVertexProviderFactory {
             model_id,
         );
 
-        // For Vertex AI, base URL must point at the Vertex endpoint.
-        // We do not synthesize a default here; callers should provide
-        // a concrete base_url via BuildContext.
-        let base_url = ctx.base_url.clone().unwrap_or_default();
-        if base_url.trim().is_empty() {
-            return Err(LlmError::ConfigurationError(
-                "Anthropic on Vertex requires an explicit base_url (aiplatform.googleapis.com)"
-                    .to_string(),
-            ));
-        }
+        let base_url = if let Some(base_url) = ctx.base_url.clone().and_then(normalize_non_empty) {
+            base_url.trim_end_matches('/').to_string()
+        } else {
+            let project = ctx
+                .project
+                .clone()
+                .and_then(normalize_non_empty)
+                .or_else(|| load_optional_env_var("GOOGLE_VERTEX_PROJECT"));
+            let location = ctx
+                .location
+                .clone()
+                .and_then(normalize_non_empty)
+                .or_else(|| load_optional_env_var("GOOGLE_VERTEX_LOCATION"));
+
+            let (project, location) = match (project, location) {
+                (Some(project), Some(location)) => (project, location),
+                _ => {
+                    return Err(LlmError::ConfigurationError(
+                        "Anthropic on Vertex requires `base_url`, explicit project+location, or env vars GOOGLE_VERTEX_PROJECT + GOOGLE_VERTEX_LOCATION".to_string(),
+                    ))
+                }
+            };
+
+            crate::utils::vertex::google_vertex_anthropic_base_url(&project, &location)
+        };
 
         crate::registry::factory::build_anthropic_vertex_client(
             base_url,

@@ -8,8 +8,8 @@ pub enum StructuredOutputMode {
     /// Request-level `responseFormat: { type: "json", schema }` is implemented via the reserved
     /// `json` tool (unsupported models).
     JsonTool,
-    /// Request-level `responseFormat: { type: "json", schema }` is implemented via `output_format`
-    /// (supported models).
+    /// Request-level `responseFormat: { type: "json", schema }` is implemented via
+    /// `output_config.format` (supported models).
     OutputFormat,
 }
 

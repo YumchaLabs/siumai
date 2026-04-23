@@ -2378,6 +2378,7 @@ fn serializes_text_stream_events_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -2480,6 +2481,7 @@ fn serializes_blocks_in_order_and_closes_before_message_stop() {
                     created: None,
                     provider: "anthropic".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             })
             .expect("serialize start"),
@@ -2700,6 +2702,7 @@ fn serializes_interleaved_blocks_as_separate_monotonic_content_blocks() {
                     created: None,
                     provider: "anthropic".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             })
             .expect("serialize start"),
@@ -2828,6 +2831,7 @@ fn serializes_repeated_thinking_deltas_with_single_start_and_single_stop() {
                     created: None,
                     provider: "anthropic".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             })
             .expect("serialize start"),
@@ -2909,6 +2913,7 @@ fn stream_end_clears_open_block_state_before_next_end() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize first start");
@@ -2981,6 +2986,7 @@ fn serializes_v3_custom_parts_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3041,6 +3047,7 @@ fn serializes_runtime_part_to_anthropic_sse_without_custom_wrapper() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3073,6 +3080,7 @@ fn serializes_runtime_compaction_text_parts_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3146,6 +3154,7 @@ fn serializes_runtime_tool_input_parts_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3215,6 +3224,7 @@ fn serializes_runtime_tool_call_part_with_caller_metadata_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3270,6 +3280,7 @@ fn serializes_runtime_reasoning_delta_part_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3307,6 +3318,7 @@ fn serializes_runtime_reasoning_start_with_redacted_data_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3367,6 +3379,7 @@ fn serializes_runtime_reasoning_signature_part_to_anthropic_sse() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3638,6 +3651,7 @@ fn serializes_v3_tool_result_as_text_when_configured() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");
@@ -3678,6 +3692,7 @@ fn serializes_v3_tool_approval_request_part_with_replay_as_text_when_configured(
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         })
         .expect("serialize start");

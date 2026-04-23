@@ -3,6 +3,7 @@
 //! These types are carried via the open `providerOptions` JSON map (`provider_id = "anthropic"`),
 //! and should be carried via `providerOptions["anthropic"]`.
 
+use crate::types::ProviderReference;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -11,6 +12,7 @@ pub enum AnthropicEffort {
     Low,
     Medium,
     High,
+    Xhigh,
     Max,
 }
 
@@ -19,6 +21,13 @@ pub enum AnthropicEffort {
 pub enum AnthropicSpeed {
     Fast,
     Standard,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AnthropicInferenceGeo {
+    Us,
+    Global,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -65,10 +74,50 @@ pub enum AnthropicStructuredOutputMode {
     JsonTool,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AnthropicTaskBudgetType {
+    Tokens,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AnthropicTaskBudget {
+    #[serde(rename = "type")]
+    pub kind: AnthropicTaskBudgetType,
+    pub total: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining: Option<u32>,
+}
+
+impl AnthropicTaskBudget {
+    pub fn tokens(total: u32) -> Self {
+        Self {
+            kind: AnthropicTaskBudgetType::Tokens,
+            total,
+            remaining: None,
+        }
+    }
+
+    pub fn with_remaining(mut self, remaining: u32) -> Self {
+        self.remaining = Some(remaining);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AnthropicThinkingDisplay {
+    Omitted,
+    Summarized,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AnthropicThinkingConfig {
-    Adaptive,
+    Adaptive {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        display: Option<AnthropicThinkingDisplay>,
+    },
     Enabled {
         #[serde(skip_serializing_if = "Option::is_none", alias = "budgetTokens")]
         budget_tokens: Option<u32>,
@@ -78,7 +127,13 @@ pub enum AnthropicThinkingConfig {
 
 impl AnthropicThinkingConfig {
     pub fn adaptive() -> Self {
-        Self::Adaptive
+        Self::Adaptive { display: None }
+    }
+
+    pub fn adaptive_with_display(display: AnthropicThinkingDisplay) -> Self {
+        Self::Adaptive {
+            display: Some(display),
+        }
     }
 
     pub fn enabled(budget_tokens: Option<u32>) -> Self {
@@ -114,6 +169,9 @@ pub struct AnthropicOptions {
         alias = "structuredOutputMode"
     )]
     pub structured_output_mode: Option<AnthropicStructuredOutputMode>,
+    /// Output budget advisory, sent as `output_config: { task_budget }`.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "taskBudget")]
+    pub task_budget: Option<AnthropicTaskBudget>,
     /// Whether to force at most one tool call per response.
     #[serde(
         skip_serializing_if = "Option::is_none",
@@ -147,6 +205,9 @@ pub struct AnthropicOptions {
     /// Fast/standard generation mode.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub speed: Option<AnthropicSpeed>,
+    /// Inference region policy (`inferenceGeo` -> API `inference_geo`).
+    #[serde(skip_serializing_if = "Option::is_none", alias = "inferenceGeo")]
+    pub inference_geo: Option<AnthropicInferenceGeo>,
     /// Additional beta headers requested at the provider-options layer.
     #[serde(skip_serializing_if = "Option::is_none", alias = "anthropicBeta")]
     pub anthropic_beta: Option<Vec<String>>,
@@ -209,6 +270,11 @@ impl AnthropicOptions {
         self
     }
 
+    pub fn with_task_budget(mut self, task_budget: AnthropicTaskBudget) -> Self {
+        self.task_budget = Some(task_budget);
+        self
+    }
+
     /// Configure whether parallel tool use is disabled.
     pub fn with_disable_parallel_tool_use(mut self, disabled: bool) -> Self {
         self.disable_parallel_tool_use = Some(disabled);
@@ -259,6 +325,11 @@ impl AnthropicOptions {
 
     pub fn with_speed(mut self, speed: AnthropicSpeed) -> Self {
         self.speed = Some(speed);
+        self
+    }
+
+    pub fn with_inference_geo(mut self, inference_geo: AnthropicInferenceGeo) -> Self {
+        self.inference_geo = Some(inference_geo);
         self
     }
 
@@ -439,37 +510,58 @@ pub enum AnthropicContainerSkillType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct AnthropicContainerSkill {
-    /// Skill provider type (e.g., "anthropic", "custom").
-    #[serde(rename = "type")]
-    pub skill_type: AnthropicContainerSkillType,
-    /// Skill id (snake_case for the HTTP API).
-    #[serde(alias = "skillId")]
-    pub skill_id: String,
-    /// Skill version (e.g., "latest").
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub version: Option<String>,
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum AnthropicContainerSkill {
+    Anthropic {
+        /// Skill id (snake_case for the HTTP API).
+        #[serde(alias = "skillId")]
+        skill_id: String,
+        /// Skill version (e.g., "latest").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
+    },
+    Custom {
+        /// Provider-owned reference map from the public AI SDK-style surface.
+        #[serde(alias = "providerReference")]
+        provider_reference: ProviderReference,
+        /// Skill version (e.g., "latest").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
+    },
 }
 
 impl AnthropicContainerSkill {
     pub fn anthropic(skill_id: impl Into<String>) -> Self {
-        Self {
-            skill_type: AnthropicContainerSkillType::Anthropic,
+        Self::Anthropic {
             skill_id: skill_id.into(),
             version: None,
         }
     }
 
-    pub fn custom(skill_id: impl Into<String>) -> Self {
-        Self {
-            skill_type: AnthropicContainerSkillType::Custom,
-            skill_id: skill_id.into(),
+    pub fn custom(provider_reference: ProviderReference) -> Self {
+        Self::Custom {
+            provider_reference,
             version: None,
+        }
+    }
+
+    pub fn skill_type(&self) -> AnthropicContainerSkillType {
+        match self {
+            Self::Anthropic { .. } => AnthropicContainerSkillType::Anthropic,
+            Self::Custom { .. } => AnthropicContainerSkillType::Custom,
         }
     }
 
     pub fn with_version(mut self, version: impl Into<String>) -> Self {
-        self.version = Some(version.into());
+        let version = Some(version.into());
+        match &mut self {
+            Self::Anthropic {
+                version: current, ..
+            }
+            | Self::Custom {
+                version: current, ..
+            } => *current = version,
+        }
         self
     }
 }
@@ -753,8 +845,14 @@ mod tests {
                 ]
             },
             "toolStreaming": false,
-            "effort": "max",
+            "effort": "xhigh",
+            "taskBudget": {
+                "type": "tokens",
+                "total": 400000,
+                "remaining": 215000
+            },
             "speed": "fast",
+            "inferenceGeo": "us",
             "anthropicBeta": ["beta-1"]
         }))
         .expect("deserialize anthropic options");
@@ -806,8 +904,7 @@ mod tests {
                 .as_ref()
                 .and_then(|container| container.skills.as_ref())
                 .and_then(|skills| skills.first()),
-            Some(AnthropicContainerSkill {
-                skill_type: AnthropicContainerSkillType::Anthropic,
+            Some(AnthropicContainerSkill::Anthropic {
                 skill_id,
                 version: Some(version),
             }) if skill_id == "pptx" && version == "latest"
@@ -824,9 +921,88 @@ mod tests {
             })
         ));
         assert_eq!(options.tool_streaming, Some(false));
-        assert_eq!(options.effort, Some(AnthropicEffort::Max));
+        assert_eq!(options.effort, Some(AnthropicEffort::Xhigh));
+        assert_eq!(
+            options.task_budget,
+            Some(AnthropicTaskBudget::tokens(400000).with_remaining(215000))
+        );
         assert_eq!(options.speed, Some(AnthropicSpeed::Fast));
+        assert_eq!(options.inference_geo, Some(AnthropicInferenceGeo::Us));
         assert_eq!(options.anthropic_beta, Some(vec!["beta-1".to_string()]));
+    }
+
+    #[test]
+    fn adaptive_thinking_display_roundtrips() {
+        let value = serde_json::to_value(AnthropicThinkingConfig::adaptive_with_display(
+            AnthropicThinkingDisplay::Summarized,
+        ))
+        .expect("serialize adaptive thinking config");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "type": "adaptive",
+                "display": "summarized"
+            })
+        );
+
+        let parsed: AnthropicThinkingConfig =
+            serde_json::from_value(value).expect("deserialize adaptive thinking config");
+        assert_eq!(
+            parsed,
+            AnthropicThinkingConfig::adaptive_with_display(AnthropicThinkingDisplay::Summarized)
+        );
+    }
+
+    #[test]
+    fn custom_container_skill_roundtrips_provider_reference_shape() {
+        let value = serde_json::to_value(
+            AnthropicContainerSkill::custom(ProviderReference::single(
+                "anthropic",
+                "skill_custom_1",
+            ))
+            .with_version("latest"),
+        )
+        .expect("serialize custom container skill");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "type": "custom",
+                "provider_reference": {
+                    "anthropic": "skill_custom_1"
+                },
+                "version": "latest"
+            })
+        );
+
+        let parsed: AnthropicContainerSkill =
+            serde_json::from_value(value).expect("deserialize custom container skill");
+        assert!(matches!(
+            parsed,
+            AnthropicContainerSkill::Custom {
+                provider_reference,
+                version: Some(version),
+            } if provider_reference.get("anthropic") == Some("skill_custom_1") && version == "latest"
+        ));
+    }
+
+    #[test]
+    fn task_budget_serializes_to_snake_case_request_shape() {
+        let value = serde_json::to_value(
+            AnthropicOptions::new()
+                .with_task_budget(AnthropicTaskBudget::tokens(400000).with_remaining(215000)),
+        )
+        .expect("serialize anthropic options");
+
+        assert_eq!(
+            value.get("task_budget"),
+            Some(&serde_json::json!({
+                "type": "tokens",
+                "total": 400000,
+                "remaining": 215000
+            }))
+        );
     }
 
     #[test]
@@ -863,12 +1039,14 @@ mod tests {
         let value = serde_json::to_value(
             AnthropicOptions::new()
                 .with_speed(AnthropicSpeed::Fast)
+                .with_inference_geo(AnthropicInferenceGeo::Global)
                 .with_anthropic_beta("beta-1"),
         )
         .expect("serialize anthropic options");
 
         let obj = value.as_object().expect("anthropic options object");
         assert_eq!(obj.get("speed"), Some(&serde_json::json!("fast")));
+        assert_eq!(obj.get("inference_geo"), Some(&serde_json::json!("global")));
         assert_eq!(
             obj.get("anthropic_beta"),
             Some(&serde_json::json!(["beta-1"]))
@@ -884,9 +1062,11 @@ mod tests {
     fn options_aliases_keep_the_same_serialized_shape() {
         let canonical = AnthropicLanguageModelOptions::new()
             .with_speed(AnthropicSpeed::Standard)
+            .with_inference_geo(AnthropicInferenceGeo::Global)
             .with_send_reasoning(true);
         let deprecated = AnthropicProviderOptions::new()
             .with_speed(AnthropicSpeed::Standard)
+            .with_inference_geo(AnthropicInferenceGeo::Global)
             .with_send_reasoning(true);
 
         assert_eq!(

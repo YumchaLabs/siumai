@@ -199,15 +199,20 @@ impl CacheAwareMessageBuilder {
                                 "text": text
                             }));
                         }
-                        ContentPart::Image { source, detail, .. } => {
+                        ContentPart::Image {
+                            source,
+                            media_type,
+                            detail,
+                            ..
+                        } => {
                             let (media_type, data) = match source {
                                 FilePartSource::Media(MediaSource::Base64 { data }) => {
-                                    ("image/jpeg", data.clone())
+                                    (media_type.as_deref().unwrap_or("image/jpeg"), data.clone())
                                 }
                                 FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
-                                    ("image/jpeg", encoded)
+                                    (media_type.as_deref().unwrap_or("image/jpeg"), encoded)
                                 }
                                 FilePartSource::Media(MediaSource::Url { url }) => {
                                     content_parts.push(serde_json::json!({

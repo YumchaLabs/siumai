@@ -146,3 +146,120 @@ async fn anthropic_public_roundtrip_preserves_extended_usage_fields() {
         Some(2)
     );
 }
+
+#[test]
+fn anthropic_public_message_metadata_surface_matches_narrow_typed_shape() {
+    let mut response = ChatResponse {
+        id: Some("msg_meta".to_string()),
+        model: Some("claude-sonnet-4-5".to_string()),
+        content: MessageContent::Text(String::new()),
+        usage: None,
+        finish_reason: Some(FinishReason::Stop),
+        raw_finish_reason: None,
+        audio: None,
+        system_fingerprint: None,
+        service_tier: None,
+        warnings: None,
+        provider_metadata: Some(HashMap::from([(
+            "anthropic".to_string(),
+            serde_json::json!({
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 2
+                },
+                "stopSequence": null,
+                "iterations": null,
+                "container": null,
+                "contextManagement": null
+            }),
+        )])),
+    };
+
+    let metadata = response
+        .anthropic_message_metadata()
+        .expect("anthropic message metadata");
+
+    assert_eq!(
+        serde_json::to_value(&metadata).expect("serialize message metadata"),
+        serde_json::json!({
+            "usage": {
+                "input_tokens": 10,
+                "output_tokens": 2
+            },
+            "stopSequence": null,
+            "iterations": null,
+            "container": null,
+            "contextManagement": null
+        })
+    );
+
+    let wide = response.anthropic_metadata().expect("anthropic metadata");
+    assert_eq!(
+        wide.usage
+            .as_ref()
+            .and_then(|usage| usage.get("input_tokens"))
+            .and_then(|value| value.as_u64()),
+        Some(10)
+    );
+    response.provider_metadata = None;
+    assert!(response.anthropic_message_metadata().is_none());
+}
+
+#[test]
+fn anthropic_public_message_metadata_container_surface_is_typed() {
+    let response = ChatResponse {
+        id: Some("msg_meta_container".to_string()),
+        model: Some("claude-sonnet-4-5".to_string()),
+        content: MessageContent::Text(String::new()),
+        usage: None,
+        finish_reason: Some(FinishReason::Stop),
+        raw_finish_reason: None,
+        audio: None,
+        system_fingerprint: None,
+        service_tier: None,
+        warnings: None,
+        provider_metadata: Some(HashMap::from([(
+            "anthropic".to_string(),
+            serde_json::json!({
+                "usage": {
+                    "input_tokens": 10,
+                    "output_tokens": 2
+                },
+                "stopSequence": null,
+                "iterations": null,
+                "container": {
+                    "id": "container_123",
+                    "expiresAt": "2026-04-22T12:00:00Z",
+                    "skills": [
+                        {
+                            "type": "anthropic",
+                            "skillId": "pptx",
+                            "version": "latest"
+                        }
+                    ]
+                },
+                "contextManagement": null
+            }),
+        )])),
+    };
+
+    let metadata = response
+        .anthropic_message_metadata()
+        .expect("anthropic message metadata");
+    let container = metadata.container.expect("typed message container");
+    assert_eq!(container.id, "container_123");
+    assert_eq!(container.expires_at, "2026-04-22T12:00:00Z");
+    let skills = container.skills.expect("typed message container skills");
+    assert_eq!(skills.len(), 1);
+    assert_eq!(skills[0].kind, "anthropic");
+    assert_eq!(skills[0].skill_id, "pptx");
+    assert_eq!(skills[0].version, "latest");
+
+    let wide = response.anthropic_metadata().expect("anthropic metadata");
+    assert_eq!(
+        wide.container
+            .as_ref()
+            .and_then(|container| container.id.as_deref()),
+        Some("container_123")
+    );
+}

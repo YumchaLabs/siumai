@@ -107,6 +107,7 @@ fn encode_anthropic_messages_sse(events: Vec<ChatStreamEvent>) -> Vec<u8> {
                     created: None,
                     provider: "anthropic".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             })
             .expect("serialize stream start");

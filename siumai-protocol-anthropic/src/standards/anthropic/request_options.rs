@@ -11,6 +11,8 @@ pub fn normalize_anthropic_provider_options_json(value: &Value) -> Value {
             "thinkingMode" => "thinking_mode",
             "responseFormat" => "response_format",
             "structuredOutputMode" => "structured_output_mode",
+            "taskBudget" => "task_budget",
+            "inferenceGeo" => "inference_geo",
             "contextManagement" => "context_management",
             "toolStreaming" => "tool_streaming",
             "sendReasoning" => "send_reasoning",
@@ -28,6 +30,7 @@ pub fn normalize_anthropic_provider_options_json(value: &Value) -> Value {
             "authorizationToken" => "authorization_token",
             "toolConfiguration" => "tool_configuration",
             "allowedTools" => "allowed_tools",
+            "providerReference" => "provider_reference",
             "skillId" => "skill_id",
             "userId" => "user_id",
             "clearAtLeast" => "clear_at_least",
@@ -56,6 +59,7 @@ pub fn normalize_anthropic_provider_options_json(value: &Value) -> Value {
                             .or_else(|| obj.get("budget_tokens"))
                             .and_then(|value| value.as_u64())
                             .and_then(|value| u32::try_from(value).ok());
+                        let display = obj.get("display").and_then(|value| value.as_str());
 
                         let mut thinking_mode = Map::new();
                         thinking_mode.insert("type".to_string(), json!(thinking_type));
@@ -63,6 +67,10 @@ pub fn normalize_anthropic_provider_options_json(value: &Value) -> Value {
                         if let Some(budget) = budget {
                             thinking_mode
                                 .insert("thinking_budget".to_string(), serde_json::json!(budget));
+                        }
+                        if let Some(display) = display {
+                            thinking_mode
+                                .insert("display".to_string(), Value::String(display.to_string()));
                         }
                         out.insert("thinking_mode".to_string(), Value::Object(thinking_mode));
                         continue;
@@ -103,7 +111,9 @@ pub fn anthropic_request_body_overlays_needed(req: &ChatRequest) -> bool {
         || container_overlay(&options).is_some()
         || context_management_overlay(&options).is_some()
         || effort_overlay(&options).is_some()
+        || task_budget_overlay(&options).is_some()
         || speed_overlay(&options).is_some()
+        || inference_geo_overlay(&options).is_some()
 }
 
 /// Apply provider-option-driven Anthropic body overlays after the base request is built.
@@ -113,8 +123,15 @@ pub fn apply_anthropic_request_body_overlays(req: &ChatRequest, body: &mut Value
             body["thinking"] = thinking;
         }
 
-        if let Some(output_format) = response_format_overlay(&options) {
-            body["output_format"] = output_format;
+        if let Some(response_format) = response_format_overlay(&options) {
+            match response_format {
+                ResponseFormatOverlay::OutputFormat(output_format) => {
+                    body["output_format"] = output_format;
+                }
+                ResponseFormatOverlay::OutputConfigFormat(format) => {
+                    set_output_config_field(body, "format", format);
+                }
+            }
         }
 
         if let Some(cache_control) = cache_control_overlay(&options) {
@@ -138,13 +155,19 @@ pub fn apply_anthropic_request_body_overlays(req: &ChatRequest, body: &mut Value
         }
 
         if let Some(effort) = effort_overlay(&options) {
-            body["output_config"] = json!({
-                "effort": effort,
-            });
+            set_output_config_field(body, "effort", effort);
+        }
+
+        if let Some(task_budget) = task_budget_overlay(&options) {
+            set_output_config_field(body, "task_budget", task_budget);
         }
 
         if let Some(speed) = speed_overlay(&options) {
             body["speed"] = speed;
+        }
+
+        if let Some(inference_geo) = inference_geo_overlay(&options) {
+            body["inference_geo"] = inference_geo;
         }
     }
 
@@ -172,6 +195,10 @@ pub(crate) fn finalize_anthropic_thinking_body(req: &ChatRequest, body: &mut Val
         .get("budget_tokens")
         .or_else(|| thinking.get("budgetTokens"))
         .and_then(|value| value.as_u64());
+    let display = thinking
+        .get("display")
+        .and_then(|value| value.as_str())
+        .map(str::to_string);
 
     if !matches!(thinking_type.as_str(), "enabled" | "adaptive") {
         return;
@@ -200,9 +227,12 @@ pub(crate) fn finalize_anthropic_thinking_body(req: &ChatRequest, body: &mut Val
             body["max_tokens"] = json!(base_max_tokens.saturating_add(budget_tokens));
         }
     } else {
-        body["thinking"] = json!({
-            "type": "adaptive",
-        });
+        let mut adaptive = serde_json::Map::new();
+        adaptive.insert("type".to_string(), json!("adaptive"));
+        if let Some(display) = display {
+            adaptive.insert("display".to_string(), Value::String(display));
+        }
+        body["thinking"] = Value::Object(adaptive);
     }
 }
 
@@ -220,7 +250,14 @@ fn thinking_overlay(options: &Map<String, Value>) -> Option<(Value, Option<u64>)
         .unwrap_or("disabled");
 
     match thinking_type {
-        "adaptive" => Some((json!({ "type": "adaptive" }), None)),
+        "adaptive" => {
+            let mut adaptive = serde_json::Map::new();
+            adaptive.insert("type".to_string(), json!("adaptive"));
+            if let Some(display) = thinking.get("display").and_then(|value| value.as_str()) {
+                adaptive.insert("display".to_string(), Value::String(display.to_string()));
+            }
+            Some((Value::Object(adaptive), None))
+        }
         "enabled" => {
             let budget_tokens = thinking
                 .get("thinking_budget")
@@ -239,12 +276,19 @@ fn thinking_overlay(options: &Map<String, Value>) -> Option<(Value, Option<u64>)
     }
 }
 
-fn response_format_overlay(options: &Map<String, Value>) -> Option<Value> {
+enum ResponseFormatOverlay {
+    OutputFormat(Value),
+    OutputConfigFormat(Value),
+}
+
+fn response_format_overlay(options: &Map<String, Value>) -> Option<ResponseFormatOverlay> {
     let value = options.get("response_format")?;
 
     if let Some(kind) = value.as_str() {
         if is_json_object_kind(kind) {
-            return Some(json!({ "type": "json_object" }));
+            return Some(ResponseFormatOverlay::OutputFormat(
+                json!({ "type": "json_object" }),
+            ));
         }
         return None;
     }
@@ -253,10 +297,12 @@ fn response_format_overlay(options: &Map<String, Value>) -> Option<Value> {
 
     if let Some(kind) = obj.get("type").and_then(|value| value.as_str()) {
         if is_json_object_kind(kind) {
-            return Some(json!({ "type": "json_object" }));
+            return Some(ResponseFormatOverlay::OutputFormat(
+                json!({ "type": "json_object" }),
+            ));
         }
         if is_json_schema_kind(kind) {
-            return json_schema_output_format(obj);
+            return json_schema_format(obj).map(ResponseFormatOverlay::OutputConfigFormat);
         }
     }
 
@@ -265,7 +311,9 @@ fn response_format_overlay(options: &Map<String, Value>) -> Option<Value> {
         || obj.contains_key("json_object")
         || obj.contains_key("json-object")
     {
-        return Some(json!({ "type": "json_object" }));
+        return Some(ResponseFormatOverlay::OutputFormat(
+            json!({ "type": "json_object" }),
+        ));
     }
 
     let schema_value = obj
@@ -274,7 +322,7 @@ fn response_format_overlay(options: &Map<String, Value>) -> Option<Value> {
         .or_else(|| obj.get("json_schema"))
         .and_then(|value| value.as_object())?;
 
-    json_schema_output_format(schema_value)
+    json_schema_format(schema_value).map(ResponseFormatOverlay::OutputConfigFormat)
 }
 
 fn cache_control_overlay(options: &Map<String, Value>) -> Option<Value> {
@@ -305,7 +353,7 @@ fn metadata_overlay(options: &Map<String, Value>) -> Option<Value> {
     }
 }
 
-fn json_schema_output_format(source: &Map<String, Value>) -> Option<Value> {
+fn json_schema_format(source: &Map<String, Value>) -> Option<Value> {
     let schema = source.get("schema")?.clone();
     let mut out = Map::new();
     out.insert("type".to_string(), json!("json_schema"));
@@ -353,10 +401,21 @@ fn container_overlay(options: &Map<String, Value>) -> Option<Value> {
                     if let Some(value) = skill.get("type") {
                         out.insert("type".to_string(), value.clone());
                     }
-                    let skill_id = skill
-                        .get("skill_id")
-                        .and_then(|value| value.as_str())
-                        .map(ToString::to_string);
+                    let skill_type = skill.get("type").and_then(|value| value.as_str());
+                    let skill_id = if skill_type == Some("custom") {
+                        skill
+                            .get("provider_reference")
+                            .and_then(|value| value.as_object())
+                            .and_then(|value| value.get("anthropic"))
+                            .and_then(|value| value.as_str())
+                            .or_else(|| skill.get("skill_id").and_then(|value| value.as_str()))
+                            .map(ToString::to_string)
+                    } else {
+                        skill
+                            .get("skill_id")
+                            .and_then(|value| value.as_str())
+                            .map(ToString::to_string)
+                    };
                     if let Some(skill_id) = skill_id {
                         out.insert("skill_id".to_string(), json!(skill_id));
                     }
@@ -405,8 +464,50 @@ fn effort_overlay(options: &Map<String, Value>) -> Option<Value> {
     options.get("effort").cloned()
 }
 
+fn task_budget_overlay(options: &Map<String, Value>) -> Option<Value> {
+    let budget = options.get("task_budget")?.as_object()?;
+    let mut out = Map::new();
+
+    let kind = budget.get("type")?.as_str()?;
+    if kind != "tokens" {
+        return None;
+    }
+
+    out.insert("type".to_string(), Value::String(kind.to_string()));
+    out.insert(
+        "total".to_string(),
+        Value::from(budget.get("total")?.as_u64()?),
+    );
+
+    if let Some(remaining) = budget.get("remaining").and_then(|value| value.as_u64()) {
+        out.insert("remaining".to_string(), Value::from(remaining));
+    }
+
+    Some(Value::Object(out))
+}
+
 fn speed_overlay(options: &Map<String, Value>) -> Option<Value> {
     options.get("speed").cloned()
+}
+
+fn inference_geo_overlay(options: &Map<String, Value>) -> Option<Value> {
+    options.get("inference_geo").cloned()
+}
+
+pub(crate) fn set_output_config_field(body: &mut Value, key: &str, value: Value) {
+    let Some(body_obj) = body.as_object_mut() else {
+        return;
+    };
+
+    let entry = body_obj
+        .entry("output_config".to_string())
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !entry.is_object() {
+        *entry = Value::Object(Map::new());
+    }
+    if let Some(output_config) = entry.as_object_mut() {
+        output_config.insert(key.to_string(), value);
+    }
 }
 
 pub(crate) fn cap_max_tokens_for_known_model(model_id: &str, body: &mut Value) {
@@ -463,11 +564,18 @@ mod tests {
     fn normalize_provider_options_maps_extended_anthropic_request_keys() {
         let normalized = normalize_anthropic_provider_options_json(&json!({
             "thinking": {
-                "type": "adaptive"
+                "type": "adaptive",
+                "display": "summarized"
+            },
+            "taskBudget": {
+                "type": "tokens",
+                "total": 400000,
+                "remaining": 215000
             },
             "metadata": {
                 "userId": "user-1"
             },
+            "inferenceGeo": "us",
             "contextManagement": {
                 "edits": [{
                     "type": "compact_20260112",
@@ -481,7 +589,17 @@ mod tests {
 
         assert_eq!(normalized["thinking_mode"]["type"], json!("adaptive"));
         assert_eq!(normalized["thinking_mode"]["enabled"], json!(true));
+        assert_eq!(normalized["thinking_mode"]["display"], json!("summarized"));
+        assert_eq!(
+            normalized["task_budget"],
+            json!({
+                "type": "tokens",
+                "total": 400000,
+                "remaining": 215000
+            })
+        );
         assert_eq!(normalized["metadata"]["user_id"], json!("user-1"));
+        assert_eq!(normalized["inference_geo"], json!("us"));
         assert_eq!(
             normalized["context_management"]["edits"][0]["pause_after_compaction"],
             json!(true)
@@ -498,7 +616,8 @@ mod tests {
                 "anthropic",
                 json!({
                     "thinking": {
-                        "type": "adaptive"
+                        "type": "adaptive",
+                        "display": "summarized"
                     },
                     "cacheControl": {
                         "type": "ephemeral",
@@ -507,7 +626,8 @@ mod tests {
                     "metadata": {
                         "userId": "user-1"
                     },
-                    "speed": "fast"
+                    "speed": "fast",
+                    "inferenceGeo": "global"
                 }),
             );
 
@@ -521,7 +641,13 @@ mod tests {
 
         apply_anthropic_request_body_overlays(&req, &mut body);
 
-        assert_eq!(body["thinking"], json!({ "type": "adaptive" }));
+        assert_eq!(
+            body["thinking"],
+            json!({
+                "type": "adaptive",
+                "display": "summarized"
+            })
+        );
         assert_eq!(body["max_tokens"], json!(2000));
         assert!(body.get("temperature").is_none());
         assert!(body.get("top_p").is_none());
@@ -539,6 +665,7 @@ mod tests {
             })
         );
         assert_eq!(body["speed"], json!("fast"));
+        assert_eq!(body["inference_geo"], json!("global"));
     }
 
     #[test]
@@ -582,5 +709,101 @@ mod tests {
         assert_eq!(body["max_tokens"], json!(3000));
         assert!(body.get("temperature").is_none());
         assert!(body.get("top_p").is_none());
+    }
+
+    #[test]
+    fn apply_body_overlays_merge_output_config_format_effort_and_task_budget() {
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                json!({
+                    "responseFormat": {
+                        "type": "jsonSchema",
+                        "schema": {
+                            "type": "object",
+                            "properties": {
+                                "value": { "type": "string" }
+                            }
+                        },
+                        "strict": true
+                    },
+                    "effort": "high",
+                    "taskBudget": {
+                        "type": "tokens",
+                        "total": 400000,
+                        "remaining": 215000
+                    }
+                }),
+            );
+
+        let mut body = json!({
+            "model": "claude-sonnet-4-5",
+            "messages": [],
+            "max_tokens": 2000
+        });
+
+        apply_anthropic_request_body_overlays(&req, &mut body);
+
+        assert_eq!(
+            body["output_config"],
+            json!({
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "value": { "type": "string" }
+                        }
+                    },
+                    "strict": true
+                },
+                "effort": "high",
+                "task_budget": {
+                    "type": "tokens",
+                    "total": 400000,
+                    "remaining": 215000
+                }
+            })
+        );
+    }
+
+    #[test]
+    fn container_overlay_resolves_custom_skill_provider_reference() {
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_provider_option(
+                "anthropic",
+                json!({
+                    "container": {
+                        "id": "container-1",
+                        "skills": [{
+                            "type": "custom",
+                            "providerReference": {
+                                "anthropic": "skill_custom_1"
+                            },
+                            "version": "latest"
+                        }]
+                    }
+                }),
+            );
+
+        let mut body = json!({
+            "model": "claude-sonnet-4-6",
+            "messages": [],
+            "max_tokens": 2000
+        });
+
+        apply_anthropic_request_body_overlays(&req, &mut body);
+
+        assert_eq!(
+            body["container"],
+            json!({
+                "id": "container-1",
+                "skills": [{
+                    "type": "custom",
+                    "skill_id": "skill_custom_1",
+                    "version": "latest"
+                }]
+            })
+        );
     }
 }
