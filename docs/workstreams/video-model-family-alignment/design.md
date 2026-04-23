@@ -1,6 +1,6 @@
 # Video Model Family Alignment - Design
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 ## Problem
 
@@ -114,6 +114,8 @@ The facade now also exposes a higher-level helper layer above the task-oriented 
 - `generate(...)` submits and polls one or more tasks, returning final generated video assets plus
   the underlying completed task responses, warnings, response envelopes, and aggregated provider
   metadata
+- URL-backed final assets are now also materialized by default on `generate(...)`, with an
+  explicit opt-out on `GenerateOptions`
 
 This stays intentionally Rust-first rather than cloning AI SDK's callable `doGenerate(...)` model
 shape:
@@ -122,7 +124,8 @@ shape:
 - larger `count` values are batched using stable `max_videos_per_call` metadata when available,
   matching the AI SDK `maxVideosPerCall` split more closely
 - final assets are extracted from provider-owned `videos[]` metadata when present, with truthful
-  fallback to task-level `video_url` / `file_id`
+  fallback to task-level `videoUrl` / canonical `providerReference` and only then the legacy
+  `fileId`
 - the helper still does not pretend the current stable result surface already owns automatic
   provider-agnostic binary materialization for URL-backed videos
 
@@ -132,11 +135,15 @@ This workstream now closes more than just model construction. The stable video l
 
 - object-safe `max_videos_per_call` metadata on the capability/core/registry path
 - high-level `generate(...)` batching that honors explicit or model-default per-call limits
-- a higher-level `generate_materialized(...)` helper that composes generation plus explicit final
-  asset materialization
-- a stable `GenerateVideoResult` that separates final `videos` from underlying `tasks`
+- a stable `GenerateVideoResult` / `GenerateMaterializedVideoResult` shape that now exposes both a
+  mandatory first `video` plus the full `videos` list
+- default URL materialization on `generate(...)`, plus `GenerateOptions.materialize_urls` /
+  `materialize_http_config` for helper-level control
+- a higher-level `generate_materialized(...)` helper that still composes generation plus explicit
+  `MaterializedVideo` normalization
 - explicit `GeneratedVideo::materialize(...)` / `GenerateVideoResult::materialize_*` helpers for
-  byte/base64 materialization of final assets
+  byte/base64 materialization of final assets, plus direct `GeneratedVideo::bytes()` /
+  `GeneratedVideo::base64()` accessors when the asset is already inline/materialized
 - a specialized `LlmError::NoVideoGenerated` result when completed tasks expose no final assets,
   carrying best-effort final response metadata instead of collapsing that case into a generic parse
   failure
@@ -160,11 +167,12 @@ The main remaining gaps are now narrower and explicit:
 
 - Rust keeps the core execution contract task-oriented instead of faking AI SDK
   `Experimental_VideoModelV4.doGenerate(...)`
-- URL-backed final videos are not auto-downloaded/materialized by default inside `generate(...)`
-  the way AI SDK returns `GeneratedFile`; Rust currently makes that step explicit through
-  materialization helpers
-- provider references still remain intentionally provider-owned on the stable Rust surface because
-  there is no audited provider-agnostic download contract for them yet
+- provider-reference results now have audited provider-owned materialization adapters on the
+  Gemini and MiniMaxi paths, but they still remain intentionally provider-owned on the stable Rust
+  surface because there is no audited provider-agnostic download contract for them yet
+- provider-owned URL outputs that are not directly downloadable on the helper path, such as
+  current Vertex `gs://...` assets, still require a separate authenticated runtime rather than a
+  fake generic downloader
 
 Those now belong in the remaining result-materialization layer above the task-oriented runtime, not
 as fake behavior on the core family contract.
@@ -177,6 +185,10 @@ This slice is locked by:
 - `siumai-registry/src/registry/factories/contract_tests.rs`
 - `siumai/tests/public_surface_imports_test.rs`
 - `siumai/tests/provider_public_path_parity_test.rs`
+- top-level public-path parity coverage for Gemini canonical `providerReference` task-query
+  responses and Vertex raw `videoUrl`-only task-query responses
+- feature-gated provider-local Gemini video unit coverage now compiles on the real
+  `cargo test --features google` lane instead of silently living behind an unbuilt module graph
 - `cargo check -p siumai-registry --features "google-vertex xai minimaxi"`
 - `cargo check -p siumai --features "google-vertex xai minimaxi"`
 - focused `cargo nextest` registry/facade parity runs on the same feature set
@@ -184,7 +196,5 @@ This slice is locked by:
 
 ## Remaining follow-up
 
-- Decide whether high-level `generate(...)` should auto-materialize URL-backed videos by default or
-  keep explicit `materialize(...)` helpers as the stable Rust contract.
-- Decide whether provider-reference-only results should eventually grow provider-owned download
-  adapters without pretending they are generically portable.
+- Revisit the remaining provider-owned download gaps, including non-downloadable URL outputs such
+  as current Vertex GCS-owned assets, without pretending they are now generically portable.

@@ -30,6 +30,20 @@ impl VideoGenerationCapability for Siumai {
         }
     }
 
+    async fn materialize_video_reference(
+        &self,
+        provider_reference: &ProviderReference,
+    ) -> Result<MaterializedVideoAsset, LlmError> {
+        if let Some(video) = self.client.as_video_generation_capability() {
+            video.materialize_video_reference(provider_reference).await
+        } else {
+            Err(LlmError::UnsupportedOperation(format!(
+                "Provider {} does not support video generation.",
+                self.client.provider_id()
+            )))
+        }
+    }
+
     fn max_videos_per_call(&self) -> Option<u32> {
         self.client
             .as_video_generation_capability()

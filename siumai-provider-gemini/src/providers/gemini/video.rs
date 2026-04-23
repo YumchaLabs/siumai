@@ -11,11 +11,11 @@ use crate::execution::executors::common::{HttpBody, execute_get_request, execute
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::wiring::HttpExecutionWiring;
 use crate::retry_api::RetryOptions;
-use crate::types::Warning;
 use crate::types::video::{
     BaseResponse, VideoGenerationInput, VideoGenerationRequest, VideoGenerationResponse,
     VideoTaskStatus, VideoTaskStatusResponse,
 };
+use crate::types::{ProviderReference, Warning};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -473,12 +473,13 @@ impl GeminiVideo {
         retry_options: Option<RetryOptions>,
         http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
     ) -> Self {
+        let effective_http_transport = http_transport.or_else(|| config.http_transport.clone());
         Self {
             config,
             http_client,
             http_interceptors,
             retry_options,
-            http_transport,
+            http_transport: effective_http_transport,
         }
     }
 
@@ -541,6 +542,7 @@ impl GeminiVideo {
                 status: VideoTaskStatus::Processing,
                 file_id: None,
                 video_url: None,
+                provider_reference: None,
                 duration: None,
                 video_width: None,
                 video_height: None,
@@ -556,6 +558,7 @@ impl GeminiVideo {
                 status: VideoTaskStatus::Fail,
                 file_id: None,
                 video_url: None,
+                provider_reference: None,
                 duration: None,
                 video_width: None,
                 video_height: None,
@@ -585,8 +588,14 @@ impl GeminiVideo {
         Ok(VideoTaskStatusResponse {
             task_id: op.name,
             status: VideoTaskStatus::Success,
-            file_id,
+            file_id: file_id.clone(),
             video_url: None,
+            provider_reference: file_id.as_ref().map(|file_id| {
+                ProviderReference::from([
+                    ("gemini", file_id.as_str()),
+                    ("google", file_id.as_str()),
+                ])
+            }),
             duration: None,
             video_width: None,
             video_height: None,
@@ -602,8 +611,10 @@ impl GeminiVideo {
 
 pub fn get_supported_veo_models() -> Vec<String> {
     vec![
+        "veo-3.1-generate".to_string(),
         "veo-3.1-generate-preview".to_string(),
         "veo-3.1-fast-generate-preview".to_string(),
+        "veo-3.1-lite-generate-preview".to_string(),
         "veo-3.0-generate-001".to_string(),
         "veo-3.0-fast-generate-001".to_string(),
         "veo-2.0-generate-001".to_string(),
@@ -631,6 +642,94 @@ pub fn get_supported_veo_resolutions(model: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
+        HttpTransportStreamBody, HttpTransportStreamResponse,
+    };
+    use async_trait::async_trait;
+    use reqwest::header::{CONTENT_TYPE, HeaderMap, HeaderValue};
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct JsonCaptureTransport {
+        response_body: Arc<Vec<u8>>,
+        last: Arc<Mutex<Option<HttpTransportRequest>>>,
+        last_get: Arc<Mutex<Option<HttpTransportGetRequest>>>,
+    }
+
+    impl JsonCaptureTransport {
+        fn new(response: serde_json::Value) -> Self {
+            Self {
+                response_body: Arc::new(serde_json::to_vec(&response).expect("response json")),
+                last: Arc::new(Mutex::new(None)),
+                last_get: Arc::new(Mutex::new(None)),
+            }
+        }
+
+        fn take_get(&self) -> Option<HttpTransportGetRequest> {
+            self.last_get.lock().expect("lock get request").take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for JsonCaptureTransport {
+        async fn execute_json(
+            &self,
+            request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last.lock().expect("lock request") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: self.response_body.as_ref().clone(),
+            })
+        }
+
+        async fn execute_get(
+            &self,
+            request: HttpTransportGetRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last_get.lock().expect("lock get request") = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: self.response_body.as_ref().clone(),
+            })
+        }
+
+        async fn execute_stream(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportStreamResponse, LlmError> {
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("text/event-stream"));
+
+            Ok(HttpTransportStreamResponse {
+                status: 200,
+                headers,
+                body: HttpTransportStreamBody::from_bytes(b"data: [DONE]\n\n".to_vec()),
+            })
+        }
+    }
+
+    fn warning_feature(warning: Warning) -> String {
+        match warning {
+            Warning::Unsupported { feature, .. } => feature,
+            Warning::UnsupportedSetting { setting, .. } => setting,
+            Warning::UnsupportedTool { tool_name, .. } => tool_name,
+            Warning::Compatibility { feature, .. } => feature,
+            Warning::Deprecated { setting, .. } => setting,
+            Warning::Other { message } => message,
+        }
+    }
 
     #[test]
     fn normalize_model_accepts_resource_style() {
@@ -641,6 +740,27 @@ mod tests {
         assert_eq!(
             normalize_gemini_model_id("publishers/google/models/veo-2.0-generate-001"),
             "veo-2.0-generate-001"
+        );
+    }
+
+    #[test]
+    fn supported_veo_models_track_current_google_ids() {
+        let models = get_supported_veo_models();
+        assert!(models.iter().any(|model| model == "veo-3.1-generate"));
+        assert!(
+            models
+                .iter()
+                .any(|model| model == "veo-3.1-generate-preview")
+        );
+        assert!(
+            models
+                .iter()
+                .any(|model| model == "veo-3.1-fast-generate-preview")
+        );
+        assert!(
+            models
+                .iter()
+                .any(|model| model == "veo-3.1-lite-generate-preview")
         );
     }
 
@@ -691,13 +811,7 @@ mod tests {
 
         let warning_features = warnings
             .into_iter()
-            .map(|warning| match warning {
-                Warning::Unsupported { feature, .. } => feature,
-                Warning::UnsupportedSetting { setting, .. } => setting,
-                Warning::UnsupportedTool { tool_name, .. } => tool_name,
-                Warning::Compatibility { feature, .. } => feature,
-                Warning::Other { message } => message,
-            })
+            .map(warning_feature)
             .collect::<Vec<_>>();
         assert_eq!(warning_features, vec!["URL-based image input", "fps"]);
     }
@@ -738,13 +852,7 @@ mod tests {
 
         let warning_features = warnings
             .into_iter()
-            .map(|warning| match warning {
-                Warning::Unsupported { feature, .. } => feature,
-                Warning::UnsupportedSetting { setting, .. } => setting,
-                Warning::UnsupportedTool { tool_name, .. } => tool_name,
-                Warning::Compatibility { feature, .. } => feature,
-                Warning::Other { message } => message,
-            })
+            .map(warning_feature)
             .collect::<Vec<_>>();
         assert_eq!(warning_features, vec!["pollIntervalMs", "pollTimeoutMs"]);
     }
@@ -822,6 +930,75 @@ mod tests {
         assert_eq!(
             videos[1].get("mediaType").and_then(|value| value.as_str()),
             Some("video/webm")
+        );
+    }
+
+    #[tokio::test]
+    async fn query_video_task_returns_provider_reference_aliases_for_generated_file() {
+        let transport = JsonCaptureTransport::new(serde_json::json!({
+            "name": "operations/test-video-123",
+            "done": true,
+            "response": {
+                "generateVideoResponse": {
+                    "generatedSamples": [
+                        {
+                            "video": {
+                                "uri": "https://example.com/generated/video.mp4",
+                                "mimeType": "video/mp4"
+                            }
+                        }
+                    ]
+                }
+            }
+        }));
+        let config = crate::providers::gemini::GeminiConfig::new("test-key")
+            .with_base_url("https://example.com/v1beta".to_string())
+            .with_model("veo-3.1-generate-preview".to_string())
+            .with_http_transport(Arc::new(transport.clone()));
+        let video = GeminiVideo::new(config, reqwest::Client::new(), Vec::new(), None, None);
+
+        let response = video
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("query video task");
+
+        assert_eq!(response.status, VideoTaskStatus::Success);
+        assert_eq!(
+            response.file_id.as_deref(),
+            Some("https://example.com/generated/video.mp4")
+        );
+        let provider_reference = response
+            .provider_reference()
+            .expect("provider reference on gemini video task");
+        assert_eq!(
+            provider_reference.get("gemini"),
+            Some("https://example.com/generated/video.mp4")
+        );
+        assert_eq!(
+            provider_reference.get("google"),
+            Some("https://example.com/generated/video.mp4")
+        );
+        assert_eq!(response.video_url, None);
+        assert_eq!(
+            response
+                .metadata
+                .get("gemini")
+                .and_then(|value| value.get("videos"))
+                .and_then(|value| value.as_array())
+                .map(Vec::len),
+            Some(1)
+        );
+
+        let req = transport.take_get().expect("captured get request");
+        assert_eq!(
+            req.url,
+            "https://example.com/v1beta/operations/test-video-123"
+        );
+        assert_eq!(
+            req.headers
+                .get("x-goog-api-key")
+                .and_then(|value| value.to_str().ok()),
+            Some("test-key")
         );
     }
 }

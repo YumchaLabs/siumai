@@ -6,7 +6,10 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{HttpConfig, HttpResponseInfo, ProviderOptionsMap, Warning};
+use super::{
+    DataContent, HttpConfig, HttpResponseInfo, InvalidDataContentError, ProviderOptionsMap,
+    ProviderReference, Warning,
+};
 
 /// Video generation file payload aligned with AI SDK file inputs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,10 +41,30 @@ impl VideoGenerationFileData {
     }
 
     /// Convert the file data to bytes, decoding base64 when necessary.
-    pub fn as_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>, InvalidDataContentError> {
         match self {
-            Self::Base64(data) => base64::engine::general_purpose::STANDARD.decode(data),
+            Self::Base64(data) => base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|source| InvalidDataContentError::invalid_base64(data.clone(), source)),
             Self::Binary(data) => Ok(data.clone()),
+        }
+    }
+}
+
+impl From<DataContent> for VideoGenerationFileData {
+    fn from(value: DataContent) -> Self {
+        match value {
+            DataContent::Base64(data) => Self::Base64(data),
+            DataContent::Binary(data) => Self::Binary(data),
+        }
+    }
+}
+
+impl From<VideoGenerationFileData> for DataContent {
+    fn from(value: VideoGenerationFileData) -> Self {
+        match value {
+            VideoGenerationFileData::Base64(data) => Self::Base64(data),
+            VideoGenerationFileData::Binary(data) => Self::Binary(data),
         }
     }
 }
@@ -110,6 +133,15 @@ impl VideoGenerationInput {
     /// Create a file input from a base64 string and media type.
     pub fn base64_with_media_type(data: impl Into<String>, media_type: impl Into<String>) -> Self {
         Self::base64(data).with_media_type(media_type)
+    }
+
+    /// Create a file input from shared AI SDK-style data content.
+    pub fn from_data_content(data: DataContent) -> Self {
+        Self::File {
+            data: VideoGenerationFileData::from(data),
+            media_type: None,
+            provider_options_map: ProviderOptionsMap::default(),
+        }
     }
 
     /// Create a URL input.
@@ -535,10 +567,15 @@ impl VideoGenerationRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoGenerationResponse {
     /// Task ID for querying status
+    #[serde(rename = "taskId", alias = "task_id")]
     pub task_id: String,
 
     /// Base response with status information
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "baseResp",
+        alias = "base_resp",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub base_resp: Option<BaseResponse>,
 
     /// Additional provider-specific metadata.
@@ -562,6 +599,37 @@ pub struct BaseResponse {
 
     /// Status message
     pub status_msg: String,
+}
+
+/// Provider-owned materialized generated-video asset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MaterializedVideoAsset {
+    /// Raw video bytes.
+    pub bytes: Vec<u8>,
+
+    /// Optional IANA media type associated with the materialized bytes.
+    #[serde(
+        rename = "mediaType",
+        alias = "media_type",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub media_type: Option<String>,
+}
+
+impl MaterializedVideoAsset {
+    /// Create a materialized video asset from bytes.
+    pub fn new(bytes: impl Into<Vec<u8>>) -> Self {
+        Self {
+            bytes: bytes.into(),
+            media_type: None,
+        }
+    }
+
+    /// Attach a media type to the materialized asset.
+    pub fn with_media_type(mut self, media_type: impl Into<String>) -> Self {
+        self.media_type = Some(media_type.into());
+        self
+    }
 }
 
 /// Video generation task status
@@ -599,33 +667,65 @@ impl std::fmt::Display for VideoTaskStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoTaskStatusResponse {
     /// Task ID
+    #[serde(rename = "taskId", alias = "task_id")]
     pub task_id: String,
 
     /// Current task status
     pub status: VideoTaskStatus,
 
     /// File ID (available when status is Success)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "fileId",
+        alias = "file_id",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub file_id: Option<String>,
 
     /// Video URL (available when the provider exposes a directly downloadable asset URL).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "videoUrl",
+        alias = "video_url",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub video_url: Option<String>,
+
+    /// Canonical provider-owned final video reference.
+    ///
+    /// This is the preferred stable carrier for provider-managed assets. `file_id` remains as a
+    /// legacy compatibility field for providers that still expose only a single opaque id string.
+    #[serde(
+        rename = "providerReference",
+        alias = "provider_reference",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_reference: Option<ProviderReference>,
 
     /// Video duration in seconds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f32>,
 
     /// Video width in pixels (available when status is Success)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "videoWidth",
+        alias = "video_width",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub video_width: Option<u32>,
 
     /// Video height in pixels (available when status is Success)
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "videoHeight",
+        alias = "video_height",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub video_height: Option<u32>,
 
     /// Base response with status information
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "baseResp",
+        alias = "base_resp",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub base_resp: Option<BaseResponse>,
 
     /// Additional provider-specific metadata.
@@ -638,6 +738,23 @@ pub struct VideoTaskStatusResponse {
 }
 
 impl VideoTaskStatusResponse {
+    /// Return the canonical provider reference when it is already present.
+    pub fn provider_reference(&self) -> Option<&ProviderReference> {
+        self.provider_reference.as_ref()
+    }
+
+    /// Resolve the effective provider-owned reference, falling back to the legacy `file_id`.
+    pub fn effective_provider_reference(
+        &self,
+        provider_id: impl AsRef<str>,
+    ) -> Option<ProviderReference> {
+        self.provider_reference.clone().or_else(|| {
+            self.file_id
+                .as_ref()
+                .map(|file_id| ProviderReference::single(provider_id.as_ref(), file_id))
+        })
+    }
+
     /// Check if the task is complete (either Success or Fail)
     pub fn is_complete(&self) -> bool {
         matches!(
@@ -830,12 +947,29 @@ mod tests {
     }
 
     #[test]
+    fn test_video_generation_input_accepts_shared_data_content() {
+        let input = VideoGenerationInput::from_data_content(DataContent::binary(vec![4, 5, 6]))
+            .with_media_type("image/png");
+
+        assert_eq!(input.media_type(), Some("image/png"));
+        assert_eq!(
+            input
+                .file_data()
+                .expect("file data")
+                .as_bytes()
+                .expect("bytes"),
+            vec![4, 5, 6]
+        );
+    }
+
+    #[test]
     fn test_task_status_checks() {
         let mut response = VideoTaskStatusResponse {
             task_id: "123".to_string(),
             status: VideoTaskStatus::Processing,
             file_id: None,
             video_url: None,
+            provider_reference: None,
             duration: None,
             video_width: None,
             video_height: None,
@@ -856,6 +990,99 @@ mod tests {
         assert!(response.is_complete());
         assert!(response.is_failed());
         assert!(!response.is_success());
+    }
+
+    #[test]
+    fn test_video_task_status_response_serde_prefers_provider_reference_and_camel_case() {
+        let response = VideoTaskStatusResponse {
+            task_id: "task-123".to_string(),
+            status: VideoTaskStatus::Success,
+            file_id: Some("file-legacy".to_string()),
+            video_url: Some("https://example.com/video.mp4".to_string()),
+            provider_reference: Some(ProviderReference::from([
+                ("gemini", "files/123"),
+                ("google", "files/123"),
+            ])),
+            duration: Some(4.0),
+            video_width: Some(1280),
+            video_height: Some(720),
+            base_resp: Some(BaseResponse {
+                status_code: 0,
+                status_msg: "OK".to_string(),
+            }),
+            metadata: HashMap::new(),
+            response: None,
+        };
+
+        let value = serde_json::to_value(&response).expect("serialize video task response");
+        assert_eq!(value["taskId"], serde_json::json!("task-123"));
+        assert_eq!(value["fileId"], serde_json::json!("file-legacy"));
+        assert_eq!(
+            value["providerReference"]["gemini"],
+            serde_json::json!("files/123")
+        );
+        assert_eq!(
+            value["providerReference"]["google"],
+            serde_json::json!("files/123")
+        );
+        assert_eq!(
+            value["videoUrl"],
+            serde_json::json!("https://example.com/video.mp4")
+        );
+        assert_eq!(value["videoWidth"], serde_json::json!(1280));
+        assert_eq!(value["videoHeight"], serde_json::json!(720));
+        assert!(value.get("task_id").is_none());
+        assert!(value.get("provider_reference").is_none());
+
+        let parsed: VideoTaskStatusResponse = serde_json::from_value(serde_json::json!({
+            "task_id": "task-456",
+            "status": "Success",
+            "file_id": "file-snake",
+            "provider_reference": {
+                "minimaxi": "file-789"
+            },
+            "video_url": "https://example.com/alt.mp4",
+            "video_width": 1920,
+            "video_height": 1080
+        }))
+        .expect("deserialize snake_case video task response");
+
+        assert_eq!(parsed.task_id, "task-456");
+        assert_eq!(parsed.file_id.as_deref(), Some("file-snake"));
+        assert_eq!(
+            parsed
+                .provider_reference()
+                .and_then(|reference| reference.get("minimaxi")),
+            Some("file-789")
+        );
+        assert_eq!(
+            parsed.video_url.as_deref(),
+            Some("https://example.com/alt.mp4")
+        );
+        assert_eq!(parsed.video_width, Some(1920));
+        assert_eq!(parsed.video_height, Some(1080));
+    }
+
+    #[test]
+    fn test_video_task_status_response_effective_provider_reference_falls_back_to_file_id() {
+        let response = VideoTaskStatusResponse {
+            task_id: "task-789".to_string(),
+            status: VideoTaskStatus::Success,
+            file_id: Some("file-legacy".to_string()),
+            video_url: None,
+            provider_reference: None,
+            duration: None,
+            video_width: None,
+            video_height: None,
+            base_resp: None,
+            metadata: HashMap::new(),
+            response: None,
+        };
+
+        let effective = response
+            .effective_provider_reference("gemini")
+            .expect("fallback provider reference");
+        assert_eq!(effective.get("gemini"), Some("file-legacy"));
     }
 
     #[test]

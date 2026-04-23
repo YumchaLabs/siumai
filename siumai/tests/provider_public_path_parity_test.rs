@@ -7615,6 +7615,8 @@ mod azure_public_path {
 mod gemini_public_path {
     use super::*;
     use siumai::experimental::client::LlmClient;
+    use siumai::extensions::types::FileListQuery;
+    use siumai::extensions::{FileManagementCapability, VideoGenerationCapability};
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
@@ -7627,6 +7629,8 @@ mod gemini_public_path {
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_core::types::EmbeddingTaskType;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, Request as WiremockRequest, ResponseTemplate};
 
     fn make_registry(
         transport: Arc<dyn HttpTransport>,
@@ -7887,6 +7891,173 @@ mod gemini_public_path {
             assert_eq!(item["content"]["role"], serde_json::json!("user"));
             assert_eq!(item["content"]["parts"][0]["text"], serde_json::json!(text));
         }
+    }
+
+    fn wiremock_header_value(req: &WiremockRequest, key: &str) -> Option<String> {
+        req.headers
+            .get(key)
+            .and_then(|v| v.to_str().ok())
+            .map(ToString::to_string)
+    }
+
+    #[tokio::test]
+    async fn gemini_provider_builder_files_list_request_matches_provider_client_paths() {
+        async fn mount_list_server() -> MockServer {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/v1beta/files"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "files": [{
+                        "name": "files/123",
+                        "display_name": "hello.txt",
+                        "mime_type": "text/plain",
+                        "size_bytes": "5",
+                        "create_time": "2026-04-22T00:00:00Z",
+                        "state": "ACTIVE",
+                        "uri": "https://example.com/files/123"
+                    }],
+                    "next_page_token": "page-2"
+                })))
+                .mount(&server)
+                .await;
+            server
+        }
+
+        let provider_client_server = mount_list_server().await;
+        let provider_builder_server = mount_list_server().await;
+        let config_server = mount_list_server().await;
+
+        let provider_client = Provider::google()
+            .api_key("test-key")
+            .base_url(format!("{}/v1beta", provider_client_server.uri()))
+            .model("gemini-2.5-flash")
+            .build()
+            .await
+            .expect("build provider client");
+
+        let provider_files = Provider::google()
+            .api_key("test-key")
+            .base_url(format!("{}/v1beta", provider_builder_server.uri()))
+            .files()
+            .expect("build provider files");
+
+        let config_client = siumai::provider_ext::google::GeminiClient::from_config(
+            siumai::provider_ext::google::GeminiConfig::new("test-key")
+                .with_base_url(format!("{}/v1beta", config_server.uri())),
+        )
+        .expect("build config client");
+
+        let query = FileListQuery {
+            limit: Some(20),
+            after: Some("page123".to_string()),
+            ..Default::default()
+        };
+
+        let provider_client_list = provider_client
+            .list_files(Some(query.clone()))
+            .await
+            .expect("provider client list ok");
+        let provider_builder_list = provider_files
+            .list_files(Some(query.clone()))
+            .await
+            .expect("provider builder list ok");
+        let config_list = config_client
+            .files()
+            .list_files(Some(query))
+            .await
+            .expect("config client list ok");
+
+        assert_eq!(provider_client_list.files.len(), 1);
+        assert_eq!(provider_builder_list.files.len(), 1);
+        assert_eq!(config_list.files.len(), 1);
+        assert_eq!(provider_client_list.files[0].id, "123");
+        assert_eq!(provider_builder_list.files[0].id, "123");
+        assert_eq!(config_list.files[0].id, "123");
+
+        let provider_client_req = provider_client_server
+            .received_requests()
+            .await
+            .expect("recorded provider client requests")
+            .into_iter()
+            .next()
+            .expect("provider client list-files request");
+        let provider_builder_req = provider_builder_server
+            .received_requests()
+            .await
+            .expect("recorded provider builder requests")
+            .into_iter()
+            .next()
+            .expect("provider builder list-files request");
+        let config_req = config_server
+            .received_requests()
+            .await
+            .expect("recorded config requests")
+            .into_iter()
+            .next()
+            .expect("config list-files request");
+
+        assert_eq!(provider_client_req.url.path(), "/v1beta/files");
+        assert_eq!(provider_builder_req.url.path(), "/v1beta/files");
+        assert_eq!(config_req.url.path(), "/v1beta/files");
+        assert_eq!(
+            provider_client_req.url.query(),
+            Some("pageSize=20&pageToken=page123")
+        );
+        assert_eq!(
+            provider_client_req.url.query(),
+            provider_builder_req.url.query()
+        );
+        assert_eq!(provider_client_req.url.query(), config_req.url.query());
+        assert_eq!(
+            wiremock_header_value(&provider_client_req, "x-goog-api-key"),
+            Some("test-key".to_string())
+        );
+        assert_eq!(
+            wiremock_header_value(&provider_client_req, "x-goog-api-key"),
+            wiremock_header_value(&provider_builder_req, "x-goog-api-key")
+        );
+        assert_eq!(
+            wiremock_header_value(&provider_client_req, "x-goog-api-key"),
+            wiremock_header_value(&config_req, "x-goog-api-key")
+        );
+    }
+
+    #[tokio::test]
+    async fn gemini_google_and_package_settings_preserve_provider_name_boundaries() {
+        let google_client = Provider::google()
+            .api_key("test-key")
+            .model("gemini-2.5-flash")
+            .build()
+            .await
+            .expect("build google client");
+        let gemini_client = Provider::gemini()
+            .api_key("test-key")
+            .model("gemini-2.5-flash")
+            .build()
+            .await
+            .expect("build gemini client");
+        let custom_client = siumai::provider_ext::google::GoogleProviderSettings::new()
+            .with_api_key("test-key")
+            .with_name("my-gemini-proxy")
+            .into_builder_for_model("gemini-2.5-flash")
+            .build()
+            .await
+            .expect("build custom google client");
+
+        assert_eq!(google_client.provider_id().as_ref(), "gemini");
+        assert_eq!(google_client.provider_name(), "google.generative-ai");
+        assert_eq!(
+            google_client.files().provider_name(),
+            "google.generative-ai"
+        );
+
+        assert_eq!(gemini_client.provider_id().as_ref(), "gemini");
+        assert_eq!(gemini_client.provider_name(), "gemini");
+        assert_eq!(gemini_client.files().provider_name(), "gemini");
+
+        assert_eq!(custom_client.provider_id().as_ref(), "gemini");
+        assert_eq!(custom_client.provider_name(), "my-gemini-proxy");
+        assert_eq!(custom_client.files().provider_name(), "my-gemini-proxy");
     }
 
     #[tokio::test]
@@ -9048,6 +9219,203 @@ mod gemini_public_path {
             serde_json::json!({
                 "functionCallingConfig": { "mode": "NONE" }
             })
+        );
+    }
+
+    #[tokio::test]
+    async fn gemini_siumai_provider_config_registry_query_video_task_are_equivalent() {
+        async fn mount_video_query_server() -> MockServer {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/v1beta/operations/test-video-123"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                    "name": "operations/test-video-123",
+                    "done": true,
+                    "response": {
+                        "generateVideoResponse": {
+                            "generatedSamples": [
+                                {
+                                    "video": {
+                                        "uri": "https://example.com/generated/video.mp4",
+                                        "mimeType": "video/mp4"
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                })))
+                .mount(&server)
+                .await;
+            server
+        }
+
+        let siumai_server = mount_video_query_server().await;
+        let provider_server = mount_video_query_server().await;
+        let config_server = mount_video_query_server().await;
+        let registry_server = mount_video_query_server().await;
+
+        let model = "veo-3.1-generate-preview";
+        let expected_uri = "https://example.com/generated/video.mp4";
+
+        let siumai_client = Siumai::builder()
+            .gemini()
+            .api_key("test-key")
+            .base_url(format!("{}/v1beta", siumai_server.uri()))
+            .model(model)
+            .build()
+            .await
+            .expect("build siumai client");
+
+        let provider_client = Provider::gemini()
+            .api_key("test-key")
+            .base_url(format!("{}/v1beta", provider_server.uri()))
+            .model(model)
+            .build()
+            .await
+            .expect("build provider client");
+
+        let config_client = siumai::provider_ext::gemini::GeminiClient::from_config(
+            siumai::provider_ext::gemini::GeminiConfig::new("test-key")
+                .with_base_url(format!("{}/v1beta", config_server.uri()))
+                .with_model(model.to_string()),
+        )
+        .expect("build config client");
+
+        let mut providers = std::collections::HashMap::new();
+        providers.insert(
+            "gemini".to_string(),
+            Arc::new(siumai::registry::factories::GeminiProviderFactory)
+                as Arc<dyn siumai::prelude::unified::registry::ProviderFactory>,
+        );
+
+        let mut provider_build_overrides = std::collections::HashMap::new();
+        provider_build_overrides.insert(
+            "gemini".to_string(),
+            ProviderBuildOverrides::default()
+                .with_api_key("test-key")
+                .with_base_url(format!("{}/v1beta", registry_server.uri())),
+        );
+
+        let registry = create_provider_registry(
+            providers,
+            Some(RegistryOptions {
+                separator: ':',
+                language_model_middleware: Vec::new(),
+                http_interceptors: Vec::new(),
+                http_client: None,
+                http_transport: None,
+                http_config: None,
+                api_key: None,
+                base_url: None,
+                reasoning_enabled: None,
+                reasoning_budget: None,
+                provider_build_overrides,
+                retry_options: None,
+                max_cache_entries: None,
+                client_ttl: None,
+                auto_middleware: true,
+            }),
+        );
+        let registry_client = registry
+            .video_model("gemini:veo-3.1-generate-preview")
+            .expect("build registry video model");
+
+        let siumai_resp = siumai_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("siumai query video ok");
+        let provider_resp = provider_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("provider query video ok");
+        let config_resp = config_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("config query video ok");
+        let registry_resp = registry_client
+            .query_video_task("operations/test-video-123")
+            .await
+            .expect("registry query video ok");
+
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_eq!(response.status.to_string(), "Success");
+            assert_eq!(response.file_id.as_deref(), Some(expected_uri));
+            assert_eq!(response.video_url, None);
+            assert_eq!(
+                response
+                    .provider_reference()
+                    .and_then(|reference| reference.get("gemini")),
+                Some(expected_uri)
+            );
+            assert_eq!(
+                response
+                    .provider_reference()
+                    .and_then(|reference| reference.get("google")),
+                Some(expected_uri)
+            );
+            assert_eq!(
+                response
+                    .metadata
+                    .get("gemini")
+                    .and_then(|value| value.get("videos"))
+                    .and_then(|value| value.as_array())
+                    .map(Vec::len),
+                Some(1)
+            );
+        }
+
+        let siumai_req = siumai_server
+            .received_requests()
+            .await
+            .expect("recorded siumai requests")
+            .into_iter()
+            .next()
+            .expect("siumai query request");
+        let provider_req = provider_server
+            .received_requests()
+            .await
+            .expect("recorded provider requests")
+            .into_iter()
+            .next()
+            .expect("provider query request");
+        let config_req = config_server
+            .received_requests()
+            .await
+            .expect("recorded config requests")
+            .into_iter()
+            .next()
+            .expect("config query request");
+        let registry_req = registry_server
+            .received_requests()
+            .await
+            .expect("recorded registry requests")
+            .into_iter()
+            .next()
+            .expect("registry query request");
+
+        assert_eq!(siumai_req.url.path(), "/v1beta/operations/test-video-123");
+        assert_eq!(siumai_req.url.query(), None);
+        assert_eq!(provider_req.url.path(), siumai_req.url.path());
+        assert_eq!(provider_req.url.query(), siumai_req.url.query());
+        assert_eq!(config_req.url.path(), siumai_req.url.path());
+        assert_eq!(config_req.url.query(), siumai_req.url.query());
+        assert_eq!(registry_req.url.path(), siumai_req.url.path());
+        assert_eq!(registry_req.url.query(), siumai_req.url.query());
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "x-goog-api-key"),
+            Some("test-key".to_string())
+        );
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "x-goog-api-key"),
+            wiremock_header_value(&provider_req, "x-goog-api-key")
+        );
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "x-goog-api-key"),
+            wiremock_header_value(&config_req, "x-goog-api-key")
+        );
+        assert_eq!(
+            wiremock_header_value(&siumai_req, "x-goog-api-key"),
+            wiremock_header_value(&registry_req, "x-goog-api-key")
         );
     }
 }
@@ -32150,7 +32518,7 @@ mod minimaxi_public_path {
 
         let request = FileUploadRequest {
             content: b"hello".to_vec(),
-            filename: "hello.txt".to_string(),
+            filename: Some("hello.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "t2a_async_input".to_string(),
             metadata: HashMap::new(),
@@ -32797,7 +33165,7 @@ mod minimaxi_public_path {
         let uploaded = handle
             .upload_file(FileUploadRequest {
                 content: b"hello".to_vec(),
-                filename: "hello.txt".to_string(),
+                filename: Some("hello.txt".to_string()),
                 mime_type: Some("text/plain".to_string()),
                 purpose: "t2a_async_input".to_string(),
                 metadata: HashMap::new(),
@@ -35935,7 +36303,7 @@ mod anthropic_public_path {
         assert!(siumai_req.body.get("temperature").is_none());
         assert!(siumai_req.body.get("top_p").is_none());
         assert_eq!(
-            siumai_req.body["output_format"]["type"],
+            siumai_req.body["output_config"]["format"]["type"],
             serde_json::json!("json_schema")
         );
         assert_eq!(
@@ -35995,7 +36363,7 @@ mod anthropic_public_path {
         assert!(registry_req.body.get("temperature").is_none());
         assert!(registry_req.body.get("top_p").is_none());
         assert_eq!(
-            registry_req.body["output_format"]["type"],
+            registry_req.body["output_config"]["format"]["type"],
             serde_json::json!("json_schema")
         );
         assert_eq!(
@@ -37904,28 +38272,30 @@ mod vertex_public_path {
         ));
         body.push_str("\n\n");
         body.push_str(
-            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"json","input":{}}}"#,
         );
         body.push_str("\n\n");
 
         let part1 =
             serde_json::to_string("{\"value\":\"te").expect("serialize anthropic-vertex text part");
         body.push_str(&format!(
-            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{part1}}}}}"#
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":{part1}}}}}"#
         ));
         body.push_str("\n\n");
 
         let part2 = serde_json::to_string("st\"}").expect("serialize anthropic-vertex text part");
         body.push_str(&format!(
-            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{part2}}}}}"#
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":{part2}}}}}"#
         ));
         body.push_str("\n\n");
 
         body.push_str(r#"data: {"type":"content_block_stop","index":0}"#);
         body.push_str("\n\n");
         body.push_str(
-            r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"input_tokens":15,"output_tokens":4}}"#,
+            r#"data: {"type":"message_delta","delta":{"stop_reason":"tool_use","stop_sequence":null},"usage":{"input_tokens":15,"output_tokens":4}}"#,
         );
+        body.push_str("\n\n");
+        body.push_str(r#"data: {"type":"message_stop"}"#);
         body.push_str("\n\n");
         body.into_bytes()
     }
@@ -37937,14 +38307,14 @@ mod vertex_public_path {
         ));
         body.push_str("\n\n");
         body.push_str(
-            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"json","input":{}}}"#,
         );
         body.push_str("\n\n");
 
         let partial =
             serde_json::to_string("{\"value\":").expect("serialize anthropic-vertex partial");
         body.push_str(&format!(
-            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{partial}}}}}"#
+            r#"data: {{"type":"content_block_delta","index":0,"delta":{{"type":"input_json_delta","partial_json":{partial}}}}}"#
         ));
         body.push_str("\n\n");
         body.into_bytes()
@@ -37957,12 +38327,16 @@ mod vertex_public_path {
             "role": "assistant",
             "content": [
                 {
-                    "type": "text",
-                    "text": "{\"value\":\"test\"}"
+                    "type": "tool_use",
+                    "id": "toolu_1",
+                    "name": "json",
+                    "input": {
+                        "value": "test"
+                    }
                 }
             ],
             "model": model,
-            "stop_reason": "end_turn",
+            "stop_reason": "tool_use",
             "stop_sequence": null,
             "usage": {
                 "input_tokens": 15,
@@ -38349,15 +38723,22 @@ mod vertex_public_path {
             req.body["anthropic_version"],
             serde_json::json!("vertex-2023-10-16")
         );
+        assert!(req.body.get("output_format").is_none());
+        assert_eq!(req.body["tool_choice"]["type"], serde_json::json!("any"));
         assert_eq!(
-            req.body["output_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "schema": schema
-            })
+            req.body["tool_choice"]["disable_parallel_tool_use"],
+            serde_json::json!(true)
+        );
+        let tools = req.body["tools"].as_array().expect("anthropic tools array");
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("json")
+                    && tool.get("input_schema") == Some(schema)
+            }),
+            "expected reserved json tool in request body: {:?}",
+            req.body["tools"]
         );
         assert!(req.body.get("model").is_none());
-        assert!(req.body.get("tools").is_none());
     }
 
     fn assert_anthropic_vertex_structured_output_request(
@@ -38375,16 +38756,23 @@ mod vertex_public_path {
             req.body["anthropic_version"],
             serde_json::json!("vertex-2023-10-16")
         );
+        assert!(req.body.get("output_format").is_none());
+        assert_eq!(req.body["tool_choice"]["type"], serde_json::json!("any"));
         assert_eq!(
-            req.body["output_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "schema": schema
-            })
+            req.body["tool_choice"]["disable_parallel_tool_use"],
+            serde_json::json!(true)
+        );
+        let tools = req.body["tools"].as_array().expect("anthropic tools array");
+        assert!(
+            tools.iter().any(|tool| {
+                tool.get("name").and_then(|value| value.as_str()) == Some("json")
+                    && tool.get("input_schema") == Some(schema)
+            }),
+            "expected reserved json tool in request body: {:?}",
+            req.body["tools"]
         );
         assert!(req.body.get("stream").is_none());
         assert!(req.body.get("model").is_none());
-        assert!(req.body.get("tools").is_none());
     }
 
     fn assert_anthropic_vertex_reasoning_request(
@@ -39964,7 +40352,7 @@ mod vertex_public_path {
         let siumai_client = Siumai::builder()
             .anthropic_vertex()
             .base_url("https://example.com/custom")
-            .model("claude-3-5-sonnet-20241022")
+            .model("claude-3-5-sonnet-v2@20241022")
             .http_header("authorization", "Bearer test-token")
             .fetch(Arc::new(siumai_transport.clone()))
             .build()
@@ -39973,7 +40361,7 @@ mod vertex_public_path {
 
         let provider_client = Provider::anthropic_vertex()
             .base_url("https://example.com/custom")
-            .language_model("claude-3-5-sonnet-20241022")
+            .language_model("claude-3-5-sonnet-v2@20241022")
             .bearer_token("test-token")
             .fetch(Arc::new(provider_transport.clone()))
             .build()
@@ -39983,14 +40371,14 @@ mod vertex_public_path {
             siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
                 siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(
                     "https://example.com/custom",
-                    "claude-3-5-sonnet-20241022",
+                    "claude-3-5-sonnet-v2@20241022",
                 )
                 .with_bearer_token("test-token")
                 .with_http_transport(Arc::new(config_transport.clone())),
             )
             .expect("build config client");
 
-        let request = make_chat_request_with_model("claude-3-5-sonnet-20241022");
+        let request = make_chat_request_with_model("claude-3-5-sonnet-v2@20241022");
 
         let _ = siumai_client.chat_request(request.clone()).await;
         let _ = provider_client.chat_request(request.clone()).await;
@@ -40005,7 +40393,7 @@ mod vertex_public_path {
         assert!(
             siumai_req
                 .url
-                .contains("/models/claude-3-5-sonnet-20241022:rawPredict"),
+                .contains("/models/claude-3-5-sonnet-v2@20241022:rawPredict"),
             "unexpected url: {}",
             siumai_req.url
         );
@@ -40029,7 +40417,7 @@ mod vertex_public_path {
         let siumai_client = Siumai::builder()
             .anthropic_vertex()
             .base_url("https://example.com/custom")
-            .model("claude-3-5-sonnet-20241022")
+            .model("claude-3-5-sonnet-v2@20241022")
             .http_header("authorization", "Bearer test-token")
             .fetch(Arc::new(siumai_transport.clone()))
             .build()
@@ -40038,7 +40426,7 @@ mod vertex_public_path {
 
         let provider_client = Provider::anthropic_vertex()
             .base_url("https://example.com/custom")
-            .model("claude-3-5-sonnet-20241022")
+            .model("claude-3-5-sonnet-v2@20241022")
             .bearer_token("test-token")
             .fetch(Arc::new(provider_transport.clone()))
             .build()
@@ -40048,14 +40436,14 @@ mod vertex_public_path {
             siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
                 siumai::provider_ext::anthropic_vertex::VertexAnthropicConfig::new(
                     "https://example.com/custom",
-                    "claude-3-5-sonnet-20241022",
+                    "claude-3-5-sonnet-v2@20241022",
                 )
                 .with_bearer_token("test-token")
                 .with_http_transport(Arc::new(config_transport.clone())),
             )
             .expect("build config client");
 
-        let request = make_chat_request_with_model("claude-3-5-sonnet-20241022");
+        let request = make_chat_request_with_model("claude-3-5-sonnet-v2@20241022");
 
         let mut siumai_stream = siumai_client
             .chat_stream_request(request.clone())
@@ -40090,7 +40478,7 @@ mod vertex_public_path {
         assert!(
             siumai_req
                 .url
-                .contains("/models/claude-3-5-sonnet-20241022:streamRawPredict"),
+                .contains("/models/claude-3-5-sonnet-v2@20241022:streamRawPredict"),
             "unexpected url: {}",
             siumai_req.url
         );
@@ -40109,8 +40497,8 @@ mod vertex_public_path {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
         let config_transport = CaptureTransport::default();
-        let default_model = "claude-3-5-sonnet-20241022";
-        let request_model = "claude-3-7-sonnet-20250219";
+        let default_model = "claude-3-5-sonnet-v2@20241022";
+        let request_model = "claude-3-7-sonnet@20250219";
 
         let siumai_client = Siumai::builder()
             .anthropic_vertex()
@@ -40156,7 +40544,7 @@ mod vertex_public_path {
         assert!(
             siumai_req
                 .url
-                .contains("/models/claude-3-7-sonnet-20250219:rawPredict"),
+                .contains("/models/claude-3-7-sonnet@20250219:rawPredict"),
             "unexpected url: {}",
             siumai_req.url
         );
@@ -40169,8 +40557,8 @@ mod vertex_public_path {
         let siumai_transport = CaptureTransport::default();
         let provider_transport = CaptureTransport::default();
         let config_transport = CaptureTransport::default();
-        let default_model = "claude-3-5-sonnet-20241022";
-        let request_model = "claude-3-7-sonnet-20250219";
+        let default_model = "claude-3-5-sonnet-v2@20241022";
+        let request_model = "claude-3-7-sonnet@20250219";
 
         let siumai_client = Siumai::builder()
             .anthropic_vertex()
@@ -40236,7 +40624,7 @@ mod vertex_public_path {
         assert!(
             siumai_req
                 .url
-                .contains("/models/claude-3-7-sonnet-20250219:streamRawPredict"),
+                .contains("/models/claude-3-7-sonnet@20250219:streamRawPredict"),
             "unexpected url: {}",
             siumai_req.url
         );
@@ -40248,7 +40636,7 @@ mod vertex_public_path {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
         let base_url = "https://example.com/custom";
-        let model = "claude-3-5-sonnet-20241022";
+        let model = "claude-3-5-sonnet-v2@20241022";
 
         let config_client =
             siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
@@ -40261,7 +40649,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-3-5-sonnet-20241022")
+            .language_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022")
             .expect("build registry language model");
 
         let request = make_chat_request_with_model(model);
@@ -40280,7 +40668,7 @@ mod vertex_public_path {
         assert!(
             registry_req
                 .url
-                .contains("/models/claude-3-5-sonnet-20241022:rawPredict"),
+                .contains("/models/claude-3-5-sonnet-v2@20241022:rawPredict"),
             "unexpected url: {}",
             registry_req.url
         );
@@ -40296,7 +40684,7 @@ mod vertex_public_path {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
         let base_url = "https://example.com/custom";
-        let model = "claude-3-5-sonnet-20241022";
+        let model = "claude-3-5-sonnet-v2@20241022";
 
         let config_client =
             siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
@@ -40309,7 +40697,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-3-5-sonnet-20241022")
+            .language_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022")
             .expect("build registry language model");
 
         let request = make_chat_request_with_model(model);
@@ -40342,7 +40730,7 @@ mod vertex_public_path {
         assert!(
             registry_req
                 .url
-                .contains("/models/claude-3-5-sonnet-20241022:streamRawPredict"),
+                .contains("/models/claude-3-5-sonnet-v2@20241022:streamRawPredict"),
             "unexpected url: {}",
             registry_req.url
         );
@@ -40362,8 +40750,8 @@ mod vertex_public_path {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
         let base_url = "https://example.com/custom";
-        let default_model = "claude-3-5-sonnet-20241022";
-        let request_model = "claude-3-7-sonnet-20250219";
+        let default_model = "claude-3-5-sonnet-v2@20241022";
+        let request_model = "claude-3-7-sonnet@20250219";
 
         let config_client =
             siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
@@ -40379,7 +40767,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-3-5-sonnet-20241022")
+            .language_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022")
             .expect("build registry language model");
 
         let request = make_chat_request_with_model(request_model);
@@ -40398,7 +40786,7 @@ mod vertex_public_path {
         assert!(
             registry_req
                 .url
-                .contains("/models/claude-3-7-sonnet-20250219:rawPredict"),
+                .contains("/models/claude-3-7-sonnet@20250219:rawPredict"),
             "unexpected url: {}",
             registry_req.url
         );
@@ -40410,8 +40798,8 @@ mod vertex_public_path {
         let config_transport = CaptureTransport::default();
         let registry_transport = CaptureTransport::default();
         let base_url = "https://example.com/custom";
-        let default_model = "claude-3-5-sonnet-20241022";
-        let request_model = "claude-3-7-sonnet-20250219";
+        let default_model = "claude-3-5-sonnet-v2@20241022";
+        let request_model = "claude-3-7-sonnet@20250219";
 
         let config_client =
             siumai::provider_ext::anthropic_vertex::VertexAnthropicClient::from_config(
@@ -40427,7 +40815,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-3-5-sonnet-20241022")
+            .language_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022")
             .expect("build registry language model");
 
         let request = make_chat_request_with_model(request_model);
@@ -40460,7 +40848,7 @@ mod vertex_public_path {
         assert!(
             registry_req
                 .url
-                .contains("/models/claude-3-7-sonnet-20250219:streamRawPredict"),
+                .contains("/models/claude-3-7-sonnet@20250219:streamRawPredict"),
             "unexpected url: {}",
             registry_req.url
         );
@@ -40472,7 +40860,7 @@ mod vertex_public_path {
 
     #[tokio::test]
     async fn anthropic_vertex_reasoning_response_is_equivalent_across_public_paths() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let response_json = anthropic_vertex_reasoning_response(model);
 
@@ -40510,7 +40898,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .language_model("anthropic-vertex:claude-sonnet-4-6")
             .expect("build registry language model");
 
         let request = make_anthropic_vertex_reasoning_request(model);
@@ -40570,7 +40958,7 @@ mod vertex_public_path {
 
     #[tokio::test]
     async fn anthropic_vertex_reasoning_stream_is_equivalent_across_public_paths() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let stream_body = anthropic_vertex_reasoning_stream_body(model);
 
@@ -40608,7 +40996,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .language_model("anthropic-vertex:claude-sonnet-4-6")
             .expect("build registry language model");
 
         let request = make_anthropic_vertex_reasoning_request(model);
@@ -40715,7 +41103,7 @@ mod vertex_public_path {
 
     #[tokio::test]
     async fn anthropic_vertex_default_options_match_public_request_shape() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let schema = anthropic_vertex_default_options_schema();
 
@@ -40781,7 +41169,7 @@ mod vertex_public_path {
 
     #[tokio::test]
     async fn anthropic_vertex_default_options_match_public_stream_request_shape() {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let schema = anthropic_vertex_default_options_schema();
 
@@ -40872,7 +41260,7 @@ mod vertex_public_path {
     #[tokio::test]
     async fn anthropic_vertex_structured_output_stream_end_extracts_json_consistently_across_public_paths()
      {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let stream_body = anthropic_vertex_structured_output_success_stream_body(model);
 
@@ -40910,7 +41298,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .language_model("anthropic-vertex:claude-sonnet-4-6")
             .expect("build registry language model");
 
         let schema = serde_json::json!({
@@ -41058,7 +41446,7 @@ mod vertex_public_path {
     #[tokio::test]
     async fn anthropic_vertex_structured_output_response_extracts_json_consistently_across_public_paths()
      {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let response = anthropic_vertex_structured_output_success_response(model);
 
@@ -41096,7 +41484,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .language_model("anthropic-vertex:claude-sonnet-4-6")
             .expect("build registry language model");
 
         let schema = serde_json::json!({
@@ -41173,7 +41561,7 @@ mod vertex_public_path {
     #[tokio::test]
     async fn anthropic_vertex_structured_output_response_invalid_json_fails_consistently_across_public_paths()
      {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let response = anthropic_vertex_structured_output_invalid_response(model);
 
@@ -41211,7 +41599,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .language_model("anthropic-vertex:claude-sonnet-4-6")
             .expect("build registry language model");
 
         let schema = serde_json::json!({
@@ -41276,7 +41664,7 @@ mod vertex_public_path {
     #[tokio::test]
     async fn anthropic_vertex_structured_output_interrupted_stream_fails_consistently_across_public_paths()
      {
-        let model = "claude-sonnet-4-5-latest";
+        let model = "claude-sonnet-4-6";
         let base_url = "https://example.com/custom";
         let stream_body = anthropic_vertex_structured_output_interrupted_stream_body(model);
 
@@ -41314,7 +41702,7 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let registry_model = registry
-            .language_model("anthropic-vertex:claude-sonnet-4-5-latest")
+            .language_model("anthropic-vertex:claude-sonnet-4-6")
             .expect("build registry language model");
 
         let schema = serde_json::json!({
@@ -41437,11 +41825,13 @@ mod vertex_public_path {
             .expect("build registry");
 
         let handle = registry
-            .language_model("anthropic-vertex:claude-3-5-sonnet-20241022")
+            .language_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022")
             .expect("build registry language model");
 
         let _ = handle
-            .chat_request(make_chat_request_with_model("claude-3-5-sonnet-20241022"))
+            .chat_request(make_chat_request_with_model(
+                "claude-3-5-sonnet-v2@20241022",
+            ))
             .await;
 
         let req = vertex_transport.take().expect("captured request");
@@ -41456,7 +41846,7 @@ mod vertex_public_path {
         );
         assert!(
             req.url.starts_with(
-                "https://example.com/custom/models/claude-3-5-sonnet-20241022:rawPredict"
+                "https://example.com/custom/models/claude-3-5-sonnet-v2@20241022:rawPredict"
             ),
             "unexpected url: {}",
             req.url
@@ -41470,7 +41860,7 @@ mod vertex_public_path {
         let provider_transport = CaptureTransport::default();
         let config_transport = CaptureTransport::default();
 
-        let model = "claude-3-5-sonnet-20241022";
+        let model = "claude-3-5-sonnet-v2@20241022";
         let base_url = "https://example.com/custom";
 
         let siumai_client = Siumai::builder()
@@ -41543,18 +41933,19 @@ mod vertex_public_path {
         let registry =
             make_anthropic_vertex_registry(Arc::new(registry_transport.clone()), base_url);
         let embedding_err =
-            match registry.embedding_model("anthropic-vertex:claude-3-5-sonnet-20241022") {
+            match registry.embedding_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022") {
                 Ok(_) => {
                     panic!("build anthropic-vertex registry embedding model should be unsupported")
                 }
                 Err(err) => err,
             };
-        let image_err = match registry.image_model("anthropic-vertex:claude-3-5-sonnet-20241022") {
+        let image_err = match registry.image_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022")
+        {
             Ok(_) => panic!("build anthropic-vertex registry image model should be unsupported"),
             Err(err) => err,
         };
         let rerank_err = match registry
-            .reranking_model("anthropic-vertex:claude-3-5-sonnet-20241022")
+            .reranking_model("anthropic-vertex:claude-3-5-sonnet-v2@20241022")
         {
             Ok(_) => panic!("build anthropic-vertex registry rerank handle should be unsupported"),
             Err(err) => err,
@@ -42791,14 +43182,14 @@ mod vertex_public_path {
         assert_eq!(provider_resp.status.to_string(), "Success");
         assert_eq!(config_resp.status.to_string(), "Success");
         assert_eq!(registry_resp.status.to_string(), "Success");
-        assert_eq!(
-            siumai_resp.file_id.as_deref(),
-            Some("https://cdn.example.com/video.mp4")
-        );
-        assert_eq!(
-            registry_resp.video_url.as_deref(),
-            Some("https://cdn.example.com/video.mp4")
-        );
+        for response in [&siumai_resp, &provider_resp, &config_resp, &registry_resp] {
+            assert_eq!(response.file_id, None);
+            assert!(response.provider_reference().is_none());
+            assert_eq!(
+                response.video_url.as_deref(),
+                Some("https://cdn.example.com/video.mp4")
+            );
+        }
 
         let siumai_req = siumai_transport.take().expect("siumai request");
         let provider_req = provider_transport.take().expect("provider request");

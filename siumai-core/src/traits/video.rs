@@ -3,8 +3,10 @@
 //! Trait definition for video generation capabilities.
 
 use crate::LlmError;
+use crate::types::ProviderReference;
 use crate::types::video::{
-    VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatusResponse,
+    MaterializedVideoAsset, VideoGenerationRequest, VideoGenerationResponse,
+    VideoTaskStatusResponse,
 };
 use async_trait::async_trait;
 
@@ -74,6 +76,20 @@ pub trait VideoGenerationCapability: Send + Sync {
     /// }
     /// ```
     async fn query_video_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError>;
+
+    /// Materialize a provider-owned generated-video reference into bytes.
+    ///
+    /// Providers that only expose final generated videos through provider-managed references can
+    /// override this hook to let higher-level helpers keep converging on AI SDK-style
+    /// `GeneratedFile` semantics without faking a generic download contract.
+    async fn materialize_video_reference(
+        &self,
+        provider_reference: &ProviderReference,
+    ) -> Result<MaterializedVideoAsset, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "Provider-owned generated-video materialization is not supported for provider reference {provider_reference:?}"
+        )))
+    }
 
     /// Maximum number of final videos this model/provider can produce in a single task call.
     ///

@@ -14139,7 +14139,7 @@ mod minimaxi_contract {
         let uploaded = handle
             .upload_file(crate::types::FileUploadRequest {
                 content: b"hello".to_vec(),
-                filename: "hello.txt".to_string(),
+                filename: Some("hello.txt".to_string()),
                 mime_type: Some("text/plain".to_string()),
                 purpose: "t2a_async_input".to_string(),
                 metadata: std::collections::HashMap::new(),
@@ -15712,7 +15712,7 @@ mod minimaxi_contract {
 
         let request = crate::types::FileUploadRequest {
             content: b"hello".to_vec(),
-            filename: "hello.txt".to_string(),
+            filename: Some("hello.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "t2a_async_input".to_string(),
             metadata: std::collections::HashMap::new(),
@@ -18925,7 +18925,7 @@ mod vertex_contract {
             Some("https://cdn.example.com/video.mp4")
         );
         assert_eq!(
-            registry_resp.file_id.as_deref(),
+            registry_resp.video_url.as_deref(),
             Some("https://cdn.example.com/video.mp4")
         );
 

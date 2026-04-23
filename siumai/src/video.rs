@@ -4,8 +4,8 @@
 //! - `create_task`
 //! - `query_task`
 //! - `wait_for_task` for explicit polling to completion
-//! - `generate` for a high-level create-and-poll helper
-//! - `generate_materialized` for a high-level helper that also downloads/materializes final assets
+//! - `generate` for a high-level create-poll-and-materialize helper
+//! - `generate_materialized` for callers that want explicit `MaterializedVideo` result objects
 //!
 //! Unlike the AI SDK's current auto-polling helper story, the Rust family keeps explicit
 //! task submission and task-status querying as the stable contract.
@@ -22,9 +22,10 @@ use std::time::Duration;
 use tokio::time::{Instant, sleep};
 
 pub use siumai_core::types::{
-    GenerateVideoPrompt, VideoGenerationFileData, VideoGenerationInput, VideoGenerationPrompt,
-    VideoGenerationRequest, VideoGenerationResponse, VideoModelProviderMetadata,
-    VideoModelResponseMetadata, VideoTaskStatus, VideoTaskStatusResponse,
+    GenerateVideoPrompt, MaterializedVideoAsset, VideoGenerationFileData, VideoGenerationInput,
+    VideoGenerationPrompt, VideoGenerationRequest, VideoGenerationResponse,
+    VideoModelProviderMetadata, VideoModelResponseMetadata, VideoTaskStatus,
+    VideoTaskStatusResponse,
 };
 pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4};
 
@@ -98,6 +99,16 @@ pub struct GenerateOptions {
     pub poll_interval: Duration,
     /// Optional maximum total polling duration per task.
     pub poll_timeout: Option<Duration>,
+    /// Whether URL-backed final videos should be downloaded into byte-backed assets during
+    /// `generate(...)`.
+    ///
+    /// This defaults to `true` to stay closer to AI SDK `experimental_generateVideo()`.
+    pub materialize_urls: bool,
+    /// Optional HTTP configuration used when downloading URL-backed final videos during
+    /// `generate(...)`.
+    ///
+    /// This is ignored when `materialize_urls` is `false`.
+    pub materialize_http_config: Option<HttpConfig>,
 }
 
 impl Default for GenerateOptions {
@@ -110,6 +121,8 @@ impl Default for GenerateOptions {
             headers: HashMap::new(),
             poll_interval: DEFAULT_VIDEO_POLL_INTERVAL,
             poll_timeout: Some(DEFAULT_VIDEO_POLL_TIMEOUT),
+            materialize_urls: true,
+            materialize_http_config: None,
         }
     }
 }
@@ -209,7 +222,7 @@ impl GeneratedVideo {
     pub fn url(&self) -> Option<&str> {
         match &self.data {
             GeneratedVideoData::Url { url } => Some(url.as_str()),
-            _ => None,
+            _ => video_url_from_metadata(&self.metadata),
         }
     }
 
@@ -220,6 +233,44 @@ impl GeneratedVideo {
                 Some(provider_reference)
             }
             _ => None,
+        }
+    }
+
+    /// Return the video as a base64-encoded string when it is already materialized.
+    pub fn base64(&self) -> Result<String, LlmError> {
+        match &self.data {
+            GeneratedVideoData::Base64 { data } => Ok(data.clone()),
+            GeneratedVideoData::Bytes { data } => Ok(STANDARD.encode(data)),
+            GeneratedVideoData::Url { .. } => Err(LlmError::UnsupportedOperation(format!(
+                "Generated video task '{}' is still URL-backed; materialize it before requesting base64 data",
+                self.task_id
+            ))),
+            GeneratedVideoData::ProviderReference { provider_reference } => {
+                Err(LlmError::UnsupportedOperation(format!(
+                    "Generated video task '{}' only exposed a provider reference ({provider_reference:?}); generic base64 access is not supported for this asset yet",
+                    self.task_id
+                )))
+            }
+        }
+    }
+
+    /// Return the video as raw bytes when it is already materialized.
+    pub fn bytes(&self) -> Result<Vec<u8>, LlmError> {
+        match &self.data {
+            GeneratedVideoData::Bytes { data } => Ok(data.clone()),
+            GeneratedVideoData::Base64 { data } => STANDARD.decode(data).map_err(|error| {
+                LlmError::InvalidInput(format!("Invalid generated video base64 data: {error}"))
+            }),
+            GeneratedVideoData::Url { .. } => Err(LlmError::UnsupportedOperation(format!(
+                "Generated video task '{}' is still URL-backed; materialize it before requesting bytes",
+                self.task_id
+            ))),
+            GeneratedVideoData::ProviderReference { provider_reference } => {
+                Err(LlmError::UnsupportedOperation(format!(
+                    "Generated video task '{}' only exposed a provider reference ({provider_reference:?}); generic byte access is not supported for this asset yet",
+                    self.task_id
+                )))
+            }
         }
     }
 
@@ -317,6 +368,8 @@ impl MaterializedVideo {
 /// Result returned by `video::generate`.
 #[derive(Debug, Clone)]
 pub struct GenerateVideoResult {
+    /// The first generated video.
+    pub video: GeneratedVideo,
     /// Final generated videos/assets.
     pub videos: Vec<GeneratedVideo>,
     /// Final completed video-task responses.
@@ -332,6 +385,8 @@ pub struct GenerateVideoResult {
 /// Result returned by `video::generate_materialized`.
 #[derive(Debug, Clone)]
 pub struct GenerateMaterializedVideoResult {
+    /// The first materialized generated video.
+    pub video: MaterializedVideo,
     /// Final materialized generated videos/files.
     pub videos: Vec<MaterializedVideo>,
     /// Final completed video-task responses.
@@ -345,9 +400,9 @@ pub struct GenerateMaterializedVideoResult {
 }
 
 impl GenerateVideoResult {
-    /// The first generated video, if any.
+    /// Compatibility helper for the first generated video.
     pub fn video(&self) -> Option<&GeneratedVideo> {
-        self.videos.first()
+        Some(&self.video)
     }
 
     /// Best-effort AI SDK-style response metadata for each logical generate call.
@@ -368,10 +423,7 @@ impl GenerateVideoResult {
         &self,
         options: MaterializeVideoOptions,
     ) -> Result<Option<MaterializedVideo>, LlmError> {
-        match self.video() {
-            Some(video) => video.materialize(options).await.map(Some),
-            None => Ok(None),
-        }
+        self.video.materialize(options).await.map(Some)
     }
 
     /// Materialize all generated videos.
@@ -396,7 +448,12 @@ impl GenerateVideoResult {
             videos.push(video.materialize(options.clone()).await?);
         }
 
+        let video = videos.first().cloned().ok_or_else(|| {
+            LlmError::ParseError("generate result missing first video".to_string())
+        })?;
+
         Ok(GenerateMaterializedVideoResult {
+            video,
             videos,
             tasks: self.tasks,
             warnings: self.warnings,
@@ -407,9 +464,9 @@ impl GenerateVideoResult {
 }
 
 impl GenerateMaterializedVideoResult {
-    /// The first materialized generated video, if any.
+    /// Compatibility helper for the first materialized generated video.
     pub fn video(&self) -> Option<&MaterializedVideo> {
-        self.videos.first()
+        Some(&self.video)
     }
 
     /// Best-effort AI SDK-style response metadata for each logical generate call.
@@ -616,6 +673,14 @@ fn parse_video_data_url(url: &str) -> Result<(Vec<u8>, Option<String>), LlmError
     Ok((bytes, media_type))
 }
 
+fn can_materialize_generated_video_url(url: &str) -> bool {
+    url.starts_with("data:") || url.starts_with("http://") || url.starts_with("https://")
+}
+
+fn generated_video_url_scheme(url: &str) -> &str {
+    url.split(':').next().unwrap_or("unknown")
+}
+
 async fn download_generated_video_url(
     url: &str,
     http_config: Option<&HttpConfig>,
@@ -625,8 +690,9 @@ async fn download_generated_video_url(
     }
 
     if !url.starts_with("http://") && !url.starts_with("https://") {
-        return Err(LlmError::InvalidParameter(format!(
-            "Unsupported generated video URL scheme for materialization: {url}"
+        return Err(LlmError::UnsupportedOperation(format!(
+            "Unsupported generated video URL scheme '{}' for materialization. Only data:, http:, and https: URLs can be materialized on this path.",
+            generated_video_url_scheme(url)
         )));
     }
 
@@ -682,6 +748,64 @@ fn resolve_materialized_video_media_type(
         .unwrap_or_else(|| "video/mp4".to_string())
 }
 
+fn video_url_from_metadata(metadata: &GeneratedVideoMetadata) -> Option<&str> {
+    metadata
+        .get("url")
+        .or_else(|| metadata.get("videoUrl"))
+        .and_then(serde_json::Value::as_str)
+}
+
+fn provider_reference_from_metadata(
+    metadata: &GeneratedVideoMetadata,
+) -> Option<ProviderReference> {
+    metadata
+        .get("providerReference")
+        .and_then(|value| serde_json::from_value::<ProviderReference>(value.clone()).ok())
+}
+
+fn provider_metadata_root_candidates(provider_id: &str) -> Vec<&str> {
+    match provider_id {
+        "vertex" => vec!["vertex", "google-vertex"],
+        "gemini" => vec!["gemini", "google"],
+        other => vec![other],
+    }
+}
+
+fn provider_metadata_root_object<'a>(
+    metadata: &'a HashMap<String, serde_json::Value>,
+    provider_id: &str,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    provider_metadata_root_candidates(provider_id)
+        .into_iter()
+        .find_map(|candidate| metadata.get(candidate).and_then(|value| value.as_object()))
+}
+
+fn provider_metadata_root_value<'a>(
+    metadata: &'a HashMap<String, serde_json::Value>,
+    provider_id: &str,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    provider_metadata_root_object(metadata, provider_id)?.get(key)
+}
+
+fn internal_generated_video_items<'a>(
+    metadata: &'a HashMap<String, serde_json::Value>,
+) -> Option<&'a serde_json::Value> {
+    metadata
+        .get("_siumai")
+        .and_then(|value| value.get("generatedVideos"))
+}
+
+fn public_task_metadata(
+    metadata: &HashMap<String, serde_json::Value>,
+) -> HashMap<String, serde_json::Value> {
+    metadata
+        .iter()
+        .filter(|(key, _)| key.as_str() != "_siumai")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect()
+}
+
 fn metadata_from_value(value: &serde_json::Value) -> GeneratedVideoMetadata {
     value
         .as_object()
@@ -698,18 +822,42 @@ fn metadata_value(metadata: &GeneratedVideoMetadata) -> serde_json::Value {
     serde_json::Value::Object(metadata.clone().into_iter().collect())
 }
 
+fn provider_metadata_video_value(video: &GeneratedVideo) -> serde_json::Value {
+    let mut metadata = video.metadata.clone();
+
+    match &video.data {
+        GeneratedVideoData::Base64 { .. } => {
+            metadata.remove("bytesBase64Encoded");
+            metadata.remove("base64");
+            if metadata.get("type").and_then(|value| value.as_str()) == Some("base64") {
+                metadata.remove("data");
+            }
+        }
+        GeneratedVideoData::Bytes { .. } => {
+            metadata.remove("bytes");
+            if metadata.get("type").and_then(|value| value.as_str()) == Some("bytes") {
+                metadata.remove("data");
+            }
+        }
+        GeneratedVideoData::Url { .. } | GeneratedVideoData::ProviderReference { .. } => {}
+    }
+
+    metadata_value(&metadata)
+}
+
 fn generated_video_from_metadata_item(
     task_id: &str,
     item: &serde_json::Value,
 ) -> Option<GeneratedVideo> {
     if let Some(url) = item.as_str() {
+        let metadata = GeneratedVideoMetadata::from([("url".to_string(), serde_json::json!(url))]);
         return Some(GeneratedVideo {
             task_id: task_id.to_string(),
             media_type: guess_mime_from_path_or_url(url).unwrap_or_else(|| "video/mp4".to_string()),
             data: GeneratedVideoData::Url {
                 url: url.to_string(),
             },
-            metadata: GeneratedVideoMetadata::new(),
+            metadata,
         });
     }
 
@@ -783,8 +931,15 @@ fn generated_video_fallback(
     response: &VideoTaskStatusResponse,
 ) -> Option<GeneratedVideo> {
     let mut metadata = GeneratedVideoMetadata::new();
+    let provider_reference = response.effective_provider_reference(provider_id);
     if let Some(file_id) = response.file_id.as_ref() {
         metadata.insert("fileId".to_string(), serde_json::json!(file_id));
+    }
+    if let Some(provider_reference) = provider_reference.as_ref() {
+        metadata.insert(
+            "providerReference".to_string(),
+            serde_json::json!(provider_reference),
+        );
     }
     if let Some(video_url) = response.video_url.as_ref() {
         metadata.insert("videoUrl".to_string(), serde_json::json!(video_url));
@@ -810,12 +965,16 @@ fn generated_video_fallback(
         });
     }
 
-    response.file_id.as_ref().map(|file_id| GeneratedVideo {
+    provider_reference.map(|provider_reference| GeneratedVideo {
         task_id: response.task_id.clone(),
-        media_type: generated_video_media_type(&metadata, Some(file_id)),
-        data: GeneratedVideoData::ProviderReference {
-            provider_reference: ProviderReference::single(provider_id, file_id),
-        },
+        media_type: generated_video_media_type(
+            &metadata,
+            response
+                .file_id
+                .as_deref()
+                .or_else(|| provider_reference.preferred_value(&[provider_id])),
+        ),
+        data: GeneratedVideoData::ProviderReference { provider_reference },
         metadata,
     })
 }
@@ -824,10 +983,8 @@ fn extract_generated_videos(
     provider_id: &str,
     response: &VideoTaskStatusResponse,
 ) -> Result<Vec<GeneratedVideo>, LlmError> {
-    let metadata_videos = response
-        .metadata
-        .get(provider_id)
-        .and_then(|value| value.get("videos"))
+    let metadata_videos = internal_generated_video_items(&response.metadata)
+        .or_else(|| provider_metadata_root_value(&response.metadata, provider_id, "videos"))
         .or_else(|| response.metadata.get("videos"))
         .and_then(|value| value.as_array())
         .map(|items| {
@@ -847,6 +1004,84 @@ fn extract_generated_videos(
         .unwrap_or_default())
 }
 
+async fn materialize_url_backed_generated_videos(
+    videos: Vec<GeneratedVideo>,
+    http_config: Option<&HttpConfig>,
+) -> Result<(Vec<GeneratedVideo>, Vec<Warning>), LlmError> {
+    let mut materialized_videos = Vec::with_capacity(videos.len());
+    let mut warnings = Vec::new();
+
+    for mut video in videos {
+        if let GeneratedVideoData::Url { url } = &video.data {
+            if !can_materialize_generated_video_url(url) {
+                warnings.push(Warning::unsupported(
+                    "generatedVideoUrlMaterialization",
+                    Some(format!(
+                        "Skipping automatic generated-video URL materialization for scheme '{}'. Only data:, http:, and https: URLs are supported on this helper path.",
+                        generated_video_url_scheme(url)
+                    )),
+                ));
+                materialized_videos.push(video);
+                continue;
+            }
+
+            let (bytes, downloaded_media_type) =
+                download_generated_video_url(url, http_config).await?;
+            if video_url_from_metadata(&video.metadata).is_none() {
+                video
+                    .metadata
+                    .insert("url".to_string(), serde_json::json!(url));
+            }
+            video.media_type =
+                resolve_materialized_video_media_type(&video, Some(&bytes), downloaded_media_type);
+            video.data = GeneratedVideoData::Bytes { data: bytes };
+        }
+
+        materialized_videos.push(video);
+    }
+
+    Ok((materialized_videos, warnings))
+}
+
+async fn materialize_provider_reference_backed_generated_videos<M: VideoModelV4 + ?Sized>(
+    model: &M,
+    videos: Vec<GeneratedVideo>,
+) -> Result<Vec<GeneratedVideo>, LlmError> {
+    let mut materialized_videos = Vec::with_capacity(videos.len());
+
+    for mut video in videos {
+        let Some(provider_reference) = (match &video.data {
+            GeneratedVideoData::ProviderReference { provider_reference } => {
+                Some(provider_reference.clone())
+            }
+            _ => None,
+        }) else {
+            materialized_videos.push(video);
+            continue;
+        };
+
+        match model.materialize_video_reference(&provider_reference).await {
+            Ok(MaterializedVideoAsset { bytes, media_type }) => {
+                if provider_reference_from_metadata(&video.metadata).is_none() {
+                    video.metadata.insert(
+                        "providerReference".to_string(),
+                        serde_json::json!(provider_reference),
+                    );
+                }
+                video.media_type =
+                    resolve_materialized_video_media_type(&video, Some(&bytes), media_type);
+                video.data = GeneratedVideoData::Bytes { data: bytes };
+            }
+            Err(LlmError::UnsupportedOperation(_)) => {}
+            Err(error) => return Err(error),
+        }
+
+        materialized_videos.push(video);
+    }
+
+    Ok(materialized_videos)
+}
+
 fn build_call_provider_metadata(
     provider_id: &str,
     task_entry: serde_json::Value,
@@ -856,18 +1091,14 @@ fn build_call_provider_metadata(
 ) -> GenerateVideoProviderMetadata {
     let video_entries = videos
         .iter()
-        .map(|video| metadata_value(&video.metadata))
+        .map(provider_metadata_video_value)
         .collect::<Vec<_>>();
 
-    let mut provider_root = create_metadata
-        .get(provider_id)
-        .and_then(|value| value.as_object())
+    let mut provider_root = provider_metadata_root_object(create_metadata, provider_id)
         .cloned()
         .unwrap_or_default();
-    if let Some(query_provider_root) = query_metadata
-        .get(provider_id)
-        .and_then(|value| value.as_object())
-        .cloned()
+    if let Some(query_provider_root) =
+        provider_metadata_root_object(query_metadata, provider_id).cloned()
     {
         merge_provider_metadata_object(&mut provider_root, query_provider_root);
     }
@@ -973,6 +1204,8 @@ pub async fn wait_for_task<M: VideoModelV3 + ?Sized>(
 /// The helper keeps the Rust-first task model honest:
 /// - task creation and task polling remain explicit under the hood
 /// - larger `count` values are batched using stable `max_videos_per_call` metadata when available
+/// - URL-backed final assets are materialized by default to stay closer to AI SDK
+///   `experimental_generateVideo()`
 /// - the final result exposes generated video assets plus the underlying completed tasks
 ///
 /// When all tasks complete successfully but no final assets can be recovered, the helper returns
@@ -1024,12 +1257,24 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
         )
         .await?;
 
-        let generated_videos = extract_generated_videos(model.provider_id(), &queried)?;
+        let mut generated_videos = extract_generated_videos(model.provider_id(), &queried)?;
+        if options.materialize_urls {
+            let (materialized_videos, materialize_warnings) =
+                materialize_url_backed_generated_videos(
+                    generated_videos,
+                    options.materialize_http_config.as_ref(),
+                )
+                .await?;
+            generated_videos = materialized_videos;
+            warnings.extend(materialize_warnings);
+        }
+        generated_videos =
+            materialize_provider_reference_backed_generated_videos(model, generated_videos).await?;
         let task_entry = serde_json::json!({
             "taskId": task_id.clone(),
             "requestedCount": requested_count,
-            "createMetadata": created.metadata.clone(),
-            "queryMetadata": queried.metadata.clone(),
+            "createMetadata": public_task_metadata(&created.metadata),
+            "queryMetadata": public_task_metadata(&queried.metadata),
         });
         let call_provider_metadata = build_call_provider_metadata(
             model.provider_id(),
@@ -1065,7 +1310,13 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
         });
     }
 
+    let video = videos
+        .first()
+        .cloned()
+        .ok_or_else(|| LlmError::ParseError("generate result missing first video".to_string()))?;
+
     Ok(GenerateVideoResult {
+        video,
         videos,
         tasks,
         warnings,
@@ -1074,11 +1325,8 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
     })
 }
 
-/// Submit video-generation tasks, poll them to completion, and materialize final assets.
-///
-/// This is closer in role to AI SDK `experimental_generateVideo()` than the plain Rust
-/// `generate(...)` helper, but keeps the materialization step explicit through
-/// `MaterializeVideoOptions`.
+/// Submit video-generation tasks, poll them to completion, and normalize the result into explicit
+/// `MaterializedVideo` objects.
 pub async fn generate_materialized<M: VideoModelV4 + ?Sized>(
     model: &M,
     request: VideoGenerationRequest,
@@ -1160,6 +1408,25 @@ mod tests {
 
     #[derive(Clone, Default)]
     struct FakeNoAssetsVideoModel;
+
+    #[derive(Clone)]
+    struct FakeDownloadableUrlVideoModel {
+        download_url: String,
+    }
+
+    #[derive(Clone)]
+    struct FakeNonMaterializableUrlVideoModel {
+        asset_url: String,
+    }
+
+    #[derive(Clone, Default)]
+    struct FakeGoogleVertexAliasMetadataVideoModel;
+
+    #[derive(Clone, Default)]
+    struct FakeProviderReferenceMaterializingVideoModel;
+
+    #[derive(Clone, Default)]
+    struct FakeUnsupportedProviderReferenceVideoModel;
 
     async fn spawn_video_download_server(
         body: Vec<u8>,
@@ -1255,6 +1522,56 @@ mod tests {
         }
     }
 
+    impl ModelMetadata for FakeDownloadableUrlVideoModel {
+        fn provider_id(&self) -> &str {
+            "download-video"
+        }
+
+        fn model_id(&self) -> &str {
+            "download-video-model"
+        }
+    }
+
+    impl ModelMetadata for FakeProviderReferenceMaterializingVideoModel {
+        fn provider_id(&self) -> &str {
+            "provider-ref-video"
+        }
+
+        fn model_id(&self) -> &str {
+            "provider-ref-video-model"
+        }
+    }
+
+    impl ModelMetadata for FakeUnsupportedProviderReferenceVideoModel {
+        fn provider_id(&self) -> &str {
+            "unsupported-provider-ref-video"
+        }
+
+        fn model_id(&self) -> &str {
+            "unsupported-provider-ref-video-model"
+        }
+    }
+
+    impl ModelMetadata for FakeNonMaterializableUrlVideoModel {
+        fn provider_id(&self) -> &str {
+            "non-materializable-url-video"
+        }
+
+        fn model_id(&self) -> &str {
+            "non-materializable-url-video-model"
+        }
+    }
+
+    impl ModelMetadata for FakeGoogleVertexAliasMetadataVideoModel {
+        fn provider_id(&self) -> &str {
+            "vertex"
+        }
+
+        fn model_id(&self) -> &str {
+            "veo-3.1-generate-preview"
+        }
+    }
+
     #[async_trait::async_trait]
     impl VideoModelV3 for FakeGenerateVideoModel {
         async fn create_task(
@@ -1302,6 +1619,7 @@ mod tests {
                     status: VideoTaskStatus::Processing,
                     file_id: None,
                     video_url: None,
+                    provider_reference: None,
                     duration: None,
                     video_width: None,
                     video_height: None,
@@ -1317,6 +1635,7 @@ mod tests {
                     status: VideoTaskStatus::Fail,
                     file_id: None,
                     video_url: None,
+                    provider_reference: None,
                     duration: None,
                     video_width: None,
                     video_height: None,
@@ -1339,6 +1658,7 @@ mod tests {
                     status: VideoTaskStatus::Processing,
                     file_id: None,
                     video_url: None,
+                    provider_reference: None,
                     duration: None,
                     video_width: None,
                     video_height: None,
@@ -1381,6 +1701,10 @@ mod tests {
                 status: VideoTaskStatus::Success,
                 file_id: Some(format!("file-{task_id}")),
                 video_url: primary_video_url,
+                provider_reference: Some(ProviderReference::single(
+                    "fake-video",
+                    format!("file-{task_id}"),
+                )),
                 duration: Some(6.0),
                 video_width: Some(1280),
                 video_height: Some(720),
@@ -1426,6 +1750,7 @@ mod tests {
                 status: VideoTaskStatus::Success,
                 file_id: None,
                 video_url: None,
+                provider_reference: None,
                 duration: Some(4.0),
                 video_width: Some(1280),
                 video_height: Some(720),
@@ -1475,6 +1800,7 @@ mod tests {
                 status: VideoTaskStatus::Success,
                 file_id: None,
                 video_url: None,
+                provider_reference: None,
                 duration: Some(4.0),
                 video_width: Some(1280),
                 video_height: Some(720),
@@ -1485,6 +1811,244 @@ mod tests {
                     model_id: Some("empty-video-model".to_string()),
                     headers: HashMap::from([("x-query".to_string(), "1".to_string())]),
                 }),
+            })
+        }
+
+        fn max_videos_per_call(&self) -> Option<u32> {
+            Some(1)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl VideoModelV3 for FakeDownloadableUrlVideoModel {
+        async fn create_task(
+            &self,
+            request: VideoGenerationRequest,
+        ) -> Result<VideoGenerationResponse, LlmError> {
+            Ok(VideoGenerationResponse {
+                task_id: format!("download-task:{}", request.model),
+                base_resp: None,
+                metadata: HashMap::from([(
+                    "download-video".to_string(),
+                    serde_json::json!({ "createId": "download-create-1" }),
+                )]),
+                warnings: None,
+                response: Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some(request.model),
+                    headers: HashMap::new(),
+                }),
+            })
+        }
+
+        async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+            Ok(VideoTaskStatusResponse {
+                task_id: task_id.to_string(),
+                status: VideoTaskStatus::Success,
+                file_id: None,
+                video_url: Some(self.download_url.clone()),
+                provider_reference: None,
+                duration: Some(4.0),
+                video_width: Some(640),
+                video_height: Some(360),
+                base_resp: None,
+                metadata: HashMap::from([(
+                    "download-video".to_string(),
+                    serde_json::json!({
+                        "videos": [{
+                            "url": self.download_url,
+                            "mediaType": "video/mp4"
+                        }]
+                    }),
+                )]),
+                response: Some(HttpResponseInfo {
+                    timestamp: chrono::Utc::now(),
+                    model_id: Some("download-video-model".to_string()),
+                    headers: HashMap::new(),
+                }),
+            })
+        }
+
+        fn max_videos_per_call(&self) -> Option<u32> {
+            Some(1)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl VideoModelV3 for FakeProviderReferenceMaterializingVideoModel {
+        async fn create_task(
+            &self,
+            request: VideoGenerationRequest,
+        ) -> Result<VideoGenerationResponse, LlmError> {
+            Ok(VideoGenerationResponse {
+                task_id: format!("provider-ref-task:{}", request.model),
+                base_resp: None,
+                metadata: HashMap::new(),
+                warnings: None,
+                response: None,
+            })
+        }
+
+        async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+            Ok(VideoTaskStatusResponse {
+                task_id: task_id.to_string(),
+                status: VideoTaskStatus::Success,
+                file_id: None,
+                video_url: None,
+                provider_reference: Some(ProviderReference::single(
+                    "provider-ref-video",
+                    "file-123",
+                )),
+                duration: Some(4.0),
+                video_width: Some(1024),
+                video_height: Some(576),
+                base_resp: None,
+                metadata: HashMap::new(),
+                response: None,
+            })
+        }
+
+        async fn materialize_video_reference(
+            &self,
+            provider_reference: &ProviderReference,
+        ) -> Result<MaterializedVideoAsset, LlmError> {
+            assert_eq!(
+                provider_reference.get("provider-ref-video"),
+                Some("file-123")
+            );
+            Ok(MaterializedVideoAsset::new(vec![7, 6, 5, 4]).with_media_type("video/webm"))
+        }
+
+        fn max_videos_per_call(&self) -> Option<u32> {
+            Some(1)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl VideoModelV3 for FakeUnsupportedProviderReferenceVideoModel {
+        async fn create_task(
+            &self,
+            request: VideoGenerationRequest,
+        ) -> Result<VideoGenerationResponse, LlmError> {
+            Ok(VideoGenerationResponse {
+                task_id: format!("unsupported-provider-ref-task:{}", request.model),
+                base_resp: None,
+                metadata: HashMap::new(),
+                warnings: None,
+                response: None,
+            })
+        }
+
+        async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+            Ok(VideoTaskStatusResponse {
+                task_id: task_id.to_string(),
+                status: VideoTaskStatus::Success,
+                file_id: None,
+                video_url: None,
+                provider_reference: Some(ProviderReference::single(
+                    "unsupported-provider-ref-video",
+                    "file-raw",
+                )),
+                duration: Some(4.0),
+                video_width: Some(1024),
+                video_height: Some(576),
+                base_resp: None,
+                metadata: HashMap::new(),
+                response: None,
+            })
+        }
+
+        fn max_videos_per_call(&self) -> Option<u32> {
+            Some(1)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl VideoModelV3 for FakeNonMaterializableUrlVideoModel {
+        async fn create_task(
+            &self,
+            request: VideoGenerationRequest,
+        ) -> Result<VideoGenerationResponse, LlmError> {
+            Ok(VideoGenerationResponse {
+                task_id: format!("non-materializable-url-task:{}", request.model),
+                base_resp: None,
+                metadata: HashMap::new(),
+                warnings: None,
+                response: None,
+            })
+        }
+
+        async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+            Ok(VideoTaskStatusResponse {
+                task_id: task_id.to_string(),
+                status: VideoTaskStatus::Success,
+                file_id: Some(self.asset_url.clone()),
+                video_url: None,
+                provider_reference: None,
+                duration: Some(4.0),
+                video_width: Some(1024),
+                video_height: Some(576),
+                base_resp: None,
+                metadata: HashMap::from([(
+                    "non-materializable-url-video".to_string(),
+                    serde_json::json!({
+                        "videos": [{
+                            "gcsUri": self.asset_url,
+                            "mimeType": "video/mp4"
+                        }]
+                    }),
+                )]),
+                response: None,
+            })
+        }
+
+        fn max_videos_per_call(&self) -> Option<u32> {
+            Some(1)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl VideoModelV3 for FakeGoogleVertexAliasMetadataVideoModel {
+        async fn create_task(
+            &self,
+            request: VideoGenerationRequest,
+        ) -> Result<VideoGenerationResponse, LlmError> {
+            Ok(VideoGenerationResponse {
+                task_id: format!("vertex-alias-task:{}", request.model),
+                base_resp: None,
+                metadata: HashMap::from([(
+                    "google-vertex".to_string(),
+                    serde_json::json!({
+                        "createId": "vertex-alias-create"
+                    }),
+                )]),
+                warnings: None,
+                response: None,
+            })
+        }
+
+        async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
+            Ok(VideoTaskStatusResponse {
+                task_id: task_id.to_string(),
+                status: VideoTaskStatus::Success,
+                file_id: None,
+                video_url: None,
+                provider_reference: None,
+                duration: Some(4.0),
+                video_width: Some(1280),
+                video_height: Some(720),
+                base_resp: None,
+                metadata: HashMap::from([(
+                    "google-vertex".to_string(),
+                    serde_json::json!({
+                        "videos": [{
+                            "gcsUri": "gs://bucket/output/video.mp4",
+                            "mimeType": "video/mp4"
+                        }],
+                        "raiMediaFilteredCount": 1
+                    }),
+                )]),
+                response: None,
             })
         }
 
@@ -1562,6 +2126,7 @@ mod tests {
             GenerateOptions {
                 poll_interval: Duration::from_millis(1),
                 poll_timeout: Some(Duration::from_millis(50)),
+                materialize_urls: false,
                 ..Default::default()
             },
         )
@@ -1632,6 +2197,7 @@ mod tests {
             GenerateOptions {
                 poll_interval: Duration::from_millis(1),
                 poll_timeout: Some(Duration::from_millis(50)),
+                materialize_urls: false,
                 ..Default::default()
             },
         )
@@ -1738,6 +2304,77 @@ mod tests {
         assert_eq!(materialized.base64(), base64);
     }
 
+    #[test]
+    fn provider_metadata_video_value_strips_inline_payloads() {
+        let video = GeneratedVideo {
+            task_id: "task-1".to_string(),
+            media_type: "video/mp4".to_string(),
+            data: GeneratedVideoData::Base64 {
+                data: "Zm9v".to_string(),
+            },
+            metadata: HashMap::from([
+                ("bytesBase64Encoded".to_string(), serde_json::json!("Zm9v")),
+                ("mimeType".to_string(), serde_json::json!("video/mp4")),
+            ]),
+        };
+
+        assert_eq!(
+            provider_metadata_video_value(&video),
+            serde_json::json!({
+                "mimeType": "video/mp4"
+            })
+        );
+    }
+
+    #[test]
+    fn extract_generated_videos_prefers_internal_generated_video_payloads() {
+        let response = VideoTaskStatusResponse {
+            task_id: "vertex-task".to_string(),
+            status: VideoTaskStatus::Success,
+            file_id: None,
+            video_url: None,
+            provider_reference: None,
+            duration: None,
+            video_width: None,
+            video_height: None,
+            base_resp: None,
+            metadata: HashMap::from([
+                (
+                    "vertex".to_string(),
+                    serde_json::json!({
+                        "videos": [
+                            {
+                                "mimeType": "video/mp4"
+                            }
+                        ]
+                    }),
+                ),
+                (
+                    "_siumai".to_string(),
+                    serde_json::json!({
+                        "generatedVideos": [
+                            {
+                                "bytesBase64Encoded": "Zm9v",
+                                "mimeType": "video/mp4"
+                            }
+                        ]
+                    }),
+                ),
+            ]),
+            response: None,
+        };
+
+        let videos = extract_generated_videos("vertex", &response).expect("extract videos");
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].base64().expect("base64 video"), "Zm9v");
+        assert_eq!(
+            provider_metadata_video_value(&videos[0]),
+            serde_json::json!({
+                "mimeType": "video/mp4"
+            })
+        );
+    }
+
     #[tokio::test]
     async fn generated_video_materialize_downloads_url_assets_with_http_config() {
         let url = spawn_video_download_server(
@@ -1773,6 +2410,209 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn generate_materializes_url_assets_by_default_and_preserves_source_url() {
+        let url = spawn_video_download_server(
+            vec![5, 4, 3, 2],
+            "video/webm",
+            Some(("x-download-token", "secret")),
+            "/generated-by-generate",
+        )
+        .await;
+        let model = FakeDownloadableUrlVideoModel {
+            download_url: url.clone(),
+        };
+
+        let result = generate(
+            &model,
+            VideoGenerationRequest::new("download-video-model", "materialize this"),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(20)),
+                materialize_http_config: Some(
+                    HttpConfig::builder()
+                        .header("x-download-token", "secret")
+                        .build(),
+                ),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("generate materialized url-backed asset");
+
+        assert_eq!(result.video.url(), Some(url.as_str()));
+        assert_eq!(
+            result.video.bytes().expect("materialized bytes"),
+            vec![5, 4, 3, 2]
+        );
+        assert_eq!(
+            result.video.base64().expect("materialized base64"),
+            STANDARD.encode([5_u8, 4, 3, 2])
+        );
+        assert!(matches!(
+            result.video.data,
+            GeneratedVideoData::Bytes { .. }
+        ));
+        assert_eq!(result.tasks[0].video_url.as_deref(), Some(url.as_str()));
+    }
+
+    #[tokio::test]
+    async fn generate_materializes_provider_reference_assets_when_model_supports_it() {
+        let model = FakeProviderReferenceMaterializingVideoModel;
+        let result = generate(
+            &model,
+            VideoGenerationRequest::new("provider-ref-video-model", "materialize provider ref"),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(20)),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("generate materialized provider-reference asset");
+
+        assert_eq!(result.video.media_type, "video/webm");
+        assert_eq!(
+            result.video.bytes().expect("materialized bytes"),
+            vec![7, 6, 5, 4]
+        );
+        assert!(matches!(
+            result.video.data,
+            GeneratedVideoData::Bytes { .. }
+        ));
+        assert_eq!(
+            result
+                .provider_metadata
+                .get("provider-ref-video")
+                .and_then(|value| value.get("videos"))
+                .and_then(|value| value.as_array())
+                .and_then(|videos| videos.first())
+                .and_then(|video| video.get("providerReference"))
+                .and_then(|value| value.get("provider-ref-video"))
+                .and_then(|value| value.as_str()),
+            Some("file-123")
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_keeps_non_http_url_assets_when_default_materialization_cannot_download_them()
+    {
+        let url = "gs://bucket/output/video.mp4".to_string();
+        let model = FakeNonMaterializableUrlVideoModel {
+            asset_url: url.clone(),
+        };
+
+        let result = generate(
+            &model,
+            VideoGenerationRequest::new(
+                "non-materializable-url-video-model",
+                "leave provider-owned url raw",
+            ),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(20)),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("generate non-http url-backed asset");
+
+        assert_eq!(result.video.url(), Some(url.as_str()));
+        assert!(matches!(result.video.data, GeneratedVideoData::Url { .. }));
+        assert!(result.warnings.iter().any(|warning| matches!(
+            warning,
+            Warning::Unsupported { feature, details }
+                if feature == "generatedVideoUrlMaterialization"
+                    && details.as_deref().is_some_and(|details| details.contains("scheme 'gs'"))
+        )));
+    }
+
+    #[tokio::test]
+    async fn generate_accepts_google_vertex_provider_metadata_alias_on_video_path() {
+        let model = FakeGoogleVertexAliasMetadataVideoModel;
+        let result = generate(
+            &model,
+            VideoGenerationRequest::new("veo-3.1-generate-preview", "alias metadata"),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(20)),
+                materialize_urls: false,
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("generate vertex alias metadata video");
+
+        assert_eq!(result.video.url(), Some("gs://bucket/output/video.mp4"));
+        assert_eq!(result.tasks[0].video_url, None);
+        assert!(result.provider_metadata.get("google-vertex").is_none());
+        let provider_metadata = result
+            .provider_metadata
+            .get("vertex")
+            .expect("normalized vertex provider metadata");
+        assert_eq!(
+            provider_metadata
+                .get("createId")
+                .and_then(|value| value.as_str()),
+            Some("vertex-alias-create")
+        );
+        assert_eq!(
+            provider_metadata
+                .get("raiMediaFilteredCount")
+                .and_then(|value| value.as_u64()),
+            Some(1)
+        );
+        assert_eq!(
+            provider_metadata
+                .get("videos")
+                .and_then(|value| value.as_array())
+                .and_then(|videos| videos.first())
+                .and_then(|video| video.get("gcsUri"))
+                .and_then(|value| value.as_str()),
+            Some("gs://bucket/output/video.mp4")
+        );
+        assert_eq!(
+            provider_metadata
+                .get("tasks")
+                .and_then(|value| value.as_array())
+                .and_then(|tasks| tasks.first())
+                .and_then(|task| task.get("queryMetadata"))
+                .and_then(|metadata| metadata.get("_siumai")),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_keeps_provider_reference_assets_when_model_cannot_materialize_them() {
+        let model = FakeUnsupportedProviderReferenceVideoModel;
+        let result = generate(
+            &model,
+            VideoGenerationRequest::new(
+                "unsupported-provider-ref-video-model",
+                "leave provider ref raw",
+            ),
+            GenerateOptions {
+                poll_interval: Duration::from_millis(1),
+                poll_timeout: Some(Duration::from_millis(20)),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("generate raw provider-reference asset");
+
+        assert!(matches!(
+            result.video.data,
+            GeneratedVideoData::ProviderReference { .. }
+        ));
+        assert_eq!(
+            result
+                .video
+                .provider_reference()
+                .and_then(|reference| reference.get("unsupported-provider-ref-video")),
+            Some("file-raw")
+        );
+    }
+
+    #[tokio::test]
     async fn generated_video_materialize_rejects_provider_reference_assets() {
         let video = GeneratedVideo {
             task_id: "task-3".to_string(),
@@ -1796,6 +2636,14 @@ mod tests {
     #[tokio::test]
     async fn generate_video_result_materialize_videos_materializes_all_assets() {
         let result = GenerateVideoResult {
+            video: GeneratedVideo {
+                task_id: "task-1".to_string(),
+                media_type: "video/mp4".to_string(),
+                data: GeneratedVideoData::Base64 {
+                    data: STANDARD.encode([1_u8, 2, 3]),
+                },
+                metadata: HashMap::new(),
+            },
             videos: vec![
                 GeneratedVideo {
                     task_id: "task-1".to_string(),
@@ -1844,6 +2692,7 @@ mod tests {
             .await
             .expect("convert generated result into materialized result");
         assert_eq!(materialized_result.videos.len(), 2);
+        assert_eq!(materialized_result.video.media_type, "video/mp4");
         assert_eq!(
             materialized_result
                 .video()

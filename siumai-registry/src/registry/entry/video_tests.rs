@@ -30,6 +30,10 @@ impl crate::traits::VideoGenerationCapability for BridgeVideoClient {
             status: crate::types::VideoTaskStatus::Success,
             file_id: Some("file-123".to_string()),
             video_url: Some("https://example.com/video.mp4".to_string()),
+            provider_reference: Some(crate::types::ProviderReference::single(
+                "testprov_video",
+                "file-123",
+            )),
             duration: Some(6.0),
             video_width: Some(1920),
             video_height: Some(1080),
@@ -271,6 +275,10 @@ async fn provider_factory_native_video_family_path_works() {
                 status: crate::types::VideoTaskStatus::Success,
                 file_id: Some("native-file".to_string()),
                 video_url: Some("https://example.com/native.mp4".to_string()),
+                provider_reference: Some(crate::types::ProviderReference::single(
+                    "native-video",
+                    "native-file",
+                )),
                 duration: Some(4.0),
                 video_width: Some(1280),
                 video_height: Some(720),
@@ -371,6 +379,10 @@ async fn video_model_handle_uses_native_family_path_when_available() {
                 status: crate::types::VideoTaskStatus::Success,
                 file_id: Some("native-file".to_string()),
                 video_url: Some("https://example.com/native-handle.mp4".to_string()),
+                provider_reference: Some(crate::types::ProviderReference::single(
+                    "native-video-handle",
+                    "native-file",
+                )),
                 duration: Some(6.0),
                 video_width: Some(1920),
                 video_height: Some(1080),
@@ -466,6 +478,10 @@ async fn video_model_handle_reuses_cached_family_model() {
                 status: crate::types::VideoTaskStatus::Success,
                 file_id: Some("cached-file".to_string()),
                 video_url: Some("https://example.com/cached.mp4".to_string()),
+                provider_reference: Some(crate::types::ProviderReference::single(
+                    "cached-video",
+                    "cached-file",
+                )),
                 duration: None,
                 video_width: None,
                 video_height: None,

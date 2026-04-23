@@ -9,7 +9,10 @@ use async_trait::async_trait;
 
 use crate::error::LlmError;
 use crate::traits::{ModelMetadata, VideoGenerationCapability};
-use crate::types::{VideoGenerationRequest, VideoGenerationResponse, VideoTaskStatusResponse};
+use crate::types::{
+    MaterializedVideoAsset, ProviderReference, VideoGenerationRequest, VideoGenerationResponse,
+    VideoTaskStatusResponse,
+};
 
 /// V3 interface for task-oriented video generation models.
 #[async_trait]
@@ -22,6 +25,16 @@ pub trait VideoModelV3: Send + Sync {
 
     /// Query an existing video-generation task.
     async fn query_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError>;
+
+    /// Materialize a provider-owned generated-video reference into bytes.
+    async fn materialize_video_reference(
+        &self,
+        provider_reference: &ProviderReference,
+    ) -> Result<MaterializedVideoAsset, LlmError> {
+        Err(LlmError::UnsupportedOperation(format!(
+            "Provider-owned generated-video materialization is not supported for provider reference {provider_reference:?}"
+        )))
+    }
 
     /// Maximum number of final videos this model can produce in a single task call.
     ///
@@ -77,6 +90,13 @@ where
         self.query_video_task(task_id).await
     }
 
+    async fn materialize_video_reference(
+        &self,
+        provider_reference: &ProviderReference,
+    ) -> Result<MaterializedVideoAsset, LlmError> {
+        VideoGenerationCapability::materialize_video_reference(self, provider_reference).await
+    }
+
     fn max_videos_per_call(&self) -> Option<u32> {
         VideoGenerationCapability::max_videos_per_call(self)
     }
@@ -98,7 +118,7 @@ where
 mod tests {
     use super::*;
     use crate::traits::ModelSpecVersion;
-    use crate::types::VideoTaskStatus;
+    use crate::types::{MaterializedVideoAsset, VideoTaskStatus};
     use std::collections::HashMap;
 
     struct FakeVideo;
@@ -137,6 +157,7 @@ mod tests {
                 status: VideoTaskStatus::Success,
                 file_id: Some("file-123".to_string()),
                 video_url: Some("https://example.com/video.mp4".to_string()),
+                provider_reference: Some(ProviderReference::single("fake", "file-123")),
                 duration: Some(6.0),
                 video_width: Some(1280),
                 video_height: Some(720),
@@ -144,6 +165,20 @@ mod tests {
                 metadata: HashMap::new(),
                 response: None,
             })
+        }
+
+        async fn materialize_video_reference(
+            &self,
+            provider_reference: &ProviderReference,
+        ) -> Result<MaterializedVideoAsset, LlmError> {
+            let file_id = provider_reference
+                .get("fake")
+                .ok_or_else(|| {
+                    LlmError::InvalidInput("missing fake provider reference".to_string())
+                })?
+                .to_string();
+
+            Ok(MaterializedVideoAsset::new(file_id.into_bytes()).with_media_type("video/mp4"))
         }
 
         fn get_supported_models(&self) -> Vec<String> {
@@ -186,6 +221,20 @@ mod tests {
             response.video_url.as_deref(),
             Some("https://example.com/video.mp4")
         );
+    }
+
+    #[tokio::test]
+    async fn adapter_materialize_video_reference_uses_capability() {
+        let model = FakeVideo;
+        let asset = VideoModelV3::materialize_video_reference(
+            &model,
+            &ProviderReference::single("fake", "file-123"),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(asset.bytes, b"file-123".to_vec());
+        assert_eq!(asset.media_type.as_deref(), Some("video/mp4"));
     }
 
     #[test]

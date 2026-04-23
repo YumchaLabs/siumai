@@ -1,6 +1,6 @@
 # Video Model Family Alignment - TODO
 
-Last updated: 2026-04-20
+Last updated: 2026-04-21
 
 Status legend:
 
@@ -43,8 +43,8 @@ Status legend:
 - [x] Expose `wait_for_task(...)` as the explicit polling helper.
 - [x] Expose `generate(...)` as a high-level create-and-poll helper without copying the
   TypeScript callable-model shape.
-- [x] Expose `generate_materialized(...)` as the high-level helper closest in role to AI SDK
-  `experimental_generateVideo()` while keeping materialization explicit.
+- [x] Keep `generate_materialized(...)` as the explicit `MaterializedVideo` normalization helper
+  alongside the now auto-materializing `generate(...)` path.
 - [x] Re-export the core `VideoModel*` family traits plus shared request/result types on the
   facade surface.
 - [x] Add compile/public-path/registry coverage for the new public video lane.
@@ -88,7 +88,25 @@ Status legend:
   - `GenerateVideoResponseMetadata` now exposes best-effort create/query/logical-call projections
   - `GenerateVideoResult` / `GenerateMaterializedVideoResult` now expose
     `video_model_responses()` for the AI SDK-style response list view
-- [ ] Decide whether high-level `generate(...)` should auto-materialize URL-backed final videos by
-  default instead of keeping that step explicit.
-- [ ] Decide whether provider-reference-only assets should eventually expose provider-owned download
-  adapters.
+- [x] Make high-level `generate(...)` auto-materialize URL-backed final videos by default, with
+  explicit opt-out plus helper-level download `HttpConfig`.
+- [x] Expose AI SDK-style first `video` fields on `GenerateVideoResult` /
+  `GenerateMaterializedVideoResult`, and add direct `GeneratedVideo::bytes()` /
+  `GeneratedVideo::base64()` accessors for already-inline assets.
+- [x] Add provider-owned download adapters for the currently audited provider-reference-only video
+  paths (Gemini and MiniMaxi) through the shared video-family capability surface.
+- [x] Promote task-status final-asset references onto canonical `providerReference` while keeping
+  legacy `fileId` compatibility and camelCase stable serde output.
+- [x] Lock top-level public-path parity around the current task-query split: Gemini returns
+  canonical `providerReference`, while Vertex stays on raw `videoUrl` without fabricating a shared
+  provider reference.
+- [x] Restore the feature-gated provider-local Gemini video regression lane so `cargo test
+  --features google` actually compiles and enumerates those unit tests again.
+- [x] Make direct `GeminiVideo::new(...)` helper construction honor `GeminiConfig.http_transport`
+  when no explicit transport override is passed, so video task polling uses the same custom-fetch
+  wiring as the client path.
+- [x] Make video helper/provider-metadata readers accept upstream `google-vertex` alias roots on
+  the read path while preserving the existing public `vertex` aggregation root.
+- [-] Leave providers that still require a different authenticated download runtime (for example
+  current Vertex GCS-owned outputs) on the raw URL-backed path until that runtime is
+  audited and shared.

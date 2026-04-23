@@ -543,6 +543,7 @@ pub(super) async fn query_video_task(
         status: status_from_wire(parsed.status.as_deref(), video_url.is_some()),
         file_id: None,
         video_url,
+        provider_reference: None,
         duration,
         video_width: None,
         video_height: None,
@@ -575,6 +576,7 @@ pub(super) fn supported_durations(_model: &str) -> Vec<u32> {
 mod tests {
     use super::*;
     use crate::provider_options::XaiVideoMode;
+    use crate::providers::xai::ext::video_options::XaiVideoRequestExt;
 
     #[test]
     fn build_create_body_routes_extend_video_requests_to_extensions_endpoint() {
