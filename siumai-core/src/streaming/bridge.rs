@@ -85,13 +85,13 @@ impl OpenAiResponsesStreamPartsBridge {
             | LanguageModelV3StreamPart::ToolInputDelta { .. }
             | LanguageModelV3StreamPart::ToolInputEnd { .. }
             | LanguageModelV3StreamPart::ToolApprovalRequest(_)
+            | LanguageModelV3StreamPart::Raw { .. }
+            | LanguageModelV3StreamPart::Custom(_)
+            | LanguageModelV3StreamPart::File(_)
+            | LanguageModelV3StreamPart::ReasoningFile(_)
             | LanguageModelV3StreamPart::Source(_)
             | LanguageModelV3StreamPart::Finish { .. }
             | LanguageModelV3StreamPart::Error { .. } => Some(vec![part.to_part_event()]),
-            LanguageModelV3StreamPart::Raw { .. }
-            | LanguageModelV3StreamPart::Custom(_)
-            | LanguageModelV3StreamPart::File(_)
-            | LanguageModelV3StreamPart::ReasoningFile(_) => None,
         }
     }
 
@@ -597,7 +597,7 @@ mod tests {
     }
 
     #[test]
-    fn bridge_v3_raw_parts_are_not_rewritten() {
+    fn bridge_v3_raw_parts_are_promoted_to_runtime_parts() {
         let mut bridge = OpenAiResponsesStreamPartsBridge::new();
 
         let in_event = ChatStreamEvent::Custom {
@@ -611,10 +611,129 @@ mod tests {
         let out = bridge.bridge_event(in_event);
         assert_eq!(out.len(), 1);
 
-        let ChatStreamEvent::Custom { event_type, .. } = &out[0] else {
-            panic!("expected Custom");
+        let ChatStreamEvent::Part {
+            part: ChatStreamPart::Raw { raw_value },
+        } = &out[0]
+        else {
+            panic!("expected stable raw part");
         };
-        assert_eq!(event_type, "custom:raw");
+        assert_eq!(raw_value, &serde_json::json!({ "hello": "world" }));
+    }
+
+    #[test]
+    fn bridge_v3_custom_parts_are_promoted_to_runtime_parts() {
+        let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+        let in_event = ChatStreamEvent::Custom {
+            event_type: "custom:any".to_string(),
+            data: serde_json::json!({
+                "type": "custom",
+                "kind": "gemini.cache-hit",
+                "providerMetadata": {
+                    "gemini": { "traceId": "trace_1" }
+                }
+            }),
+        };
+
+        let out = bridge.bridge_event(in_event);
+        assert_eq!(out.len(), 1);
+
+        let ChatStreamEvent::Part {
+            part: ChatStreamPart::Custom(custom),
+        } = &out[0]
+        else {
+            panic!("expected stable custom part");
+        };
+        assert_eq!(custom.kind, "gemini.cache-hit");
+        assert_eq!(
+            custom
+                .provider_metadata
+                .as_ref()
+                .and_then(|value| value.get("gemini"))
+                .and_then(|value| value.get("traceId"))
+                .and_then(|value| value.as_str()),
+            Some("trace_1")
+        );
+    }
+
+    #[test]
+    fn bridge_v3_file_parts_are_promoted_to_runtime_parts() {
+        let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+        let in_event = ChatStreamEvent::Custom {
+            event_type: "custom:any".to_string(),
+            data: serde_json::json!({
+                "type": "file",
+                "mediaType": "image/png",
+                "data": "ZmFrZQ==",
+                "providerMetadata": {
+                    "gemini": { "traceId": "file_trace" }
+                }
+            }),
+        };
+
+        let out = bridge.bridge_event(in_event);
+        assert_eq!(out.len(), 1);
+
+        let ChatStreamEvent::Part {
+            part: ChatStreamPart::File(file),
+        } = &out[0]
+        else {
+            panic!("expected stable file part");
+        };
+        assert_eq!(file.media_type, "image/png");
+        assert!(matches!(
+            &file.data,
+            crate::types::ChatStreamFileData::Base64(data) if data == "ZmFrZQ=="
+        ));
+        assert_eq!(
+            file.provider_metadata
+                .as_ref()
+                .and_then(|value| value.get("gemini"))
+                .and_then(|value| value.get("traceId"))
+                .and_then(|value| value.as_str()),
+            Some("file_trace")
+        );
+    }
+
+    #[test]
+    fn bridge_v3_reasoning_file_parts_are_promoted_to_runtime_parts() {
+        let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+        let in_event = ChatStreamEvent::Custom {
+            event_type: "custom:any".to_string(),
+            data: serde_json::json!({
+                "type": "reasoning-file",
+                "mediaType": "image/png",
+                "data": "cmVhc29uaW5n",
+                "providerMetadata": {
+                    "gemini": { "traceId": "reasoning_trace" }
+                }
+            }),
+        };
+
+        let out = bridge.bridge_event(in_event);
+        assert_eq!(out.len(), 1);
+
+        let ChatStreamEvent::Part {
+            part: ChatStreamPart::ReasoningFile(file),
+        } = &out[0]
+        else {
+            panic!("expected stable reasoning-file part");
+        };
+        assert_eq!(file.media_type, "image/png");
+        assert!(matches!(
+            &file.data,
+            crate::types::ChatStreamFileData::Base64(data) if data == "cmVhc29uaW5n"
+        ));
+        assert_eq!(
+            file.provider_metadata
+                .as_ref()
+                .and_then(|value| value.get("gemini"))
+                .and_then(|value| value.get("traceId"))
+                .and_then(|value| value.as_str()),
+            Some("reasoning_trace")
+        );
     }
 
     #[test]

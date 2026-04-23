@@ -30,10 +30,11 @@ use crate::types::{
     BatchEmbeddingResponse, ChatMessage, ChatRequest, ChatResponse, CompletionRequest,
     CompletionResponse, EmbeddingRequest, EmbeddingResponse, FileDeleteResponse, FileListQuery,
     FileListResponse, FileObject, FileUploadRequest, ImageEditRequest, ImageGenerationRequest,
-    ImageGenerationResponse, ImageVariationRequest, LanguageInfo, MusicGenerationRequest,
-    MusicGenerationResponse, RerankRequest, RerankResponse, SkillUploadRequest, SkillUploadResult,
-    SttRequest, SttResponse, Tool, TtsRequest, TtsResponse, VideoGenerationRequest,
-    VideoGenerationResponse, VideoTaskStatusResponse, VoiceInfo,
+    ImageGenerationResponse, ImageVariationRequest, LanguageInfo, MaterializedVideoAsset,
+    MusicGenerationRequest, MusicGenerationResponse, ProviderReference, RerankRequest,
+    RerankResponse, SkillUploadRequest, SkillUploadResult, SttRequest, SttResponse, Tool,
+    TtsRequest, TtsResponse, VideoGenerationRequest, VideoGenerationResponse,
+    VideoTaskStatusResponse, VoiceInfo,
 };
 use siumai_core::completion::CompletionModel as FamilyCompletionModel;
 use siumai_core::rerank::RerankingModel as FamilyRerankingModel;
@@ -658,6 +659,21 @@ impl siumai_core::video::VideoModelV3 for ClientBackedVideoModel {
                 )
             })?;
         video.query_video_task(task_id).await
+    }
+
+    async fn materialize_video_reference(
+        &self,
+        provider_reference: &crate::types::ProviderReference,
+    ) -> Result<crate::types::MaterializedVideoAsset, LlmError> {
+        let video = self
+            .client
+            .as_video_generation_capability()
+            .ok_or_else(|| {
+                LlmError::UnsupportedOperation(
+                    "Provider does not support video generation".to_string(),
+                )
+            })?;
+        video.materialize_video_reference(provider_reference).await
     }
 
     fn supported_models(&self) -> Vec<String> {
@@ -2920,6 +2936,14 @@ impl VideoGenerationCapability for VideoModelHandle {
     async fn query_video_task(&self, task_id: &str) -> Result<VideoTaskStatusResponse, LlmError> {
         let model = self.get_or_create_video_model(&self.model_id).await?;
         model.query_task(task_id).await
+    }
+
+    async fn materialize_video_reference(
+        &self,
+        provider_reference: &ProviderReference,
+    ) -> Result<MaterializedVideoAsset, LlmError> {
+        let model = self.get_or_create_video_model(&self.model_id).await?;
+        model.materialize_video_reference(provider_reference).await
     }
 
     fn max_videos_per_call(&self) -> Option<u32> {

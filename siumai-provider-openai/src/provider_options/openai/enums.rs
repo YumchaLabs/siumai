@@ -70,3 +70,15 @@ pub enum Truncation {
     /// Error if exceeding context window (default)
     Disabled,
 }
+
+/// System message mode for OpenAI Responses API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SystemMessageMode {
+    /// Use the standard `system` role.
+    System,
+    /// Use the Responses reasoning-model `developer` role.
+    Developer,
+    /// Remove system messages from the emitted prompt.
+    Remove,
+}

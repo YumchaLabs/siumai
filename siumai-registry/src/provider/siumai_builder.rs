@@ -9,8 +9,9 @@ use crate::retry_api::RetryOptions;
 use crate::types::{CommonParams, HttpConfig, ProviderType};
 #[cfg(feature = "anthropic")]
 use siumai_provider_anthropic::provider_options::anthropic::{
-    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort, AnthropicOptions,
-    AnthropicStructuredOutputMode, ThinkingModeConfig,
+    AnthropicContainerConfig, AnthropicContextManagementConfig, AnthropicEffort,
+    AnthropicInferenceGeo, AnthropicOptions, AnthropicStructuredOutputMode, AnthropicTaskBudget,
+    ThinkingModeConfig,
 };
 #[cfg(feature = "deepseek")]
 use siumai_provider_deepseek::provider_options::deepseek::DeepSeekOptions;
@@ -564,6 +565,18 @@ impl SiumaiBuilder {
     }
 
     #[cfg(feature = "anthropic")]
+    /// Set Anthropic default task budget on the shared builder.
+    pub fn with_anthropic_task_budget(self, task_budget: AnthropicTaskBudget) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_task_budget(task_budget))
+    }
+
+    #[cfg(feature = "anthropic")]
+    /// Set Anthropic default inference geo on the shared builder.
+    pub fn with_anthropic_inference_geo(self, inference_geo: AnthropicInferenceGeo) -> Self {
+        self.with_anthropic_options(AnthropicOptions::new().with_inference_geo(inference_geo))
+    }
+
+    #[cfg(feature = "anthropic")]
     /// Set Anthropic default container config on the shared builder.
     pub fn with_anthropic_container(self, container: AnthropicContainerConfig) -> Self {
         self.with_anthropic_options(AnthropicOptions::new().with_container(container))
@@ -916,6 +929,13 @@ impl SiumaiBuilder {
     }
     pub fn base_url_for_vertex(mut self, project: &str, location: &str, publisher: &str) -> Self {
         let base = crate::utils::vertex_base_url(project, location, publisher);
+        self.base_url = Some(base);
+        self
+    }
+
+    /// Build an Anthropic-on-Vertex provider base URL aligned with AI SDK.
+    pub fn base_url_for_anthropic_vertex(mut self, project: &str, location: &str) -> Self {
+        let base = crate::utils::vertex::google_vertex_anthropic_base_url(project, location);
         self.base_url = Some(base);
         self
     }

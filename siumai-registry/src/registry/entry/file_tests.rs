@@ -11,9 +11,10 @@ impl crate::traits::FileManagementCapability for BridgeFilesClient {
         &self,
         request: crate::types::FileUploadRequest,
     ) -> Result<crate::types::FileObject, LlmError> {
+        let filename = request.filename.clone();
         Ok(crate::types::FileObject {
-            id: format!("file:{}", request.filename),
-            filename: request.filename,
+            id: format!("file:{}", filename.as_deref().unwrap_or("unnamed")),
+            filename,
             bytes: request.content.len() as u64,
             created_at: 1,
             purpose: request.purpose,
@@ -30,7 +31,7 @@ impl crate::traits::FileManagementCapability for BridgeFilesClient {
         Ok(crate::types::FileListResponse {
             files: vec![crate::types::FileObject {
                 id: "file:list".to_string(),
-                filename: "listed.txt".to_string(),
+                filename: Some("listed.txt".to_string()),
                 bytes: 5,
                 created_at: 2,
                 purpose: query
@@ -48,7 +49,7 @@ impl crate::traits::FileManagementCapability for BridgeFilesClient {
     async fn retrieve_file(&self, file_id: String) -> Result<crate::types::FileObject, LlmError> {
         Ok(crate::types::FileObject {
             id: file_id,
-            filename: "retrieved.txt".to_string(),
+            filename: Some("retrieved.txt".to_string()),
             bytes: 7,
             created_at: 3,
             purpose: "assistants".to_string(),
@@ -134,7 +135,7 @@ async fn language_model_handle_delegates_file_management_capability() {
     let uploaded = handle
         .upload_file(crate::types::FileUploadRequest {
             content: b"hello".to_vec(),
-            filename: "hello.txt".to_string(),
+            filename: Some("hello.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: HashMap::new(),
@@ -158,7 +159,7 @@ async fn language_model_handle_delegates_file_management_capability() {
     let deleted = handle.delete_file("file-123".to_string()).await.unwrap();
 
     assert_eq!(uploaded.id, "file:hello.txt");
-    assert_eq!(uploaded.filename, "hello.txt");
+    assert_eq!(uploaded.filename.as_deref(), Some("hello.txt"));
     assert_eq!(listed.files.len(), 1);
     assert_eq!(listed.files[0].purpose, "assistants");
     assert_eq!(retrieved.id, "file-123");

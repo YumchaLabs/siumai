@@ -95,6 +95,12 @@ impl SiumaiBuilder {
         self.provider_id(ids::GEMINI)
     }
 
+    /// Create a Google provider alias (AI SDK package-aligned).
+    #[cfg(feature = "google")]
+    pub fn google(self) -> Self {
+        self.gemini()
+    }
+
     /// Create a Google Vertex provider (convenience method)
     #[cfg(feature = "google-vertex")]
     pub fn google_vertex(self) -> Self {
@@ -105,6 +111,12 @@ impl SiumaiBuilder {
     #[cfg(feature = "google-vertex")]
     pub fn anthropic_vertex(self) -> Self {
         self.provider_id(ids::ANTHROPIC_VERTEX)
+    }
+
+    /// AI SDK package-aligned alias for `anthropic_vertex`.
+    #[cfg(feature = "google-vertex")]
+    pub fn vertex_anthropic(self) -> Self {
+        self.anthropic_vertex()
     }
 
     /// Alias for `google_vertex` (canonical provider id).

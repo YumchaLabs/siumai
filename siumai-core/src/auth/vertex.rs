@@ -65,6 +65,15 @@ pub fn google_vertex_base_url(project: &str, location: &str) -> String {
     )
 }
 
+/// Build a Google Vertex Anthropic provider base URL (AI SDK aligned).
+///
+/// This uses the Anthropic publisher namespace and includes the `/models` suffix used by the
+/// Anthropic-on-Vertex runtime:
+/// `https://{host}/v1/projects/{project}/locations/{location}/publishers/anthropic/models`
+pub fn google_vertex_anthropic_base_url(project: &str, location: &str) -> String {
+    format!("{}/models", vertex_base_url(project, location, "anthropic"))
+}
+
 /// Express mode base URL for the Google Vertex provider (Vercel AI SDK aligned).
 pub const GOOGLE_VERTEX_EXPRESS_BASE_URL: &str =
     "https://aiplatform.googleapis.com/v1/publishers/google";
@@ -110,6 +119,21 @@ mod tests {
         assert_eq!(
             url2,
             "https://aiplatform.googleapis.com/v1beta1/projects/test-project/locations/global/publishers/google"
+        );
+    }
+
+    #[test]
+    fn test_google_vertex_anthropic_base_url() {
+        let url = google_vertex_anthropic_base_url("test-project", "us-central1");
+        assert_eq!(
+            url,
+            "https://us-central1-aiplatform.googleapis.com/v1/projects/test-project/locations/us-central1/publishers/anthropic/models"
+        );
+
+        let url2 = google_vertex_anthropic_base_url("test-project", "global");
+        assert_eq!(
+            url2,
+            "https://aiplatform.googleapis.com/v1/projects/test-project/locations/global/publishers/anthropic/models"
         );
     }
 

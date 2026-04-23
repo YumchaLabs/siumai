@@ -573,6 +573,26 @@ impl VideoGenerationCapability for MinimaxiClient {
         .await
     }
 
+    async fn materialize_video_reference(
+        &self,
+        provider_reference: &crate::types::ProviderReference,
+    ) -> Result<crate::types::MaterializedVideoAsset, LlmError> {
+        let file_id = provider_reference
+            .preferred_value(&["minimaxi"])
+            .ok_or_else(|| {
+                LlmError::InvalidInput(format!(
+                    "MiniMaxi video materialization expected a `minimaxi` provider reference, got providers {:?}",
+                    provider_reference.available_providers()
+                ))
+            })?;
+
+        let bytes =
+            crate::traits::FileManagementCapability::get_file_content(self, file_id.to_string())
+                .await?;
+
+        Ok(crate::types::MaterializedVideoAsset::new(bytes))
+    }
+
     fn max_videos_per_call(&self) -> Option<u32> {
         Some(1)
     }

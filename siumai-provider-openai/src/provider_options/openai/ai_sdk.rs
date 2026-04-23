@@ -8,8 +8,37 @@ use std::collections::HashMap;
 
 use super::{
     PromptCacheRetention, ReasoningEffort, ResponsesApiConfig, ResponsesLogprobs, ServiceTier,
-    TextVerbosity, Truncation,
+    SystemMessageMode, TextVerbosity, Truncation,
 };
+
+/// Typed OpenAI Responses context-management entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OpenAIContextManagementConfig {
+    #[serde(rename = "type")]
+    pub kind: OpenAIContextManagementType,
+    #[serde(
+        rename = "compactThreshold",
+        alias = "compact_threshold",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub compact_threshold: Option<u32>,
+}
+
+impl OpenAIContextManagementConfig {
+    pub fn compaction(compact_threshold: u32) -> Self {
+        Self {
+            kind: OpenAIContextManagementType::Compaction,
+            compact_threshold: Some(compact_threshold),
+        }
+    }
+}
+
+/// Discriminator for OpenAI Responses context management.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OpenAIContextManagementType {
+    Compaction,
+}
 
 /// AI SDK-style flat chat options stored under `providerOptions["openai"]`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -90,6 +119,12 @@ pub struct OpenAILanguageModelChatOptions {
         alias = "force_reasoning"
     )]
     pub force_reasoning: Option<bool>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "systemMessageMode",
+        alias = "system_message_mode"
+    )]
+    pub system_message_mode: Option<SystemMessageMode>,
     #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
     pub extra_fields: HashMap<String, serde_json::Value>,
 }
@@ -208,6 +243,24 @@ pub struct OpenAILanguageModelResponsesOptions {
         alias = "max_completion_tokens"
     )]
     pub max_completion_tokens: Option<u32>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "systemMessageMode",
+        alias = "system_message_mode"
+    )]
+    pub system_message_mode: Option<SystemMessageMode>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "forceReasoning",
+        alias = "force_reasoning"
+    )]
+    pub force_reasoning: Option<bool>,
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "contextManagement",
+        alias = "context_management"
+    )]
+    pub context_management: Option<Vec<OpenAIContextManagementConfig>>,
     #[serde(flatten, default, skip_serializing_if = "HashMap::is_empty")]
     pub extra_fields: HashMap<String, serde_json::Value>,
 }
@@ -238,6 +291,9 @@ impl Default for OpenAILanguageModelResponsesOptions {
             user: None,
             background: None,
             max_completion_tokens: None,
+            system_message_mode: None,
+            force_reasoning: None,
+            context_management: None,
             extra_fields: HashMap::new(),
         }
     }
@@ -327,6 +383,15 @@ impl Serialize for OpenAILanguageModelResponsesOptions {
         }
         if let Some(value) = &self.max_completion_tokens {
             map.serialize_entry("maxCompletionTokens", value)?;
+        }
+        if let Some(value) = &self.system_message_mode {
+            map.serialize_entry("systemMessageMode", value)?;
+        }
+        if let Some(value) = &self.force_reasoning {
+            map.serialize_entry("forceReasoning", value)?;
+        }
+        if let Some(value) = &self.context_management {
+            map.serialize_entry("contextManagement", value)?;
         }
         for (key, value) in &self.extra_fields {
             map.serialize_entry(key, value)?;
@@ -418,12 +483,14 @@ mod tests {
     fn chat_options_serialize_ai_sdk_keys() {
         let value = serde_json::to_value(OpenAILanguageModelChatOptions {
             force_reasoning: Some(true),
+            system_message_mode: Some(SystemMessageMode::Developer),
             max_completion_tokens: Some(256),
             ..Default::default()
         })
         .expect("chat options serialize");
 
         assert_eq!(value["forceReasoning"], serde_json::json!(true));
+        assert_eq!(value["systemMessageMode"], serde_json::json!("developer"));
         assert_eq!(value["maxCompletionTokens"], serde_json::json!(256));
     }
 
@@ -437,6 +504,27 @@ mod tests {
 
         assert_eq!(value["responsesApi"]["enabled"], serde_json::json!(true));
         assert_eq!(value["instructions"], serde_json::json!("be concise"));
+    }
+
+    #[test]
+    fn responses_options_serialize_ai_sdk_control_fields() {
+        let value = serde_json::to_value(OpenAILanguageModelResponsesOptions {
+            system_message_mode: Some(SystemMessageMode::Developer),
+            force_reasoning: Some(true),
+            context_management: Some(vec![OpenAIContextManagementConfig::compaction(512)]),
+            ..Default::default()
+        })
+        .expect("responses options serialize");
+
+        assert_eq!(value["systemMessageMode"], serde_json::json!("developer"));
+        assert_eq!(value["forceReasoning"], serde_json::json!(true));
+        assert_eq!(
+            value["contextManagement"][0],
+            serde_json::json!({
+                "type": "compaction",
+                "compactThreshold": 512
+            })
+        );
     }
 
     #[test]

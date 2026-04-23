@@ -23,6 +23,16 @@ pub fn provider_metadata_object<'a>(
     metadata.get(provider_id)?.as_object()
 }
 
+/// Get the first provider-scoped metadata object from a list of provider ids.
+pub fn provider_metadata_object_any<'a>(
+    metadata: &'a ProviderMetadataMap,
+    provider_ids: &[&str],
+) -> Option<&'a Map<String, Value>> {
+    provider_ids
+        .iter()
+        .find_map(|provider_id| provider_metadata_object(metadata, provider_id))
+}
+
 /// Get one provider-scoped metadata value by provider id and key.
 pub fn provider_metadata_value<'a>(
     metadata: &'a ProviderMetadataMap,
@@ -30,6 +40,15 @@ pub fn provider_metadata_value<'a>(
     key: &str,
 ) -> Option<&'a Value> {
     provider_metadata_object(metadata, provider_id)?.get(key)
+}
+
+/// Get one provider-scoped metadata value by trying multiple provider ids in order.
+pub fn provider_metadata_value_any<'a>(
+    metadata: &'a ProviderMetadataMap,
+    provider_ids: &[&str],
+    key: &str,
+) -> Option<&'a Value> {
+    provider_metadata_object_any(metadata, provider_ids)?.get(key)
 }
 
 /// Create a provider metadata map with one provider-scoped object entry.
@@ -102,6 +121,41 @@ mod tests {
         assert_eq!(
             openai.get("phase"),
             Some(&Value::String("done".to_string()))
+        );
+    }
+
+    #[test]
+    fn provider_metadata_object_any_reads_first_matching_alias() {
+        let metadata = ProviderMetadataMap::from([
+            (
+                "google-vertex".to_string(),
+                Value::Object(Map::from_iter([(
+                    "thoughtSignature".to_string(),
+                    Value::String("sig".to_string()),
+                )])),
+            ),
+            (
+                "vertex".to_string(),
+                Value::Object(Map::from_iter([(
+                    "thoughtSignature".to_string(),
+                    Value::String("preferred".to_string()),
+                )])),
+            ),
+        ]);
+
+        let object = provider_metadata_object_any(&metadata, &["vertex", "google-vertex"])
+            .expect("provider metadata alias object");
+        assert_eq!(
+            object.get("thoughtSignature"),
+            Some(&Value::String("preferred".to_string()))
+        );
+        assert_eq!(
+            provider_metadata_value_any(
+                &metadata,
+                &["missing", "google-vertex"],
+                "thoughtSignature"
+            ),
+            Some(&Value::String("sig".to_string()))
         );
     }
 }

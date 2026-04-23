@@ -16,11 +16,17 @@ pub(super) enum RequestCacheControlMode {
     DropAnthropicControls,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RequestToolApprovalResponseMode {
+    PreserveProviderExecutedOnly,
+    DropAll,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(super) struct RequestTargetCapabilities {
     pub reasoning_mode: RequestReasoningMode,
     pub cache_control_mode: RequestCacheControlMode,
-    pub preserves_tool_approval_responses: bool,
+    pub tool_approval_response_mode: RequestToolApprovalResponseMode,
 }
 
 pub(super) const fn request_target_capabilities(target: BridgeTarget) -> RequestTargetCapabilities {
@@ -28,22 +34,23 @@ pub(super) const fn request_target_capabilities(target: BridgeTarget) -> Request
         BridgeTarget::OpenAiResponses => RequestTargetCapabilities {
             reasoning_mode: RequestReasoningMode::OpenAiResponses,
             cache_control_mode: RequestCacheControlMode::DropAnthropicControls,
-            preserves_tool_approval_responses: true,
+            tool_approval_response_mode:
+                RequestToolApprovalResponseMode::PreserveProviderExecutedOnly,
         },
         BridgeTarget::OpenAiChatCompletions => RequestTargetCapabilities {
             reasoning_mode: RequestReasoningMode::OpenAiChatCompletions,
             cache_control_mode: RequestCacheControlMode::DropAnthropicControls,
-            preserves_tool_approval_responses: false,
+            tool_approval_response_mode: RequestToolApprovalResponseMode::DropAll,
         },
         BridgeTarget::AnthropicMessages => RequestTargetCapabilities {
             reasoning_mode: RequestReasoningMode::AnthropicMessages,
             cache_control_mode: RequestCacheControlMode::AnthropicLimit4,
-            preserves_tool_approval_responses: false,
+            tool_approval_response_mode: RequestToolApprovalResponseMode::DropAll,
         },
         BridgeTarget::GeminiGenerateContent => RequestTargetCapabilities {
             reasoning_mode: RequestReasoningMode::Preserve,
             cache_control_mode: RequestCacheControlMode::DropAnthropicControls,
-            preserves_tool_approval_responses: false,
+            tool_approval_response_mode: RequestToolApprovalResponseMode::DropAll,
         },
     }
 }

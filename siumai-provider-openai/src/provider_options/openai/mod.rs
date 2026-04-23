@@ -20,20 +20,21 @@ pub mod web_search;
 // Re-exports
 #[allow(deprecated)]
 pub use ai_sdk::{OpenAIChatLanguageModelOptions, OpenAIResponsesProviderOptions};
+pub use ai_sdk::{
+    OpenAIContextManagementConfig, OpenAIContextManagementType, OpenAIFilesOptions,
+    OpenAILanguageModelChatOptions, OpenAILanguageModelCompletionOptions,
+    OpenAILanguageModelResponsesOptions,
+};
 #[cfg(feature = "openai")]
 pub use ai_sdk::{
     OpenAIEmbeddingModelOptions, OpenAISpeechModelOptions, OpenAITranscriptionModelOptions,
-};
-pub use ai_sdk::{
-    OpenAIFilesOptions, OpenAILanguageModelChatOptions, OpenAILanguageModelCompletionOptions,
-    OpenAILanguageModelResponsesOptions,
 };
 pub use audio::{
     ChatCompletionAudio, ChatCompletionAudioFormat, ChatCompletionAudioVoice,
     ChatCompletionModalities, InputAudio, InputAudioFormat,
 };
 pub use enums::PromptCacheRetention;
-pub use enums::{ReasoningEffort, ServiceTier, TextVerbosity, Truncation};
+pub use enums::{ReasoningEffort, ServiceTier, SystemMessageMode, TextVerbosity, Truncation};
 pub use prediction::{PredictionContent, PredictionContentData};
 pub use responses_api::{ResponsesApiConfig, ResponsesLogprobs};
 pub use web_search::{OpenAiWebSearchOptions, UserLocationWrapper, WebSearchLocation};

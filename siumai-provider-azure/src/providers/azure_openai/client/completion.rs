@@ -200,6 +200,7 @@ impl CompletionStreamState {
             created: self.created.clone(),
             provider: provider.to_string(),
             request_id: None,
+            headers: None,
         }
     }
 
@@ -684,6 +685,10 @@ impl AzureOpenAiClient {
                 created: completion_created_at(&raw),
                 provider: "azure".to_string(),
                 request_id: completion_request_id_from_headers(headers),
+                headers: {
+                    let headers = crate::execution::http::headers::headermap_to_hashmap(headers);
+                    (!headers.is_empty()).then_some(headers)
+                },
             }),
             warnings: (!warnings.is_empty()).then_some(warnings),
             provider_metadata: completion_provider_metadata(provider_key, &raw),

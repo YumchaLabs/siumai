@@ -353,6 +353,7 @@ pub fn convert_from_ollama_message(message: &OllamaChatMessage) -> ChatMessage {
         for data in images {
             parts.push(crate::types::ContentPart::Image {
                 source: crate::types::chat::FilePartSource::base64(data.clone()),
+                media_type: None,
                 detail: None,
                 provider_options: crate::types::ProviderOptionsMap::default(),
                 provider_metadata: None,
@@ -647,9 +648,10 @@ pub fn build_chat_request(
                                 }
                                 crate::types::ToolResultContentPart::ImageData { .. }
                                 | crate::types::ToolResultContentPart::ImageUrl { .. }
-                                | crate::types::ToolResultContentPart::ImageFileId { .. } => {
-                                    "[Image]".to_string()
-                                }
+                                | crate::types::ToolResultContentPart::ImageFileId { .. }
+                                | crate::types::ToolResultContentPart::ImageFileReference {
+                                    ..
+                                } => "[Image]".to_string(),
                                 crate::types::ToolResultContentPart::FileData {
                                     filename,
                                     media_type,
@@ -667,6 +669,13 @@ pub fn build_chat_request(
                                         .map(|value| format!("[File: {value}]"))
                                         .unwrap_or_else(|| "[File]".to_string())
                                 }
+                                crate::types::ToolResultContentPart::FileReference {
+                                    provider_reference,
+                                    ..
+                                } => provider_reference
+                                    .preferred_value(&["ollama", "openai", "anthropic"])
+                                    .map(|value| format!("[File: {value}]"))
+                                    .unwrap_or_else(|| "[File]".to_string()),
                                 crate::types::ToolResultContentPart::Custom { .. } => {
                                     "[Custom Content]".to_string()
                                 }
@@ -1096,6 +1105,7 @@ mod tests {
                 },
                 crate::types::ContentPart::Image {
                     source: crate::types::chat::FilePartSource::url("image1"),
+                    media_type: None,
                     detail: None,
                     provider_options: crate::types::ProviderOptionsMap::default(),
                     provider_metadata: None,

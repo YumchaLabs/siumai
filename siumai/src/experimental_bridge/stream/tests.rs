@@ -305,6 +305,7 @@ async fn anthropic_stream_bridge_serializes_standard_events() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         }),
         Ok(ChatStreamEvent::ContentDelta {
@@ -354,6 +355,7 @@ async fn stream_bridge_options_can_transform_events() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         }),
         Ok(ChatStreamEvent::Part {
@@ -391,6 +393,7 @@ async fn anthropic_stream_bridge_finalizes_clean_eof_without_stream_end() {
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         }),
         Ok(ChatStreamEvent::ContentDelta {
@@ -438,6 +441,7 @@ async fn anthropic_stream_bridge_splits_interleaved_blocks_into_ordered_output()
                 created: None,
                 provider: "anthropic".to_string(),
                 request_id: None,
+                headers: None,
             },
         }),
         Ok(ChatStreamEvent::ContentDelta {

@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - Milestones
 
-Last updated: 2026-04-13
+Last updated: 2026-04-22
 
 This workstream is tracked with explicit acceptance criteria.
 
@@ -31,6 +31,10 @@ Current state:
 - The shared prompt/content boundary now also carries first-class provider-owned file/image
   references through `ProviderReference`, so the last major V4 prompt-shape gap in this milestone
   is closed.
+- The audited OpenAI-compatible stream lane now also keeps AI SDK-style semantic error terminals:
+  explicit top-level error payloads and invalid JSON chunks emit stable `error` plus error
+  `finish` / `StreamEnd`, and the shared regression suite also locks finish-time prediction-token
+  provider metadata plus metadata-extractor merging on that streaming path.
 
 Status: completed
 
@@ -146,6 +150,20 @@ Current state:
     message/part/tool-result `providerOptions.openaiCompatible`, and request-side
     `providerMetadata.openaiCompatible` / `message.metadata.custom.openaiCompatible` no longer
     affect the emitted request body.
+- The remaining OpenAI-family request-edge drift around audio/compat/Responses conversion is now
+  also closed on the audited paths:
+  - shared `TtsRequest.language` now lowers into the OpenAI-family JSON speech body when the
+    provider defaults explicitly opt into it, instead of remaining a warning-only dead field
+  - built-in compat `groq` now defaults `supportsStructuredOutputs = true`, matching the audited
+    AI SDK package policy for Groq JSON Schema requests
+  - OpenAI Responses tool-role messages that only contain intentionally skipped parts are omitted
+    from request conversion instead of failing with `Tool message missing tool result`
+  - OpenAI typed control options now also expose the audited AI SDK fields more completely:
+    chat options now include `systemMessageMode`, Responses options now include
+    `systemMessageMode`, `forceReasoning`, and `contextManagement`, those control fields stay off
+    the wire unless they affect prompt conversion, and
+    `contextManagement[].compactThreshold` now lowers correctly onto the native
+    `context_management[].compact_threshold` request shape
 - The prompt-boundary review is now documented: the shared stable content surface stays as a
   pragmatic superset for now, but `providerOptions` is the canonical request-time channel and
   `providerMetadata` remains response-time only in intent.
@@ -157,6 +175,47 @@ Current state:
     shared root instead of each lane inventing its own nested map shape
   - UI `providerMetadata` intentionally remains on `ProviderOptionsMap` because upstream
     `convertToModelMessages()` forwards it as request-time `providerOptions`
+- DeepInfra lower-contract URL handling now also matches the audited AI SDK single-provider
+  surface more closely on the public/config/provider-owned text lanes:
+  - shared compat config normalizes root, `/openai`, and `/inference` custom base URLs onto the
+    canonical `/openai` text-family prefix
+  - provider-owned builder/config and top-level builder/provider/registry stream paths now emit
+    equivalent `/openai/chat/completions` requests for the same root base URL input
+  - the public-path stream audit now also pins that `includeRawChunks` stays runtime-only and
+    that finish-time `metadataExtractor` merging survives on those DeepInfra lanes
+- DeepInfra's typed package surface is now also slightly more complete at the model-id layer:
+  provider-owned and top-level public facades expose
+  `DeepInfraChatModelId` / `DeepInfraCompletionModelId` /
+  `DeepInfraEmbeddingModelId` / `DeepInfraImageModelId` as explicit aliases instead of forcing
+  DeepInfra callers back onto the generic compat model-id names only.
+- DeepInfra's package-level entry surface is now also clearer:
+  `provider_ext::deepinfra` exposes `deepinfra()` and `create_deepinfra()` as unified-provider
+  builder helpers, and the module docs now call out that `DeepInfraClient` / `DeepInfraConfig`
+  are lower-level compat text-family aliases rather than the complete hybrid provider entrypoint.
+- The audited AI SDK package facades now follow a consistent entry-helper rule:
+  compat-promoted wrappers `provider_ext::{mistral,perplexity,fireworks,moonshotai}` and the
+  audited provider-owned facades (`openai`, `anthropic`, `azure`, `google`, `bedrock`, `cohere`,
+  `togetherai`, `google_vertex::vertex`, `groq`, `xai`, `deepseek`) all expose package-level
+  `provider()` plus `create_provider()` builder helpers instead of forcing callers back to root
+  namespaces, while DeepInfra already follows the same rule on its hybrid wrapper surface. The one
+  intentional non-match is the generic `openai_compatible` package: upstream exports a settings-
+  driven factory (`createOpenAICompatible(settings)`), so Rust keeps that slice on the lower-level
+  `OpenAiCompatibleBuilder` / `OpenAiCompatibleConfig` / `OpenAiCompatibleClient::from_config(...)`
+  boundary instead of inventing a misleading zero-arg facade helper.
+- Provider feature-gated audit now also passes across the audited built-in/provider-compatible
+  crates:
+  - xAI file/video tests were refreshed to the current shared upload/video request structs
+  - MiniMaxi tests now preserve the intentional `video prompt = Option<String>` /
+    `music prompt = String` split
+  - Azure native completion metadata now fills the shared `ResponseMetadata.headers` field instead
+    of instantiating the older struct shape
+- Protocol/top-level `all-features` audit now also passes on the audited compilation surfaces:
+  - `siumai-core`, `siumai-protocol-openai`, `siumai-protocol-anthropic`,
+    `siumai-protocol-gemini`, and top-level `siumai` compile on their real feature combinations
+  - stale Anthropic protocol streaming fixtures plus top-level experimental-bridge/transcoding
+    tests now instantiate the newer shared `ResponseMetadata.headers` field
+  - top-level MiniMaxi/public retry file-upload tests now also follow the shared
+    `filename: Option<String>` contract
 Status: completed
 
 ## ASA-M3 - Stable prompt/content model reaches V4-capable parity
@@ -264,15 +323,29 @@ Current state:
 - OpenAI Responses parser now emits the runtime part channel for stream-start/response-metadata,
   non-tool text/reasoning, direct `response.custom_tool_call_input.* -> tool-input-*`,
   `source` including web-search citations, and both successful and failed finish semantics.
+- OpenAI Responses fixture parity was re-audited after the shared upload/metadata refactors:
+  provider-executed MCP approval responses now require explicit `providerExecuted: true` in the
+  local request fixtures to match upstream AI SDK request conversion, and the full
+  `openai_responses_*` nextest suite is green again on that contract.
+- Shared `FinishReason` serde now mirrors AI SDK string-union behavior even for unknown/custom
+  reasons: `FinishReason::Other("other")` serializes as plain `"other"` (while legacy object
+  input still deserializes), so failed OpenAI Responses streams again emit the stable
+  `finishReason.unified = "other"` shape instead of a Rust enum object.
 - Provider-facing OpenAI Responses, Anthropic, and Gemini stream helpers now consume stable
   `Part` / `PartWithReplay` events first and keep legacy custom-event parsing only as a backward
   compatibility fallback.
+- The shared OpenAI Responses bridge now upgrades more of that legacy V3 payload family directly
+  onto the runtime semantic lane too: `raw`, `custom`, `file`, and `reasoning-file` custom
+  payloads no longer have to stay provider-prefixed `Custom` events once their stable meaning is
+  already known.
 - The typed stream-part overlay now makes the serializer-only downgrade boundary explicit too:
   `to_protocol_custom_event(...)` is the canonical provider-wire lowering API, while
   `to_custom_event(...)` is kept only as a thin compatibility alias.
-- Gemini parser-side reasoning streaming now also stays single-lane on runtime semantics: the
-  stable `reasoning-*` parts remain, the legacy `ThinkingDelta` shadow remains for compatibility,
-  and the older `gemini:reasoning` custom shadow is no longer emitted from the audited parser.
+- Gemini parser-side text/reasoning streaming now stays on the runtime semantic lane: stable
+  `stream-start`, `text-*`, `reasoning-*`, `file` / `reasoning-file`, and successful `finish`
+  parts are emitted directly, the legacy `ThinkingDelta` shadow remains only for compatibility,
+  shared shadow expansion owns the compatibility text delta, and the older `gemini:reasoning`
+  custom shadow is no longer emitted from the audited parser.
 - The shared OpenAI Responses bridge no longer carries bespoke `gemini:*` / `anthropic:*`
   event-type upgrade branches once those parser-era shadows disappeared from the audited mainline
   protocol paths; stable-shape custom payloads still upgrade through the generic V3 parser.
@@ -294,8 +367,13 @@ Current state:
   stable replay semantics: hosted OpenAI web search and MCP tool executions surface as Anthropic
   `mcp_tool_use` / `mcp_tool_result`, while unsupported approval requests only degrade to text in
   lossy mode.
-- Gemini parser now emits the runtime part channel for reasoning/source/provider-executed tool
-  semantics and optional function-call tool-part mode.
+- Gemini parser now emits the runtime part channel for `stream-start`, runtime-opt-in `raw`,
+  `text-*`, `reasoning-*`, `file` / `reasoning-file`, `source`, provider-executed tool semantics,
+  top-level `error`, successful `finish`, and optional function-call tool-part mode.
+- Gemini request-aware stream transformers now also forward
+  `ChatRequest.stream_options.include_raw_chunks`, top-level `{"error": ...}` and invalid JSON
+  chunks no longer skip stable error semantics, and EOF fallback now closes active text/reasoning
+  lanes before emitting `finish(unknown)` plus `StreamEnd`.
 - OpenAI-compatible chat chunk parsing now also emits runtime parts for `stream-start`,
   `response-metadata`, `text-*`, `reasoning-*`, URL `source`, and successful `finish` lifecycle semantics
   while intentionally keeping legacy content/thinking/tool-call deltas in parallel for
@@ -304,6 +382,11 @@ Current state:
   `tool-input-delta` / `tool-input-end` / `tool-call` parts before the legacy shadow deltas, and
   OpenAI-compatible chat reserialization now applies first-source-wins deduplication so mixed
   stable/legacy tool streams do not duplicate argument accumulation.
+- OpenAI-compatible streaming now also closes two audited AI SDK parity gaps on the shared parser:
+  same-chunk reasoning opens/emits before text on the stable part lane, and explicit
+  `finish_reason = "tool_calls"` chunks finalize pending stable `tool-input-end` / `tool-call`
+  parts including empty-input tool calls without duplicating already-completed tool calls on later
+  empty chunks.
 - OpenAI-compatible chat reserialization now also maps stable URL `source` parts back into
   chat-completions `delta.annotations`, closing the same-protocol `source` roundtrip gap.
 - OpenAI-compatible fixture/public-path coverage now also locks the main citation-facing paths:
@@ -422,19 +505,28 @@ Current state:
   `image-file-id` / `file-id`, and provider-keyed `ToolResultFileId` inputs are covered through
   request normalization so OpenAI-native `file_id` selection cannot regress silently.
 - The higher-level AI SDK `uploadFile` helper gap is now much narrower on the public Rust surface:
-  `siumai::files::upload(...)` exists with canonical `UploadFileData` / `UploadFileOptions` /
-  `UploadFileResult`, auto media-type detection, URL rejection, `blob` filename fallback, stable
-  `providerReference` results, built-in adapters for the current file-capable unified/provider
-  clients, and canonical `providerOptions` on both the high-level helper and shared
-  `FileUploadRequest`. OpenAI/Azure now honor provider-scoped `purpose` / `expiresAfter`,
-  Gemini now honors `displayName` plus polling controls through provider options, and Anthropic
-  explicitly warns when extra upload options are ignored on the current beta files path.
+  `siumai::files::upload(...)` exists with canonical `UploadFileOptions` / `UploadFileResult`,
+  direct shared `DataContent` plus byte/string inputs, auto request-side media-type detection, URL
+  rejection, stable `providerReference` results, built-in adapters for the current file-capable
+  unified/provider clients, and canonical `providerOptions` on both the high-level helper and
+  shared `FileUploadRequest`. Shared file upload/result filenames are now optional, missing
+  filenames are no longer normalized to `blob`, helper `filename` / `mediaType` are no longer
+  backfilled from request-time fallbacks, and helper `providerMetadata` now stays provider-owned
+  instead of injecting generic file bookkeeping. OpenAI/Azure honor provider-scoped `purpose` /
+  `expiresAfter`, Gemini honors `displayName` plus polling controls through provider options, and
+  Anthropic explicitly warns when extra upload options are ignored on the current beta files path.
+  The provider-owned Anthropic `files()` resource now also reuses the shared
+  `FileManagementCapability` contract for upload/list/retrieve/delete/content directly, so the
+  high-level helper no longer needs an Anthropic-only upload adapter and the redundant provider-
+  local file wrapper layer is gone.
 - The higher-level AI SDK `uploadSkill` helper gap is now much narrower on the public Rust
   surface: `siumai::skills::upload(...)` exists with canonical `UploadSkillFile` /
   `UploadSkillOptions` / `UploadSkillResult`, provider-owned OpenAI/Anthropic `skills()`
   resources, a shared `SkillsCapability` interface, AI SDK-style `providerReference` /
-  `providerMetadata` results, Anthropic latest-version metadata fetch alignment, and public
-  regression coverage across provider, registry, and facade entrypoints.
+  `providerMetadata` results, Anthropic latest-version metadata fetch alignment, public
+  regression coverage across provider, registry, and facade entrypoints, and the provider-owned
+  OpenAI/Anthropic resources now also reuse the shared request/result structs directly instead of
+  exposing parallel provider-local wrapper file/result types.
 - The higher-level AI SDK UI-message helper gap is now also closed at the structural layer on the
   public Rust surface:
   - shared `UiMessage` / `UiMessagePart` / `UiToolPart` types now live on the stable type layer
@@ -560,6 +652,13 @@ Current state:
       mapped or intentionally warned-and-filtered instead of leaking through ad hoc serialization
   - the remaining video cleanup question is narrower now: whether the leftover MiniMaxi-specific
     top-level fields should be moved fully behind provider-owned typed surfaces
+  - provider-reference-only final video assets are now also materially narrower as a gap:
+    - shared `MaterializedVideoAsset` plus `materialize_video_reference(...)` now exist on the
+      task-oriented video-family contract
+    - audited Gemini and MiniMaxi paths now reuse their provider-owned file runtimes to eagerly
+      materialize provider references during `siumai::video::generate(...)`
+    - remaining deferred work is mainly limited to providers that still need a different
+      authenticated download runtime, such as current Vertex `gs://...` video outputs
 - Changelog/workstream notes plus a focused migration note for the `Usage` canonicalization are
   now present.
 - The remaining high-level AI SDK helper gaps are now clearer and smaller:

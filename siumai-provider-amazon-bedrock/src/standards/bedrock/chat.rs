@@ -690,6 +690,12 @@ impl BedrockChatRequestTransformer {
                         "Bedrock chat request does not support tool result content part type `file-id`"
                             .to_string(),
                     )),
+                    ToolResultContentPart::FileReference { .. } => Err(
+                        LlmError::UnsupportedOperation(
+                            "Bedrock chat request does not support tool result content part type `file-reference`"
+                                .to_string(),
+                        ),
+                    ),
                     ToolResultContentPart::ImageUrl { .. } => Err(
                         LlmError::UnsupportedOperation(
                             "Bedrock chat request does not support tool result content part type `image-url`"
@@ -699,6 +705,12 @@ impl BedrockChatRequestTransformer {
                     ToolResultContentPart::ImageFileId { .. } => Err(
                         LlmError::UnsupportedOperation(
                             "Bedrock chat request does not support tool result content part type `image-file-id`"
+                                .to_string(),
+                        ),
+                    ),
+                    ToolResultContentPart::ImageFileReference { .. } => Err(
+                        LlmError::UnsupportedOperation(
+                            "Bedrock chat request does not support tool result content part type `image-file-reference`"
                                 .to_string(),
                         ),
                     ),

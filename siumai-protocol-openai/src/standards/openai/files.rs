@@ -58,9 +58,12 @@ fn build_upload_body_impl(
     let detected = req
         .mime_type
         .clone()
-        .unwrap_or_else(|| crate::utils::guess_mime(Some(&req.content), Some(&req.filename)));
-    let part = reqwest::multipart::Part::bytes(req.content.clone())
-        .file_name(req.filename.clone())
+        .unwrap_or_else(|| crate::utils::guess_mime(Some(&req.content), req.filename.as_deref()));
+    let mut part = reqwest::multipart::Part::bytes(req.content.clone());
+    if let Some(filename) = req.filename.clone() {
+        part = part.file_name(filename);
+    }
+    let part = part
         .mime_str(&detected)
         .map_err(|e| LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}")))?;
     let mut form = reqwest::multipart::Form::new()
@@ -105,7 +108,7 @@ fn transform_file_object_impl(
         object: String,
         bytes: u64,
         created_at: u64,
-        filename: String,
+        filename: Option<String>,
         purpose: String,
         status: String,
         status_details: Option<String>,
@@ -139,7 +142,7 @@ fn transform_list_response_impl(
         object: String,
         bytes: u64,
         created_at: u64,
-        filename: String,
+        filename: Option<String>,
         purpose: String,
         status: String,
         status_details: Option<String>,
@@ -318,7 +321,7 @@ mod tests {
         let tx = OpenAiFilesTransformer;
         let req = crate::types::FileUploadRequest {
             content: b"hello".to_vec(),
-            filename: "hello.txt".to_string(),
+            filename: Some("hello.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "assistants".to_string(),
             metadata: std::collections::HashMap::new(),
@@ -343,7 +346,7 @@ mod tests {
         });
         let fo = tx.transform_file_object(&json).unwrap();
         assert_eq!(fo.id, "file_123");
-        assert_eq!(fo.filename, "hello.txt");
+        assert_eq!(fo.filename.as_deref(), Some("hello.txt"));
         assert_eq!(fo.purpose, "assistants");
         assert_eq!(fo.status, "uploaded");
 

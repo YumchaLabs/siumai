@@ -128,10 +128,7 @@ pub use files::OpenAiFiles;
 pub use models::OpenAiModels;
 pub use moderation::OpenAiModeration;
 pub use rerank::OpenAiRerank;
-pub use skills::{
-    OpenAiSkillFile, OpenAiSkillFileContent, OpenAiSkillProviderMetadata, OpenAiSkillUploadResult,
-    OpenAiSkills,
-};
+pub use skills::OpenAiSkills;
 // Responses API client/types are no longer re-exported; use unified OpenAiClient
 
 // Re-export parameter enums for convenience

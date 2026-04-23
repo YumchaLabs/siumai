@@ -252,6 +252,7 @@ mod minimaxi_tests {
             status: VideoTaskStatus::Processing,
             file_id: None,
             video_url: None,
+            provider_reference: None,
             duration: None,
             video_width: None,
             video_height: None,
@@ -299,10 +300,7 @@ mod minimaxi_tests {
                 .with_format("wav");
 
         assert_eq!(request.model, "music-2.0");
-        assert_eq!(
-            request.prompt.as_deref(),
-            Some("Indie folk, melancholic, introspective")
-        );
+        assert_eq!(request.prompt, "Indie folk, melancholic, introspective");
         assert!(
             request
                 .lyrics

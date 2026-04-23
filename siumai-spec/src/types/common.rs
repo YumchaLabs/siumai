@@ -3,8 +3,10 @@
 //! This module intentionally excludes parameter/HTTP/usage types, which live in
 //! `types::params`, `types::http`, and `types::usage`.
 
-use serde::{Deserialize, Serialize};
+use serde::de::{self, MapAccess, Visitor};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
+use std::fmt;
 
 /// Warning from the model provider
 ///
@@ -228,8 +230,7 @@ impl ProviderType {
 ///     _ => println!("Other reason"),
 /// }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FinishReason {
     /// Model generated stop sequence or completed naturally.
     ///
@@ -287,6 +288,110 @@ pub enum FinishReason {
     Unknown,
 }
 
+impl FinishReason {
+    fn from_wire_value(value: &str) -> Self {
+        match value {
+            "stop" => Self::Stop,
+            "length" => Self::Length,
+            "tool_calls" => Self::ToolCalls,
+            "content_filter" => Self::ContentFilter,
+            "stop_sequence" => Self::StopSequence,
+            "error" => Self::Error,
+            "unknown" => Self::Unknown,
+            other => Self::Other(other.to_string()),
+        }
+    }
+
+    fn as_wire_str(&self) -> &str {
+        match self {
+            Self::Stop => "stop",
+            Self::Length => "length",
+            Self::ToolCalls => "tool_calls",
+            Self::ContentFilter => "content_filter",
+            Self::StopSequence => "stop_sequence",
+            Self::Error => "error",
+            Self::Other(value) => value.as_str(),
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+impl Serialize for FinishReason {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_wire_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for FinishReason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct FinishReasonVisitor;
+
+        impl<'de> Visitor<'de> for FinishReasonVisitor {
+            type Value = FinishReason;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter
+                    .write_str("a finish reason string or a legacy single-key finish reason object")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(FinishReason::from_wire_value(value))
+            }
+
+            fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                Ok(FinishReason::from_wire_value(&value))
+            }
+
+            fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+            where
+                M: MapAccess<'de>,
+            {
+                let Some(key) = map.next_key::<String>()? else {
+                    return Err(de::Error::custom(
+                        "expected a non-empty finish reason object",
+                    ));
+                };
+
+                let reason = match key.as_str() {
+                    "other" => FinishReason::Other(map.next_value::<String>()?),
+                    "stop" | "length" | "tool_calls" | "content_filter" | "stop_sequence"
+                    | "error" | "unknown" => {
+                        let _: Option<de::IgnoredAny> = map.next_value()?;
+                        FinishReason::from_wire_value(&key)
+                    }
+                    _ => {
+                        return Err(de::Error::custom(format!(
+                            "unsupported legacy finish reason variant: {key}"
+                        )));
+                    }
+                };
+
+                if map.next_key::<de::IgnoredAny>()?.is_some() {
+                    return Err(de::Error::custom(
+                        "expected a single-key finish reason object",
+                    ));
+                }
+
+                Ok(reason)
+            }
+        }
+
+        deserializer.deserialize_any(FinishReasonVisitor)
+    }
+}
+
 /// Response metadata
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseMetadata {
@@ -324,7 +429,7 @@ pub struct ResponseMetadata {
 
 #[cfg(test)]
 mod tests {
-    use super::{ProviderType, ResponseMetadata, Warning};
+    use super::{FinishReason, ProviderType, ResponseMetadata, Warning};
     use chrono::{DateTime, Utc};
     use std::collections::HashMap;
 
@@ -535,5 +640,27 @@ mod tests {
 
         let value = serde_json::to_value(&metadata).expect("serialize metadata");
         assert_eq!(value["headers"]["x-request-id"], serde_json::json!("req_1"));
+    }
+
+    #[test]
+    fn finish_reason_other_serializes_as_plain_string() {
+        let value =
+            serde_json::to_value(FinishReason::Other("other".to_string())).expect("serialize");
+        assert_eq!(value, serde_json::json!("other"));
+    }
+
+    #[test]
+    fn finish_reason_deserializes_unknown_string_as_other() {
+        let reason: FinishReason =
+            serde_json::from_value(serde_json::json!("provider_custom")).expect("deserialize");
+        assert_eq!(reason, FinishReason::Other("provider_custom".to_string()));
+    }
+
+    #[test]
+    fn finish_reason_deserializes_legacy_other_object_shape() {
+        let reason: FinishReason =
+            serde_json::from_value(serde_json::json!({ "other": "provider_custom" }))
+                .expect("deserialize legacy other");
+        assert_eq!(reason, FinishReason::Other("provider_custom".to_string()));
     }
 }

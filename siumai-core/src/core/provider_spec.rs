@@ -454,6 +454,15 @@ pub trait ProviderSpec: Send + Sync {
         None
     }
 
+    /// Whether the executor should materialize URL-backed edit inputs into inline bytes first.
+    ///
+    /// Default is `true` for backward compatibility with providers that only accept direct
+    /// file payloads on edit endpoints. Providers that natively support URL references should
+    /// override this and return `false`.
+    fn materialize_image_edit_urls(&self, _req: &ImageEditRequest, _ctx: &ProviderContext) -> bool {
+        true
+    }
+
     /// Compute image variation route URL (default OpenAI-compatible)
     fn image_variation_url(&self, _req: &ImageVariationRequest, ctx: &ProviderContext) -> String {
         format!("{}/images/variations", ctx.base_url.trim_end_matches('/'))
@@ -466,6 +475,19 @@ pub trait ProviderSpec: Send + Sync {
         _ctx: &ProviderContext,
     ) -> Option<Vec<Warning>> {
         None
+    }
+
+    /// Whether the executor should materialize URL-backed variation inputs into inline bytes first.
+    ///
+    /// Default is `true` for backward compatibility with providers that only accept direct
+    /// file payloads on variation endpoints. Providers that natively support URL references
+    /// should override this and return `false`.
+    fn materialize_image_variation_urls(
+        &self,
+        _req: &ImageVariationRequest,
+        _ctx: &ProviderContext,
+    ) -> bool {
+        true
     }
 
     /// Choose image transformers (default: unimplemented; implement per provider)

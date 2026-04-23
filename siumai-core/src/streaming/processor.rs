@@ -73,6 +73,8 @@ pub struct StreamProcessor {
     tool_calls: HashMap<String, ToolCallBuilder>, // Use ID as key to handle duplicate indices
     tool_call_order: Vec<String>,                 // Track order of tool calls for consistent output
     tool_call_sources: HashMap<String, ToolCallStreamSource>,
+    pending_stable_content_shadow: Option<String>,
+    pending_stable_thinking_shadow: Option<String>,
     thinking_buffer: String,
     stream_parts: Vec<ContentPart>,
     stream_warnings: Vec<Warning>,
@@ -104,6 +106,8 @@ impl StreamProcessor {
             tool_calls: HashMap::new(),
             tool_call_order: Vec::new(),
             tool_call_sources: HashMap::new(),
+            pending_stable_content_shadow: None,
+            pending_stable_thinking_shadow: None,
             thinking_buffer: String::new(),
             stream_parts: Vec::new(),
             stream_warnings: Vec::new(),
@@ -121,6 +125,16 @@ impl StreamProcessor {
     pub fn process_event(&mut self, event: ChatStreamEvent) -> ProcessedEvent {
         match event {
             ChatStreamEvent::ContentDelta { delta, index } => {
+                if self.pending_stable_content_shadow.as_ref() == Some(&delta) {
+                    self.pending_stable_content_shadow = None;
+                    return ProcessedEvent::ContentUpdate {
+                        delta: String::new(),
+                        accumulated: self.buffer.clone(),
+                        index,
+                    };
+                }
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.process_content_delta(delta, index)
             }
             ChatStreamEvent::ToolCallDelta {
@@ -128,20 +142,43 @@ impl StreamProcessor {
                 function_name,
                 arguments_delta,
                 index,
-            } => self.process_tool_call_delta(
-                id,
-                function_name,
-                arguments_delta,
-                index,
-                ToolCallStreamSource::LegacyDelta,
-            ),
-            ChatStreamEvent::ThinkingDelta { delta } => self.process_thinking_delta(delta),
-            ChatStreamEvent::UsageUpdate { usage } => self.process_usage_update(usage),
+            } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
+                self.process_tool_call_delta(
+                    id,
+                    function_name,
+                    arguments_delta,
+                    index,
+                    ToolCallStreamSource::LegacyDelta,
+                )
+            }
+            ChatStreamEvent::ThinkingDelta { delta } => {
+                if self.pending_stable_thinking_shadow.as_ref() == Some(&delta) {
+                    self.pending_stable_thinking_shadow = None;
+                    return ProcessedEvent::ThinkingUpdate {
+                        delta: String::new(),
+                        accumulated: self.thinking_buffer.clone(),
+                    };
+                }
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
+                self.process_thinking_delta(delta)
+            }
+            ChatStreamEvent::UsageUpdate { usage } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
+                self.process_usage_update(usage)
+            }
             ChatStreamEvent::StreamStart { metadata } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.start_metadata = Some(metadata.clone());
                 ProcessedEvent::StreamStart { metadata }
             }
             ChatStreamEvent::StreamEnd { response } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 if let Some(usage) = response.usage.clone() {
                     self.current_usage = Some(usage);
                 }
@@ -160,10 +197,16 @@ impl StreamProcessor {
             ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
                 self.process_stream_part(part)
             }
-            ChatStreamEvent::Error { error } => ProcessedEvent::Error {
-                error: LlmError::InternalError(error),
-            },
+            ChatStreamEvent::Error { error } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
+                ProcessedEvent::Error {
+                    error: LlmError::InternalError(error),
+                }
+            }
             ChatStreamEvent::Custom { event_type, data } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 ProcessedEvent::Custom { event_type, data }
             }
         }
@@ -172,12 +215,16 @@ impl StreamProcessor {
     fn process_stream_part(&mut self, part: ChatStreamPart) -> ProcessedEvent {
         match &part {
             ChatStreamPart::TextDelta { delta, .. } => {
+                self.pending_stable_content_shadow = Some(delta.clone());
                 return self.process_content_delta(delta.clone(), None);
             }
             ChatStreamPart::ReasoningDelta { delta, .. } => {
+                self.pending_stable_thinking_shadow = Some(delta.clone());
                 return self.process_thinking_delta(delta.clone());
             }
             ChatStreamPart::ToolInputStart { id, tool_name, .. } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 let mut event = self.process_tool_call_delta(
                     id.clone(),
                     Some(tool_name.clone()),
@@ -211,6 +258,8 @@ impl StreamProcessor {
                 return event;
             }
             ChatStreamPart::ToolInputDelta { id, delta, .. } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 return self.process_tool_call_delta(
                     id.clone(),
                     None,
@@ -220,9 +269,13 @@ impl StreamProcessor {
                 );
             }
             ChatStreamPart::StreamStart { warnings } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.stream_warnings.extend(warnings.clone());
             }
             ChatStreamPart::ResponseMetadata(metadata) => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.start_metadata = Some(metadata.clone());
             }
             ChatStreamPart::Finish {
@@ -230,6 +283,8 @@ impl StreamProcessor {
                 finish_reason,
                 provider_metadata,
             } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 let _ = self.process_usage_update(usage.clone());
                 self.stream_finish_reason = Some(finish_reason.unified.clone());
                 self.stream_raw_finish_reason = finish_reason.raw.clone();
@@ -238,6 +293,8 @@ impl StreamProcessor {
                 }
             }
             ChatStreamPart::ToolApprovalRequest(request) => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.stream_parts
                     .push(ContentPart::tool_approval_request_with_metadata(
                         request.approval_id.clone(),
@@ -246,6 +303,8 @@ impl StreamProcessor {
                     ));
             }
             ChatStreamPart::ToolCall(call) => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 let builder = self.tool_calls.get(&call.tool_call_id);
                 self.stream_parts.push(ContentPart::ToolCall {
                     tool_call_id: call.tool_call_id.clone(),
@@ -269,6 +328,8 @@ impl StreamProcessor {
                 });
             }
             ChatStreamPart::ToolResult(result) => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 let builder = self.tool_calls.get(&result.tool_call_id);
                 self.stream_parts.push(ContentPart::ToolResult {
                     tool_call_id: result.tool_call_id.clone(),
@@ -290,6 +351,8 @@ impl StreamProcessor {
                 });
             }
             ChatStreamPart::Custom(custom) => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.stream_parts.push(ContentPart::Custom {
                     kind: custom.kind.clone(),
                     provider_options: crate::types::ProviderOptionsMap::default(),
@@ -297,10 +360,14 @@ impl StreamProcessor {
                 });
             }
             ChatStreamPart::File(file) => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.stream_parts
                     .push(stream_file_part_to_content_part(file, false));
             }
             ChatStreamPart::ReasoningFile(file) => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.stream_parts
                     .push(stream_file_part_to_content_part(file, true));
             }
@@ -309,6 +376,8 @@ impl StreamProcessor {
                 source,
                 provider_metadata,
             } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 self.stream_parts.push(ContentPart::Source {
                     id: id.clone(),
                     source: source.clone(),
@@ -316,6 +385,8 @@ impl StreamProcessor {
                 });
             }
             ChatStreamPart::Error { error } => {
+                self.pending_stable_content_shadow = None;
+                self.pending_stable_thinking_shadow = None;
                 return ProcessedEvent::Error {
                     error: LlmError::InternalError(
                         serde_json::to_string(error).unwrap_or_else(|_| "stream part error".into()),
@@ -1111,6 +1182,53 @@ mod tests {
         let builder = sp.tool_calls.get("call_1").expect("tool call builder");
         assert_eq!(builder.name, "search");
         assert_eq!(builder.arguments, "{\"query\":\"rust\"}");
+    }
+
+    #[test]
+    fn mixed_legacy_and_stable_text_streams_deduplicate_by_first_source() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta {
+                id: "text_1".to_string(),
+                delta: "hello".to_string(),
+                provider_metadata: None,
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::ContentDelta {
+            delta: "hello".to_string(),
+            index: Some(0),
+        });
+
+        let final_resp = sp.build_final_response();
+        assert_eq!(final_resp.content_text().as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn mixed_legacy_and_stable_reasoning_streams_deduplicate_by_first_source() {
+        let mut sp = StreamProcessor::new();
+
+        let _ = sp.process_event(ChatStreamEvent::Part {
+            part: ChatStreamPart::ReasoningDelta {
+                id: "reasoning_1".to_string(),
+                delta: "thinking".to_string(),
+                provider_metadata: None,
+            },
+        });
+        let _ = sp.process_event(ChatStreamEvent::ThinkingDelta {
+            delta: "thinking".to_string(),
+        });
+
+        let final_resp = sp.build_final_response();
+        assert_eq!(
+            final_resp
+                .provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("stream"))
+                .and_then(|meta| meta.get("thinking"))
+                .and_then(|value| value.as_str()),
+            Some("thinking")
+        );
     }
 
     #[test]
