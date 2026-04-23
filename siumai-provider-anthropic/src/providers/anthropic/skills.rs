@@ -12,8 +12,8 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::retry_api::RetryOptions;
 use crate::traits::SkillsCapability;
 use crate::types::{
-    HttpConfig, ProviderReference, SkillFileContent, SkillUploadFile as SharedSkillUploadFile,
-    SkillUploadRequest, SkillUploadResult as SharedSkillUploadResult, Warning,
+    HttpConfig, ProviderReference, SkillFileContent, SkillProviderMetadata, SkillUploadFile,
+    SkillUploadRequest, SkillUploadResult, Warning,
 };
 use crate::utils::url::join_url;
 use async_trait::async_trait;
@@ -22,99 +22,6 @@ use reqwest::Client as HttpClient;
 use secrecy::{ExposeSecret, SecretString};
 use std::collections::HashMap;
 use std::sync::Arc;
-
-/// Provider-id keyed metadata map returned by `AnthropicSkills::upload`.
-pub type AnthropicSkillProviderMetadata = HashMap<String, serde_json::Value>;
-
-/// File content accepted by Anthropic skill uploads.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AnthropicSkillFileContent {
-    /// Raw file bytes.
-    Bytes(Vec<u8>),
-    /// Base64-encoded file bytes.
-    Base64(String),
-}
-
-impl AnthropicSkillFileContent {
-    /// Create file content from raw bytes.
-    pub fn bytes(data: Vec<u8>) -> Self {
-        Self::Bytes(data)
-    }
-
-    /// Create file content from base64.
-    pub fn base64(data: impl Into<String>) -> Self {
-        Self::Base64(data.into())
-    }
-
-    fn into_bytes(self) -> Result<Vec<u8>, LlmError> {
-        match self {
-            Self::Bytes(data) => Ok(data),
-            Self::Base64(data) => STANDARD.decode(data).map_err(|error| {
-                LlmError::InvalidInput(format!("Invalid base64 skill file content: {error}"))
-            }),
-        }
-    }
-}
-
-impl From<Vec<u8>> for AnthropicSkillFileContent {
-    fn from(value: Vec<u8>) -> Self {
-        Self::Bytes(value)
-    }
-}
-
-impl From<&[u8]> for AnthropicSkillFileContent {
-    fn from(value: &[u8]) -> Self {
-        Self::Bytes(value.to_vec())
-    }
-}
-
-/// One uploaded skill file.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AnthropicSkillFile {
-    /// File path relative to the skill root.
-    pub path: String,
-    /// File content, as bytes or base64.
-    pub content: AnthropicSkillFileContent,
-}
-
-impl AnthropicSkillFile {
-    /// Create a skill file from a path and content.
-    pub fn new(path: impl Into<String>, content: impl Into<AnthropicSkillFileContent>) -> Self {
-        Self {
-            path: path.into(),
-            content: content.into(),
-        }
-    }
-
-    /// Create a skill file from raw bytes.
-    pub fn bytes(path: impl Into<String>, data: Vec<u8>) -> Self {
-        Self::new(path, AnthropicSkillFileContent::Bytes(data))
-    }
-
-    /// Create a skill file from base64.
-    pub fn base64(path: impl Into<String>, data: impl Into<String>) -> Self {
-        Self::new(path, AnthropicSkillFileContent::Base64(data.into()))
-    }
-}
-
-/// Canonical result returned by `AnthropicSkills::upload`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct AnthropicSkillUploadResult {
-    /// Provider-owned skill reference in stable AI SDK-style shape.
-    pub provider_reference: ProviderReference,
-    /// Optional human-readable title.
-    pub display_title: Option<String>,
-    /// Optional canonical skill name.
-    pub name: Option<String>,
-    /// Optional skill description.
-    pub description: Option<String>,
-    /// Optional latest version id.
-    pub latest_version: Option<String>,
-    /// Provider-owned metadata under the provider id root.
-    pub provider_metadata: Option<AnthropicSkillProviderMetadata>,
-    /// Non-fatal warnings emitted while uploading.
-    pub warnings: Vec<Warning>,
-}
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct AnthropicSkillResponse {
@@ -180,18 +87,31 @@ impl AnthropicSkills {
         }
     }
 
-    /// Upload a new Anthropic skill from the provided files.
-    pub async fn upload(
+    /// Upload a new Anthropic skill using the shared AI SDK-style request shape.
+    pub async fn upload_skill(
         &self,
-        files: Vec<AnthropicSkillFile>,
-        display_title: Option<String>,
-        per_request_headers: Option<HashMap<String, String>>,
-    ) -> Result<AnthropicSkillUploadResult, LlmError> {
+        request: SkillUploadRequest,
+    ) -> Result<SkillUploadResult, LlmError> {
+        let SkillUploadRequest {
+            files,
+            display_title,
+            provider_options: _provider_options,
+            http_config,
+        } = request;
+
         if files.is_empty() {
             return Err(LlmError::InvalidInput(
                 "Anthropic skill uploads require at least one file.".to_string(),
             ));
         }
+
+        let per_request_headers = http_config
+            .as_ref()
+            .map(|config| config.headers.clone())
+            .filter(|headers| !headers.is_empty());
+        let ignored_http_overrides = http_config
+            .as_ref()
+            .is_some_and(has_non_header_http_overrides);
 
         let url = join_url(&self.base_url, "skills");
         let ctx = self.build_context();
@@ -246,7 +166,15 @@ impl AnthropicSkills {
             }
         };
 
-        crate::retry_api::maybe_retry(self.retry_options.clone(), call).await
+        let mut result = crate::retry_api::maybe_retry(self.retry_options.clone(), call).await?;
+        if ignored_http_overrides {
+            result.warnings.push(Warning::compatibility(
+                "httpConfig",
+                Some("Anthropic skill uploads currently forward only per-request headers."),
+            ));
+        }
+
+        Ok(result)
     }
 
     fn build_context(&self) -> crate::core::ProviderContext {
@@ -302,8 +230,17 @@ impl AnthropicSkills {
     }
 }
 
+fn decode_skill_file_bytes(content: &SkillFileContent) -> Result<Vec<u8>, LlmError> {
+    match content {
+        SkillFileContent::Bytes(data) => Ok(data.clone()),
+        SkillFileContent::Base64(data) => STANDARD.decode(data).map_err(|error| {
+            LlmError::InvalidInput(format!("Invalid base64 skill file content: {error}"))
+        }),
+    }
+}
+
 fn build_upload_form(
-    files: &[AnthropicSkillFile],
+    files: &[SkillUploadFile],
     display_title: Option<&str>,
 ) -> Result<reqwest::multipart::Form, LlmError> {
     let mut form = reqwest::multipart::Form::new();
@@ -313,7 +250,7 @@ fn build_upload_form(
     }
 
     for file in files {
-        let bytes = file.content.clone().into_bytes()?;
+        let bytes = decode_skill_file_bytes(&file.content)?;
         let part = reqwest::multipart::Part::bytes(bytes).file_name(file.path.clone());
         form = form.part("files[]", part);
     }
@@ -341,7 +278,7 @@ async fn fetch_version_metadata(
 fn build_upload_result(
     response: AnthropicSkillResponse,
     version_metadata: Option<AnthropicSkillVersionResponse>,
-) -> AnthropicSkillUploadResult {
+) -> SkillUploadResult {
     let name = version_metadata
         .as_ref()
         .and_then(|metadata| metadata.name.clone())
@@ -351,7 +288,7 @@ fn build_upload_result(
         .and_then(|metadata| metadata.description.clone())
         .or(response.description.clone());
 
-    let mut provider_metadata = HashMap::new();
+    let mut provider_metadata = SkillProviderMetadata::new();
     let mut anthropic = HashMap::new();
     if let Some(source) = response.source {
         anthropic.insert("source".to_string(), serde_json::Value::String(source));
@@ -375,7 +312,7 @@ fn build_upload_result(
         );
     }
 
-    AnthropicSkillUploadResult {
+    SkillUploadResult {
         provider_reference: ProviderReference::single("anthropic", response.id),
         display_title: response.display_title,
         name,
@@ -391,42 +328,8 @@ impl SkillsCapability for AnthropicSkills {
     async fn upload_skill(
         &self,
         request: SkillUploadRequest,
-    ) -> Result<SharedSkillUploadResult, LlmError> {
-        let SkillUploadRequest {
-            files,
-            display_title,
-            provider_options: _provider_options,
-            http_config,
-        } = request;
-
-        let headers = http_config
-            .as_ref()
-            .map(|config| config.headers.clone())
-            .filter(|headers| !headers.is_empty());
-
-        let mut result = self
-            .upload(
-                files
-                    .into_iter()
-                    .map(shared_skill_file_to_anthropic)
-                    .collect(),
-                display_title,
-                headers,
-            )
-            .await
-            .map(shared_skill_result_from_anthropic)?;
-
-        if http_config
-            .as_ref()
-            .is_some_and(has_non_header_http_overrides)
-        {
-            result.warnings.push(Warning::compatibility(
-                "httpConfig",
-                Some("Anthropic skill uploads currently forward only per-request headers."),
-            ));
-        }
-
-        Ok(result)
+    ) -> Result<SkillUploadResult, LlmError> {
+        AnthropicSkills::upload_skill(self, request).await
     }
 }
 
@@ -435,31 +338,8 @@ impl SkillsCapability for super::AnthropicClient {
     async fn upload_skill(
         &self,
         request: SkillUploadRequest,
-    ) -> Result<SharedSkillUploadResult, LlmError> {
+    ) -> Result<SkillUploadResult, LlmError> {
         self.skills().upload_skill(request).await
-    }
-}
-
-fn shared_skill_file_to_anthropic(file: SharedSkillUploadFile) -> AnthropicSkillFile {
-    let content = match file.content {
-        SkillFileContent::Bytes(data) => AnthropicSkillFileContent::Bytes(data),
-        SkillFileContent::Base64(data) => AnthropicSkillFileContent::Base64(data),
-    };
-
-    AnthropicSkillFile::new(file.path, content)
-}
-
-fn shared_skill_result_from_anthropic(
-    result: AnthropicSkillUploadResult,
-) -> SharedSkillUploadResult {
-    SharedSkillUploadResult {
-        provider_reference: result.provider_reference,
-        display_title: result.display_title,
-        name: result.name,
-        description: result.description,
-        latest_version: result.latest_version,
-        provider_metadata: result.provider_metadata,
-        warnings: result.warnings,
     }
 }
 
@@ -587,13 +467,12 @@ mod tests {
         );
 
         let result = skills
-            .upload(
-                vec![AnthropicSkillFile::base64(
+            .upload_skill(
+                SkillUploadRequest::new(vec![SkillUploadFile::base64(
                     "index.ts",
                     STANDARD.encode(b"console.log('hello')"),
-                )],
-                Some("My Custom Title".to_string()),
-                None,
+                )])
+                .with_display_title("My Custom Title"),
             )
             .await
             .expect("upload result");
