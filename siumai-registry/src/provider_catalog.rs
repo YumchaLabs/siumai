@@ -19,6 +19,7 @@ pub struct ProviderInfo {
     pub supported_models: Vec<Cow<'static, str>>,
 }
 
+#[allow(dead_code)]
 fn push_unique_model(models: &mut Vec<Cow<'static, str>>, model: Cow<'static, str>) {
     if !models
         .iter()
@@ -1164,8 +1165,26 @@ mod tests {
         assert!(
             info.supported_models
                 .iter()
+                .any(|m| m.as_ref() == "text-embedding-005"),
+            "expected vertex embedding model ids to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
                 .any(|m| m.as_ref() == "imagen-4.0-generate-001"),
             "expected vertex image model ids to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "imagen-4.0-ultra-generate-001"),
+            "expected vertex ultra image model ids to be listed"
+        );
+        assert!(
+            info.supported_models
+                .iter()
+                .any(|m| m.as_ref() == "gemini-2.5-flash-image"),
+            "expected vertex Gemini image model ids to be listed"
         );
         assert!(
             info.supported_models
@@ -1202,13 +1221,13 @@ mod tests {
         assert!(
             info.supported_models
                 .iter()
-                .any(|m| m.as_ref() == "claude-sonnet-4-5-latest"),
+                .any(|m| m.as_ref() == "claude-sonnet-4-6"),
             "expected anthropic-vertex curated model ids to be listed"
         );
         assert!(
             info.supported_models
                 .iter()
-                .any(|m| m.as_ref() == "claude-3-7-sonnet-20250219"),
+                .any(|m| m.as_ref() == "claude-3-5-sonnet-v2@20241022"),
             "expected anthropic-vertex curated fallback model ids to be listed"
         );
     }
