@@ -4,8 +4,8 @@
       "role": "tool",
       "content": {
         "MultiModal": [
-          { "type": "tool-approval-response", "approvalId": "approval-1", "approved": true },
-          { "type": "tool-approval-response", "approvalId": "approval-2", "approved": false }
+          { "type": "tool-approval-response", "approvalId": "approval-1", "approved": true, "providerExecuted": true },
+          { "type": "tool-approval-response", "approvalId": "approval-2", "approved": false, "providerExecuted": true }
         ]
       },
       "metadata": {}

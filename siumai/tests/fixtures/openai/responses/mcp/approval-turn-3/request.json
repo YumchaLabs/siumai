@@ -31,7 +31,8 @@
           {
             "type": "tool-approval-response",
             "approvalId": "mcpr_04f6b17429cf2b02006949a6712b1081968b3c7a72dec695d8",
-            "approved": false
+            "approved": false,
+            "providerExecuted": true
           }
         ]
       },

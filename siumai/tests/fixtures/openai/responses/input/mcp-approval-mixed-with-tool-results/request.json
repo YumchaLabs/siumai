@@ -4,7 +4,7 @@
       "role": "tool",
       "content": {
         "MultiModal": [
-          { "type": "tool-approval-response", "approvalId": "approval-for-mcp", "approved": true },
+          { "type": "tool-approval-response", "approvalId": "approval-for-mcp", "approved": true, "providerExecuted": true },
           {
             "type": "tool-result",
             "toolCallId": "regular-call-1",

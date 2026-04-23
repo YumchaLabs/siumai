@@ -87,6 +87,10 @@ fn openai_responses_request_normalization_fixture_exact_cases_match() {
         "assistant-tool-call",
         "assistant-tool-call-multiple",
         "local-shell-store-false",
+        "mcp-approval-response-multiple",
+        "mcp-approval-response-store-false",
+        "mcp-approval-response-store-true-approved",
+        "mcp-approval-response-store-true-denied",
         "reasoning-store-false-encrypted",
         "structured-output-json-schema",
         "tool-output-local-shell",
@@ -111,6 +115,89 @@ fn openai_responses_request_normalization_fixture_exact_cases_match() {
             fixtures_dir().join(case).display()
         );
     }
+}
+
+#[test]
+fn openai_responses_request_normalization_mcp_approval_lossy_cases_preserve_provider_executed_projection()
+ {
+    let got = request_json_from_expected_body("mcp-approval-mixed-with-tool-results");
+    let mut expected = json!({
+        "messages": [
+            {
+                "role": "tool",
+                "content": {
+                    "MultiModal": [
+                        {
+                            "type": "tool-approval-response",
+                            "approvalId": "approval-for-mcp",
+                            "approved": true,
+                            "providerExecuted": true
+                        },
+                        {
+                            "type": "tool-result",
+                            "toolCallId": "regular-call-1",
+                            "toolName": "",
+                            "output": {
+                                "type": "json",
+                                "value": { "result": 42 }
+                            }
+                        }
+                    ]
+                }
+            }
+        ],
+        "common_params": { "model": "gpt-5-nano" },
+        "stream": false
+    });
+    normalize_json(&mut expected);
+    assert_eq!(got, expected);
+
+    let got = request_json_from_expected_body("mcp-approval-response-skip-duplicate");
+    let mut expected = json!({
+        "messages": [
+            {
+                "role": "tool",
+                "content": {
+                    "MultiModal": [
+                        {
+                            "type": "tool-approval-response",
+                            "approvalId": "dup-approval",
+                            "approved": true,
+                            "providerExecuted": true
+                        }
+                    ]
+                }
+            }
+        ],
+        "common_params": { "model": "gpt-5-nano" },
+        "stream": false
+    });
+    normalize_json(&mut expected);
+    assert_eq!(got, expected);
+
+    let got =
+        request_json_from_expected_body("mcp-approval-skip-execution-denied-with-approval-id");
+    let mut expected = json!({
+        "messages": [
+            {
+                "role": "tool",
+                "content": {
+                    "MultiModal": [
+                        {
+                            "type": "tool-approval-response",
+                            "approvalId": "denied-approval",
+                            "approved": false,
+                            "providerExecuted": true
+                        }
+                    ]
+                }
+            }
+        ],
+        "common_params": { "model": "gpt-5-nano" },
+        "stream": false
+    });
+    normalize_json(&mut expected);
+    assert_eq!(got, expected);
 }
 
 #[test]
@@ -241,11 +328,11 @@ fn openai_responses_request_normalization_provider_file_id_cases_collapse_to_sel
                                     { "type": "text", "text": "Provider keyed attachments" },
                                     {
                                         "type": "image-file-reference",
-                                        "providerReference": "assistant-img-openai"
+                                        "providerReference": { "openai": "assistant-img-openai" }
                                     },
                                     {
                                         "type": "file-reference",
-                                        "providerReference": "file-pdf-openai"
+                                        "providerReference": { "openai": "file-pdf-openai" }
                                     }
                                 ]
                             }
@@ -281,11 +368,11 @@ fn openai_responses_request_normalization_tool_result_file_id_parts_are_best_eff
                                     { "type": "text", "text": "Tool generated attachments" },
                                     {
                                         "type": "image-file-reference",
-                                        "providerReference": "assistant-img-abc123"
+                                        "providerReference": { "openai": "assistant-img-abc123" }
                                     },
                                     {
                                         "type": "file-reference",
-                                        "providerReference": "file-pdf-xyz789"
+                                        "providerReference": { "openai": "file-pdf-xyz789" }
                                     }
                                 ]
                             }

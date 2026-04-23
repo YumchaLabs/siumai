@@ -359,13 +359,20 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageEditRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let req = materialize_url_backed_image_edit_request(&self.http_client, req).await?;
         let caps = self.provider_spec.capabilities();
         if !caps.supports("image_generation") {
             return Err(LlmError::UnsupportedOperation(
                 "Image editing is not supported by this provider".to_string(),
             ));
         }
+        let req = if self
+            .provider_spec
+            .materialize_image_edit_urls(&req, &self.provider_context)
+        {
+            materialize_url_backed_image_edit_request(&self.http_client, req).await?
+        } else {
+            req
+        };
         // 1. Get URL from provider spec
         let url = self
             .provider_spec
@@ -438,13 +445,20 @@ impl ImageExecutor for HttpImageExecutor {
         &self,
         req: ImageVariationRequest,
     ) -> Result<ImageGenerationResponse, LlmError> {
-        let req = materialize_url_backed_image_variation_request(&self.http_client, req).await?;
         let caps = self.provider_spec.capabilities();
         if !caps.supports("image_generation") {
             return Err(LlmError::UnsupportedOperation(
                 "Image variation is not supported by this provider".to_string(),
             ));
         }
+        let req = if self
+            .provider_spec
+            .materialize_image_variation_urls(&req, &self.provider_context)
+        {
+            materialize_url_backed_image_variation_request(&self.http_client, req).await?
+        } else {
+            req
+        };
         // 1. Get URL from provider spec
         let url = self
             .provider_spec
@@ -725,6 +739,117 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Copy)]
+    struct TestSpecNoMaterialize;
+    impl crate::core::ProviderSpec for TestSpecNoMaterialize {
+        fn id(&self) -> &'static str {
+            "test"
+        }
+
+        fn capabilities(&self) -> crate::traits::ProviderCapabilities {
+            crate::traits::ProviderCapabilities::new().with_image_generation()
+        }
+
+        fn build_headers(
+            &self,
+            _ctx: &crate::core::ProviderContext,
+        ) -> Result<HeaderMap, LlmError> {
+            let mut h = HeaderMap::new();
+            h.insert(
+                reqwest::header::CONTENT_TYPE,
+                reqwest::header::HeaderValue::from_static("application/json"),
+            );
+            Ok(h)
+        }
+
+        fn materialize_image_edit_urls(
+            &self,
+            _req: &crate::types::ImageEditRequest,
+            _ctx: &crate::core::ProviderContext,
+        ) -> bool {
+            false
+        }
+
+        fn materialize_image_variation_urls(
+            &self,
+            _req: &crate::types::ImageVariationRequest,
+            _ctx: &crate::core::ProviderContext,
+        ) -> bool {
+            false
+        }
+    }
+
+    struct InspectUnmaterializedEditReq;
+    impl crate::execution::transformers::request::RequestTransformer for InspectUnmaterializedEditReq {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+
+        fn transform_chat(
+            &self,
+            _req: &crate::types::ChatRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image(
+            &self,
+            _req: &crate::types::ImageGenerationRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image_edit(
+            &self,
+            req: &crate::types::ImageEditRequest,
+        ) -> Result<ImageHttpBody, LlmError> {
+            let first = req.images.first().expect("expected first image");
+            assert!(
+                first.is_url(),
+                "expected URL input to remain unmaterialized"
+            );
+            assert_eq!(first.as_url(), Some("https://example.com/input.png"));
+
+            Ok(ImageHttpBody::Json(serde_json::json!({ "ok": true })))
+        }
+    }
+
+    struct InspectUnmaterializedVariationReq;
+    impl crate::execution::transformers::request::RequestTransformer
+        for InspectUnmaterializedVariationReq
+    {
+        fn provider_id(&self) -> &str {
+            "test"
+        }
+
+        fn transform_chat(
+            &self,
+            _req: &crate::types::ChatRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image(
+            &self,
+            _req: &crate::types::ImageGenerationRequest,
+        ) -> Result<serde_json::Value, LlmError> {
+            Ok(serde_json::json!({}))
+        }
+
+        fn transform_image_variation(
+            &self,
+            req: &crate::types::ImageVariationRequest,
+        ) -> Result<ImageHttpBody, LlmError> {
+            assert!(
+                req.image.is_url(),
+                "expected URL variation input to remain unmaterialized"
+            );
+            assert_eq!(req.image.as_url(), Some("https://example.com/input.png"));
+
+            Ok(ImageHttpBody::Json(serde_json::json!({ "ok": true })))
+        }
+    }
+
     // Interceptor to capture
     struct CaptureHeaders {
         seen: Arc<Mutex<Option<HeaderMap>>>,
@@ -984,6 +1109,98 @@ mod tests {
             image: crate::types::ImageEditInput::url("data:image/png;base64,CQgHBg==")
                 .with_provider_option("openai", serde_json::json!({ "detail": "low" })),
             model: Some("gpt-image-1".to_string()),
+            count: Some(1),
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        exec.execute_variation(request)
+            .await
+            .expect("variation request should succeed");
+    }
+
+    #[tokio::test]
+    async fn image_edit_executor_can_preserve_url_backed_inputs_when_provider_opt_outs() {
+        let mut server = mockito::Server::new_async().await;
+        let _m = server
+            .mock("POST", "/images/edits")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{\"ok\":true}")
+            .create_async()
+            .await;
+
+        let exec = HttpImageExecutor {
+            provider_id: "test".into(),
+            http_client: reqwest::Client::new(),
+            request_transformer: Arc::new(InspectUnmaterializedEditReq),
+            response_transformer: Arc::new(OkImgResp),
+            provider_spec: Arc::new(TestSpecNoMaterialize),
+            provider_context: crate::core::ProviderContext::new(
+                "test",
+                server.url(),
+                None,
+                Default::default(),
+            ),
+            policy: crate::execution::ExecutionPolicy::new(),
+        };
+
+        let request = crate::types::ImageEditRequest {
+            images: vec![crate::types::ImageEditInput::url(
+                "https://example.com/input.png",
+            )],
+            mask: None,
+            prompt: "edit".to_string(),
+            model: Some("gemini-image".to_string()),
+            count: Some(1),
+            size: None,
+            aspect_ratio: None,
+            seed: None,
+            response_format: None,
+            extra_params: Default::default(),
+            provider_options_map: Default::default(),
+            http_config: None,
+        };
+
+        exec.execute_edit(request)
+            .await
+            .expect("edit request should succeed");
+    }
+
+    #[tokio::test]
+    async fn image_variation_executor_can_preserve_url_backed_inputs_when_provider_opt_outs() {
+        let mut server = mockito::Server::new_async().await;
+        let _m = server
+            .mock("POST", "/images/variations")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body("{\"ok\":true}")
+            .create_async()
+            .await;
+
+        let exec = HttpImageExecutor {
+            provider_id: "test".into(),
+            http_client: reqwest::Client::new(),
+            request_transformer: Arc::new(InspectUnmaterializedVariationReq),
+            response_transformer: Arc::new(OkImgResp),
+            provider_spec: Arc::new(TestSpecNoMaterialize),
+            provider_context: crate::core::ProviderContext::new(
+                "test",
+                server.url(),
+                None,
+                Default::default(),
+            ),
+            policy: crate::execution::ExecutionPolicy::new(),
+        };
+
+        let request = crate::types::ImageVariationRequest {
+            image: crate::types::ImageEditInput::url("https://example.com/input.png"),
+            model: Some("gemini-image".to_string()),
             count: Some(1),
             size: None,
             aspect_ratio: None,

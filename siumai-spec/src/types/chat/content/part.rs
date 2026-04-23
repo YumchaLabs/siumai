@@ -106,6 +106,13 @@ pub enum ContentPart {
         /// Image data source
         #[serde(flatten)]
         source: FilePartSource,
+        /// Optional IANA media type of the image.
+        #[serde(
+            rename = "mediaType",
+            alias = "media_type",
+            skip_serializing_if = "Option::is_none"
+        )]
+        media_type: Option<String>,
         /// Optional detail level (for providers that support it, e.g., OpenAI)
         #[serde(skip_serializing_if = "Option::is_none")]
         detail: Option<ImageDetail>,
@@ -536,6 +543,7 @@ impl ContentPart {
     pub fn image_url(url: impl Into<String>) -> Self {
         Self::Image {
             source: FilePartSource::url(url),
+            media_type: None,
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -546,6 +554,7 @@ impl ContentPart {
     pub fn image_url_with_detail(url: impl Into<String>, detail: ImageDetail) -> Self {
         Self::Image {
             source: FilePartSource::url(url),
+            media_type: None,
             detail: Some(detail),
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -556,6 +565,7 @@ impl ContentPart {
     pub fn image_base64(data: impl Into<String>) -> Self {
         Self::Image {
             source: FilePartSource::base64(data),
+            media_type: None,
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -566,6 +576,7 @@ impl ContentPart {
     pub fn image_binary(data: Vec<u8>) -> Self {
         Self::Image {
             source: FilePartSource::binary(data),
+            media_type: None,
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -576,6 +587,7 @@ impl ContentPart {
     pub fn image_provider_reference(provider_reference: impl Into<ProviderReference>) -> Self {
         Self::Image {
             source: FilePartSource::provider_reference(provider_reference),
+            media_type: None,
             detail: None,
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -1139,6 +1151,17 @@ impl ContentPart {
         self
     }
 
+    /// Attach an optional media type to an image content part.
+    pub fn with_image_media_type(mut self, media_type: impl Into<String>) -> Self {
+        if let Self::Image {
+            media_type: slot, ..
+        } = &mut self
+        {
+            *slot = Some(media_type.into());
+        }
+        self
+    }
+
     /// Check if this is a text part
     pub fn is_text(&self) -> bool {
         matches!(self, Self::Text { .. })
@@ -1587,10 +1610,12 @@ mod tests {
         let part = ContentPart::image_provider_reference(ProviderReference::from([
             ("openai", "file-openai"),
             ("anthropic", "file-anthropic"),
-        ]));
+        ]))
+        .with_image_media_type("image/png");
 
         let value = serde_json::to_value(&part).expect("serialize image provider reference");
         assert_eq!(value["type"], serde_json::json!("image"));
+        assert_eq!(value["mediaType"], serde_json::json!("image/png"));
         assert_eq!(
             value["providerReference"],
             serde_json::json!({

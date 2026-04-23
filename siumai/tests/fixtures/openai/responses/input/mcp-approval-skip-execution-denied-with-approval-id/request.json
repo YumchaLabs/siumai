@@ -4,7 +4,7 @@
       "role": "tool",
       "content": {
         "MultiModal": [
-          { "type": "tool-approval-response", "approvalId": "denied-approval", "approved": false },
+          { "type": "tool-approval-response", "approvalId": "denied-approval", "approved": false, "providerExecuted": true },
           {
             "type": "tool-result",
             "toolCallId": "call-123",

@@ -157,6 +157,102 @@ mirrored `url` and `providerOptions`, but was still missing that optional media 
 This slice adds the missing field plus a focused `with_media_type(...)` builder, and locks the
 shape with serde/unit/facade coverage.
 
+### 11. Keep legacy file-id variants separate from canonical provider references
+
+The upstream AI SDK still accepts deprecated tool-result content tags:
+
+- `file-id`
+- `image-file-id`
+
+But those are intentionally distinct from the canonical provider-reference tags:
+
+- `file-reference`
+- `image-file-reference`
+
+That distinction matters because the payload contracts differ:
+
+- legacy `file-id` variants carry `fileId: string | Record<string, string>`
+- canonical `*-reference` variants carry `providerReference: ProviderReference`
+
+Siumai had temporarily collapsed those pairs into shared enum variants that deserialized both
+shapes, but always serialized back as the canonical `*-reference` tags. That made Rust roundtrips
+structurally lossy and obscured whether a caller was constructing a deprecated wire shape or the
+new canonical one.
+
+The stable Rust surface now models these as separate enum variants and constructors:
+
+- `file_id(...)`
+- `file_reference(...)`
+- `image_file_id(...)`
+- `image_file_reference(...)`
+
+This keeps serde roundtrips honest, preserves upstream field names (`fileId` vs
+`providerReference`), and lets bridge layers emit canonical provider-reference maps when they are
+already operating on provider-owned file ids.
+
+### 12. Keep prompt image media types when projecting back into chat runtime
+
+The shared prompt `ImagePart` includes an optional `mediaType`, but Siumai's richer runtime
+`ContentPart::Image` previously had no place to store it. That meant `ModelMessage -> ChatMessage`
+projection silently dropped valid shared prompt information.
+
+That was the wrong superset boundary: the richer runtime model should be able to preserve the
+prompt-layer image media type even if some providers can infer it from bytes or URLs.
+
+The runtime image part now also carries optional `mediaType`, with serde support, a focused
+`with_image_media_type(...)` helper, and prompt roundtrip coverage. Existing constructors still
+default it to `None`, while bridges/providers that already know the image MIME type can now retain
+it instead of discarding it.
+
+### 13. Keep OpenAI Responses approval responses on the provider-facing side only
+
+Upstream AI SDK keeps this behavior split across two layers:
+
+- UI/model-message conversion may still retain `tool-approval-response` for regular tools
+- provider-facing prompt conversion only serializes those approval responses when
+  `providerExecuted === true`
+
+Siumai's richer `ChatMessage` runtime history should remain expressive, so the right alignment
+point is the provider request bridge rather than the UI facade. The OpenAI Responses lane now
+mirrors that provider-facing boundary:
+
+- `ChatRequest -> OpenAI Responses` only emits `mcp_approval_response` for
+  `ContentPart::ToolApprovalResponse { provider_executed: Some(true) }`
+- request bridge inspection now treats non-provider-executed approval responses as lossy for the
+  OpenAI Responses target
+- `OpenAI Responses JSON -> ChatRequest` restores `providerExecuted: true` on normalized
+  `tool-approval-response` parts because that wire item is provider-executed-only
+
+This keeps the runtime superset honest without pretending the provider-facing prompt/history
+contract is wider than the upstream AI SDK actually allows.
+
+### 14. Add an explicit provider-facing prompt execution validation layer
+
+Upstream AI SDK keeps prompt standardization and provider-facing execution validation separate:
+
+- `standardize-prompt.ts` only normalizes the `Prompt` shape
+- `convert-to-language-model-prompt.ts` then enforces history rules such as missing tool results
+  and raises `MissingToolResultsError`
+
+Siumai already exposed `Prompt::standardize()` publicly, but had no explicit Rust equivalent for
+that second provider-facing validation layer. Folding missing-tool-result checks directly into
+`standardize()` would have mixed two distinct responsibilities and made the shape-only helper less
+auditable against upstream.
+
+The stable Rust surface now mirrors that split more honestly:
+
+- `Prompt::standardize()` remains shape-only
+- `StandardizedPrompt::validate_for_execution()` enforces the provider-facing tool-call history
+  rule
+- `Prompt::standardize_for_execution()` and `Prompt::to_chat_request()` provide the execution-ready
+  convenience lane
+- provider-facing failures surface through dedicated `MissingToolResultsError` and
+  `PromptExecutionError` types instead of overloading `PromptValidationError`
+
+This gives downstream callers an explicit boundary that is much closer in role to the upstream
+prompt-to-language-model conversion step, while keeping the shared prompt structs themselves
+structurally narrow and separately testable.
+
 ## Follow-up
 
 The next audit step is to keep comparing these prompt-owned structs against `repo-ref/ai` as more

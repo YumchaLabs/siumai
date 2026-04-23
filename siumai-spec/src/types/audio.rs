@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use crate::types::{
-    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap, Warning,
+    DataContent, HttpConfig, HttpRequestInfo, HttpResponseInfo, InvalidDataContentError,
+    ProviderMetadataMap, ProviderOptionsMap, Warning,
 };
 use base64::Engine;
 
@@ -189,10 +190,30 @@ impl AudioInputData {
     }
 
     /// Convert the audio input to bytes, decoding base64 when necessary.
-    pub fn as_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>, InvalidDataContentError> {
         match self {
-            Self::Base64(data) => base64::engine::general_purpose::STANDARD.decode(data),
+            Self::Base64(data) => base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|source| InvalidDataContentError::invalid_base64(data.clone(), source)),
             Self::Binary(data) => Ok(data.clone()),
+        }
+    }
+}
+
+impl From<DataContent> for AudioInputData {
+    fn from(value: DataContent) -> Self {
+        match value {
+            DataContent::Base64(data) => Self::Base64(data),
+            DataContent::Binary(data) => Self::Binary(data),
+        }
+    }
+}
+
+impl From<AudioInputData> for DataContent {
+    fn from(value: AudioInputData) -> Self {
+        match value {
+            AudioInputData::Base64(data) => Self::Base64(data),
+            AudioInputData::Binary(data) => Self::Binary(data),
         }
     }
 }
@@ -234,6 +255,19 @@ impl SttRequest {
     pub fn from_base64(audio_data: impl Into<String>, media_type: impl Into<String>) -> Self {
         Self {
             audio: AudioInputData::base64(audio_data),
+            format: None,
+            media_type: media_type.into(),
+            model: None,
+            provider_options_map: ProviderOptionsMap::default(),
+            extra_params: HashMap::new(),
+            http_config: None,
+        }
+    }
+
+    /// Create STT request from shared AI SDK-style data content.
+    pub fn from_data_content(audio: DataContent, media_type: impl Into<String>) -> Self {
+        Self {
+            audio: AudioInputData::from(audio),
             format: None,
             media_type: media_type.into(),
             model: None,
@@ -293,7 +327,7 @@ impl SttRequest {
     }
 
     /// Return the audio input as bytes, decoding base64 when necessary.
-    pub fn audio_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+    pub fn audio_bytes(&self) -> Result<Vec<u8>, InvalidDataContentError> {
         self.audio.as_bytes()
     }
 }
@@ -382,6 +416,19 @@ impl AudioTranslationRequest {
         }
     }
 
+    /// Create translation request from shared AI SDK-style data content.
+    pub fn from_data_content(audio: DataContent, media_type: impl Into<String>) -> Self {
+        Self {
+            audio: AudioInputData::from(audio),
+            format: None,
+            media_type: media_type.into(),
+            model: None,
+            provider_options_map: ProviderOptionsMap::default(),
+            extra_params: HashMap::new(),
+            http_config: None,
+        }
+    }
+
     /// Replace the full provider options map (open JSON map).
     pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
         self.provider_options_map = map;
@@ -432,7 +479,7 @@ impl AudioTranslationRequest {
     }
 
     /// Return the audio input as bytes, decoding base64 when necessary.
-    pub fn audio_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+    pub fn audio_bytes(&self) -> Result<Vec<u8>, InvalidDataContentError> {
         self.audio.as_bytes()
     }
 }
@@ -522,5 +569,19 @@ mod tests {
 
         assert_eq!(request.audio_bytes().expect("audio bytes"), vec![4, 5, 6]);
         assert_eq!(request.media_type, "audio/wav");
+    }
+
+    #[test]
+    fn data_content_converts_into_audio_requests() {
+        let shared = DataContent::binary(vec![7, 8, 9]);
+
+        let stt = SttRequest::from_data_content(shared.clone(), "audio/mpeg");
+        assert_eq!(stt.audio_bytes().expect("stt bytes"), vec![7, 8, 9]);
+
+        let translation = AudioTranslationRequest::from_data_content(shared, "audio/wav");
+        assert_eq!(
+            translation.audio_bytes().expect("translation bytes"),
+            vec![7, 8, 9]
+        );
     }
 }

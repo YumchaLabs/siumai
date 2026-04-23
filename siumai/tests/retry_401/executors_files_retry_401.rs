@@ -42,7 +42,7 @@ impl FilesTransformer for TestFilesTransformer {
     fn transform_file_object(&self, raw: &serde_json::Value) -> Result<FileObject, LlmError> {
         Ok(FileObject {
             id: raw["id"].as_str().unwrap_or("f_1").to_string(),
-            filename: raw["filename"].as_str().unwrap_or("test.txt").to_string(),
+            filename: Some(raw["filename"].as_str().unwrap_or("test.txt").to_string()),
             bytes: raw["bytes"].as_u64().unwrap_or(0),
             created_at: raw["created_at"].as_u64().unwrap_or(0),
             purpose: raw["purpose"].as_str().unwrap_or("test").to_string(),
@@ -246,7 +246,7 @@ async fn files_executor_retries_on_401_list_retrieve_delete_upload_content() {
     let up = files
         .upload(FileUploadRequest {
             content: vec![1, 2],
-            filename: "b.txt".to_string(),
+            filename: Some("b.txt".to_string()),
             mime_type: Some("text/plain".to_string()),
             purpose: "test".to_string(),
             metadata: Default::default(),

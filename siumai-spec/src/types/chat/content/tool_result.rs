@@ -2,7 +2,7 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::types::ProviderOptionsMap;
+use crate::types::{ProviderOptionsMap, ProviderReference};
 
 /// Tool result output - supports multiple formats
 ///
@@ -106,7 +106,7 @@ pub enum ToolResultOutput {
     },
 }
 
-/// Provider file id reference used by AI SDK tool-result content parts.
+/// Legacy provider file-id payload used by deprecated AI SDK tool-result content parts.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 pub enum ToolResultFileId {
@@ -203,17 +203,29 @@ pub enum ToolResultContentPart {
         provider_options: ProviderOptionsMap,
     },
 
-    /// File content referenced by provider file id or provider-reference map.
-    #[serde(rename = "file-reference", alias = "file-id")]
+    /// Legacy file content referenced by provider file id.
+    #[serde(rename = "file-id")]
     FileId {
+        #[serde(alias = "fileId", alias = "file_id", rename = "fileId")]
+        file_id: ToolResultFileId,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+
+    /// Canonical file content referenced by provider reference map.
+    #[serde(rename = "file-reference")]
+    FileReference {
         #[serde(
             alias = "providerReference",
             alias = "provider_reference",
-            alias = "fileId",
-            alias = "file_id",
             rename = "providerReference"
         )]
-        file_id: ToolResultFileId,
+        provider_reference: ProviderReference,
         #[serde(
             rename = "providerOptions",
             alias = "provider_options",
@@ -249,17 +261,29 @@ pub enum ToolResultContentPart {
         provider_options: ProviderOptionsMap,
     },
 
-    /// Image content referenced by provider file id or provider-reference map.
-    #[serde(rename = "image-file-reference", alias = "image-file-id")]
+    /// Legacy image content referenced by provider file id.
+    #[serde(rename = "image-file-id")]
     ImageFileId {
+        #[serde(alias = "fileId", alias = "file_id", rename = "fileId")]
+        file_id: ToolResultFileId,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+
+    /// Legacy image content referenced by provider reference map.
+    #[serde(rename = "image-file-reference")]
+    ImageFileReference {
         #[serde(
             alias = "providerReference",
             alias = "provider_reference",
-            alias = "fileId",
-            alias = "file_id",
             rename = "providerReference"
         )]
-        file_id: ToolResultFileId,
+        provider_reference: ProviderReference,
         #[serde(
             rename = "providerOptions",
             alias = "provider_options",
@@ -425,8 +449,11 @@ impl ToolResultContentPart {
     }
 
     /// Create an image-file-reference content part.
-    pub fn image_file_reference(provider_reference: impl Into<ToolResultFileId>) -> Self {
-        Self::image_file_id(provider_reference)
+    pub fn image_file_reference(provider_reference: impl Into<ProviderReference>) -> Self {
+        Self::ImageFileReference {
+            provider_reference: provider_reference.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
     }
 
     /// Create a file-data content part.
@@ -491,8 +518,11 @@ impl ToolResultContentPart {
     }
 
     /// Create a file-reference content part.
-    pub fn file_reference(provider_reference: impl Into<ToolResultFileId>) -> Self {
-        Self::file_id(provider_reference)
+    pub fn file_reference(provider_reference: impl Into<ProviderReference>) -> Self {
+        Self::FileReference {
+            provider_reference: provider_reference.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
     }
 
     /// Create a custom tool-result content part.
@@ -517,6 +547,9 @@ impl ToolResultContentPart {
             | Self::FileId {
                 provider_options, ..
             }
+            | Self::FileReference {
+                provider_options, ..
+            }
             | Self::ImageData {
                 provider_options, ..
             }
@@ -524,6 +557,9 @@ impl ToolResultContentPart {
                 provider_options, ..
             }
             | Self::ImageFileId {
+                provider_options, ..
+            }
+            | Self::ImageFileReference {
                 provider_options, ..
             }
             | Self::Custom {
@@ -552,6 +588,9 @@ impl ToolResultContentPart {
             | Self::FileId {
                 provider_options, ..
             }
+            | Self::FileReference {
+                provider_options, ..
+            }
             | Self::ImageData {
                 provider_options, ..
             }
@@ -559,6 +598,9 @@ impl ToolResultContentPart {
                 provider_options, ..
             }
             | Self::ImageFileId {
+                provider_options, ..
+            }
+            | Self::ImageFileReference {
                 provider_options, ..
             }
             | Self::Custom {
@@ -597,6 +639,7 @@ impl ToolResultContentPart {
 #[cfg(test)]
 mod tests {
     use super::{ToolResultContentPart, ToolResultFileId, ToolResultOutput};
+    use crate::types::ProviderReference;
     use std::collections::HashMap;
 
     #[test]
@@ -614,11 +657,16 @@ mod tests {
 
     #[test]
     fn tool_result_content_serializes_vercel_aligned_variants() {
-        let file_id = ToolResultContentPart::file_id(HashMap::from([
-            ("openai".to_string(), "file_openai".to_string()),
-            ("anthropic".to_string(), "file_anthropic".to_string()),
+        let file_id = ToolResultContentPart::file_id("file_legacy");
+        let file_reference = ToolResultContentPart::file_reference(ProviderReference::from([
+            ("openai", "file_openai"),
+            ("anthropic", "file_anthropic"),
         ]));
         let image_data = ToolResultContentPart::image_data("aGVsbG8=", "image/png");
+        let image_file_id = ToolResultContentPart::image_file_id("image_legacy");
+        let image_file_reference = ToolResultContentPart::image_file_reference(
+            ProviderReference::from([("openai", "image_openai")]),
+        );
         let file_data = ToolResultContentPart::file_data(
             "JVBERi0x",
             "application/pdf",
@@ -627,16 +675,46 @@ mod tests {
         let file_url = ToolResultContentPart::file_url("https://example.com/report.pdf")
             .with_media_type("application/pdf");
 
-        let file_id_json = serde_json::to_value(&file_id).expect("serialize file-reference part");
-        assert_eq!(file_id_json["type"], serde_json::json!("file-reference"));
+        let file_id_json = serde_json::to_value(&file_id).expect("serialize file-id part");
+        assert_eq!(file_id_json["type"], serde_json::json!("file-id"));
+        assert_eq!(file_id_json["fileId"], serde_json::json!("file_legacy"));
+
+        let file_reference_json =
+            serde_json::to_value(&file_reference).expect("serialize file-reference part");
         assert_eq!(
-            file_id_json["providerReference"]["openai"],
+            file_reference_json["type"],
+            serde_json::json!("file-reference")
+        );
+        assert_eq!(
+            file_reference_json["providerReference"]["openai"],
             serde_json::json!("file_openai")
         );
 
         let image_data_json = serde_json::to_value(&image_data).expect("serialize image-data part");
         assert_eq!(image_data_json["type"], serde_json::json!("image-data"));
         assert_eq!(image_data_json["mediaType"], serde_json::json!("image/png"));
+
+        let image_file_id_json =
+            serde_json::to_value(&image_file_id).expect("serialize image-file-id part");
+        assert_eq!(
+            image_file_id_json["type"],
+            serde_json::json!("image-file-id")
+        );
+        assert_eq!(
+            image_file_id_json["fileId"],
+            serde_json::json!("image_legacy")
+        );
+
+        let image_file_reference_json = serde_json::to_value(&image_file_reference)
+            .expect("serialize image-file-reference part");
+        assert_eq!(
+            image_file_reference_json["type"],
+            serde_json::json!("image-file-reference")
+        );
+        assert_eq!(
+            image_file_reference_json["providerReference"]["openai"],
+            serde_json::json!("image_openai")
+        );
 
         let file_data_json = serde_json::to_value(&file_data).expect("serialize file-data part");
         assert_eq!(file_data_json["type"], serde_json::json!("file-data"));
@@ -666,7 +744,12 @@ mod tests {
     }
 
     #[test]
-    fn tool_result_content_accepts_provider_reference_aliases() {
+    fn tool_result_content_deserializes_legacy_and_canonical_reference_variants() {
+        let file_id: ToolResultContentPart = serde_json::from_value(serde_json::json!({
+            "type": "file-id",
+            "fileId": "file_legacy"
+        }))
+        .expect("deserialize file-id");
         let file_reference: ToolResultContentPart = serde_json::from_value(serde_json::json!({
             "type": "file-reference",
             "providerReference": {
@@ -674,27 +757,42 @@ mod tests {
                 "anthropic": "file_anthropic"
             }
         }))
-        .expect("deserialize file-reference alias");
+        .expect("deserialize file-reference");
+        let image_file_id: ToolResultContentPart = serde_json::from_value(serde_json::json!({
+            "type": "image-file-id",
+            "fileId": {
+                "openai": "image_openai"
+            }
+        }))
+        .expect("deserialize image-file-id");
         let image_reference: ToolResultContentPart = serde_json::from_value(serde_json::json!({
             "type": "image-file-reference",
             "providerReference": {
                 "openai": "image_openai"
             }
         }))
-        .expect("deserialize image-file-reference alias");
+        .expect("deserialize image-file-reference");
 
+        assert_eq!(file_id, ToolResultContentPart::file_id("file_legacy"));
         assert_eq!(
             file_reference,
-            ToolResultContentPart::file_reference(HashMap::from([
-                ("openai".to_string(), "file_openai".to_string()),
-                ("anthropic".to_string(), "file_anthropic".to_string()),
+            ToolResultContentPart::file_reference(ProviderReference::from([
+                ("openai", "file_openai"),
+                ("anthropic", "file_anthropic"),
             ]))
         );
         assert_eq!(
-            image_reference,
-            ToolResultContentPart::image_file_reference(HashMap::from([(
+            image_file_id,
+            ToolResultContentPart::image_file_id(HashMap::from([(
                 "openai".to_string(),
                 "image_openai".to_string(),
+            )]))
+        );
+        assert_eq!(
+            image_reference,
+            ToolResultContentPart::image_file_reference(ProviderReference::from([(
+                "openai",
+                "image_openai",
             )]))
         );
     }

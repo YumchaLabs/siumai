@@ -4,7 +4,9 @@ use base64::Engine;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{HttpConfig, HttpResponseInfo, ProviderOptionsMap, Warning};
+use super::{
+    DataContent, HttpConfig, HttpResponseInfo, InvalidDataContentError, ProviderOptionsMap, Warning,
+};
 
 /// Image generation request
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -359,10 +361,30 @@ impl ImageEditFileData {
     }
 
     /// Convert the file data to bytes, decoding base64 when necessary.
-    pub fn as_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>, InvalidDataContentError> {
         match self {
-            Self::Base64(data) => base64::engine::general_purpose::STANDARD.decode(data),
+            Self::Base64(data) => base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|source| InvalidDataContentError::invalid_base64(data.clone(), source)),
             Self::Binary(data) => Ok(data.clone()),
+        }
+    }
+}
+
+impl From<DataContent> for ImageEditFileData {
+    fn from(value: DataContent) -> Self {
+        match value {
+            DataContent::Base64(data) => Self::Base64(data),
+            DataContent::Binary(data) => Self::Binary(data),
+        }
+    }
+}
+
+impl From<ImageEditFileData> for DataContent {
+    fn from(value: ImageEditFileData) -> Self {
+        match value {
+            ImageEditFileData::Base64(data) => Self::Base64(data),
+            ImageEditFileData::Binary(data) => Self::Binary(data),
         }
     }
 }
@@ -431,6 +453,15 @@ impl ImageEditInput {
     /// Create a file input from a base64 string and media type.
     pub fn base64_with_media_type(data: impl Into<String>, media_type: impl Into<String>) -> Self {
         Self::base64(data).with_media_type(media_type)
+    }
+
+    /// Create a file input from shared AI SDK-style data content.
+    pub fn from_data_content(data: DataContent) -> Self {
+        Self::File {
+            data: ImageEditFileData::from(data),
+            media_type: None,
+            provider_options_map: ProviderOptionsMap::default(),
+        }
     }
 
     /// Create a URL input.
@@ -891,6 +922,22 @@ mod tests {
                 .and_then(|value| value.get("detail"))
                 .and_then(|value| value.as_str()),
             Some("high")
+        );
+    }
+
+    #[test]
+    fn test_image_edit_input_accepts_shared_data_content() {
+        let input = ImageEditInput::from_data_content(DataContent::base64("AQID"))
+            .with_media_type("image/png");
+
+        assert_eq!(input.media_type(), Some("image/png"));
+        assert_eq!(
+            input
+                .file_data()
+                .expect("file data")
+                .as_bytes()
+                .expect("bytes"),
+            vec![1, 2, 3]
         );
     }
 }

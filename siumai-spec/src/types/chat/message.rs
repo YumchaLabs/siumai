@@ -728,6 +728,7 @@ impl ChatMessageBuilder {
     pub fn with_image(mut self, image_url: String, detail: Option<String>) -> Self {
         let image_part = ContentPart::Image {
             source: FilePartSource::url(image_url),
+            media_type: None,
             detail: detail.map(|d| ImageDetail::from(d.as_str())),
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,
@@ -912,6 +913,7 @@ impl ChatMessageBuilder {
     ) -> Self {
         let image_part = ContentPart::Image {
             source: FilePartSource::provider_reference(provider_reference),
+            media_type: None,
             detail: detail.map(|d| ImageDetail::from(d.as_str())),
             provider_options: ProviderOptionsMap::default(),
             provider_metadata: None,

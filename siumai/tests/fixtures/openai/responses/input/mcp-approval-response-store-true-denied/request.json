@@ -3,7 +3,7 @@
     {
       "role": "tool",
       "content": {
-        "MultiModal": [{ "type": "tool-approval-response", "approvalId": "mcp-approval-123", "approved": false }]
+        "MultiModal": [{ "type": "tool-approval-response", "approvalId": "mcp-approval-123", "approved": false, "providerExecuted": true }]
       },
       "metadata": {}
     }

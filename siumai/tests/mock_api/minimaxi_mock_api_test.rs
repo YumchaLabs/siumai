@@ -583,7 +583,7 @@ mod minimaxi_tests {
         let uploaded = client
             .upload_file(FileUploadRequest {
                 content: b"hello".to_vec(),
-                filename: "input.txt".to_string(),
+                filename: Some("input.txt".to_string()),
                 mime_type: Some("text/plain".to_string()),
                 purpose: "t2a_async_input".to_string(),
                 metadata: HashMap::new(),

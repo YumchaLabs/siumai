@@ -112,14 +112,16 @@ fn build_tts_body_impl(
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
     });
-    let language = lookup_extra_any(
-        provider_id,
-        &req.provider_options_map,
-        &req.extra_params,
-        &["language"],
-    )
-    .and_then(|v| v.as_str())
-    .map(ToOwned::to_owned);
+    let language = req.language.clone().or_else(|| {
+        lookup_extra_any(
+            provider_id,
+            &req.provider_options_map,
+            &req.extra_params,
+            &["language"],
+        )
+        .and_then(|v| v.as_str())
+        .map(ToOwned::to_owned)
+    });
     let mut json = serde_json::json!({
         "model": model,
         "input": req.text,
@@ -387,6 +389,24 @@ impl AudioTransformer for OpenAiAudioTransformerWithProviderId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::BodyExt as _;
+
+    fn multipart_body_text(form: reqwest::multipart::Form) -> String {
+        let client = reqwest::Client::new();
+        let mut request = client
+            .post("http://example.invalid")
+            .multipart(form)
+            .build()
+            .expect("build multipart request");
+        let body = request.body_mut().take().expect("multipart body");
+        let bytes = futures::executor::block_on(async move {
+            body.collect()
+                .await
+                .expect("collect multipart body")
+                .to_bytes()
+        });
+        String::from_utf8(bytes.to_vec()).expect("multipart body utf8")
+    }
 
     #[test]
     fn build_tts_body_defaults() {
@@ -499,12 +519,12 @@ mod tests {
 
         match tx.build_stt_body(&req).unwrap() {
             AudioHttpBody::Multipart(form) => {
-                let debug = format!("{form:?}");
-                assert!(debug.contains("language"));
-                assert!(debug.contains("en"));
-                assert!(debug.contains("timestamp_granularities[]"));
-                assert!(debug.contains("word"));
-                assert!(debug.contains("segment"));
+                let body_text = multipart_body_text(form);
+                assert!(body_text.contains("name=\"language\""));
+                assert!(body_text.contains("en"));
+                assert!(body_text.contains("name=\"timestamp_granularities[]\""));
+                assert!(body_text.contains("word"));
+                assert!(body_text.contains("segment"));
             }
             _ => panic!("expected multipart body"),
         }

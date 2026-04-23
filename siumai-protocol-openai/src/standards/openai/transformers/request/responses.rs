@@ -64,6 +64,13 @@ fn xai_provider_option_item_id(provider_options: Option<&ProviderOptionsMap>) ->
 }
 
 #[cfg(feature = "openai-responses")]
+fn rename_json_field(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str, to: &str) {
+    if let Some(value) = obj.remove(from) {
+        obj.entry(to.to_string()).or_insert(value);
+    }
+}
+
+#[cfg(feature = "openai-responses")]
 fn openai_or_azure_assistant_tool_call_item_id(
     provider_options: Option<&ProviderOptionsMap>,
 ) -> Option<String> {
@@ -247,8 +254,13 @@ impl OpenAiResponsesRequestTransformer {
                             approval_id,
                             approved,
                             reason,
+                            provider_executed,
                             ..
                         } => {
+                            if provider_executed != &Some(true) {
+                                continue;
+                            }
+
                             if !processed_approval_ids.insert(approval_id.clone()) {
                                 continue;
                             }
@@ -452,6 +464,25 @@ impl OpenAiResponsesRequestTransformer {
                                                 }
                                                 out.push(image);
                                             }
+                                            crate::types::ToolResultContentPart::ImageFileReference {
+                                                provider_reference,
+                                                provider_options,
+                                            } => {
+                                                let file_id = openai_or_azure_provider_reference_value(
+                                                    provider_reference,
+                                                )?;
+                                                let mut image = serde_json::json!({
+                                                    "type": "input_image",
+                                                    "file_id": file_id,
+                                                });
+                                                if let Some(provider_detail) =
+                                                    openai_image_detail(Some(provider_options))
+                                                {
+                                                    image["detail"] =
+                                                        serde_json::json!(provider_detail);
+                                                }
+                                                out.push(image);
+                                            }
                                             crate::types::ToolResultContentPart::FileData {
                                                 data,
                                                 media_type,
@@ -493,6 +524,18 @@ impl OpenAiResponsesRequestTransformer {
                                                     "file_id": file_id,
                                                 }));
                                             }
+                                            crate::types::ToolResultContentPart::FileReference {
+                                                provider_reference,
+                                                ..
+                                            } => {
+                                                let file_id = openai_or_azure_provider_reference_value(
+                                                    provider_reference,
+                                                )?;
+                                                out.push(serde_json::json!({
+                                                    "type": "input_file",
+                                                    "file_id": file_id,
+                                                }));
+                                            }
                                             crate::types::ToolResultContentPart::Custom {
                                                 ..
                                             } => {
@@ -517,16 +560,19 @@ impl OpenAiResponsesRequestTransformer {
                         _ => {}
                     }
                 }
+                if items.is_empty() {
+                    // Vercel alignment: if a tool-role message only contained skipped parts
+                    // (for example non-provider-executed approval responses), omit it.
+                    return Ok(());
+                }
+
+                input.extend(items);
+                return Ok(());
             }
 
-            if items.is_empty() {
-                return Err(LlmError::InvalidInput(
-                    "Tool message missing tool result".into(),
-                ));
-            }
-
-            input.extend(items);
-            return Ok(());
+            return Err(LlmError::InvalidInput(
+                "Tool message missing tool result".into(),
+            ));
         }
 
         let store = Self::should_include_item_reference(req);
@@ -1107,6 +1153,7 @@ impl OpenAiResponsesRequestTransformer {
                         }
                         ContentPart::Image {
                             source,
+                            media_type,
                             detail,
                             provider_options,
                             ..
@@ -1120,17 +1167,19 @@ impl OpenAiResponsesRequestTransformer {
                                     })
                                 }
                                 FilePartSource::Media(MediaSource::Base64 { data }) => {
+                                    let media_type = media_type.as_deref().unwrap_or("image/jpeg");
                                     serde_json::json!({
                                         "type": "input_image",
-                                        "image_url": format!("data:image/jpeg;base64,{}", data),
+                                        "image_url": format!("data:{media_type};base64,{}", data),
                                     })
                                 }
                                 FilePartSource::Media(MediaSource::Binary { data }) => {
                                     let encoded =
                                         base64::engine::general_purpose::STANDARD.encode(data);
+                                    let media_type = media_type.as_deref().unwrap_or("image/jpeg");
                                     serde_json::json!({
                                         "type": "input_image",
-                                        "image_url": format!("data:image/jpeg;base64,{}", encoded),
+                                        "image_url": format!("data:{media_type};base64,{}", encoded),
                                     })
                                 }
                                 FilePartSource::ProviderReference { provider_reference } => {
@@ -1583,7 +1632,14 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                 req: &crate::types::ChatRequest,
                 body: &mut serde_json::Value,
             ) -> Result<(), LlmError> {
-                let Some(xai_options) = req.provider_options_map.get_object("xai") else {
+                let xai_options = req.provider_options_map.get_object("xai");
+                let responses_options = xai_options.or_else(|| {
+                    provider_option_object(Some(&req.provider_options_map), "openai").or_else(
+                        || provider_option_object(Some(&req.provider_options_map), "azure"),
+                    )
+                });
+
+                let Some(responses_options) = responses_options else {
                     return Ok(());
                 };
 
@@ -1592,41 +1648,44 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
                 };
 
                 let get_option = |camel_case: &str, snake_case: &str| {
-                    xai_options
+                    responses_options
                         .get(camel_case)
-                        .or_else(|| xai_options.get(snake_case))
+                        .or_else(|| responses_options.get(snake_case))
                 };
 
-                let reasoning_effort = get_option("reasoningEffort", "reasoning_effort")
-                    .and_then(|value| value.as_str());
-                let reasoning_summary = get_option("reasoningSummary", "reasoning_summary")
-                    .and_then(|value| value.as_str());
+                if xai_options.is_some() {
+                    let reasoning_effort = get_option("reasoningEffort", "reasoning_effort")
+                        .and_then(|value| value.as_str());
+                    let reasoning_summary = get_option("reasoningSummary", "reasoning_summary")
+                        .and_then(|value| value.as_str());
 
-                if reasoning_effort.is_some() || reasoning_summary.is_some() {
-                    let reasoning = body_obj
-                        .entry("reasoning".to_string())
-                        .or_insert_with(|| serde_json::json!({}));
-                    if !reasoning.is_object() {
-                        *reasoning = serde_json::json!({});
+                    if reasoning_effort.is_some() || reasoning_summary.is_some() {
+                        let reasoning = body_obj
+                            .entry("reasoning".to_string())
+                            .or_insert_with(|| serde_json::json!({}));
+                        if !reasoning.is_object() {
+                            *reasoning = serde_json::json!({});
+                        }
+                        let reasoning_obj = reasoning
+                            .as_object_mut()
+                            .expect("xai reasoning body was normalized to an object");
+                        if let Some(effort) = reasoning_effort {
+                            reasoning_obj.insert("effort".to_string(), serde_json::json!(effort));
+                        }
+                        if let Some(summary) = reasoning_summary {
+                            reasoning_obj.insert("summary".to_string(), serde_json::json!(summary));
+                        }
                     }
-                    let reasoning_obj = reasoning
-                        .as_object_mut()
-                        .expect("xai reasoning body was normalized to an object");
-                    if let Some(effort) = reasoning_effort {
-                        reasoning_obj.insert("effort".to_string(), serde_json::json!(effort));
-                    }
-                    if let Some(summary) = reasoning_summary {
-                        reasoning_obj.insert("summary".to_string(), serde_json::json!(summary));
-                    }
-                }
 
-                let top_logprobs = get_option("topLogprobs", "top_logprobs").cloned();
-                let logprobs = get_option("logprobs", "logprobs").and_then(|value| value.as_bool());
-                if let Some(top_logprobs) = top_logprobs {
-                    body_obj.insert("top_logprobs".to_string(), top_logprobs);
-                    body_obj.insert("logprobs".to_string(), serde_json::json!(true));
-                } else if let Some(logprobs) = logprobs {
-                    body_obj.insert("logprobs".to_string(), serde_json::json!(logprobs));
+                    let top_logprobs = get_option("topLogprobs", "top_logprobs").cloned();
+                    let logprobs =
+                        get_option("logprobs", "logprobs").and_then(|value| value.as_bool());
+                    if let Some(top_logprobs) = top_logprobs {
+                        body_obj.insert("top_logprobs".to_string(), top_logprobs);
+                        body_obj.insert("logprobs".to_string(), serde_json::json!(true));
+                    } else if let Some(logprobs) = logprobs {
+                        body_obj.insert("logprobs".to_string(), serde_json::json!(logprobs));
+                    }
                 }
 
                 let store = get_option("store", "store").and_then(|value| value.as_bool());
@@ -1667,6 +1726,35 @@ impl RequestTransformer for OpenAiResponsesRequestTransformer {
 
                 if include_was_explicit_array || !include.is_empty() {
                     body_obj.insert("include".to_string(), serde_json::json!(include));
+                }
+
+                let context_management_value =
+                    get_option("contextManagement", "context_management");
+                let context_management_was_explicit_array =
+                    context_management_value.is_some_and(|value| value.is_array());
+                let context_management = context_management_value
+                    .and_then(|value| value.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| {
+                                let mut obj = item.as_object()?.clone();
+                                rename_json_field(
+                                    &mut obj,
+                                    "compactThreshold",
+                                    "compact_threshold",
+                                );
+                                Some(serde_json::Value::Object(obj))
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                if context_management_was_explicit_array {
+                    body_obj.insert(
+                        "context_management".to_string(),
+                        serde_json::Value::Array(context_management),
+                    );
                 }
 
                 Ok(())
@@ -1802,6 +1890,67 @@ mod tests {
 
     #[test]
     #[cfg(feature = "openai-responses")]
+    fn responses_typed_options_drive_control_fields_without_leaking_them_to_wire() {
+        use crate::types::ChatMessage;
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let req = ChatRequest::builder()
+            .message(ChatMessage::system("sys").build())
+            .message(ChatMessage::user("hi").build())
+            .model("gpt-4.1-mini")
+            .stream(false)
+            .provider_option(
+                "openai",
+                serde_json::json!({
+                    "forceReasoning": true,
+                    "systemMessageMode": "remove"
+                }),
+            )
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+        let input = body.get("input").and_then(|v| v.as_array()).expect("input");
+
+        assert!(body.get("forceReasoning").is_none());
+        assert!(body.get("systemMessageMode").is_none());
+        assert_eq!(input.len(), 1);
+        assert_eq!(input[0]["role"], serde_json::json!("user"));
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_typed_options_map_context_management_to_wire_shape() {
+        use crate::types::ChatMessage;
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let req = ChatRequest::builder()
+            .message(ChatMessage::user("hi").build())
+            .model("gpt-4.1-mini")
+            .provider_option(
+                "openai",
+                serde_json::json!({
+                    "contextManagement": [{
+                        "type": "compaction",
+                        "compactThreshold": 256
+                    }]
+                }),
+            )
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform chat");
+
+        assert_eq!(
+            body["context_management"],
+            serde_json::json!([{
+                "type": "compaction",
+                "compact_threshold": 256
+            }])
+        );
+        assert!(body.get("contextManagement").is_none());
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
     fn responses_transform_chat_maps_structured_output_to_text_format() {
         use crate::types::{ChatMessage, ResponseFormat};
 
@@ -1845,13 +1994,13 @@ mod tests {
         let request = ChatRequest::builder()
             .message(ChatMessage {
                 role: MessageRole::Tool,
-                content: MessageContent::MultiModal(vec![
-                    ContentPart::tool_approval_response_with_reason(
-                        "apr_1",
-                        false,
-                        Some("need manual review".to_string()),
-                    ),
-                ]),
+                content: MessageContent::MultiModal(vec![ContentPart::ToolApprovalResponse {
+                    approval_id: "apr_1".to_string(),
+                    approved: false,
+                    reason: Some("need manual review".to_string()),
+                    provider_executed: Some(true),
+                    provider_options: crate::types::ProviderOptionsMap::default(),
+                }]),
                 metadata: MessageMetadata::default(),
                 provider_options: crate::types::ProviderOptionsMap::default(),
             })
@@ -1867,6 +2016,37 @@ mod tests {
         assert_eq!(approval["approval_request_id"], serde_json::json!("apr_1"));
         assert_eq!(approval["approve"], serde_json::json!(false));
         assert_eq!(approval["reason"], serde_json::json!("need manual review"));
+    }
+
+    #[test]
+    #[cfg(feature = "openai-responses")]
+    fn responses_transform_chat_skips_non_provider_executed_tool_approval_response() {
+        use crate::types::{
+            ChatMessage, ContentPart, MessageContent, MessageMetadata, MessageRole,
+        };
+
+        let tx = OpenAiResponsesRequestTransformer;
+        let request = ChatRequest::builder()
+            .message(ChatMessage {
+                role: MessageRole::Tool,
+                content: MessageContent::MultiModal(vec![ContentPart::tool_approval_response(
+                    "apr_local",
+                    true,
+                )]),
+                metadata: MessageMetadata::default(),
+                provider_options: crate::types::ProviderOptionsMap::default(),
+            })
+            .model("gpt-4.1")
+            .build();
+
+        let body = tx.transform_chat(&request).expect("transform chat");
+        let input = body["input"].as_array().expect("input array");
+        assert!(
+            input.iter().all(|item| {
+                item.get("type") != Some(&serde_json::json!("mcp_approval_response"))
+            }),
+            "unexpected approval response item: {input:?}"
+        );
     }
 
     #[test]
@@ -2050,6 +2230,7 @@ mod tests {
             role: MessageRole::User,
             content: MessageContent::MultiModal(vec![ContentPart::Image {
                 source: crate::types::chat::FilePartSource::url("https://example.com/image.png"),
+                media_type: None,
                 detail: Some(ImageDetail::Low),
                 provider_options: image_provider_options,
                 provider_metadata: Some(provider_metadata),
@@ -2119,6 +2300,7 @@ mod tests {
                     "openai",
                     "file-image",
                 )),
+                media_type: None,
                 detail: None,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,

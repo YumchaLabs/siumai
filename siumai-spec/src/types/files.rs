@@ -9,8 +9,8 @@ use super::{HttpConfig, ProviderOptionsMap};
 pub struct FileUploadRequest {
     /// File content as bytes
     pub content: Vec<u8>,
-    /// Original filename
-    pub filename: String,
+    /// Original filename when explicitly supplied by the caller
+    pub filename: Option<String>,
     /// MIME type
     pub mime_type: Option<String>,
     /// Purpose of the file (e.g., "assistants", "fine-tune")
@@ -28,8 +28,8 @@ pub struct FileUploadRequest {
 pub struct FileObject {
     /// File ID
     pub id: String,
-    /// Original filename
-    pub filename: String,
+    /// Original filename when returned by the provider
+    pub filename: Option<String>,
     /// File size in bytes
     pub bytes: u64,
     /// Creation timestamp

@@ -12,7 +12,49 @@ use super::{
 };
 use base64::Engine;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::collections::HashMap;
 use thiserror::Error;
+
+/// Shared data-content decoding error aligned with AI SDK `InvalidDataContentError`.
+#[derive(Debug, Error)]
+#[error("{message}")]
+pub struct InvalidDataContentError {
+    message: String,
+    content: DataContent,
+    #[source]
+    source: Option<base64::DecodeError>,
+}
+
+impl InvalidDataContentError {
+    /// Create an invalid-data-content error with a custom message.
+    pub fn new(content: DataContent, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            content,
+            source: None,
+        }
+    }
+
+    /// Create an invalid-base64 decoding error for shared data content.
+    pub fn invalid_base64(content: impl Into<String>, source: base64::DecodeError) -> Self {
+        Self {
+            message: "Invalid data content. Content string is not a base64-encoded media."
+                .to_string(),
+            content: DataContent::Base64(content.into()),
+            source: Some(source),
+        }
+    }
+
+    /// Return the original shared data content value that failed validation/decoding.
+    pub fn content(&self) -> &DataContent {
+        &self.content
+    }
+
+    /// Return the human-readable error message.
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+}
 
 /// AI SDK-style inline data content.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -40,11 +82,37 @@ impl DataContent {
         }
     }
 
-    pub fn as_bytes(&self) -> Result<Vec<u8>, base64::DecodeError> {
+    pub fn as_bytes(&self) -> Result<Vec<u8>, InvalidDataContentError> {
         match self {
-            Self::Base64(data) => base64::engine::general_purpose::STANDARD.decode(data),
+            Self::Base64(data) => base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .map_err(|source| InvalidDataContentError::invalid_base64(data.clone(), source)),
             Self::Binary(data) => Ok(data.clone()),
         }
+    }
+}
+
+impl From<Vec<u8>> for DataContent {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Binary(value)
+    }
+}
+
+impl From<&[u8]> for DataContent {
+    fn from(value: &[u8]) -> Self {
+        Self::Binary(value.to_vec())
+    }
+}
+
+impl From<String> for DataContent {
+    fn from(value: String) -> Self {
+        Self::Base64(value)
+    }
+}
+
+impl From<&str> for DataContent {
+    fn from(value: &str) -> Self {
+        Self::Base64(value.to_string())
     }
 }
 
@@ -370,6 +438,42 @@ pub enum PromptValidationError {
     /// The normalized prompt would produce an empty message list.
     #[error("messages must not be empty")]
     EmptyMessages,
+}
+
+/// Provider-facing prompt validation failure for missing non-provider-executed tool results.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissingToolResultsError {
+    pub tool_call_ids: Vec<String>,
+}
+
+impl MissingToolResultsError {
+    pub fn new(tool_call_ids: Vec<String>) -> Self {
+        Self { tool_call_ids }
+    }
+}
+
+impl std::fmt::Display for MissingToolResultsError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let plural = self.tool_call_ids.len() > 1;
+        write!(
+            f,
+            "Tool result{} missing for tool call{} {}.",
+            if plural { "s are" } else { " is" },
+            if plural { "s" } else { "" },
+            self.tool_call_ids.join(", "),
+        )
+    }
+}
+
+impl std::error::Error for MissingToolResultsError {}
+
+/// Provider-facing prompt execution validation failure.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum PromptExecutionError {
+    #[error(transparent)]
+    PromptValidation(#[from] PromptValidationError),
+    #[error(transparent)]
+    MissingToolResults(#[from] MissingToolResultsError),
 }
 
 /// AI SDK-style text content part.
@@ -1044,8 +1148,26 @@ impl Prompt {
         })
     }
 
+    /// Standardize prompt shape and validate provider-facing tool-result flow.
+    pub fn standardize_for_execution(&self) -> Result<StandardizedPrompt, PromptExecutionError> {
+        let standardized = self.standardize()?;
+        standardized.validate_for_execution()?;
+        Ok(standardized)
+    }
+
     pub fn to_chat_messages(&self) -> Result<Vec<ChatMessage>, PromptValidationError> {
         self.standardize().map(|prompt| prompt.to_chat_messages())
+    }
+
+    /// Convert to runtime chat messages after provider-facing validation succeeds.
+    pub fn to_chat_messages_for_execution(&self) -> Result<Vec<ChatMessage>, PromptExecutionError> {
+        self.standardize_for_execution()
+            .map(|prompt| prompt.to_chat_messages())
+    }
+
+    /// Convert to a runtime chat request after provider-facing validation succeeds.
+    pub fn to_chat_request(&self) -> Result<ChatRequest, PromptExecutionError> {
+        Ok(ChatRequest::new(self.to_chat_messages_for_execution()?))
     }
 }
 
@@ -1058,6 +1180,11 @@ pub struct StandardizedPrompt {
 }
 
 impl StandardizedPrompt {
+    /// Validate provider-facing tool-call / tool-result history semantics.
+    pub fn validate_for_execution(&self) -> Result<(), MissingToolResultsError> {
+        validate_prompt_tool_results(&self.messages)
+    }
+
     pub fn to_chat_messages(&self) -> Vec<ChatMessage> {
         let mut messages = Vec::new();
 
@@ -1100,15 +1227,15 @@ impl TryFrom<ChatRequest> for Prompt {
 }
 
 impl TryFrom<&Prompt> for ChatRequest {
-    type Error = PromptValidationError;
+    type Error = PromptExecutionError;
 
     fn try_from(value: &Prompt) -> Result<Self, Self::Error> {
-        Ok(ChatRequest::new(value.to_chat_messages()?))
+        value.to_chat_request()
     }
 }
 
 impl TryFrom<Prompt> for ChatRequest {
-    type Error = PromptValidationError;
+    type Error = PromptExecutionError;
 
     fn try_from(value: Prompt) -> Result<Self, Self::Error> {
         Self::try_from(&value)
@@ -1252,6 +1379,7 @@ impl From<&UserContentPart> for ContentPart {
             },
             UserContentPart::Image(part) => ContentPart::Image {
                 source: part.image.clone(),
+                media_type: part.media_type.clone(),
                 detail: None,
                 provider_options: part.provider_options.clone(),
                 provider_metadata: None,
@@ -1566,6 +1694,7 @@ fn image_part_from_content_part(
     match part {
         ContentPart::Image {
             source,
+            media_type,
             detail,
             provider_options,
             provider_metadata,
@@ -1582,7 +1711,7 @@ fn image_part_from_content_part(
             Ok(ImagePart {
                 part_type: image_part_type(),
                 image: source.clone(),
-                media_type: None,
+                media_type: media_type.clone(),
                 provider_options: provider_options.clone(),
             })
         }
@@ -1887,6 +2016,105 @@ fn ensure_none<T>(
     Ok(())
 }
 
+fn validate_prompt_tool_results(messages: &[ModelMessage]) -> Result<(), MissingToolResultsError> {
+    let mut approval_id_to_tool_call_id = HashMap::new();
+
+    for message in messages {
+        let ModelMessage::Assistant(message) = message else {
+            continue;
+        };
+        let AssistantContent::Parts(parts) = &message.content else {
+            continue;
+        };
+
+        for part in parts {
+            if let AssistantContentPart::ToolApprovalRequest(part) = part {
+                approval_id_to_tool_call_id
+                    .insert(part.approval_id.clone(), part.tool_call_id.clone());
+            }
+        }
+    }
+
+    let mut approved_tool_call_ids = Vec::new();
+    for message in messages {
+        let ModelMessage::Tool(message) = message else {
+            continue;
+        };
+
+        for part in &message.content {
+            let ToolContentPart::ToolApprovalResponse(part) = part else {
+                continue;
+            };
+            if let Some(tool_call_id) = approval_id_to_tool_call_id.get(&part.approval_id) {
+                push_unique_tool_call_id(&mut approved_tool_call_ids, tool_call_id.clone());
+            }
+        }
+    }
+
+    let mut pending_tool_call_ids = Vec::new();
+    for message in messages {
+        match message {
+            ModelMessage::Assistant(message) => {
+                let AssistantContent::Parts(parts) = &message.content else {
+                    continue;
+                };
+
+                for part in parts {
+                    let AssistantContentPart::ToolCall(part) = part else {
+                        continue;
+                    };
+                    if part.provider_executed != Some(true) {
+                        push_unique_tool_call_id(
+                            &mut pending_tool_call_ids,
+                            part.tool_call_id.clone(),
+                        );
+                    }
+                }
+            }
+            ModelMessage::Tool(message) => {
+                for part in &message.content {
+                    let ToolContentPart::ToolResult(part) = part else {
+                        continue;
+                    };
+                    remove_tool_call_id(&mut pending_tool_call_ids, &part.tool_call_id);
+                }
+            }
+            ModelMessage::User(_) | ModelMessage::System(_) => {
+                for tool_call_id in &approved_tool_call_ids {
+                    remove_tool_call_id(&mut pending_tool_call_ids, tool_call_id);
+                }
+
+                if !pending_tool_call_ids.is_empty() {
+                    return Err(MissingToolResultsError::new(pending_tool_call_ids));
+                }
+            }
+        }
+    }
+
+    for tool_call_id in &approved_tool_call_ids {
+        remove_tool_call_id(&mut pending_tool_call_ids, tool_call_id);
+    }
+
+    if pending_tool_call_ids.is_empty() {
+        Ok(())
+    } else {
+        Err(MissingToolResultsError::new(pending_tool_call_ids))
+    }
+}
+
+fn push_unique_tool_call_id(tool_call_ids: &mut Vec<String>, tool_call_id: String) {
+    if !tool_call_ids
+        .iter()
+        .any(|existing| existing == &tool_call_id)
+    {
+        tool_call_ids.push(tool_call_id);
+    }
+}
+
+fn remove_tool_call_id(tool_call_ids: &mut Vec<String>, tool_call_id: &str) {
+    tool_call_ids.retain(|existing| existing != tool_call_id);
+}
+
 fn unsupported_part(
     context: &'static str,
     part: &ContentPart,
@@ -2038,10 +2266,117 @@ mod tests {
     }
 
     #[test]
+    fn prompt_standardize_for_execution_keeps_standardize_shape_only() {
+        let prompt = Prompt::messages(vec![ModelMessage::Assistant(AssistantModelMessage::new(
+            AssistantContent::parts(vec![AssistantContentPart::ToolCall(ToolCallPart::new(
+                "call_missing_result",
+                "regular_tool",
+                serde_json::json!({}),
+            ))]),
+        ))]);
+
+        let standardized = prompt
+            .standardize()
+            .expect("shape-only standardize should pass");
+        assert_eq!(standardized.messages.len(), 1);
+
+        let err = prompt
+            .standardize_for_execution()
+            .expect_err("execution validation should fail");
+        let PromptExecutionError::MissingToolResults(err) = err else {
+            panic!("expected missing tool results error");
+        };
+        assert_eq!(err.tool_call_ids, vec!["call_missing_result".to_string()]);
+    }
+
+    #[test]
+    fn prompt_execution_validation_allows_provider_executed_tool_call_without_result() {
+        let prompt = Prompt::messages(vec![ModelMessage::Assistant(AssistantModelMessage::new(
+            AssistantContent::parts(vec![AssistantContentPart::ToolCall(
+                ToolCallPart::new(
+                    "call_provider_executed",
+                    "code_interpreter",
+                    serde_json::json!({ "code": "print(\"hello\")" }),
+                )
+                .with_provider_executed(true),
+            )]),
+        ))]);
+
+        prompt
+            .standardize_for_execution()
+            .expect("provider-executed tool call should be valid");
+    }
+
+    #[test]
+    fn prompt_execution_validation_allows_tool_approval_response_without_result() {
+        let prompt = Prompt::messages(vec![
+            ModelMessage::Assistant(AssistantModelMessage::new(AssistantContent::parts(vec![
+                AssistantContentPart::ToolCall(ToolCallPart::new(
+                    "call_to_approve",
+                    "dangerous_action",
+                    serde_json::json!({ "action": "delete_db" }),
+                )),
+                AssistantContentPart::ToolApprovalRequest(ToolApprovalRequest::new(
+                    "approval_123",
+                    "call_to_approve",
+                )),
+            ]))),
+            ModelMessage::Tool(ToolModelMessage::new(vec![
+                ToolContentPart::ToolApprovalResponse(ToolApprovalResponse::new(
+                    "approval_123",
+                    true,
+                )),
+            ])),
+        ]);
+
+        prompt
+            .standardize_for_execution()
+            .expect("approval response should satisfy tool-result validation");
+    }
+
+    #[test]
+    fn prompt_to_chat_request_rejects_missing_regular_tool_result() {
+        let prompt = Prompt::messages(vec![ModelMessage::Assistant(AssistantModelMessage::new(
+            AssistantContent::parts(vec![AssistantContentPart::ToolCall(ToolCallPart::new(
+                "call_missing_result",
+                "regular_tool",
+                serde_json::json!({}),
+            ))]),
+        ))]);
+
+        let err = ChatRequest::try_from(prompt).expect_err("chat request conversion must fail");
+        let PromptExecutionError::MissingToolResults(err) = err else {
+            panic!("expected missing tool results error");
+        };
+        assert_eq!(err.tool_call_ids, vec!["call_missing_result".to_string()]);
+        assert_eq!(
+            err.to_string(),
+            "Tool result is missing for tool call call_missing_result."
+        );
+    }
+
+    #[test]
     fn data_content_helper_matches_ai_sdk_base64_projection() {
         let data = DataContent::binary([1_u8, 2, 3]);
         assert_eq!(convert_data_content_to_base64_string(&data), "AQID");
         assert_eq!(data.as_bytes().expect("bytes"), vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn invalid_base64_data_content_uses_shared_error_type() {
+        let err = DataContent::base64("***not-base64***")
+            .as_bytes()
+            .expect_err("invalid base64 must fail");
+
+        assert_eq!(
+            err.to_string(),
+            "Invalid data content. Content string is not a base64-encoded media."
+        );
+        assert_eq!(
+            err.content(),
+            &DataContent::Base64("***not-base64***".to_string())
+        );
+        assert!(std::error::Error::source(&err).is_some());
     }
 
     #[test]
@@ -2167,5 +2502,26 @@ mod tests {
         .with_filename("report.pdf");
         assert_eq!(file.filename.as_deref(), Some("report.pdf"));
         assert_eq!(file.media_type, "application/pdf");
+    }
+
+    #[test]
+    fn user_image_media_type_roundtrips_through_chat_message() {
+        let model_message = ModelMessage::User(UserModelMessage::new(UserContent::parts(vec![
+            UserContentPart::Image(
+                ImagePart::new(FilePartSource::base64("aGVsbG8=")).with_media_type("image/webp"),
+            ),
+        ])));
+
+        let chat_message = ChatMessage::from(&model_message);
+        let roundtrip = ModelMessage::try_from(&chat_message).expect("roundtrip model message");
+
+        let MessageContent::MultiModal(parts) = &chat_message.content else {
+            panic!("expected multimodal content");
+        };
+        let ContentPart::Image { media_type, .. } = &parts[0] else {
+            panic!("expected image part");
+        };
+        assert_eq!(media_type.as_deref(), Some("image/webp"));
+        assert_eq!(roundtrip, model_message);
     }
 }

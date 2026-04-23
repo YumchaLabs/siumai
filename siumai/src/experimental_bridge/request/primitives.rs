@@ -5,6 +5,7 @@ use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, MessageContent, 
 
 use super::target_caps::{
     RequestCacheControlMode, RequestReasoningMode, RequestTargetCapabilities,
+    RequestToolApprovalResponseMode,
 };
 
 pub(crate) fn inspect_reasoning_semantics(
@@ -101,16 +102,29 @@ pub(crate) fn inspect_tool_approval_semantics(
                         "request replay does not preserve pending approval requests",
                     );
                 }
-                ContentPart::ToolApprovalResponse { .. }
-                    if !caps.preserves_tool_approval_responses =>
-                {
-                    record_unsupported_path(
-                        report,
-                        "tool-approval-response",
-                        format!("messages[{message_index}].content[{part_index}]"),
-                        "only OpenAI Responses preserves approval responses in request history",
-                    );
-                }
+                ContentPart::ToolApprovalResponse {
+                    provider_executed, ..
+                } => match caps.tool_approval_response_mode {
+                    RequestToolApprovalResponseMode::PreserveProviderExecutedOnly
+                        if *provider_executed != Some(true) =>
+                    {
+                        record_unsupported_path(
+                            report,
+                            "tool-approval-response",
+                            format!("messages[{message_index}].content[{part_index}]"),
+                            "OpenAI Responses only preserves provider-executed approval responses in request history",
+                        );
+                    }
+                    RequestToolApprovalResponseMode::DropAll => {
+                        record_unsupported_path(
+                            report,
+                            "tool-approval-response",
+                            format!("messages[{message_index}].content[{part_index}]"),
+                            "only OpenAI Responses preserves provider-executed approval responses in request history",
+                        );
+                    }
+                    RequestToolApprovalResponseMode::PreserveProviderExecutedOnly => {}
+                },
                 _ => {}
             }
         }
@@ -339,7 +353,9 @@ fn openai_responses_store_enabled(request: &ChatRequest) -> bool {
 mod tests {
     use super::*;
     use siumai_core::bridge::{BridgeMode, BridgeTarget};
-    use siumai_core::types::CacheControl;
+    use siumai_core::types::{
+        CacheControl, MessageContent, MessageMetadata, MessageRole, ProviderOptionsMap,
+    };
 
     #[test]
     fn anthropic_part_cache_paths_follow_canonical_part_provider_options() {
@@ -357,7 +373,7 @@ mod tests {
             RequestTargetCapabilities {
                 reasoning_mode: RequestReasoningMode::OpenAiChatCompletions,
                 cache_control_mode: RequestCacheControlMode::DropAnthropicControls,
-                preserves_tool_approval_responses: false,
+                tool_approval_response_mode: RequestToolApprovalResponseMode::DropAll,
             },
             &mut report,
         );
@@ -366,6 +382,61 @@ mod tests {
         assert_eq!(
             report.dropped_fields,
             vec!["messages[0].content[1].cache_control".to_string()]
+        );
+    }
+
+    #[test]
+    fn openai_responses_only_preserves_provider_executed_tool_approval_responses() {
+        let request = ChatRequest::new(vec![ChatMessage {
+            role: MessageRole::Tool,
+            content: MessageContent::MultiModal(vec![
+                ContentPart::ToolApprovalResponse {
+                    approval_id: "approval_local".to_string(),
+                    approved: true,
+                    reason: None,
+                    provider_executed: None,
+                    provider_options: ProviderOptionsMap::default(),
+                },
+                ContentPart::ToolApprovalResponse {
+                    approval_id: "approval_provider".to_string(),
+                    approved: true,
+                    reason: None,
+                    provider_executed: Some(true),
+                    provider_options: ProviderOptionsMap::default(),
+                },
+            ]),
+            provider_options: ProviderOptionsMap::default(),
+            metadata: MessageMetadata::default(),
+        }]);
+        let mut report = BridgeReport::new(BridgeTarget::OpenAiResponses, BridgeMode::BestEffort);
+
+        inspect_tool_approval_semantics(
+            &request,
+            RequestTargetCapabilities {
+                reasoning_mode: RequestReasoningMode::OpenAiResponses,
+                cache_control_mode: RequestCacheControlMode::DropAnthropicControls,
+                tool_approval_response_mode:
+                    RequestToolApprovalResponseMode::PreserveProviderExecutedOnly,
+            },
+            &mut report,
+        );
+
+        assert!(report.is_lossy());
+        assert_eq!(
+            report.unsupported_capabilities,
+            vec!["tool-approval-response".to_string()]
+        );
+        assert_eq!(report.warnings.len(), 1);
+        assert_eq!(
+            report.warnings[0].path.as_deref(),
+            Some("messages[0].content[0]")
+        );
+        assert!(
+            report.warnings[0]
+                .message
+                .contains("provider-executed approval responses"),
+            "unexpected warning: {:?}",
+            report.warnings[0]
         );
     }
 }

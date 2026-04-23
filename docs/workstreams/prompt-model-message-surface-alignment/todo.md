@@ -38,6 +38,17 @@ Status legend:
   `FilePart.filename`.
 - [x] Add upstream-compatible optional `mediaType` support on tool-result `file-url` content
   parts.
+- [x] Preserve the upstream distinction between deprecated tool-result `file-id` /
+  `image-file-id` parts and canonical `file-reference` / `image-file-reference` parts, including
+  canonical `providerReference` map payloads.
+- [x] Preserve prompt `ImagePart.mediaType` when converting back into the richer chat runtime by
+  extending runtime `ContentPart::Image` with optional `mediaType`.
+- [x] Align OpenAI Responses request bridging with the upstream provider-facing
+  `tool-approval-response` rule by only serializing provider-executed approval responses and
+  restoring `providerExecuted: true` during normalization.
+- [x] Add an explicit provider-facing prompt execution validation lane with
+  `MissingToolResultsError`, `PromptExecutionError`, and execution-only helpers instead of
+  collapsing that validation into shape-only `Prompt::standardize()`.
 
 ## Track C - Docs and changelog
 
