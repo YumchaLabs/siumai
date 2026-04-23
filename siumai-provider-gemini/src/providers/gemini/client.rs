@@ -206,6 +206,16 @@ impl GeminiClient {
         )
     }
 
+    /// Get a provider-specific files client.
+    pub fn files(&self) -> GeminiFiles {
+        self.files_capability.clone()
+    }
+
+    /// Get the provider-facing display name.
+    pub fn provider_name(&self) -> &str {
+        self.config.provider_name()
+    }
+
     /// Count tokens for a unified chat request using Gemini's tokenizer.
     pub async fn count_tokens(
         &self,
@@ -228,9 +238,10 @@ impl GeminiClient {
             request.common_params.model = self.common_params.model.clone();
         }
         if request.common_params.model.trim().is_empty() {
-            return Err(LlmError::ConfigurationError(
-                "Gemini chat request requires a non-empty model id".to_string(),
-            ));
+            return Err(LlmError::ConfigurationError(format!(
+                "{} chat request requires a non-empty model id",
+                self.provider_name()
+            )));
         }
         if request.http_config.is_none() {
             request.http_config = Some(self.config.http_config.clone());
@@ -731,15 +742,7 @@ impl LlmClient for GeminiClient {
     }
 
     fn supported_models(&self) -> Vec<String> {
-        vec![
-            "gemini-1.5-flash".to_string(),
-            "gemini-1.5-flash-8b".to_string(),
-            "gemini-1.5-pro".to_string(),
-            "gemini-2.0-flash-exp".to_string(),
-            "gemini-exp-1114".to_string(),
-            "gemini-exp-1121".to_string(),
-            "gemini-exp-1206".to_string(),
-        ]
+        super::models::get_default_models()
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
@@ -1034,8 +1037,20 @@ mod tests {
         let client = GeminiClient::from_config(cfg).expect("from_config ok");
         let llm: &dyn LlmClient = &client;
         assert_eq!(llm.provider_id(), std::borrow::Cow::Borrowed("gemini"));
+        assert_eq!(client.provider_name(), "gemini");
         assert!(llm.as_chat_capability().is_some());
         assert!(llm.capabilities().chat);
+    }
+
+    #[test]
+    fn gemini_client_exposes_custom_provider_name() {
+        let cfg = GeminiConfig::new("test-key")
+            .with_provider_name("my-gemini-proxy")
+            .with_model("gemini-2.0-flash-exp".to_string());
+        let client = GeminiClient::from_config(cfg).expect("from_config ok");
+
+        assert_eq!(client.provider_name(), "my-gemini-proxy");
+        assert_eq!(client.files().provider_name(), "my-gemini-proxy");
     }
 
     #[test]

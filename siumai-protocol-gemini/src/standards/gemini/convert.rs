@@ -496,6 +496,11 @@ pub fn convert_message_to_content(
                                 {
                                     // File URL
                                     let mime_type = match content_part {
+                                        crate::types::ContentPart::Image { media_type, .. } => {
+                                            media_type
+                                                .clone()
+                                                .or_else(|| Some(guess_mime_type(url)))
+                                        }
                                         crate::types::ContentPart::File { media_type, .. } => Some(
                                             if media_type.trim().eq_ignore_ascii_case("image/*") {
                                                 "image/jpeg".to_string()
@@ -523,7 +528,9 @@ pub fn convert_message_to_content(
                             crate::types::chat::MediaSource::Base64 { data } => {
                                 // Inline base64 data
                                 let mime_type = match content_part {
-                                    crate::types::ContentPart::Image { .. } => "image/jpeg",
+                                    crate::types::ContentPart::Image { media_type, .. } => {
+                                        media_type.as_deref().unwrap_or("image/jpeg")
+                                    }
                                     crate::types::ContentPart::Audio { media_type, .. } => {
                                         media_type.as_deref().unwrap_or("audio/wav")
                                     }
@@ -546,7 +553,9 @@ pub fn convert_message_to_content(
                                 let encoded =
                                     base64::engine::general_purpose::STANDARD.encode(data);
                                 let mime_type = match content_part {
-                                    crate::types::ContentPart::Image { .. } => "image/jpeg",
+                                    crate::types::ContentPart::Image { media_type, .. } => {
+                                        media_type.as_deref().unwrap_or("image/jpeg")
+                                    }
                                     crate::types::ContentPart::Audio { media_type, .. } => {
                                         media_type.as_deref().unwrap_or("audio/wav")
                                     }
@@ -955,7 +964,10 @@ pub fn convert_message_to_content(
                                 });
                             }
                             content_part @ (ToolResultContentPart::ImageUrl { .. }
-                            | ToolResultContentPart::ImageFileId { .. }) => {
+                            | ToolResultContentPart::ImageFileId { .. }
+                            | ToolResultContentPart::ImageFileReference {
+                                ..
+                            }) => {
                                 let as_json =
                                     serde_json::to_string(&content_part).unwrap_or_default();
                                 parts.push(Part::Text {

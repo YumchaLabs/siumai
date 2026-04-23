@@ -51,10 +51,7 @@ impl GeminiFilesTransformer {
             Some(GeminiFileState::Failed) => "failed".to_string(),
             _ => "unknown".to_string(),
         };
-        let filename = gemini_file
-            .display_name
-            .clone()
-            .unwrap_or_else(|| format!("file_{id}"));
+        let filename = gemini_file.display_name.clone();
         let mut metadata = std::collections::HashMap::new();
         metadata.insert("provider".to_string(), serde_json::json!("gemini"));
         if let Some(uri) = &gemini_file.uri {
@@ -88,16 +85,16 @@ impl FilesTransformer for GeminiFilesTransformer {
         &self,
         req: &crate::types::FileUploadRequest,
     ) -> Result<FilesHttpBody, LlmError> {
-        let detected = req
-            .mime_type
-            .clone()
-            .unwrap_or_else(|| crate::utils::guess_mime(Some(&req.content), Some(&req.filename)));
-        let part = reqwest::multipart::Part::bytes(req.content.clone())
-            .file_name(req.filename.clone())
-            .mime_str(&detected)
-            .map_err(|e| {
-                LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}"))
-            })?;
+        let detected = req.mime_type.clone().unwrap_or_else(|| {
+            crate::utils::guess_mime(Some(&req.content), req.filename.as_deref())
+        });
+        let mut part = reqwest::multipart::Part::bytes(req.content.clone());
+        if let Some(filename) = req.filename.clone() {
+            part = part.file_name(filename);
+        }
+        let part = part.mime_str(&detected).map_err(|e| {
+            LlmError::InvalidParameter(format!("Invalid MIME type '{detected}': {e}"))
+        })?;
         let mut form = reqwest::multipart::Form::new().part("file", part);
         if let Some(name) = Self::display_name(req) {
             form = form.text("display_name", name);
@@ -203,6 +200,8 @@ mod files_tests {
             http_config: crate::types::HttpConfig::default(),
             token_provider: None,
             http_transport: None,
+            generate_id: None,
+            provider_name: None,
             provider_metadata_key: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
@@ -235,7 +234,7 @@ mod files_tests {
         };
         let req = crate::types::FileUploadRequest {
             content: b"hi".to_vec(),
-            filename: "hi.txt".into(),
+            filename: Some("hi.txt".into()),
             mime_type: Some("text/plain".into()),
             purpose: "general".into(),
             metadata: std::collections::HashMap::new(),
@@ -261,7 +260,7 @@ mod files_tests {
         });
         let fo = tx.transform_file_object(&upload_json).unwrap();
         assert_eq!(fo.id, "abc");
-        assert_eq!(fo.filename, "hi.txt");
+        assert_eq!(fo.filename.as_deref(), Some("hi.txt"));
         assert_eq!(
             tx.content_url_from_file_object(&fo).as_deref(),
             Some("https://content.example/abc")

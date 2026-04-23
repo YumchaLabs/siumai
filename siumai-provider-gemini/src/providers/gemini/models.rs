@@ -236,16 +236,44 @@ pub fn get_default_models() -> Vec<String> {
     vec![
         // Latest Gemini 2.5 models
         "gemini-2.5-pro".to_string(),
-        "gemini-2.5-pro-exp-03-25".to_string(),
         "gemini-2.5-flash".to_string(),
+        "gemini-2.5-flash-image".to_string(),
         "gemini-2.5-flash-lite".to_string(),
+        "gemini-2.5-flash-preview-tts".to_string(),
+        "gemini-2.5-pro-preview-tts".to_string(),
+        "gemini-2.5-flash-native-audio-latest".to_string(),
+        "gemini-2.5-flash-native-audio-preview-09-2025".to_string(),
+        "gemini-2.5-flash-native-audio-preview-12-2025".to_string(),
+        "gemini-2.5-computer-use-preview-10-2025".to_string(),
+        // Gemini 3.x models
+        "gemini-3-pro-preview".to_string(),
+        "gemini-3-pro-image-preview".to_string(),
+        "gemini-3-flash-preview".to_string(),
+        "gemini-3.1-pro-preview".to_string(),
+        "gemini-3.1-pro-preview-customtools".to_string(),
+        "gemini-3.1-flash-image-preview".to_string(),
+        "gemini-3.1-flash-lite-preview".to_string(),
+        "gemini-3.1-flash-tts-preview".to_string(),
         // Gemini 2.0 models
-        "gemini-2.0-pro-exp-02-05".to_string(),
         "gemini-2.0-flash".to_string(),
         "gemini-2.0-flash-001".to_string(),
-        "gemini-2.0-flash-exp".to_string(),
-        "gemini-2.0-flash-thinking-exp-01-21".to_string(),
         "gemini-2.0-flash-lite".to_string(),
+        "gemini-2.0-flash-lite-001".to_string(),
+        // Latest aliases and special-purpose Google package ids
+        "gemini-pro-latest".to_string(),
+        "gemini-flash-latest".to_string(),
+        "gemini-flash-lite-latest".to_string(),
+        "deep-research-pro-preview-12-2025".to_string(),
+        "nano-banana-pro-preview".to_string(),
+        "aqa".to_string(),
+        // Experimental Google package ids that the audited AI SDK already treats as model ids
+        "gemini-robotics-er-1.5-preview".to_string(),
+        "gemma-3-1b-it".to_string(),
+        "gemma-3-4b-it".to_string(),
+        "gemma-3n-e4b-it".to_string(),
+        "gemma-3n-e2b-it".to_string(),
+        "gemma-3-12b-it".to_string(),
+        "gemma-3-27b-it".to_string(),
         // Legacy models (deprecated but still available)
         "gemini-1.5-flash".to_string(),
         "gemini-1.5-flash-001".to_string(),
@@ -280,6 +308,34 @@ pub fn model_supports_capability(model_id: &str, capability: &str) -> bool {
         "image_generation" => model_id.contains("image-generation"), // Image generation models
         "live_api" => model_id.contains("live"),         // Live API models
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::get_default_models;
+
+    #[test]
+    fn default_models_track_current_google_package_ids() {
+        let models = get_default_models();
+        assert!(models.iter().any(|model| model == "gemini-3.1-pro-preview"));
+        assert!(
+            models
+                .iter()
+                .any(|model| model == "gemini-3.1-flash-image-preview")
+        );
+        assert!(
+            models
+                .iter()
+                .any(|model| model == "gemini-2.5-flash-native-audio-latest")
+        );
+        assert!(models.iter().any(|model| model == "gemini-flash-latest"));
+        assert!(
+            models
+                .iter()
+                .any(|model| model == "deep-research-pro-preview-12-2025")
+        );
+        assert!(models.iter().any(|model| model == "gemma-3-27b-it"));
     }
 }
 

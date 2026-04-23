@@ -7,7 +7,7 @@ mod generation;
 
 pub use config::{
     FunctionCallingConfig, FunctionCallingMode, GeminiConfig, GeminiEmbeddingOptions,
-    GeminiEmbeddingRequestExt, LatLng, RetrievalConfig, ToolConfig,
+    GeminiEmbeddingRequestExt, LatLng, RetrievalConfig, SharedIdGenerator, ToolConfig,
 };
 pub use content::{
     Blob,

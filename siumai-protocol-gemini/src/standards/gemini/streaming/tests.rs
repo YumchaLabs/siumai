@@ -44,16 +44,118 @@ async fn test_gemini_streaming_conversion() {
     let result = converter.convert_event(event).await;
     assert!(!result.is_empty());
 
-    // In the new architecture, we might get StreamStart + ContentDelta
-    let content_event = result
-        .iter()
-        .find(|event| matches!(event, Ok(ChatStreamEvent::ContentDelta { .. })));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::TextStart { .. })
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. })
+                if delta == "Hello"
+        )
+    }));
+}
 
-    if let Some(Ok(ChatStreamEvent::ContentDelta { delta, .. })) = content_event {
-        assert_eq!(delta, "Hello");
-    } else {
-        panic!("Expected ContentDelta event in results: {:?}", result);
-    }
+#[tokio::test]
+async fn test_gemini_streaming_emits_file_and_reasoning_file_parts() {
+    let converter = GeminiEventConverter::new(create_test_config());
+    let event = eventsource_stream::Event {
+        event: "".into(),
+        data: r#"{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"aGVsbG8="}},{"inlineData":{"mimeType":"application/pdf","data":"cGRm"},"thought":true,"thoughtSignature":"sig_file"}]}}]}"#.into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::File(file))
+                if file.media_type == "image/png"
+                    && matches!(file.data, crate::streaming::LanguageModelV3FileData::Base64(ref data) if data == "aGVsbG8=")
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::ReasoningFile(file))
+                if file.media_type == "application/pdf"
+                    && file
+                        .provider_metadata
+                        .as_ref()
+                        .and_then(|meta| meta.get("google"))
+                        .and_then(|meta| meta.get("thoughtSignature"))
+                        == Some(&serde_json::json!("sig_file"))
+        )
+    }));
+}
+
+#[tokio::test]
+async fn test_gemini_streaming_emits_raw_parts_when_enabled() {
+    let converter = GeminiEventConverter::new(create_test_config()).with_include_raw_chunks(true);
+    let raw_json = serde_json::json!({
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        { "text": "Hello" }
+                    ]
+                }
+            }
+        ]
+    });
+    let event = eventsource_stream::Event {
+        event: "".into(),
+        data: raw_json.to_string().into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Raw { raw_value })
+                if raw_value == raw_json
+        )
+    }));
+}
+
+#[tokio::test]
+async fn test_gemini_top_level_error_chunk_emits_stable_error_part() {
+    let converter = GeminiEventConverter::new(create_test_config()).with_include_raw_chunks(true);
+    let raw_json = serde_json::json!({
+        "error": {
+            "message": "boom",
+            "code": 400
+        }
+    });
+    let event = eventsource_stream::Event {
+        event: "".into(),
+        data: raw_json.to_string().into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let result = converter.convert_event(event).await;
+    assert!(result.iter().all(|event| event.is_ok()));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Error { error })
+                if error == raw_json["error"]
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Raw { raw_value })
+                if raw_value == raw_json
+        )
+    }));
 }
 
 #[tokio::test]
@@ -333,9 +435,20 @@ async fn test_gemini_finish_reason() {
 
     if let Some(Ok(ChatStreamEvent::StreamEnd { response })) = stream_end_event {
         assert_eq!(response.finish_reason, Some(FinishReason::Stop));
+        assert_eq!(response.raw_finish_reason.as_deref(), Some("STOP"));
     } else {
         panic!("Expected StreamEnd event in results: {:?}", result);
     }
+
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                finish_reason,
+                ..
+            }) if finish_reason.unified == "stop" && finish_reason.raw.as_deref() == Some("STOP")
+        )
+    }));
 }
 
 #[tokio::test]
@@ -423,8 +536,60 @@ async fn streaming_tool_calls_match_non_streaming_tool_calls() {
 
     assert_eq!(b.tool_name, a.tool_name);
     assert_eq!(b.arguments, a.arguments);
-    assert!(b.tool_call_id.starts_with("call_"));
-    assert!(a.tool_call_id.starts_with("call_"));
+    assert!(!b.tool_call_id.is_empty());
+    assert!(!a.tool_call_id.is_empty());
+}
+
+#[tokio::test]
+async fn custom_generate_id_is_used_for_stream_tool_calls_and_sources() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    let counter = Arc::new(AtomicUsize::new(0));
+    let converter = GeminiEventConverter::new(create_test_config().with_generate_id({
+        let counter = Arc::clone(&counter);
+        move || format!("stream-id-{}", counter.fetch_add(1, Ordering::Relaxed))
+    }))
+    .with_emit_v3_tool_call_parts(true);
+
+    let json_data = serde_json::json!({
+        "candidates": [{
+            "content": {
+                "parts": [
+                    { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                ]
+            },
+            "groundingMetadata": {
+                "groundingChunks": [
+                    { "web": { "uri": "https://example.com", "title": "Example" } }
+                ]
+            }
+        }]
+    });
+
+    let event = eventsource_stream::Event {
+        event: "".to_string(),
+        data: json_data.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let events = converter.convert_event(event).await;
+    let source_id = events.iter().find_map(|event| match event {
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::Source { id, .. },
+        }) => Some(id.clone()),
+        _ => None,
+    });
+    let tool_call_id = events.iter().find_map(|event| match event {
+        Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(call),
+        }) => Some(call.tool_call_id.clone()),
+        _ => None,
+    });
+
+    assert_eq!(source_id.as_deref(), Some("stream-id-0"));
+    assert_eq!(tool_call_id.as_deref(), Some("stream-id-1"));
 }
 
 #[tokio::test]
@@ -549,7 +714,7 @@ async fn test_empty_event_is_ignored() {
 #[tokio::test]
 async fn test_invalid_json_emits_error() {
     let config = create_test_config();
-    let converter = GeminiEventConverter::new(config);
+    let converter = GeminiEventConverter::new(config).with_include_raw_chunks(true);
     let event = eventsource_stream::Event {
         event: "".into(),
         data: "{ not json".into(),
@@ -557,7 +722,7 @@ async fn test_invalid_json_emits_error() {
         retry: None,
     };
     let result = converter.convert_event(event).await;
-    assert_eq!(result.len(), 2);
+    assert!(result.iter().all(|event| event.is_ok()));
     match result.first().expect("stream-start event") {
         Ok(ChatStreamEvent::StreamStart { metadata }) => {
             assert_eq!(metadata.model.as_deref(), Some("gemini-2.5-flash"));
@@ -566,7 +731,46 @@ async fn test_invalid_json_emits_error() {
         }
         other => panic!("expected stream-start event, got {other:?}"),
     }
-    assert!(matches!(result[1], Err(LlmError::ParseError(_))));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::StreamStart { .. })
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Raw { raw_value })
+                if raw_value == serde_json::Value::String("{ not json".to_string())
+        )
+    }));
+    assert!(result.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Error { error })
+                if error
+                    .as_str()
+                    .is_some_and(|message| message.contains("Failed to parse Gemini SSE JSON"))
+        )
+    }));
+
+    let end_events = converter.handle_stream_end_events();
+    assert!(end_events.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                finish_reason,
+                ..
+            }) if finish_reason.unified == "unknown"
+        )
+    }));
+    assert!(end_events.iter().any(|event| {
+        matches!(
+            event,
+            Ok(ChatStreamEvent::StreamEnd { response })
+                if response.finish_reason == Some(FinishReason::Unknown)
+        )
+    }));
 }
 
 // In tolerant mode (json-repair enabled), invalid JSON should not error with ParseError
@@ -613,6 +817,49 @@ async fn test_stream_start_emitted_once_across_events() {
         !r2.iter()
             .any(|e| matches!(e, Ok(ChatStreamEvent::StreamStart { .. })))
     );
+    assert!(r1.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::StreamStart { .. })
+        )
+    }));
+}
+
+#[tokio::test]
+async fn test_gemini_handle_stream_end_events_closes_text_lane_and_emits_unknown_finish() {
+    let converter = GeminiEventConverter::new(create_test_config());
+    let event = eventsource_stream::Event {
+        event: "".into(),
+        data: r#"{"candidates":[{"content":{"parts":[{"text":"hello"}]}}]}"#.into(),
+        id: "".into(),
+        retry: None,
+    };
+
+    let _ = converter.convert_event(event).await;
+    let end_events = converter.handle_stream_end_events();
+
+    assert!(end_events.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::TextEnd { .. })
+        )
+    }));
+    assert!(end_events.iter().any(|event| {
+        matches!(
+            stream_part(event),
+            Some(crate::streaming::LanguageModelV3StreamPart::Finish {
+                finish_reason,
+                ..
+            }) if finish_reason.unified == "unknown" && finish_reason.raw.is_none()
+        )
+    }));
+    assert!(end_events.iter().any(|event| {
+        matches!(
+            event,
+            Ok(ChatStreamEvent::StreamEnd { response })
+                if response.finish_reason == Some(FinishReason::Unknown)
+        )
+    }));
 }
 
 #[tokio::test]
@@ -629,8 +876,10 @@ async fn test_multi_parts_emit_multiple_deltas_in_order() {
     let result = converter.convert_event(event).await;
     let deltas: Vec<_> = result
         .into_iter()
-        .filter_map(|e| match e {
-            Ok(ChatStreamEvent::ContentDelta { delta, .. }) => Some(delta),
+        .filter_map(|event| match stream_part(&event) {
+            Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. }) => {
+                Some(delta)
+            }
             _ => None,
         })
         .collect();
@@ -702,9 +951,36 @@ async fn gemini_stream_proxy_serializes_content_delta() {
     };
     let out = converter.convert_event(event).await;
     assert!(out.iter().any(|e| matches!(
-        e,
-        Ok(ChatStreamEvent::ContentDelta { delta, .. }) if delta == "Hello"
+        stream_part(e),
+        Some(crate::streaming::LanguageModelV3StreamPart::TextDelta { delta, .. }) if delta == "Hello"
     )));
+}
+
+#[test]
+fn gemini_serializes_direct_text_delta_part_with_thought_signature() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::TextDelta {
+                id: "text_1".to_string(),
+                delta: "Hello".to_string(),
+                provider_metadata: Some(google_provider_metadata(serde_json::json!({
+                    "thoughtSignature": "sig_text"
+                }))),
+            },
+        })
+        .expect("serialize text-delta part");
+
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["text"],
+        serde_json::json!("Hello")
+    );
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["thoughtSignature"],
+        serde_json::json!("sig_text")
+    );
 }
 
 #[tokio::test]
@@ -946,6 +1222,82 @@ async fn gemini_stream_proxy_serializes_stream_end_finish_reason() {
 }
 
 #[test]
+fn gemini_serializes_direct_finish_part_once_even_if_stream_end_follows() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let finish_bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Finish {
+                usage: Usage::builder()
+                    .prompt_tokens(2)
+                    .completion_tokens(3)
+                    .total_tokens(5)
+                    .build(),
+                finish_reason: crate::types::ChatStreamFinishInfo {
+                    unified: FinishReason::Stop,
+                    raw: Some("STOP".to_string()),
+                },
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize finish part");
+    let finish_frames = parse_sse_json_frames(&finish_bytes);
+    assert_eq!(finish_frames.len(), 1);
+    assert_eq!(
+        finish_frames[0]["candidates"][0]["finishReason"],
+        serde_json::json!("STOP")
+    );
+
+    let stream_end_bytes = converter
+        .serialize_event(&ChatStreamEvent::StreamEnd {
+            response: ChatResponse {
+                id: None,
+                model: None,
+                content: MessageContent::Text(String::new()),
+                usage: Some(
+                    Usage::builder()
+                        .prompt_tokens(2)
+                        .completion_tokens(3)
+                        .total_tokens(5)
+                        .build(),
+                ),
+                finish_reason: Some(FinishReason::Stop),
+                raw_finish_reason: Some("STOP".to_string()),
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                warnings: None,
+                provider_metadata: None,
+            },
+        })
+        .expect("serialize stream end after finish");
+    assert!(
+        stream_end_bytes.is_empty(),
+        "stream-end should not emit a duplicate terminal frame after finish part"
+    );
+}
+
+#[test]
+fn gemini_serializes_direct_error_part_as_error_chunk() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::Error {
+                error: serde_json::json!({
+                    "message": "boom",
+                    "code": 400
+                }),
+            },
+        })
+        .expect("serialize error part");
+
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(frames[0]["error"]["message"], serde_json::json!("boom"));
+    assert_eq!(frames[0]["error"]["code"], serde_json::json!(400));
+}
+
+#[test]
 fn gemini_serializes_tool_call_delta_as_function_call_part() {
     let config = create_test_config();
     let converter = GeminiEventConverter::new(config);
@@ -1041,6 +1393,51 @@ fn gemini_serializes_v3_source_part_as_grounding_chunk() {
     assert_eq!(
         frames[0]["candidates"][0]["groundingMetadata"]["groundingChunks"][0]["web"]["uri"],
         serde_json::json!("https://www.rust-lang.org/")
+    );
+}
+
+#[test]
+fn gemini_serializes_file_parts_as_inline_data() {
+    let converter = GeminiEventConverter::new(create_test_config());
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::File(crate::types::ChatStreamFilePart {
+                media_type: "image/png".to_string(),
+                data: crate::types::ChatStreamFileData::Base64("aGVsbG8=".to_string()),
+                provider_metadata: None,
+            }),
+        })
+        .expect("serialize file part");
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["inlineData"]["mimeType"],
+        serde_json::json!("image/png")
+    );
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["inlineData"]["data"],
+        serde_json::json!("aGVsbG8=")
+    );
+
+    let bytes = converter
+        .serialize_event(&ChatStreamEvent::Part {
+            part: crate::types::ChatStreamPart::ReasoningFile(crate::types::ChatStreamFilePart {
+                media_type: "application/pdf".to_string(),
+                data: crate::types::ChatStreamFileData::Base64("cGRm".to_string()),
+                provider_metadata: Some(google_provider_metadata(serde_json::json!({
+                    "thoughtSignature": "sig_file"
+                }))),
+            }),
+        })
+        .expect("serialize reasoning-file part");
+    let frames = parse_sse_json_frames(&bytes);
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["thought"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        frames[0]["candidates"][0]["content"]["parts"][0]["thoughtSignature"],
+        serde_json::json!("sig_file")
     );
 }
 

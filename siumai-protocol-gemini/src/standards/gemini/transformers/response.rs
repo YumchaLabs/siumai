@@ -205,13 +205,63 @@ mod tests_gemini_metadata {
 
         let info = calls[0].as_tool_call().expect("tool call info");
         assert!(
-            info.tool_call_id.starts_with("call_"),
-            "expected generated tool_call_id, got: {}",
-            info.tool_call_id
+            !info.tool_call_id.is_empty(),
+            "expected generated tool_call_id"
         );
         assert_eq!(info.tool_name, "weather");
         assert_eq!(info.arguments, &serde_json::json!({ "city": "Tokyo" }));
         assert_eq!(info.provider_executed.copied(), None);
+    }
+
+    #[test]
+    fn gemini_chat_response_uses_custom_generate_id_for_tool_calls_and_sources() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.0-flash-exp".into())
+            .with_base_url("https://example".into())
+            .with_generate_id({
+                let counter = Arc::clone(&counter);
+                move || format!("custom-id-{}", counter.fetch_add(1, Ordering::Relaxed))
+            });
+        let tx = GeminiResponseTransformer { config: cfg };
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                        ]
+                    },
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            { "web": { "uri": "https://example.com", "title": "Example" } }
+                        ]
+                    },
+                    "finishReason": "STOP"
+                }
+            ],
+            "modelVersion": "gemini-2.0-flash-exp"
+        });
+
+        let resp = tx.transform_chat_response(&raw).expect("transform");
+        let call = resp.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(call.tool_call_id, "custom-id-0");
+
+        let sources = resp
+            .provider_metadata
+            .as_ref()
+            .and_then(|meta| meta.get("google"))
+            .and_then(|meta| meta.get("sources"))
+            .and_then(|value| value.as_array())
+            .expect("sources");
+        assert_eq!(
+            sources[0].get("id").and_then(|value| value.as_str()),
+            Some("custom-id-1")
+        );
     }
 
     #[test]
@@ -437,6 +487,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     } else if inline_data.mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
                             source: crate::types::FilePartSource::base64(inline_data.data.clone()),
+                            media_type: Some(inline_data.mime_type.clone()),
                             detail: None,
                             provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
@@ -487,6 +538,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     } else if mime_type.starts_with("image/") {
                         content_parts.push(crate::types::ContentPart::Image {
                             source: crate::types::FilePartSource::url(file_data.file_uri.clone()),
+                            media_type: Some(mime_type.to_string()),
                             detail: None,
                             provider_options: crate::types::ProviderOptionsMap::default(),
                             provider_metadata,
@@ -524,7 +576,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                         thought_signature.as_ref(),
                     );
                     content_parts.push(ContentPart::ToolCall {
-                        tool_call_id: format!("call_{}", uuid::Uuid::new_v4()),
+                        tool_call_id: self.config.generate_id(),
                         tool_name: function_call.name.clone(),
                         arguments,
                         provider_executed: None,
@@ -540,7 +592,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                     executable_code,
                     thought_signature,
                 } => {
-                    let id = format!("call_{}", uuid::Uuid::new_v4());
+                    let id = self.config.generate_id();
                     pending_code_execution_id = Some(id.clone());
 
                     let language = match &executable_code.language {
@@ -574,7 +626,7 @@ impl ResponseTransformer for GeminiResponseTransformer {
                 } => {
                     let id = pending_code_execution_id
                         .take()
-                        .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4()));
+                        .unwrap_or_else(|| self.config.generate_id());
 
                     let outcome = match &code_execution_result.outcome {
                         types::CodeExecutionOutcome::Ok => "OUTCOME_OK",
@@ -759,8 +811,9 @@ impl ResponseTransformer for GeminiResponseTransformer {
             }
 
             // Vercel-aligned: extract normalized sources from grounding chunks.
-            let sources = crate::standards::gemini::sources::extract_sources(
+            let sources = crate::standards::gemini::sources::extract_sources_with_generate_id(
                 candidate.grounding_metadata.as_ref(),
+                || self.config.generate_id(),
             );
             if !sources.is_empty()
                 && let Ok(v) = serde_json::to_value(sources)

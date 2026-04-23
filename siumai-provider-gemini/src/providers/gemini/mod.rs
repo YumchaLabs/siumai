@@ -48,6 +48,7 @@ pub mod files;
 pub mod middleware;
 pub mod model_constants;
 pub mod models;
+mod settings;
 pub mod spec;
 pub mod streaming;
 pub mod transformers;
@@ -85,9 +86,14 @@ pub use file_search_stores::GeminiFileSearchStores;
 pub use files::GeminiFiles;
 pub use middleware::GeminiToolWarningsMiddleware;
 pub use models::GeminiModels;
+#[allow(deprecated)]
+pub use settings::{GoogleGenerativeAIProviderSettings, GoogleProviderSettings};
 pub use tokens::{GeminiCountTokensResponse, GeminiTokens};
 pub use types::*;
 pub use video::GeminiVideo;
+
+/// Package version aligned with the provider crate release.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Google-compatible error envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

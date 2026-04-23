@@ -1,7 +1,9 @@
 use crate::LlmError;
 use crate::builder::{BuilderBase, ProviderCore};
+use crate::providers::gemini::SharedIdGenerator;
 use crate::retry_api::RetryOptions;
 use crate::types::CommonParams;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Gemini-specific builder for configuring Gemini clients.
@@ -53,6 +55,10 @@ pub struct GeminiBuilder {
     json_schema: Option<serde_json::Value>,
     /// Thinking configuration
     thinking_config: Option<crate::providers::gemini::ThinkingConfig>,
+    /// Optional stable ID generator aligned with AI SDK `generateId`.
+    generate_id: Option<SharedIdGenerator>,
+    /// Optional provider-facing display name aligned with AI SDK `name`.
+    provider_name: Option<String>,
 }
 
 impl GeminiBuilder {
@@ -69,6 +75,8 @@ impl GeminiBuilder {
             generation_config: None,
             json_schema: None,
             thinking_config: None,
+            generate_id: None,
+            provider_name: None,
         }
     }
 
@@ -84,10 +92,112 @@ impl GeminiBuilder {
         self
     }
 
+    /// Set default HTTP headers used for all Gemini requests built from this builder.
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.core.http_config.headers.extend(headers);
+        self
+    }
+
+    /// Set a single default HTTP header used for all Gemini requests built from this builder.
+    pub fn header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.core
+            .http_config
+            .headers
+            .insert(name.into(), value.into());
+        self
+    }
+
+    /// Set a custom stable ID generator aligned with AI SDK `generateId`.
+    pub fn with_generate_id<F>(mut self, generate_id: F) -> Self
+    where
+        F: Fn() -> String + Send + Sync + 'static,
+    {
+        self.generate_id = Some(Arc::new(generate_id));
+        self
+    }
+
+    /// Set a shared custom stable ID generator aligned with AI SDK `generateId`.
+    pub fn with_shared_generate_id(mut self, generate_id: SharedIdGenerator) -> Self {
+        self.generate_id = Some(generate_id);
+        self
+    }
+
+    /// Set a provider-facing display name aligned with AI SDK `name`.
+    pub fn name(mut self, provider_name: impl Into<String>) -> Self {
+        self.provider_name = Some(provider_name.into());
+        self
+    }
+
+    /// Alias for `name(...)` on the builder/config parity surface.
+    pub fn with_name(self, provider_name: impl Into<String>) -> Self {
+        self.name(provider_name)
+    }
+
     /// Set the model (unified via common_params)
     pub fn model<S: Into<String>>(mut self, model: S) -> Self {
         self.common_params.model = model.into();
         self
+    }
+
+    /// Alias for `model(...)` aligned with the upstream Google provider surface.
+    pub fn language_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `language_model(...)` aligned with the upstream Google provider surface.
+    pub fn chat<S: Into<String>>(self, model: S) -> Self {
+        self.language_model(model)
+    }
+
+    /// Deprecated alias kept for Google Generative AI migration parity.
+    #[allow(deprecated)]
+    #[deprecated(note = "Use `chat(...)` instead.")]
+    pub fn generative_ai<S: Into<String>>(self, model: S) -> Self {
+        self.chat(model)
+    }
+
+    /// Alias for `model(...)` when using Google embedding models.
+    pub fn embedding_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `embedding_model(...)` aligned with the upstream Google provider surface.
+    pub fn embedding<S: Into<String>>(self, model: S) -> Self {
+        self.embedding_model(model)
+    }
+
+    /// Deprecated alias kept for AI SDK migration parity.
+    #[allow(deprecated)]
+    #[deprecated(note = "Use `embedding(...)` instead.")]
+    pub fn text_embedding<S: Into<String>>(self, model: S) -> Self {
+        self.embedding(model)
+    }
+
+    /// Deprecated alias kept for AI SDK migration parity.
+    #[allow(deprecated)]
+    #[deprecated(note = "Use `embedding_model(...)` instead.")]
+    pub fn text_embedding_model<S: Into<String>>(self, model: S) -> Self {
+        self.embedding_model(model)
+    }
+
+    /// Alias for `model(...)` when using Google image models.
+    pub fn image_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `image_model(...)` aligned with the upstream Google provider surface.
+    pub fn image<S: Into<String>>(self, model: S) -> Self {
+        self.image_model(model)
+    }
+
+    /// Alias for `model(...)` when using Google video models.
+    pub fn video_model<S: Into<String>>(self, model: S) -> Self {
+        self.model(model)
+    }
+
+    /// Alias for `video_model(...)` aligned with the upstream Google provider surface.
+    pub fn video<S: Into<String>>(self, model: S) -> Self {
+        self.video_model(model)
     }
 
     /// Set temperature (0.0 to 2.0)
@@ -462,9 +572,13 @@ impl GeminiBuilder {
     pub fn into_config(self) -> Result<crate::providers::gemini::GeminiConfig, LlmError> {
         let api_key = self
             .api_key
+            .or_else(|| std::env::var("GOOGLE_GENERATIVE_AI_API_KEY").ok())
             .or_else(|| std::env::var("GEMINI_API_KEY").ok())
             .ok_or_else(|| {
-                LlmError::ConfigurationError("API key is required for Gemini".to_string())
+                LlmError::ConfigurationError(
+                    "API key is required for Gemini (set GOOGLE_GENERATIVE_AI_API_KEY or GEMINI_API_KEY)"
+                        .to_string(),
+                )
             })?;
 
         let mut config = crate::providers::gemini::GeminiConfig::new(api_key);
@@ -516,6 +630,12 @@ impl GeminiBuilder {
         if let Some(transport) = self.core.http_transport.clone() {
             config = config.with_http_transport(transport);
         }
+        if let Some(generate_id) = self.generate_id.clone() {
+            config = config.with_shared_generate_id(generate_id);
+        }
+        if let Some(provider_name) = self.provider_name {
+            config = config.with_provider_name(provider_name);
+        }
 
         let model_id = if !config.common_params.model.is_empty() {
             config.common_params.model.clone()
@@ -531,6 +651,27 @@ impl GeminiBuilder {
         Ok(config
             .with_http_interceptors(self.core.get_http_interceptors())
             .with_model_middlewares(model_middlewares))
+    }
+
+    /// Build the provider-owned Gemini files capability.
+    ///
+    /// This is the Rust package-surface analogue of AI SDK `google.files()`.
+    pub fn files(self) -> Result<crate::providers::gemini::GeminiFiles, LlmError> {
+        let http_client_override = self.core.base.http_client.clone();
+        let retry_options = self.core.retry_options.clone();
+        let config = self.into_config()?;
+
+        let mut client = if let Some(http_client) = http_client_override {
+            crate::providers::gemini::GeminiClient::with_http_client(config, http_client)?
+        } else {
+            crate::providers::gemini::GeminiClient::from_config(config)?
+        };
+
+        if let Some(retry_options) = retry_options {
+            client.set_retry_options(Some(retry_options));
+        }
+
+        Ok(client.files())
     }
 
     /// Build the Gemini client
@@ -568,6 +709,7 @@ mod tests {
         let config = GeminiBuilder::new(BuilderBase::default())
             .api_key("test-key")
             .base_url("https://example.com")
+            .name("my-gemini-proxy")
             .model("gemini-2.5-flash")
             .temperature(0.3)
             .max_tokens(1024)
@@ -581,6 +723,7 @@ mod tests {
             .expect("into_config ok");
 
         assert_eq!(config.base_url, "https://example.com");
+        assert_eq!(config.provider_name(), "my-gemini-proxy");
         assert_eq!(config.model, "gemini-2.5-flash");
         assert_eq!(config.common_params.model, "gemini-2.5-flash");
         assert_eq!(config.common_params.temperature, Some(0.3));
@@ -609,6 +752,7 @@ mod tests {
         let builder_config = GeminiBuilder::new(BuilderBase::default())
             .api_key("test-key")
             .base_url("https://example.com")
+            .name("my-gemini-proxy")
             .model("gemini-2.5-flash")
             .temperature(0.3)
             .max_tokens(1024)
@@ -630,6 +774,7 @@ mod tests {
         ));
         let manual_config = crate::providers::gemini::GeminiConfig::new("test-key")
             .with_base_url("https://example.com".to_string())
+            .with_provider_name("my-gemini-proxy")
             .with_model("gemini-2.5-flash".to_string())
             .with_temperature(0.3)
             .with_max_tokens(1024)
@@ -644,6 +789,10 @@ mod tests {
             .with_model_middlewares(manual_middlewares);
 
         assert_eq!(builder_config.base_url, manual_config.base_url);
+        assert_eq!(
+            builder_config.provider_name(),
+            manual_config.provider_name()
+        );
         assert_eq!(builder_config.model, manual_config.model);
         assert_eq!(
             builder_config.common_params.model,
@@ -697,5 +846,102 @@ mod tests {
         assert_eq!(generation_config.top_k, Some(8));
         let thinking = generation_config.thinking_config.expect("thinking config");
         assert_eq!(thinking.include_thoughts, Some(true));
+    }
+
+    #[test]
+    #[allow(deprecated)]
+    fn gemini_builder_google_family_aliases_all_route_to_model() {
+        let language = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .language_model("gemini-2.5-flash")
+            .into_config()
+            .expect("language_model config");
+        assert_eq!(language.model, "gemini-2.5-flash");
+
+        let chat = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .chat("gemini-2.5-pro")
+            .into_config()
+            .expect("chat config");
+        assert_eq!(chat.model, "gemini-2.5-pro");
+
+        let generative = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .generative_ai("gemini-2.0-flash")
+            .into_config()
+            .expect("generative_ai config");
+        assert_eq!(generative.model, "gemini-2.0-flash");
+
+        let embedding = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .embedding("gemini-embedding-001")
+            .into_config()
+            .expect("embedding config");
+        assert_eq!(embedding.model, "gemini-embedding-001");
+
+        let embedding_model = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .embedding_model("gemini-embedding-2-preview")
+            .into_config()
+            .expect("embedding_model config");
+        assert_eq!(embedding_model.model, "gemini-embedding-2-preview");
+
+        let text_embedding = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .text_embedding("gemini-embedding-001")
+            .into_config()
+            .expect("text_embedding config");
+        assert_eq!(text_embedding.model, "gemini-embedding-001");
+
+        let text_embedding_model = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .text_embedding_model("gemini-embedding-2-preview")
+            .into_config()
+            .expect("text_embedding_model config");
+        assert_eq!(text_embedding_model.model, "gemini-embedding-2-preview");
+
+        let image = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .image("imagen-4.0-generate-001")
+            .into_config()
+            .expect("image config");
+        assert_eq!(image.model, "imagen-4.0-generate-001");
+
+        let image_model = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .image_model("gemini-2.5-flash-image")
+            .into_config()
+            .expect("image_model config");
+        assert_eq!(image_model.model, "gemini-2.5-flash-image");
+
+        let video = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .video("veo-3.1-generate-preview")
+            .into_config()
+            .expect("video config");
+        assert_eq!(video.model, "veo-3.1-generate-preview");
+
+        let video_model = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .video_model("veo-3.1-fast-generate-preview")
+            .into_config()
+            .expect("video_model config");
+        assert_eq!(video_model.model, "veo-3.1-fast-generate-preview");
+    }
+
+    #[test]
+    fn gemini_builder_files_builds_provider_owned_files_capability() {
+        let files = GeminiBuilder::new(BuilderBase::default())
+            .api_key("test-key")
+            .base_url("https://example.com/v1beta")
+            .name("my-gemini-proxy")
+            .with_retry(RetryOptions::backoff())
+            .files()
+            .expect("build files capability");
+
+        let debug = format!("{files:?}");
+        assert!(debug.contains("https://example.com/v1beta"));
+        assert!(debug.contains("has_retry: true"));
+        assert_eq!(files.provider_name(), "my-gemini-proxy");
     }
 }

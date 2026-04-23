@@ -6,6 +6,9 @@ use std::sync::Arc;
 use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 
+/// Shared callable ID generator used for provider-owned stable IDs.
+pub type SharedIdGenerator = Arc<dyn Fn() -> String + Send + Sync>;
+
 /// Gemini configuration parameters (protocol layer)
 #[derive(Clone)]
 pub struct GeminiConfig {
@@ -31,6 +34,15 @@ pub struct GeminiConfig {
 
     /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
     pub http_transport: Option<Arc<dyn crate::execution::http::transport::HttpTransport>>,
+
+    /// Optional custom stable ID generator aligned with AI SDK `generateId`.
+    pub generate_id: Option<SharedIdGenerator>,
+
+    /// Optional provider-facing display name aligned with AI SDK `name`.
+    ///
+    /// This does not change canonical provider identity, registry ids, or
+    /// providerMetadata namespaces. It is only a provider-owned display label.
+    pub provider_name: Option<String>,
 
     /// Override the Vercel-aligned providerMetadata namespace key (`google` vs `vertex`).
     ///
@@ -64,6 +76,7 @@ impl std::fmt::Debug for GeminiConfig {
             .field("safety_settings_present", &self.safety_settings.is_some())
             .field("timeout", &self.timeout)
             .field("http_config", &self.http_config)
+            .field("provider_name", &self.provider_name)
             .field("provider_metadata_key", &self.provider_metadata_key)
             .finish()
     }
@@ -82,6 +95,8 @@ impl Default for GeminiConfig {
             http_config: HttpConfig::default(),
             token_provider: None,
             http_transport: None,
+            generate_id: None,
+            provider_name: None,
             provider_metadata_key: None,
             http_interceptors: Vec::new(),
             model_middlewares: Vec::new(),
@@ -107,6 +122,40 @@ impl GeminiConfig {
     pub fn with_base_url(mut self, base_url: String) -> Self {
         self.base_url = base_url;
         self
+    }
+
+    /// Set a custom stable ID generator aligned with AI SDK `generateId`.
+    pub fn with_generate_id<F>(mut self, generate_id: F) -> Self
+    where
+        F: Fn() -> String + Send + Sync + 'static,
+    {
+        self.generate_id = Some(Arc::new(generate_id));
+        self
+    }
+
+    /// Set a shared custom stable ID generator aligned with AI SDK `generateId`.
+    pub fn with_shared_generate_id(mut self, generate_id: SharedIdGenerator) -> Self {
+        self.generate_id = Some(generate_id);
+        self
+    }
+
+    /// Set a provider-facing display name aligned with AI SDK `name`.
+    pub fn with_provider_name(mut self, provider_name: impl Into<String>) -> Self {
+        self.provider_name = Some(provider_name.into());
+        self
+    }
+
+    /// Return the provider-facing display name.
+    pub fn provider_name(&self) -> &str {
+        self.provider_name.as_deref().unwrap_or("gemini")
+    }
+
+    /// Generate a stable provider-owned ID using the configured generator or the shared default.
+    pub fn generate_id(&self) -> String {
+        self.generate_id
+            .as_ref()
+            .map(|generate_id| generate_id())
+            .unwrap_or_else(crate::execution::http::interceptor::generate_request_id)
     }
     /// Set common parameters (temperature, max_tokens, top_p, stop_sequences)
     pub fn with_common_params(mut self, params: CommonParams) -> Self {

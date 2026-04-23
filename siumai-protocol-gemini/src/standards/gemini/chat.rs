@@ -8,6 +8,7 @@ use crate::execution::transformers::{
     request::RequestTransformer, response::ResponseTransformer, stream::StreamChunkTransformer,
 };
 use crate::standards::gemini::headers::build_gemini_headers;
+use crate::standards::gemini::types::GeminiConfig;
 use crate::types::ChatRequest;
 use std::sync::Arc;
 
@@ -15,28 +16,39 @@ use std::sync::Arc;
 #[derive(Clone)]
 pub struct GeminiChatStandard {
     adapter: Option<Arc<dyn GeminiChatAdapter>>,
+    base_config: GeminiConfig,
 }
 
 impl GeminiChatStandard {
     pub fn new() -> Self {
-        Self { adapter: None }
+        Self {
+            adapter: None,
+            base_config: GeminiConfig::default(),
+        }
     }
 
     pub fn with_adapter(adapter: Arc<dyn GeminiChatAdapter>) -> Self {
         Self {
             adapter: Some(adapter),
+            base_config: GeminiConfig::default(),
         }
+    }
+
+    pub fn with_base_config(mut self, base_config: GeminiConfig) -> Self {
+        self.base_config = base_config;
+        self
     }
 
     pub fn create_spec(&self, provider_id: &'static str) -> GeminiChatSpec {
         GeminiChatSpec {
             provider_id,
             adapter: self.adapter.clone(),
+            base_config: self.base_config.clone(),
         }
     }
 
     pub fn create_transformers(&self, provider_id: &str) -> ChatTransformers {
-        self.create_transformers_with_model(provider_id, None)
+        self.create_transformers_with_model_and_stream_options(provider_id, None, false)
     }
 
     pub fn create_transformers_with_model(
@@ -44,28 +56,31 @@ impl GeminiChatStandard {
         provider_id: &str,
         model: Option<&str>,
     ) -> ChatTransformers {
+        self.create_transformers_with_model_and_stream_options(provider_id, model, false)
+    }
+
+    pub fn create_transformers_with_model_and_stream_options(
+        &self,
+        provider_id: &str,
+        model: Option<&str>,
+        include_raw_chunks: bool,
+    ) -> ChatTransformers {
+        let cfg = self.config_for_transformers(provider_id, model);
         let request_tx = Arc::new(GeminiChatRequestTransformer {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
+            base_config: cfg.clone(),
         });
         let response_tx = Arc::new(GeminiChatResponseTransformer {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
+            config: cfg.clone(),
         });
-        let mut cfg = crate::standards::gemini::types::GeminiConfig::default();
-        if let Some(m) = model
-            && !m.is_empty()
-        {
-            cfg.model = m.to_string();
-            cfg.common_params.model = m.to_string();
-        }
-        if provider_id.to_ascii_lowercase().contains("vertex") {
-            cfg.provider_metadata_key = Some("vertex".to_string());
-        }
         let stream_tx = Arc::new(GeminiChatStreamTransformer {
             provider_id: provider_id.to_string(),
             adapter: self.adapter.clone(),
-            inner: crate::standards::gemini::streaming::GeminiEventConverter::new(cfg),
+            inner: crate::standards::gemini::streaming::GeminiEventConverter::new(cfg)
+                .with_include_raw_chunks(include_raw_chunks),
         });
 
         ChatTransformers {
@@ -74,6 +89,22 @@ impl GeminiChatStandard {
             stream: Some(stream_tx),
             json: None,
         }
+    }
+
+    fn config_for_transformers(&self, provider_id: &str, model: Option<&str>) -> GeminiConfig {
+        let mut cfg = self.base_config.clone();
+        if let Some(m) = model
+            && !m.is_empty()
+        {
+            cfg.model = m.to_string();
+            cfg.common_params.model = m.to_string();
+        }
+        if provider_id.to_ascii_lowercase().contains("vertex")
+            && cfg.provider_metadata_key.is_none()
+        {
+            cfg.provider_metadata_key = Some("vertex".to_string());
+        }
+        cfg
     }
 }
 
@@ -89,6 +120,7 @@ impl Default for GeminiChatStandard {
 struct GeminiChatRequestTransformer {
     provider_id: String,
     adapter: Option<Arc<dyn GeminiChatAdapter>>,
+    base_config: GeminiConfig,
 }
 
 impl RequestTransformer for GeminiChatRequestTransformer {
@@ -97,13 +129,10 @@ impl RequestTransformer for GeminiChatRequestTransformer {
     }
 
     fn transform_chat(&self, req: &ChatRequest) -> Result<serde_json::Value, LlmError> {
-        let mut cfg = crate::standards::gemini::types::GeminiConfig::default();
+        let mut cfg = self.base_config.clone();
         if !req.common_params.model.is_empty() {
             cfg.model = req.common_params.model.clone();
             cfg.common_params.model = req.common_params.model.clone();
-        }
-        if self.provider_id.to_ascii_lowercase().contains("vertex") {
-            cfg.provider_metadata_key = Some("vertex".to_string());
         }
         let provider_tx =
             crate::standards::gemini::transformers::GeminiRequestTransformer { config: cfg };
@@ -119,6 +148,7 @@ impl RequestTransformer for GeminiChatRequestTransformer {
 struct GeminiChatResponseTransformer {
     provider_id: String,
     adapter: Option<Arc<dyn GeminiChatAdapter>>,
+    config: GeminiConfig,
 }
 
 impl ResponseTransformer for GeminiChatResponseTransformer {
@@ -134,12 +164,9 @@ impl ResponseTransformer for GeminiChatResponseTransformer {
         if let Some(adapter) = &self.adapter {
             adapter.transform_response(&mut raw)?;
         }
-        let mut cfg = crate::standards::gemini::types::GeminiConfig::default();
-        if self.provider_id.to_ascii_lowercase().contains("vertex") {
-            cfg.provider_metadata_key = Some("vertex".to_string());
-        }
-        let provider_tx =
-            crate::standards::gemini::transformers::GeminiResponseTransformer { config: cfg };
+        let provider_tx = crate::standards::gemini::transformers::GeminiResponseTransformer {
+            config: self.config.clone(),
+        };
         provider_tx.transform_chat_response(&raw)
     }
 }
@@ -256,6 +283,7 @@ pub trait GeminiChatAdapter: Send + Sync {
 pub struct GeminiChatSpec {
     provider_id: &'static str,
     adapter: Option<Arc<dyn GeminiChatAdapter>>,
+    base_config: GeminiConfig,
 }
 
 impl ProviderSpec for GeminiChatSpec {
@@ -286,8 +314,13 @@ impl ProviderSpec for GeminiChatSpec {
     ) -> ChatTransformers {
         GeminiChatStandard {
             adapter: self.adapter.clone(),
+            base_config: self.base_config.clone(),
         }
-        .create_transformers_with_model(&ctx.provider_id, Some(&req.common_params.model))
+        .create_transformers_with_model_and_stream_options(
+            &ctx.provider_id,
+            Some(&req.common_params.model),
+            req.stream_options.include_raw_chunks,
+        )
     }
 
     fn chat_url(&self, stream: bool, req: &ChatRequest, ctx: &ProviderContext) -> String {
@@ -321,7 +354,8 @@ impl ProviderSpec for GeminiChatSpec {
 mod tests {
     use super::*;
     use crate::core::ProviderContext;
-    use crate::types::ChatMessage;
+    use crate::streaming::LanguageModelV3StreamPart;
+    use crate::types::{ChatMessage, ChatRequest};
 
     #[test]
     fn chat_url_accepts_vertex_resource_style_model_ids() {
@@ -379,5 +413,107 @@ mod tests {
 
         assert_eq!(part["thought"], serde_json::json!(true));
         assert_eq!(part["thoughtSignature"], serde_json::json!("vertex_sig"));
+    }
+
+    #[test]
+    fn base_config_generate_id_flows_into_response_transformer() {
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let counter = Arc::new(AtomicUsize::new(0));
+        let tx = GeminiChatStandard::new()
+            .with_base_config(GeminiConfig::default().with_generate_id({
+                let counter = Arc::clone(&counter);
+                move || format!("vertex-custom-{}", counter.fetch_add(1, Ordering::Relaxed))
+            }))
+            .create_transformers_with_model("vertex", Some("gemini-2.5-flash"));
+
+        let raw = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [
+                            { "functionCall": { "name": "weather", "args": { "city": "Tokyo" } } }
+                        ]
+                    },
+                    "groundingMetadata": {
+                        "groundingChunks": [
+                            { "web": { "uri": "https://example.com", "title": "Example" } }
+                        ]
+                    },
+                    "finishReason": "STOP"
+                }
+            ],
+            "modelVersion": "gemini-2.5-flash"
+        });
+
+        let response = tx
+            .response
+            .transform_chat_response(&raw)
+            .expect("transform response");
+
+        let tool_call = response.tool_calls()[0].as_tool_call().expect("tool call");
+        assert_eq!(tool_call.tool_call_id, "vertex-custom-0");
+        assert_eq!(
+            response
+                .provider_metadata
+                .as_ref()
+                .and_then(|meta| meta.get("vertex"))
+                .and_then(|meta| meta.get("sources"))
+                .and_then(|sources| sources.as_array())
+                .and_then(|sources| sources.first())
+                .and_then(|source| source.get("id"))
+                .and_then(|value| value.as_str()),
+            Some("vertex-custom-1")
+        );
+    }
+
+    #[tokio::test]
+    async fn choose_chat_transformers_forwards_include_raw_chunks_to_stream_converter() {
+        let spec = GeminiChatStandard::new().create_spec("gemini");
+        let ctx = ProviderContext::new(
+            "gemini",
+            "https://generativelanguage.googleapis.com/v1beta".to_string(),
+            Some("test-key".to_string()),
+            std::collections::HashMap::new(),
+        );
+        let req = ChatRequest::builder()
+            .message(ChatMessage::user("hi").build())
+            .stream(true)
+            .include_raw_chunks(true)
+            .model("gemini-2.5-flash")
+            .build();
+
+        let tx = spec.choose_chat_transformers(&req, &ctx);
+        let stream_tx = tx.stream.expect("stream transformer");
+        let event = eventsource_stream::Event {
+            event: "".into(),
+            data: serde_json::json!({
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                { "text": "Hello" }
+                            ]
+                        }
+                    }
+                ]
+            })
+            .to_string()
+            .into(),
+            id: "".into(),
+            retry: None,
+        };
+
+        let result = stream_tx.convert_event(event).await;
+        assert!(result.iter().any(|event| {
+            matches!(
+                event
+                    .as_ref()
+                    .ok()
+                    .and_then(LanguageModelV3StreamPart::try_from_chat_event),
+                Some(LanguageModelV3StreamPart::Raw { .. })
+            )
+        }));
     }
 }

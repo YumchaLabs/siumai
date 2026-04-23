@@ -1,4 +1,5 @@
 use super::*;
+use base64::Engine;
 
 pub(super) fn serialize_event(
     this: &GeminiEventConverter,
@@ -24,6 +25,17 @@ pub(super) fn serialize_event(
             FinishReason::Error => "STOP",
             FinishReason::Unknown => "STOP",
             FinishReason::Other(_) => "STOP",
+        }
+    }
+
+    fn serialize_error_payload(error: &serde_json::Value) -> serde_json::Value {
+        match error {
+            serde_json::Value::String(message) => serde_json::json!({
+                "error": { "message": message }
+            }),
+            other => serde_json::json!({
+                "error": other
+            }),
         }
     }
 
@@ -61,6 +73,76 @@ pub(super) fn serialize_event(
         );
         part.insert("thought".to_string(), serde_json::Value::Bool(true));
         if let Some(sig) = thought_signature_from_provider_metadata(provider_metadata) {
+            part.insert(
+                "thoughtSignature".to_string(),
+                serde_json::Value::String(sig),
+            );
+        }
+
+        let payload = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [serde_json::Value::Object(part)]
+                    }
+                }
+            ]
+        });
+        sse_data_frame(&payload)
+    }
+
+    fn serialize_text_chunk(
+        delta: &str,
+        provider_metadata: Option<&SharedV3ProviderMetadata>,
+    ) -> Result<Vec<u8>, LlmError> {
+        let mut part = serde_json::Map::new();
+        part.insert(
+            "text".to_string(),
+            serde_json::Value::String(delta.to_string()),
+        );
+        if let Some(sig) = thought_signature_from_provider_metadata(provider_metadata) {
+            part.insert(
+                "thoughtSignature".to_string(),
+                serde_json::Value::String(sig),
+            );
+        }
+
+        let payload = serde_json::json!({
+            "candidates": [
+                {
+                    "content": {
+                        "parts": [serde_json::Value::Object(part)]
+                    }
+                }
+            ]
+        });
+        sse_data_frame(&payload)
+    }
+
+    fn serialize_inline_data_chunk(
+        file: &crate::types::ChatStreamFilePart,
+        reasoning: bool,
+    ) -> Result<Vec<u8>, LlmError> {
+        let data = match &file.data {
+            crate::types::ChatStreamFileData::Base64(data) => data.clone(),
+            crate::types::ChatStreamFileData::Bytes(data) => {
+                base64::engine::general_purpose::STANDARD.encode(data)
+            }
+        };
+
+        let mut part = serde_json::Map::new();
+        part.insert(
+            "inlineData".to_string(),
+            serde_json::json!({
+                "mimeType": file.media_type,
+                "data": data,
+            }),
+        );
+        if reasoning {
+            part.insert("thought".to_string(), serde_json::Value::Bool(true));
+        }
+        if let Some(sig) = thought_signature_from_provider_metadata(file.provider_metadata.as_ref())
+        {
             part.insert(
                 "thoughtSignature".to_string(),
                 serde_json::Value::String(sig),
@@ -142,23 +224,94 @@ pub(super) fn serialize_event(
         serialize_reasoning_chunk(&pending.delta, pending.provider_metadata.as_ref())
     }
 
-    match event {
-        // Gemini streaming does not have an explicit "start" frame; the first chunk carries data.
-        ChatStreamEvent::StreamStart { .. } => flush_pending_reasoning_chunk(this),
-        ChatStreamEvent::ContentDelta { delta, .. } => {
-            let mut out = flush_pending_reasoning_chunk(this)?;
+    fn serialize_terminal_chunk(
+        this: &GeminiEventConverter,
+        finish_reason: &FinishReason,
+        usage: Option<&Usage>,
+    ) -> Result<Vec<u8>, LlmError> {
+        let mut out = flush_pending_reasoning_chunk(this)?;
+        let mut state = this
+            .serialize_state
+            .lock()
+            .map_err(|_| LlmError::InternalError("serialize_state lock poisoned".to_string()))?;
+
+        if state.terminal_emitted {
+            return Ok(out);
+        }
+        state.terminal_emitted = true;
+
+        for (call_id, call) in state.function_calls_by_id.iter_mut() {
+            let Some(name) = call.name.clone() else {
+                continue;
+            };
+            if call.arguments.trim().is_empty() {
+                continue;
+            }
+
+            let parsed: Result<serde_json::Value, _> =
+                crate::streaming::parse_json_with_repair(&call.arguments);
+            let Ok(parsed) = parsed else {
+                continue;
+            };
+            let Some(obj) = parsed.as_object() else {
+                continue;
+            };
+
+            let args_json = match serde_json::to_string(obj) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            if call
+                .last_emitted_args_json
+                .as_ref()
+                .is_some_and(|v| v == &args_json)
+            {
+                continue;
+            }
+            call.last_emitted_args_json = Some(args_json);
+
             let payload = serde_json::json!({
                 "candidates": [
                     {
                         "content": {
                             "parts": [
-                                { "text": delta }
+                                {
+                                    "functionCall": {
+                                        "name": name,
+                                        "args": serde_json::Value::Object(obj.clone())
+                                    }
+                                }
                             ]
                         }
                     }
-                ]
+                ],
+                "siumai": { "toolCallId": call_id }
             });
-            out.extend_from_slice(&sse_data_frame(&payload)?);
+            if let Ok(frame) = sse_data_frame(&payload) {
+                out.extend_from_slice(&frame);
+            }
+        }
+        state.active_reasoning_provider_metadata = None;
+        state.pending_reasoning_chunk = None;
+
+        let payload = serde_json::json!({
+            "candidates": [
+                { "finishReason": map_finish_reason(finish_reason) }
+            ],
+            "usageMetadata": usage
+                .map(usage_metadata_payload)
+                .unwrap_or(serde_json::Value::Null),
+        });
+        out.extend_from_slice(&sse_data_frame(&payload)?);
+        Ok(out)
+    }
+
+    match event {
+        // Gemini streaming does not have an explicit "start" frame; the first chunk carries data.
+        ChatStreamEvent::StreamStart { .. } => flush_pending_reasoning_chunk(this),
+        ChatStreamEvent::ContentDelta { delta, .. } => {
+            let mut out = flush_pending_reasoning_chunk(this)?;
+            out.extend_from_slice(&serialize_text_chunk(delta, None)?);
             Ok(out)
         }
         ChatStreamEvent::ThinkingDelta { delta } => {
@@ -277,93 +430,65 @@ pub(super) fn serialize_event(
             Ok(out)
         }
         ChatStreamEvent::StreamEnd { response } => {
-            let mut out = flush_pending_reasoning_chunk(this)?;
             let reason = response
                 .finish_reason
                 .as_ref()
-                .map(map_finish_reason)
-                .unwrap_or("STOP");
-            let usage = response.usage.as_ref().map(usage_metadata_payload);
-
-            // Flush pending tool calls (best-effort) before finish chunk.
-            if let Ok(mut state) = this.serialize_state.lock() {
-                for (call_id, call) in state.function_calls_by_id.iter_mut() {
-                    let Some(name) = call.name.clone() else {
-                        continue;
-                    };
-                    if call.arguments.trim().is_empty() {
-                        continue;
-                    }
-
-                    let parsed: Result<serde_json::Value, _> =
-                        crate::streaming::parse_json_with_repair(&call.arguments);
-                    let Ok(parsed) = parsed else {
-                        continue;
-                    };
-                    let Some(obj) = parsed.as_object() else {
-                        continue;
-                    };
-
-                    let args_json = match serde_json::to_string(obj) {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
-                    if call
-                        .last_emitted_args_json
-                        .as_ref()
-                        .is_some_and(|v| v == &args_json)
-                    {
-                        continue;
-                    }
-                    call.last_emitted_args_json = Some(args_json);
-
-                    let payload = serde_json::json!({
-                        "candidates": [
-                            {
-                                "content": {
-                                    "parts": [
-                                        {
-                                            "functionCall": {
-                                                "name": name,
-                                                "args": serde_json::Value::Object(obj.clone())
-                                            }
-                                        }
-                                    ]
-                                }
-                            }
-                        ],
-                        "siumai": { "toolCallId": call_id }
-                    });
-                    if let Ok(frame) = sse_data_frame(&payload) {
-                        out.extend_from_slice(&frame);
-                    }
-                }
-                state.active_reasoning_provider_metadata = None;
-                state.pending_reasoning_chunk = None;
-            }
-
-            let payload = serde_json::json!({
-                "candidates": [
-                    { "finishReason": reason }
-                ],
-                "usageMetadata": usage.unwrap_or(serde_json::Value::Null),
-            });
-            out.extend_from_slice(&sse_data_frame(&payload)?);
-            Ok(out)
+                .unwrap_or(&FinishReason::Stop);
+            serialize_terminal_chunk(this, reason, response.usage.as_ref())
         }
         ChatStreamEvent::Error { error } => {
             let mut out = flush_pending_reasoning_chunk(this)?;
-            // Gemini SSE errors do not have a stable in-band frame; emit a best-effort JSON payload.
-            let payload = serde_json::json!({
-                "error": { "message": error }
-            });
+            let payload = serialize_error_payload(&serde_json::Value::String(error.clone()));
             out.extend_from_slice(&sse_data_frame(&payload)?);
             Ok(out)
         }
-        ChatStreamEvent::Part { .. } | ChatStreamEvent::PartWithReplay { .. } => {
-            let Some(part) = LanguageModelV3StreamPart::try_from_chat_event(event) else {
-                return Ok(Vec::new());
-            };
+        ChatStreamEvent::Part { part } | ChatStreamEvent::PartWithReplay { part, .. } => {
+            match &part {
+                ChatStreamPart::TextDelta {
+                    delta,
+                    provider_metadata,
+                    ..
+                } => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
+                    out.extend_from_slice(&serialize_text_chunk(
+                        delta,
+                        provider_metadata.as_ref(),
+                    )?);
+                    return Ok(out);
+                }
+                ChatStreamPart::File(file) => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
+                    out.extend_from_slice(&serialize_inline_data_chunk(file, false)?);
+                    return Ok(out);
+                }
+                ChatStreamPart::ReasoningFile(file) => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
+                    out.extend_from_slice(&serialize_inline_data_chunk(file, true)?);
+                    return Ok(out);
+                }
+                ChatStreamPart::Finish {
+                    usage,
+                    finish_reason,
+                    ..
+                } => {
+                    return serialize_terminal_chunk(this, &finish_reason.unified, Some(usage));
+                }
+                ChatStreamPart::Error { error } => {
+                    let mut out = flush_pending_reasoning_chunk(this)?;
+                    let payload = serialize_error_payload(error);
+                    out.extend_from_slice(&sse_data_frame(&payload)?);
+                    return Ok(out);
+                }
+                ChatStreamPart::StreamStart { .. }
+                | ChatStreamPart::TextStart { .. }
+                | ChatStreamPart::TextEnd { .. }
+                | ChatStreamPart::ResponseMetadata(_) => {
+                    return flush_pending_reasoning_chunk(this);
+                }
+                _ => {}
+            }
+
+            let part = LanguageModelV3StreamPart::from_runtime_part(part.clone());
             if matches!(part, LanguageModelV3StreamPart::ReasoningDelta { .. }) {
                 let mut state = this.serialize_state.lock().map_err(|_| {
                     LlmError::InternalError("serialize_state lock poisoned".to_string())

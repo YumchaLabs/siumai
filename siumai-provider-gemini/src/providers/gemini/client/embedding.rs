@@ -170,7 +170,10 @@ impl EmbeddingCapability for GeminiClient {
         2048
     }
     fn supported_embedding_models(&self) -> Vec<String> {
-        vec!["gemini-embedding-001".to_string()]
+        vec![
+            "gemini-embedding-001".to_string(),
+            "gemini-embedding-2-preview".to_string(),
+        ]
     }
 }
 
@@ -184,7 +187,8 @@ impl EmbeddingExtensions for GeminiClient {
         let mut request = request;
         if request.input.len() > 2048 {
             return Err(LlmError::InvalidParameter(format!(
-                "Too many values for a single embedding call. The Gemini model \"{}\" can only embed up to 2048 values per call, but {} values were provided.",
+                "Too many values for a single embedding call. The {} model \"{}\" can only embed up to 2048 values per call, but {} values were provided.",
+                self.provider_name(),
                 self.config.model,
                 request.input.len()
             )));
@@ -279,5 +283,22 @@ mod tests {
         let bundle = spec.choose_embedding_transformers(&req, &ctx);
         let body = bundle.request.transform_embedding(&req).unwrap();
         assert_eq!(body["model"], serde_json::json!("models/embed-model"));
+    }
+
+    #[test]
+    fn supported_embedding_models_include_current_google_ids() {
+        let client = GeminiClient::from_config(
+            crate::providers::gemini::GeminiConfig::new("test-key")
+                .with_model("gemini-embedding-001".to_string()),
+        )
+        .expect("gemini client");
+
+        let models = client.supported_embedding_models();
+        assert!(models.iter().any(|model| model == "gemini-embedding-001"));
+        assert!(
+            models
+                .iter()
+                .any(|model| model == "gemini-embedding-2-preview")
+        );
     }
 }

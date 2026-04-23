@@ -74,16 +74,13 @@ pub(crate) fn source_key(source: &GeminiSource) -> String {
     )
 }
 
-/// Extract normalized sources from Gemini grounding metadata (Vercel-aligned).
-///
-/// This follows Vercel AI SDK's `extractSources()` behavior:
-/// - `web` chunks → `source_type = "url"` with `url`
-/// - `retrievedContext` chunks:
-///   - `uri` with http/https → `url`
-///   - `uri` non-http(s) → `document` (media_type + filename inferred from extension)
-///   - `fileSearchStore` without `uri` → `document` (octet-stream + filename from store path)
-/// - `maps` chunks → `url`
-pub(crate) fn extract_sources(grounding_metadata: Option<&GroundingMetadata>) -> Vec<GeminiSource> {
+pub(crate) fn extract_sources_with_generate_id<F>(
+    grounding_metadata: Option<&GroundingMetadata>,
+    mut generate_id: F,
+) -> Vec<GeminiSource>
+where
+    F: FnMut() -> String,
+{
     let Some(grounding_metadata) = grounding_metadata else {
         return Vec::new();
     };
@@ -94,14 +91,12 @@ pub(crate) fn extract_sources(grounding_metadata: Option<&GroundingMetadata>) ->
     let mut out: Vec<GeminiSource> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    let mut next_id: u64 = 0;
     let mut push_unique = |mut source: GeminiSource| {
         let key = source_key(&source);
         if !seen.insert(key) {
             return;
         }
-        source.id = format!("src_{next_id}");
-        next_id += 1;
+        source.id = generate_id();
         out.push(source);
     };
 

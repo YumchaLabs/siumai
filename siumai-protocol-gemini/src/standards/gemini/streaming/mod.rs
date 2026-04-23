@@ -11,7 +11,10 @@ use crate::streaming::{
     StreamStateTracker, V3UnsupportedPartBehavior,
 };
 use crate::types::Usage;
-use crate::types::{ChatResponse, FinishReason, MessageContent, ResponseMetadata};
+use crate::types::{
+    ChatResponse, ChatStreamFileData, ChatStreamFinishInfo, ChatStreamPart, FinishReason,
+    MessageContent, ResponseMetadata,
+};
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 use std::pin::Pin;
@@ -31,6 +34,7 @@ struct GeminiSerializeState {
     active_reasoning_provider_metadata: Option<SharedV3ProviderMetadata>,
     pending_reasoning_chunk: Option<GeminiPendingReasoningSerializeState>,
     expect_reasoning_delta_custom_duplicate: bool,
+    terminal_emitted: bool,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -96,6 +100,15 @@ struct GeminiPart {
     function_call: Option<GeminiFunctionCall>,
     #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
     function_response: Option<GeminiFunctionResponse>,
+    #[serde(rename = "inlineData", skip_serializing_if = "Option::is_none")]
+    inline_data: Option<GeminiInlineData>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct GeminiInlineData {
+    #[serde(rename = "mimeType")]
+    mime_type: String,
+    data: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -174,20 +187,22 @@ struct GeminiUsageMetadata {
 #[derive(Clone)]
 pub struct GeminiEventConverter {
     config: GeminiConfig,
+    include_raw_chunks: bool,
     /// Track if StreamStart has been emitted
     state_tracker: StreamStateTracker,
     /// Deduplicate sources across stream chunks
     seen_source_keys: Arc<Mutex<std::collections::HashSet<String>>>,
-    /// Monotonic id counter for emitted stable source parts
-    next_source_id: Arc<AtomicU64>,
     /// Monotonic id counter for emitted stable text/reasoning blocks
     next_block_id: Arc<AtomicU64>,
-    /// Monotonic id counter for emitted tool calls (client-executed functionCall parts)
-    next_tool_call_id: Arc<AtomicU64>,
     /// Pair executableCode -> codeExecutionResult across chunks
     pending_code_execution_id: Arc<Mutex<Option<String>>>,
+    /// Track the active text block id for stable text parts
+    current_text_block_id: Arc<Mutex<Option<String>>>,
     /// Track the active reasoning block id for stable reasoning parts
     current_reasoning_block_id: Arc<Mutex<Option<String>>>,
+    /// Preserve the latest usage snapshot so finish parts can carry usage even
+    /// if the terminal chunk omits usageMetadata.
+    latest_usage: Arc<Mutex<Option<Usage>>>,
 
     serialize_state: Arc<Mutex<GeminiSerializeState>>,
     v3_unsupported_part_behavior: V3UnsupportedPartBehavior,
@@ -199,13 +214,14 @@ impl GeminiEventConverter {
     pub fn new(config: GeminiConfig) -> Self {
         Self {
             config,
+            include_raw_chunks: false,
             state_tracker: StreamStateTracker::new(),
             seen_source_keys: Arc::new(Mutex::new(std::collections::HashSet::new())),
-            next_source_id: Arc::new(AtomicU64::new(0)),
             next_block_id: Arc::new(AtomicU64::new(0)),
-            next_tool_call_id: Arc::new(AtomicU64::new(0)),
             pending_code_execution_id: Arc::new(Mutex::new(None)),
+            current_text_block_id: Arc::new(Mutex::new(None)),
             current_reasoning_block_id: Arc::new(Mutex::new(None)),
+            latest_usage: Arc::new(Mutex::new(None)),
             serialize_state: Arc::new(Mutex::new(GeminiSerializeState::default())),
             v3_unsupported_part_behavior: V3UnsupportedPartBehavior::default(),
             emit_v3_tool_call_parts: false,
@@ -218,6 +234,11 @@ impl GeminiEventConverter {
         behavior: V3UnsupportedPartBehavior,
     ) -> Self {
         self.v3_unsupported_part_behavior = behavior;
+        self
+    }
+
+    pub fn with_include_raw_chunks(mut self, include_raw_chunks: bool) -> Self {
+        self.include_raw_chunks = include_raw_chunks;
         self
     }
 
@@ -266,6 +287,10 @@ impl GeminiEventConverter {
         }
     }
 
+    fn generate_id(&self) -> String {
+        self.config.generate_id()
+    }
+
     fn thought_signature_provider_metadata(
         &self,
         sig: Option<&String>,
@@ -292,6 +317,206 @@ impl GeminiEventConverter {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         lock.take()
+    }
+
+    fn take_text_block_id(&self) -> Option<String> {
+        let mut lock = self
+            .current_text_block_id
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        lock.take()
+    }
+
+    fn current_text_block_id(&self) -> Option<String> {
+        self.current_text_block_id
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn next_block_id_string(&self) -> String {
+        self.next_block_id
+            .fetch_add(1, Ordering::Relaxed)
+            .to_string()
+    }
+
+    fn open_text_lane(
+        &self,
+        provider_metadata: Option<crate::types::StreamProviderMetadata>,
+    ) -> (Vec<LanguageModelV3StreamPart>, String) {
+        let mut parts = Vec::new();
+
+        if let Some(id) = self.take_reasoning_block_id() {
+            parts.push(LanguageModelV3StreamPart::ReasoningEnd {
+                id,
+                provider_metadata: None,
+            });
+        }
+
+        let id = {
+            let mut lock = self
+                .current_text_block_id
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(id) = lock.as_ref() {
+                id.clone()
+            } else {
+                let id = self.next_block_id_string();
+                *lock = Some(id.clone());
+                parts.push(LanguageModelV3StreamPart::TextStart {
+                    id: id.clone(),
+                    provider_metadata,
+                });
+                id
+            }
+        };
+
+        (parts, id)
+    }
+
+    fn open_reasoning_lane(
+        &self,
+        provider_metadata: Option<crate::types::StreamProviderMetadata>,
+    ) -> (Vec<LanguageModelV3StreamPart>, String) {
+        let mut parts = Vec::new();
+
+        if let Some(id) = self.take_text_block_id() {
+            parts.push(LanguageModelV3StreamPart::TextEnd {
+                id,
+                provider_metadata: None,
+            });
+        }
+
+        let id = {
+            let mut lock = self
+                .current_reasoning_block_id
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(id) = lock.as_ref() {
+                id.clone()
+            } else {
+                let id = self.next_block_id_string();
+                *lock = Some(id.clone());
+                parts.push(LanguageModelV3StreamPart::ReasoningStart {
+                    id: id.clone(),
+                    provider_metadata,
+                });
+                id
+            }
+        };
+
+        (parts, id)
+    }
+
+    fn close_active_content_parts(&self) -> Vec<LanguageModelV3StreamPart> {
+        let mut parts = Vec::new();
+
+        if let Some(id) = self.take_text_block_id() {
+            parts.push(LanguageModelV3StreamPart::TextEnd {
+                id,
+                provider_metadata: None,
+            });
+        }
+
+        if let Some(id) = self.take_reasoning_block_id() {
+            parts.push(LanguageModelV3StreamPart::ReasoningEnd {
+                id,
+                provider_metadata: None,
+            });
+        }
+
+        parts
+    }
+
+    fn remember_usage(&self, usage: &Usage) {
+        if let Ok(mut lock) = self.latest_usage.lock() {
+            *lock = Some(usage.clone());
+        }
+    }
+
+    fn latest_usage(&self) -> Option<Usage> {
+        self.latest_usage
+            .lock()
+            .ok()
+            .and_then(|usage| usage.clone())
+    }
+
+    fn append_stream_start_events(&self, out: &mut Vec<ChatStreamEvent>) {
+        if !self.needs_stream_start() {
+            return;
+        }
+
+        out.push(ChatStreamEvent::StreamStart {
+            metadata: self.create_stream_start_metadata(),
+        });
+        out.push(ChatStreamEvent::Part {
+            part: ChatStreamPart::StreamStart { warnings: vec![] },
+        });
+    }
+
+    fn inject_raw_chunk(
+        &self,
+        mut events: Vec<ChatStreamEvent>,
+        raw_value: serde_json::Value,
+    ) -> Vec<ChatStreamEvent> {
+        if !self.include_raw_chunks {
+            return events;
+        }
+
+        let raw_event = ChatStreamEvent::Part {
+            part: ChatStreamPart::Raw { raw_value },
+        };
+
+        let insert_at = events
+            .iter()
+            .position(|event| {
+                matches!(
+                    event,
+                    ChatStreamEvent::Part {
+                        part: ChatStreamPart::StreamStart { .. }
+                    }
+                )
+            })
+            .map(|index| index + 1)
+            .unwrap_or(0);
+
+        events.insert(insert_at, raw_event);
+        events
+    }
+
+    fn build_parse_error_events(
+        &self,
+        message: String,
+        raw_value: Option<serde_json::Value>,
+    ) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        let mut events = Vec::new();
+        self.append_stream_start_events(&mut events);
+
+        if let Some(raw_value) = raw_value {
+            events = self.inject_raw_chunk(events, raw_value);
+        }
+
+        events.push(ChatStreamEvent::Part {
+            part: ChatStreamPart::Error {
+                error: serde_json::Value::String(message),
+            },
+        });
+
+        events.into_iter().map(Ok).collect()
+    }
+
+    fn build_error_payload_events(
+        &self,
+        error: serde_json::Value,
+        raw_value: serde_json::Value,
+    ) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        let mut events = Vec::new();
+        self.append_stream_start_events(&mut events);
+        let mut events = self.inject_raw_chunk(events, raw_value);
+        events.push(ChatStreamEvent::Part {
+            part: ChatStreamPart::Error { error },
+        });
+        events.into_iter().map(Ok).collect()
     }
 
     fn add_gemini_stream_part(
@@ -322,59 +547,98 @@ impl GeminiEventConverter {
 
         // Check if we need to emit StreamStart first
         if self.needs_stream_start() {
-            builder = builder.add_stream_start(self.create_stream_start_metadata());
+            builder = builder
+                .add_stream_start(self.create_stream_start_metadata())
+                .add_part(ChatStreamPart::StreamStart { warnings: vec![] });
         }
 
-        // Process content - support multiple candidates/parts per chunk
-        let texts = self.extract_all_texts(&response);
-        if !texts.is_empty() {
-            for t in texts {
-                builder = builder.add_content_delta(t, None);
-            }
+        // Emit normalized sources before content, matching the audited upstream ordering.
+        for part in self.extract_source_parts(&response) {
+            builder = builder.add_part(part);
         }
 
-        // Process thinking content (if supported).
-        for (thinking, sig) in self.extract_thinking_parts(&response) {
-            if thinking.is_empty() {
-                continue;
-            }
+        if let Some(candidates) = response.candidates.as_ref() {
+            for candidate in candidates {
+                let Some(content) = candidate.content.as_ref() else {
+                    continue;
+                };
+                let Some(parts) = content.parts.as_ref() else {
+                    continue;
+                };
 
-            let provider_metadata = self.thought_signature_provider_metadata(sig.as_ref());
+                for part in parts {
+                    let provider_metadata =
+                        self.thought_signature_provider_metadata(part.thought_signature.as_ref());
 
-            // reasoning-start
-            let id = {
-                let mut lock = self
-                    .current_reasoning_block_id
-                    .lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                if let Some(id) = lock.as_ref() {
-                    id.clone()
-                } else {
-                    let next = self.next_block_id.fetch_add(1, Ordering::Relaxed);
-                    let id = next.to_string();
-                    *lock = Some(id.clone());
-                    builder = self.add_gemini_stream_part(
-                        builder,
-                        LanguageModelV3StreamPart::ReasoningStart {
-                            id: id.clone(),
-                            provider_metadata: provider_metadata.clone(),
-                        },
-                    );
-                    id
+                    if let Some(text) = part.text.as_ref() {
+                        if text.is_empty() {
+                            if provider_metadata.is_some()
+                                && !part.thought.unwrap_or(false)
+                                && let Some(id) = self.current_text_block_id()
+                            {
+                                builder = self.add_gemini_stream_part(
+                                    builder,
+                                    LanguageModelV3StreamPart::TextDelta {
+                                        id,
+                                        delta: String::new(),
+                                        provider_metadata,
+                                    },
+                                );
+                            }
+                            continue;
+                        }
+
+                        if part.thought.unwrap_or(false) {
+                            let (lane_parts, id) =
+                                self.open_reasoning_lane(provider_metadata.clone());
+                            for lane_part in lane_parts {
+                                builder = self.add_gemini_stream_part(builder, lane_part);
+                            }
+                            builder = self.add_gemini_stream_part(
+                                builder,
+                                LanguageModelV3StreamPart::ReasoningDelta {
+                                    id,
+                                    delta: text.clone(),
+                                    provider_metadata,
+                                },
+                            );
+                            builder = builder.add_thinking_delta(text.clone());
+                        } else {
+                            let (lane_parts, id) = self.open_text_lane(provider_metadata.clone());
+                            for lane_part in lane_parts {
+                                builder = self.add_gemini_stream_part(builder, lane_part);
+                            }
+                            builder = self.add_gemini_stream_part(
+                                builder,
+                                LanguageModelV3StreamPart::TextDelta {
+                                    id,
+                                    delta: text.clone(),
+                                    provider_metadata,
+                                },
+                            );
+                        }
+                        continue;
+                    }
+
+                    if let Some(inline_data) = part.inline_data.as_ref() {
+                        for lane_part in self.close_active_content_parts() {
+                            builder = self.add_gemini_stream_part(builder, lane_part);
+                        }
+
+                        let file_part = crate::types::ChatStreamFilePart {
+                            media_type: inline_data.mime_type.clone(),
+                            data: ChatStreamFileData::Base64(inline_data.data.clone()),
+                            provider_metadata,
+                        };
+
+                        builder = builder.add_part(if part.thought.unwrap_or(false) {
+                            ChatStreamPart::ReasoningFile(file_part)
+                        } else {
+                            ChatStreamPart::File(file_part)
+                        });
+                    }
                 }
-            };
-
-            // reasoning-delta
-            builder = self.add_gemini_stream_part(
-                builder,
-                LanguageModelV3StreamPart::ReasoningDelta {
-                    id,
-                    delta: thinking.clone(),
-                    provider_metadata,
-                },
-            );
-
-            builder = builder.add_thinking_delta(thinking);
+            }
         }
 
         // Process provider-executed tool parts.
@@ -384,8 +648,7 @@ impl GeminiEventConverter {
 
         // Process client-executed tool calls (functionCall parts).
         for (tool_name, args_json, thought_sig) in self.extract_function_call_events(&response) {
-            let id_num = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
-            let call_id = format!("call_{id_num}");
+            let call_id = self.generate_id();
 
             if self.emit_v3_tool_call_parts {
                 builder = builder.add_part(crate::types::ChatStreamPart::ToolCall(
@@ -407,12 +670,11 @@ impl GeminiEventConverter {
 
         // Process client-provided tool results (functionResponse parts).
         for (tool_name, result, thought_sig) in self.extract_function_response_events(&response) {
-            let id_num = self.next_tool_call_id.fetch_add(1, Ordering::Relaxed);
             let tool_call_id = response
                 .siumai
                 .as_ref()
                 .and_then(|m| m.tool_call_id.clone())
-                .unwrap_or_else(|| format!("call_{id_num}"));
+                .unwrap_or_else(|| self.generate_id());
 
             builder = builder.add_part(crate::types::ChatStreamPart::ToolResult(
                 crate::types::ChatStreamToolResult {
@@ -430,26 +692,35 @@ impl GeminiEventConverter {
 
         // Process usage update if available
         if let Some(usage) = self.extract_usage(&response) {
+            self.remember_usage(&usage);
             builder = builder.add_usage_update(usage);
-        }
-
-        // Emit normalized sources if grounding chunks are present.
-        for part in self.extract_source_parts(&response) {
-            builder = builder.add_part(part);
         }
 
         // Handle completion/finish reason
         if let Some(end_response) = self.extract_completion(&response) {
-            if let Some(id) = self.take_reasoning_block_id() {
-                builder = self.add_gemini_stream_part(
-                    builder,
-                    LanguageModelV3StreamPart::ReasoningEnd {
-                        id,
-                        provider_metadata: None,
-                    },
-                );
+            for lane_part in self.close_active_content_parts() {
+                builder = self.add_gemini_stream_part(builder, lane_part);
             }
-            builder = builder.add_stream_end(end_response);
+
+            let finish_reason = end_response
+                .finish_reason
+                .clone()
+                .unwrap_or(FinishReason::Unknown);
+            let finish_usage = end_response
+                .usage
+                .clone()
+                .unwrap_or_else(|| Usage::builder().build());
+
+            builder = builder
+                .add_part(ChatStreamPart::Finish {
+                    usage: finish_usage,
+                    finish_reason: ChatStreamFinishInfo {
+                        unified: finish_reason,
+                        raw: end_response.raw_finish_reason.clone(),
+                    },
+                    provider_metadata: end_response.provider_metadata.clone(),
+                })
+                .add_stream_end(end_response);
         }
 
         builder.build()
@@ -458,48 +729,6 @@ impl GeminiEventConverter {
     /// Check if StreamStart event needs to be emitted
     fn needs_stream_start(&self) -> bool {
         self.state_tracker.needs_stream_start()
-    }
-
-    /// Extract content from Gemini response
-    #[allow(dead_code)]
-    fn extract_content(&self, response: &GeminiStreamResponse) -> Option<String> {
-        let candidates = response.candidates.as_ref()?;
-        for cand in candidates {
-            if let Some(content) = &cand.content
-                && let Some(parts) = &content.parts
-            {
-                for part in parts {
-                    if let Some(text) = &part.text
-                        && !text.is_empty()
-                    {
-                        return Some(text.clone());
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Extract all non-empty texts across candidates/parts (for multi-candidate streams)
-    fn extract_all_texts(&self, response: &GeminiStreamResponse) -> Vec<String> {
-        let mut out = Vec::new();
-        if let Some(candidates) = &response.candidates {
-            for cand in candidates {
-                if let Some(content) = &cand.content
-                    && let Some(parts) = &content.parts
-                {
-                    for part in parts {
-                        if let Some(text) = &part.text
-                            && !text.is_empty()
-                            && !part.thought.unwrap_or(false)
-                        {
-                            out.push(text.clone());
-                        }
-                    }
-                }
-            }
-        }
-        out
     }
 
     fn extract_function_call_events(
@@ -602,7 +831,7 @@ impl GeminiEventConverter {
             for part in parts {
                 if let Some(exec) = part.executable_code.as_ref() {
                     let id = {
-                        let id = format!("call_{}", uuid::Uuid::new_v4());
+                        let id = self.generate_id();
                         if let Ok(mut lock) = self.pending_code_execution_id.lock() {
                             *lock = Some(id.clone());
                         }
@@ -629,10 +858,9 @@ impl GeminiEventConverter {
 
                 if let Some(res) = part.code_execution_result.as_ref() {
                     let id = if let Ok(mut lock) = self.pending_code_execution_id.lock() {
-                        lock.take()
-                            .unwrap_or_else(|| format!("call_{}", uuid::Uuid::new_v4()))
+                        lock.take().unwrap_or_else(|| self.generate_id())
                     } else {
-                        format!("call_{}", uuid::Uuid::new_v4())
+                        self.generate_id()
                     };
 
                     out.push(crate::types::ChatStreamPart::ToolResult(
@@ -656,32 +884,6 @@ impl GeminiEventConverter {
         out
     }
 
-    /// Extract thinking parts (text + thoughtSignature) from Gemini response.
-    fn extract_thinking_parts(
-        &self,
-        response: &GeminiStreamResponse,
-    ) -> Vec<(String, Option<String>)> {
-        let mut out = Vec::new();
-        let Some(candidates) = response.candidates.as_ref() else {
-            return out;
-        };
-        for cand in candidates {
-            if let Some(content) = cand.content.as_ref()
-                && let Some(parts) = content.parts.as_ref()
-            {
-                for part in parts {
-                    if let Some(text) = part.text.as_ref()
-                        && !text.is_empty()
-                        && part.thought.unwrap_or(false)
-                    {
-                        out.push((text.clone(), part.thought_signature.clone()));
-                    }
-                }
-            }
-        }
-        out
-    }
-
     /// Extract normalized source parts from grounding metadata (deduplicated across stream).
     fn extract_source_parts(
         &self,
@@ -699,15 +901,16 @@ impl GeminiEventConverter {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         for cand in candidates {
-            let sources = super::sources::extract_sources(cand.grounding_metadata.as_ref());
+            let sources = super::sources::extract_sources_with_generate_id(
+                cand.grounding_metadata.as_ref(),
+                || self.generate_id(),
+            );
             for source in sources {
                 let key = super::sources::source_key(&source);
                 if !seen.insert(key) {
                     continue;
                 }
 
-                let id_num = self.next_source_id.fetch_add(1, Ordering::Relaxed);
-                let id = format!("src_{id_num}");
                 let source_part = match source.source_type.as_str() {
                     "url" => {
                         let Some(url) = source.url else {
@@ -734,7 +937,7 @@ impl GeminiEventConverter {
                 };
 
                 out.push(crate::types::ChatStreamPart::Source {
-                    id,
+                    id: source.id,
                     source: source_part,
                     provider_metadata: None,
                 });
@@ -799,8 +1002,10 @@ impl GeminiEventConverter {
                     meta.insert("usageMetadata".to_string(), v);
                 }
 
-                let sources =
-                    super::sources::extract_sources(candidate.grounding_metadata.as_ref());
+                let sources = super::sources::extract_sources_with_generate_id(
+                    candidate.grounding_metadata.as_ref(),
+                    || self.generate_id(),
+                );
                 if !sources.is_empty()
                     && let Ok(v) = serde_json::to_value(sources)
                 {
@@ -823,9 +1028,9 @@ impl GeminiEventConverter {
                 id: None,
                 model: None,
                 content: MessageContent::Text("".to_string()),
-                usage: None,
+                usage: self.extract_usage(response).or_else(|| self.latest_usage()),
                 finish_reason: Some(finish_reason),
-                raw_finish_reason: None,
+                raw_finish_reason: candidate.finish_reason.clone(),
                 audio: None,
                 system_fingerprint: None,
                 service_tier: None,
@@ -925,35 +1130,37 @@ impl SseEventConverter for GeminiEventConverter {
                 return vec![];
             }
 
-            // Parse the JSON data from the SSE event
-            // Feature-gated behavior:
-            // - Without `json-repair`: strict parsing to surface errors
-            // - With `json-repair`: tolerant parsing using jsonrepair
             #[cfg(not(feature = "json-repair"))]
-            let parsed: Result<GeminiStreamResponse, _> = serde_json::from_str(&event.data);
+            let parsed_value: Result<serde_json::Value, _> = serde_json::from_str(&event.data);
             #[cfg(feature = "json-repair")]
-            let parsed: Result<GeminiStreamResponse, _> =
-                crate::streaming::parse_json_with_repair::<GeminiStreamResponse>(&event.data);
+            let parsed_value: Result<serde_json::Value, _> =
+                crate::streaming::parse_json_with_repair::<serde_json::Value>(&event.data);
 
-            match parsed {
-                Ok(gemini_response) => self
-                    .convert_gemini_response_async(gemini_response)
-                    .await
-                    .into_iter()
-                    .map(Ok)
-                    .collect(),
-                Err(e) => {
-                    let mut out = Vec::new();
-                    if self.needs_stream_start() {
-                        out.push(Ok(ChatStreamEvent::StreamStart {
-                            metadata: self.create_stream_start_metadata(),
-                        }));
+            match parsed_value {
+                Ok(raw_json) => {
+                    if let Some(error) = raw_json.get("error").cloned() {
+                        return self.build_error_payload_events(error, raw_json);
                     }
-                    out.push(Err(LlmError::ParseError(format!(
-                        "Failed to parse Gemini SSE JSON: {e}"
-                    ))));
-                    out
+
+                    match serde_json::from_value::<GeminiStreamResponse>(raw_json.clone()) {
+                        Ok(gemini_response) => self
+                            .inject_raw_chunk(
+                                self.convert_gemini_response_async(gemini_response).await,
+                                raw_json,
+                            )
+                            .into_iter()
+                            .map(Ok)
+                            .collect(),
+                        Err(e) => self.build_parse_error_events(
+                            format!("Failed to parse Gemini SSE JSON: {e}"),
+                            Some(raw_json),
+                        ),
+                    }
                 }
+                Err(e) => self.build_parse_error_events(
+                    format!("Failed to parse Gemini SSE JSON: {e}"),
+                    Some(serde_json::Value::String(event.data.clone())),
+                ),
             }
         })
     }
@@ -983,6 +1190,52 @@ impl SseEventConverter for GeminiEventConverter {
             provider_metadata: None,
         };
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
+    }
+
+    fn handle_stream_end_events(&self) -> Vec<Result<ChatStreamEvent, LlmError>> {
+        if !self.state_tracker.needs_stream_end() {
+            return vec![];
+        }
+
+        self.state_tracker.mark_stream_ended();
+
+        let usage = self
+            .latest_usage()
+            .unwrap_or_else(|| Usage::builder().build());
+        let mut out = Vec::new();
+
+        for lane_part in self.close_active_content_parts() {
+            out.push(Ok(lane_part.to_part_event()));
+        }
+
+        out.push(Ok(ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish {
+                usage: usage.clone(),
+                finish_reason: ChatStreamFinishInfo {
+                    unified: FinishReason::Unknown,
+                    raw: None,
+                },
+                provider_metadata: None,
+            },
+        }));
+
+        out.push(Ok(ChatStreamEvent::StreamEnd {
+            response: ChatResponse {
+                id: None,
+                model: None,
+                content: MessageContent::Text("".to_string()),
+                usage: Some(usage),
+                finish_reason: Some(FinishReason::Unknown),
+                raw_finish_reason: None,
+                audio: None,
+                system_fingerprint: None,
+                service_tier: None,
+                warnings: None,
+                provider_metadata: None,
+            },
+        }));
+
+        out
     }
 
     fn serialize_event(&self, event: &ChatStreamEvent) -> Result<Vec<u8>, LlmError> {
