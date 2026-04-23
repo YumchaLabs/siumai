@@ -1,4 +1,4 @@
-use super::adapter::{OpenAiStandardAdapter, ProviderAdapter};
+use super::adapter::{MetadataExtractingAdapter, OpenAiStandardAdapter, ProviderAdapter};
 use super::openai_config::OpenAiCompatibleConfig;
 use super::provider_registry::{ConfigurableAdapter, ProviderConfig};
 use super::streaming::OpenAiCompatibleEventConverter;
@@ -19,6 +19,18 @@ fn make_converter() -> OpenAiCompatibleEventConverter {
     let cfg = OpenAiCompatibleConfig::new("openai", "sk-test", &base, adapter.clone())
         .with_model("gpt-4o-mini");
     OpenAiCompatibleEventConverter::new(cfg, adapter)
+}
+
+async fn convert_ok(
+    converter: &OpenAiCompatibleEventConverter,
+    event: Event,
+) -> Vec<ChatStreamEvent> {
+    converter
+        .convert_event(event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect()
 }
 
 #[tokio::test]
@@ -1071,6 +1083,121 @@ async fn parser_emits_text_reasoning_lifecycle_parts_without_duplicate_deltas() 
 }
 
 #[tokio::test]
+async fn compat_stream_same_chunk_reasoning_precedes_text_parts() {
+    let converter = make_converter();
+
+    let events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"id":"chatcmpl-1","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"reasoning_content":"Think first","content":"Answer second"}}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    let reasoning_start_pos = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::ReasoningStart { .. }
+                }
+            )
+        })
+        .expect("reasoning start");
+    let text_start_pos = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: crate::types::ChatStreamPart::TextStart { .. }
+                }
+            )
+        })
+        .expect("text start");
+    let reasoning_delta_pos = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::ThinkingDelta { delta } if delta == "Think first"
+            )
+        })
+        .expect("reasoning delta");
+    let text_delta_pos = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::ContentDelta { delta, .. } if delta == "Answer second"
+            )
+        })
+        .expect("text delta");
+
+    assert!(
+        reasoning_start_pos < text_start_pos,
+        "reasoning lane should open before text when both arrive in one chunk"
+    );
+    assert!(
+        reasoning_delta_pos < text_delta_pos,
+        "reasoning delta should be emitted before text delta"
+    );
+}
+
+#[tokio::test]
+async fn compat_stream_reasoning_field_is_used_when_reasoning_content_is_missing() {
+    let converter = make_converter();
+
+    let events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"reasoning":"Fallback reasoning"}}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::ThinkingDelta { delta } if delta == "Fallback reasoning"
+    )));
+}
+
+#[tokio::test]
+async fn compat_stream_reasoning_content_takes_priority_over_reasoning_field() {
+    let converter = make_converter();
+
+    let events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"reasoning_content":"Preferred reasoning","reasoning":"Ignored reasoning"}}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::ThinkingDelta { delta } if delta == "Preferred reasoning"
+    )));
+    assert!(!events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::ThinkingDelta { delta } if delta == "Ignored reasoning"
+    )));
+}
+
+#[tokio::test]
 async fn finish_reason_without_done_emits_stream_end() {
     let converter = make_converter();
 
@@ -1297,4 +1424,442 @@ async fn compat_stream_tool_call_carries_thought_signature_under_requested_metad
         Some(&serde_json::json!("<Sig>"))
     );
     assert!(tool_call_metadata.get("test-provider").is_none());
+}
+
+#[tokio::test]
+async fn compat_stream_tool_call_sent_in_one_chunk_emits_single_complete_lifecycle() {
+    let converter = make_converter();
+
+    let start_events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"id":"chatcmpl-1","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":"{\"q\":\"rust\"}"}}]}}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    assert_eq!(
+        start_events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolInputStart { id, .. }
+                } if id == "call_1"
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(
+        start_events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolInputEnd { id, .. }
+                } if id == "call_1"
+            ))
+            .count(),
+        1
+    );
+    assert_eq!(
+        start_events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(call)
+                } if call.tool_call_id == "call_1"
+                    && call.tool_name == "lookup"
+                    && call.input == "{\"q\":\"rust\"}"
+            ))
+            .count(),
+        1
+    );
+
+    let finish_events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    assert!(!finish_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(call)
+        } if call.tool_call_id == "call_1"
+    )));
+    assert!(finish_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish { finish_reason, .. }
+        } if finish_reason.unified == crate::types::FinishReason::ToolCalls
+    )));
+}
+
+#[tokio::test]
+async fn compat_stream_finish_reason_tool_calls_finalizes_empty_tool_call_once() {
+    let converter = make_converter();
+
+    let start_events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"id":"chatcmpl-1","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_empty","type":"function","function":{"name":"lookup","arguments":""}}]}}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+    assert!(start_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolInputStart { id, tool_name, .. }
+        } if id == "call_empty" && tool_name == "lookup"
+    )));
+
+    let finish_events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    assert_eq!(
+        finish_events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolInputEnd { id, .. }
+                } if id == "call_empty"
+            ))
+            .count(),
+        1,
+        "finish_reason tool_calls should close the pending tool input exactly once"
+    );
+    assert_eq!(
+        finish_events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(call)
+                } if call.tool_call_id == "call_empty"
+                    && call.tool_name == "lookup"
+                    && call.input.is_empty()
+            ))
+            .count(),
+        1,
+        "finish_reason tool_calls should emit the finalized empty tool call"
+    );
+    assert!(finish_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish { finish_reason, .. }
+        } if finish_reason.unified == crate::types::FinishReason::ToolCalls
+    )));
+}
+
+#[tokio::test]
+async fn compat_stream_completed_tool_call_is_not_duplicated_by_later_empty_chunks() {
+    let converter = make_converter();
+
+    let _ = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"id":"chatcmpl-1","model":"gpt-4o-mini","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"lookup","arguments":""}}]}}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+    let completed_events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"q\":\"rust\"}"}}]}}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+    let finish_events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":""}}]},"finish_reason":"tool_calls"}]}"#
+                .to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+    let trailing_empty_events = convert_ok(
+        &converter,
+        Event {
+            event: "".to_string(),
+            data: r#"{"choices":[]}"#.to_string(),
+            id: "".to_string(),
+            retry: None,
+        },
+    )
+    .await;
+
+    assert_eq!(
+        completed_events
+            .iter()
+            .filter(|event| matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::ToolCall(call)
+                } if call.tool_call_id == "call_1"
+            ))
+            .count(),
+        1
+    );
+    assert!(!finish_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(call)
+        } if call.tool_call_id == "call_1"
+    )));
+    assert!(!trailing_empty_events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::ToolCall(call)
+        } if call.tool_call_id == "call_1"
+    )));
+}
+
+#[tokio::test]
+async fn compat_stream_explicit_error_payload_emits_stable_error_and_error_finish() {
+    let conv = make_converter();
+
+    let event = Event {
+        event: "".to_string(),
+        data: r#"{"error":{"message":"Incorrect API key provided: as***T7. You can obtain an API key from https://console.api.com."}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let events: Vec<ChatStreamEvent> = conv
+        .convert_event(event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+
+    assert!(matches!(
+        events.first(),
+        Some(ChatStreamEvent::StreamStart { .. })
+    ));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::Error { error }
+        } if error == &serde_json::Value::String(
+            "Incorrect API key provided: as***T7. You can obtain an API key from https://console.api.com.".to_string()
+        )
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish { finish_reason, .. }
+        } if finish_reason.unified == crate::types::FinishReason::Error
+            && finish_reason.raw.is_none()
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::StreamEnd { response }
+            if response.finish_reason == Some(crate::types::FinishReason::Error)
+                && response.raw_finish_reason.is_none()
+    )));
+}
+
+#[tokio::test]
+async fn compat_stream_unparsable_chunk_emits_raw_error_and_error_finish() {
+    let conv = make_converter().with_include_raw_chunks(true);
+
+    let event = Event {
+        event: "".to_string(),
+        data: "{unparsable}".to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let events: Vec<ChatStreamEvent> = conv
+        .convert_event(event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .collect();
+
+    let raw_pos = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::Raw { raw_value }
+                } if raw_value == &serde_json::Value::String("{unparsable}".to_string())
+            )
+        })
+        .expect("raw part");
+    let error_pos = events
+        .iter()
+        .position(|event| {
+            matches!(
+                event,
+                ChatStreamEvent::Part {
+                    part: ChatStreamPart::Error { error }
+                } if error
+                    .as_str()
+                    .is_some_and(|message| message.contains("Failed to parse OpenAI-compatible event"))
+            )
+        })
+        .expect("error part");
+
+    assert!(
+        raw_pos < error_pos,
+        "raw part should be emitted before error part"
+    );
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::Finish { finish_reason, .. }
+        } if finish_reason.unified == crate::types::FinishReason::Error
+            && finish_reason.raw.is_none()
+    )));
+    assert!(events.iter().any(|event| matches!(
+        event,
+        ChatStreamEvent::StreamEnd { response }
+            if response.finish_reason == Some(crate::types::FinishReason::Error)
+    )));
+}
+
+#[tokio::test]
+async fn compat_stream_finish_surfaces_prediction_token_provider_metadata() {
+    let conv = make_converter();
+
+    let event = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chat-id","model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":30,"prompt_tokens_details":{"cached_tokens":5},"completion_tokens_details":{"reasoning_tokens":10,"accepted_prediction_tokens":15,"rejected_prediction_tokens":5}}}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let finish = conv
+        .convert_event(event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::Finish {
+                        usage,
+                        finish_reason,
+                        provider_metadata,
+                    },
+            } => Some((usage, finish_reason, provider_metadata)),
+            _ => None,
+        })
+        .expect("finish part");
+
+    assert_eq!(finish.0.prompt_tokens(), Some(20));
+    assert_eq!(finish.0.completion_tokens(), Some(30));
+    assert_eq!(finish.1.unified, crate::types::FinishReason::Stop);
+    let provider_metadata = finish.2.expect("provider metadata");
+    let openai = provider_metadata.get("openai").expect("openai namespace");
+    assert_eq!(
+        openai.get("acceptedPredictionTokens"),
+        Some(&serde_json::json!(15))
+    );
+    assert_eq!(
+        openai.get("rejectedPredictionTokens"),
+        Some(&serde_json::json!(5))
+    );
+}
+
+#[tokio::test]
+async fn compat_stream_metadata_extracting_adapter_merges_finish_metadata() {
+    let base = "https://api.example.com/v1".to_string();
+    let inner = ConfigurableAdapter::new(ProviderConfig {
+        id: "test-provider".to_string(),
+        name: "Test Provider".to_string(),
+        base_url: base.clone(),
+        field_mappings: Default::default(),
+        capabilities: vec!["chat".to_string(), "streaming".to_string()],
+        default_model: None,
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: vec![],
+    });
+    let adapter: Arc<dyn ProviderAdapter> = Arc::new(MetadataExtractingAdapter::new(
+        Box::new(inner),
+        Arc::new(|raw: &serde_json::Value| {
+            raw.get("test_field").map(|value| {
+                std::collections::HashMap::from([(
+                    "test-provider".to_string(),
+                    serde_json::Value::Object(serde_json::Map::from_iter([(
+                        "value".to_string(),
+                        value.clone(),
+                    )])),
+                )])
+            })
+        }),
+    ));
+    let cfg = OpenAiCompatibleConfig::new("test-provider", "sk-test", &base, adapter.clone())
+        .with_model("test-model");
+    let conv = OpenAiCompatibleEventConverter::new(cfg, adapter);
+
+    let event = Event {
+        event: "".to_string(),
+        data: r#"{"id":"chatcmpl_1","model":"test-model","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"test_field":"test_value"}"#.to_string(),
+        id: "".to_string(),
+        retry: None,
+    };
+
+    let provider_metadata = conv
+        .convert_event(event)
+        .await
+        .into_iter()
+        .map(|event| event.expect("event ok"))
+        .find_map(|event| match event {
+            ChatStreamEvent::Part {
+                part:
+                    ChatStreamPart::Finish {
+                        provider_metadata, ..
+                    },
+            } => provider_metadata,
+            _ => None,
+        })
+        .expect("finish provider metadata");
+
+    assert_eq!(
+        provider_metadata
+            .get("test-provider")
+            .and_then(|value| value.get("value")),
+        Some(&serde_json::json!("test_value"))
+    );
 }

@@ -340,6 +340,18 @@ impl OpenAiCompatibleEventConverter {
             });
         }
 
+        if let Some((error_value, _error_message)) = self.top_level_error_value_and_message(json) {
+            self.state_tracker.mark_stream_ended();
+            for part in self.close_active_content_parts() {
+                builder = builder.add_part(part);
+            }
+            return builder
+                .add_part(ChatStreamPart::Error { error: error_value })
+                .add_part(self.build_finish_part_with_info(self.build_error_finish_info()))
+                .add_stream_end(self.build_terminal_response(FinishReason::Error, None))
+                .build();
+        }
+
         // If the event data itself is a JSON string (common when SSE named events
         // carry plain text as data, e.g., Responses "output_text.delta" proxied),
         // treat it directly as a content delta.
@@ -364,6 +376,14 @@ impl OpenAiCompatibleEventConverter {
             builder = builder.add_part(part);
         }
 
+        // Thinking/Reasoning content (optional)
+        if let Some(thinking) = self.extract_thinking_from_json(json) {
+            for part in self.open_reasoning_lane() {
+                builder = builder.add_part(part);
+            }
+            builder = builder.add_thinking_delta(thinking);
+        }
+
         // Content (compatible with Chat Completions and Responses API)
         if let Some(content) = self.extract_content_from_json(json) {
             for part in self.open_text_lane() {
@@ -376,14 +396,6 @@ impl OpenAiCompatibleEventConverter {
             builder = builder.add_content_delta(content, self.extract_choice_index_from_json(json));
             self.emitted_content
                 .store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-
-        // Thinking/Reasoning content (optional)
-        if let Some(thinking) = self.extract_thinking_from_json(json) {
-            for part in self.open_reasoning_lane() {
-                builder = builder.add_part(part);
-            }
-            builder = builder.add_thinking_delta(thinking);
         }
 
         // Tool call deltas (optional) — support multiple tool calls in the same chunk
@@ -477,32 +489,16 @@ impl OpenAiCompatibleEventConverter {
                 self.emitted_content
                     .store(true, std::sync::atomic::Ordering::Relaxed);
             }
-            let response_state = self
-                .latest_response_state
-                .lock()
-                .ok()
-                .map(|state| state.clone())
-                .unwrap_or_default();
-            let response = ChatResponse {
-                id: response_state.id,
-                model: response_state.model,
-                content: MessageContent::Text(text),
-                usage: self
-                    .latest_usage
-                    .lock()
-                    .ok()
-                    .and_then(|usage| usage.clone()),
-                finish_reason: crate::standards::openai::utils::parse_finish_reason(Some(reason)),
-                raw_finish_reason: Some(reason.to_string()),
-                audio: None,
-                system_fingerprint: response_state.system_fingerprint,
-                service_tier: response_state.service_tier,
-                warnings: None,
-                provider_metadata: Some(Self::nested_provider_metadata_to_stream(
-                    self.current_provider_metadata(),
-                )),
-            };
+            let mut response = self.build_terminal_response(
+                crate::standards::openai::utils::parse_finish_reason(Some(reason))
+                    .unwrap_or_else(|| FinishReason::Other(reason.to_string())),
+                Some(reason.to_string()),
+            );
+            response.content = MessageContent::Text(text);
             for part in self.close_active_content_parts() {
+                builder = builder.add_part(part);
+            }
+            for part in self.finalize_pending_tool_call_parts() {
                 builder = builder.add_part(part);
             }
             builder = builder
@@ -748,7 +744,155 @@ impl OpenAiCompatibleEventConverter {
         parts
     }
 
+    fn finalize_pending_tool_call_parts(&self) -> Vec<ChatStreamPart> {
+        let mut parse_state = self
+            .parse_state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let mut parts = Vec::new();
+
+        for entry in parse_state.tool_call_state_by_index.values_mut() {
+            if entry.stable_tool_call_emitted || entry.name.is_empty() {
+                continue;
+            }
+
+            if !entry.stable_input_started {
+                entry.stable_input_started = true;
+                parts.push(ChatStreamPart::ToolInputStart {
+                    id: entry.id.clone(),
+                    tool_name: entry.name.clone(),
+                    provider_metadata: None,
+                    provider_executed: None,
+                    dynamic: None,
+                    title: None,
+                });
+
+                if !entry.arguments.is_empty() {
+                    parts.push(ChatStreamPart::ToolInputDelta {
+                        id: entry.id.clone(),
+                        delta: entry.arguments.clone(),
+                        provider_metadata: None,
+                    });
+                }
+            }
+
+            parts.push(ChatStreamPart::ToolInputEnd {
+                id: entry.id.clone(),
+                provider_metadata: None,
+            });
+            parts.push(ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
+                tool_call_id: entry.id.clone(),
+                tool_name: entry.name.clone(),
+                input: entry.arguments.clone(),
+                provider_executed: None,
+                dynamic: None,
+                provider_metadata: entry.thought_signature.as_ref().map(|signature| {
+                    std::collections::HashMap::from([(
+                        self.provider_metadata_key.clone(),
+                        serde_json::json!({ "thoughtSignature": signature }),
+                    )])
+                }),
+            }));
+            entry.stable_tool_call_emitted = true;
+        }
+
+        parts
+    }
+
+    fn build_finish_info(&self, reason: Option<&str>) -> ChatStreamFinishInfo {
+        ChatStreamFinishInfo {
+            unified: match reason {
+                Some(reason) => crate::standards::openai::utils::parse_finish_reason(Some(reason))
+                    .unwrap_or_else(|| FinishReason::Other(reason.to_string())),
+                None => FinishReason::Unknown,
+            },
+            raw: reason.map(ToString::to_string),
+        }
+    }
+
+    fn build_error_finish_info(&self) -> ChatStreamFinishInfo {
+        ChatStreamFinishInfo {
+            unified: FinishReason::Error,
+            raw: None,
+        }
+    }
+
+    fn build_terminal_response(
+        &self,
+        finish_reason: FinishReason,
+        raw_finish_reason: Option<String>,
+    ) -> ChatResponse {
+        let response_state = self
+            .latest_response_state
+            .lock()
+            .ok()
+            .map(|state| state.clone())
+            .unwrap_or_default();
+
+        ChatResponse {
+            id: response_state.id,
+            model: response_state.model,
+            content: MessageContent::Text(
+                self.accumulated_content
+                    .try_lock()
+                    .map(|g| g.clone())
+                    .unwrap_or_default(),
+            ),
+            usage: self
+                .latest_usage
+                .lock()
+                .ok()
+                .and_then(|usage| usage.clone()),
+            finish_reason: Some(finish_reason),
+            raw_finish_reason,
+            audio: None,
+            system_fingerprint: response_state.system_fingerprint,
+            service_tier: response_state.service_tier,
+            warnings: None,
+            provider_metadata: Some(Self::nested_provider_metadata_to_stream(
+                self.current_provider_metadata(),
+            )),
+        }
+    }
+
+    fn top_level_error_value_and_message(
+        &self,
+        json: &serde_json::Value,
+    ) -> Option<(serde_json::Value, String)> {
+        let error = json.get("error")?;
+
+        if let Some(message) = error
+            .get("message")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some((
+                serde_json::Value::String(message.to_string()),
+                message.to_string(),
+            ));
+        }
+
+        if let Some(message) = error
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return Some((
+                serde_json::Value::String(message.to_string()),
+                message.to_string(),
+            ));
+        }
+
+        let message = serde_json::to_string(error).unwrap_or_else(|_| "\"error\"".to_string());
+        Some((error.clone(), message))
+    }
+
     fn build_finish_part(&self, reason: Option<&str>) -> ChatStreamPart {
+        self.build_finish_part_with_info(self.build_finish_info(reason))
+    }
+
+    fn build_finish_part_with_info(&self, finish_reason: ChatStreamFinishInfo) -> ChatStreamPart {
         ChatStreamPart::Finish {
             usage: self
                 .latest_usage
@@ -756,16 +900,7 @@ impl OpenAiCompatibleEventConverter {
                 .ok()
                 .and_then(|usage| usage.clone())
                 .unwrap_or_default(),
-            finish_reason: ChatStreamFinishInfo {
-                unified: match reason {
-                    Some(reason) => {
-                        crate::standards::openai::utils::parse_finish_reason(Some(reason))
-                            .unwrap_or_else(|| FinishReason::Other(reason.to_string()))
-                    }
-                    None => FinishReason::Unknown,
-                },
-                raw: reason.map(ToString::to_string),
-            },
+            finish_reason,
             provider_metadata: Some(Self::nested_provider_metadata_to_stream(
                 self.current_provider_metadata(),
             )),
@@ -1268,9 +1403,22 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                             },
                         }));
                     }
-                    out.push(Err(LlmError::ParseError(format!(
-                        "Failed to parse OpenAI-compatible event: {e}"
-                    ))));
+                    self.state_tracker.mark_stream_ended();
+                    let error = format!("Failed to parse OpenAI-compatible event: {e}");
+                    for part in self.close_active_content_parts() {
+                        out.push(Ok(ChatStreamEvent::Part { part }));
+                    }
+                    out.push(Ok(ChatStreamEvent::Part {
+                        part: ChatStreamPart::Error {
+                            error: serde_json::Value::String(error),
+                        },
+                    }));
+                    out.push(Ok(ChatStreamEvent::Part {
+                        part: self.build_finish_part_with_info(self.build_error_finish_info()),
+                    }));
+                    out.push(Ok(ChatStreamEvent::StreamEnd {
+                        response: self.build_terminal_response(FinishReason::Error, None),
+                    }));
                     out
                 }
             }
@@ -1289,64 +1437,8 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             out.push(Ok(ChatStreamEvent::Part { part }));
         }
 
-        {
-            let mut parse_state = self
-                .parse_state
-                .lock()
-                .unwrap_or_else(|poison| poison.into_inner());
-
-            for entry in parse_state.tool_call_state_by_index.values_mut() {
-                if entry.stable_tool_call_emitted || entry.name.is_empty() {
-                    continue;
-                }
-
-                if !entry.stable_input_started {
-                    entry.stable_input_started = true;
-                    out.push(Ok(ChatStreamEvent::Part {
-                        part: ChatStreamPart::ToolInputStart {
-                            id: entry.id.clone(),
-                            tool_name: entry.name.clone(),
-                            provider_metadata: None,
-                            provider_executed: None,
-                            dynamic: None,
-                            title: None,
-                        },
-                    }));
-
-                    if !entry.arguments.is_empty() {
-                        out.push(Ok(ChatStreamEvent::Part {
-                            part: ChatStreamPart::ToolInputDelta {
-                                id: entry.id.clone(),
-                                delta: entry.arguments.clone(),
-                                provider_metadata: None,
-                            },
-                        }));
-                    }
-                }
-
-                out.push(Ok(ChatStreamEvent::Part {
-                    part: ChatStreamPart::ToolInputEnd {
-                        id: entry.id.clone(),
-                        provider_metadata: None,
-                    },
-                }));
-                out.push(Ok(ChatStreamEvent::Part {
-                    part: ChatStreamPart::ToolCall(crate::types::ChatStreamToolCall {
-                        tool_call_id: entry.id.clone(),
-                        tool_name: entry.name.clone(),
-                        input: entry.arguments.clone(),
-                        provider_executed: None,
-                        dynamic: None,
-                        provider_metadata: entry.thought_signature.as_ref().map(|signature| {
-                            std::collections::HashMap::from([(
-                                self.provider_metadata_key.clone(),
-                                serde_json::json!({ "thoughtSignature": signature }),
-                            )])
-                        }),
-                    }),
-                }));
-                entry.stable_tool_call_emitted = true;
-            }
+        for part in self.finalize_pending_tool_call_parts() {
+            out.push(Ok(ChatStreamEvent::Part { part }));
         }
 
         out.push(Ok(ChatStreamEvent::Part {
@@ -1403,36 +1495,7 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
             return None; // StreamEnd already emitted
         }
 
-        let response_state = self
-            .latest_response_state
-            .lock()
-            .ok()
-            .map(|state| state.clone())
-            .unwrap_or_default();
-        let response = ChatResponse {
-            id: response_state.id,
-            model: response_state.model,
-            content: MessageContent::Text(
-                self.accumulated_content
-                    .try_lock()
-                    .map(|g| g.clone())
-                    .unwrap_or_default(),
-            ),
-            usage: self
-                .latest_usage
-                .lock()
-                .ok()
-                .and_then(|usage| usage.clone()),
-            finish_reason: Some(FinishReason::Unknown),
-            raw_finish_reason: None,
-            audio: None,
-            system_fingerprint: response_state.system_fingerprint,
-            service_tier: response_state.service_tier,
-            warnings: None,
-            provider_metadata: Some(Self::nested_provider_metadata_to_stream(
-                self.current_provider_metadata(),
-            )),
-        };
+        let response = self.build_terminal_response(FinishReason::Unknown, None);
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
@@ -1925,6 +1988,22 @@ impl SseEventConverter for OpenAiCompatibleEventConverter {
                     return Ok(Vec::new());
                 }
 
+                if let LanguageModelV3StreamPart::Error { error } = &part {
+                    let payload = match error {
+                        serde_json::Value::String(message) => serde_json::json!({
+                            "error": { "message": message }
+                        }),
+                        serde_json::Value::Object(_) => serde_json::json!({ "error": error }),
+                        _ => serde_json::json!({
+                            "error": {
+                                "message": serde_json::to_string(error)
+                                    .unwrap_or_else(|_| "\"error\"".to_string())
+                            }
+                        }),
+                    };
+                    return sse_data_frame(&payload);
+                }
+
                 if let LanguageModelV3StreamPart::Source(LanguageModelV3Source::Url {
                     url,
                     title,
@@ -2185,7 +2264,7 @@ mod tests {
             })
             .await;
 
-        assert_eq!(events.len(), 4);
+        assert_eq!(events.len(), 6);
         match events.first().expect("stream-start event") {
             Ok(ChatStreamEvent::StreamStart { metadata }) => {
                 assert_eq!(metadata.id, None);
@@ -2213,11 +2292,31 @@ mod tests {
             }
             other => panic!("expected raw part, got {other:?}"),
         }
-        match events.get(3).expect("parse error") {
-            Err(LlmError::ParseError(message)) => {
-                assert!(message.contains("Failed to parse OpenAI-compatible event"));
+        match events.get(3).expect("error part") {
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Error { error },
+            }) => {
+                assert!(error.as_str().is_some_and(|message| {
+                    message.contains("Failed to parse OpenAI-compatible event")
+                }));
             }
-            other => panic!("expected parse error, got {other:?}"),
+            other => panic!("expected stable error part, got {other:?}"),
+        }
+        match events.get(4).expect("finish part") {
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::Finish { finish_reason, .. },
+            }) => {
+                assert_eq!(finish_reason.unified, FinishReason::Error);
+                assert_eq!(finish_reason.raw, None);
+            }
+            other => panic!("expected error finish part, got {other:?}"),
+        }
+        match events.get(5).expect("stream end") {
+            Ok(ChatStreamEvent::StreamEnd { response }) => {
+                assert_eq!(response.finish_reason, Some(FinishReason::Error));
+                assert_eq!(response.raw_finish_reason, None);
+            }
+            other => panic!("expected error stream end, got {other:?}"),
         }
     }
 

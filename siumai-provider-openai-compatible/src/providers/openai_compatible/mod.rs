@@ -281,6 +281,26 @@ pub type FireworksEmbeddingModelId = String;
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type FireworksImageModelId = String;
 
+/// AI SDK-style DeepInfra chat model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type DeepInfraChatModelId = String;
+
+/// AI SDK-style DeepInfra completion model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type DeepInfraCompletionModelId = String;
+
+/// AI SDK-style DeepInfra embedding model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type DeepInfraEmbeddingModelId = String;
+
+/// AI SDK-style DeepInfra image model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type DeepInfraImageModelId = String;
+
 /// AI SDK-style provider-scoped alias for DeepInfra compat text-family clients.
 pub type DeepInfraClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for DeepInfra compat text-family configs.
@@ -302,8 +322,9 @@ mod tests {
     pub mod base_url_tests;
 
     use super::{
-        FireworksErrorData, OpenAICompatibleChatModelId, OpenAICompatibleClient,
-        OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
+        DeepInfraChatModelId, DeepInfraCompletionModelId, DeepInfraEmbeddingModelId,
+        DeepInfraImageModelId, FireworksErrorData, OpenAICompatibleChatModelId,
+        OpenAICompatibleClient, OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
         OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData, OpenAICompatibleImageModelId,
         OpenAICompatibleRequestSettings, OpenAiCompatibleErrorData, ProviderErrorStructure,
     };
@@ -356,6 +377,14 @@ mod tests {
         .expect("exact-case error alias should deserialize");
 
         assert_eq!(data.error.message, "bad request");
+    }
+
+    #[test]
+    fn deepinfra_model_id_aliases_remain_available() {
+        let _ = std::mem::size_of::<DeepInfraChatModelId>();
+        let _ = std::mem::size_of::<DeepInfraCompletionModelId>();
+        let _ = std::mem::size_of::<DeepInfraEmbeddingModelId>();
+        let _ = std::mem::size_of::<DeepInfraImageModelId>();
     }
 
     #[test]

@@ -62,13 +62,7 @@ fn resolve_api_key(ctx: &BuildContext) -> Result<String, LlmError> {
 }
 
 fn normalize_root_base_url(base_url: &str) -> String {
-    let mut out = base_url.trim_end_matches('/').to_string();
-    for suffix in ["/openai", "/inference"] {
-        if let Some(stripped) = out.strip_suffix(suffix) {
-            out = stripped.to_string();
-        }
-    }
-    out
+    siumai_core::standards::openai::compat::base_url::deepinfra_root_base_url(base_url)
 }
 
 fn resolve_root_base_url(ctx: &BuildContext) -> String {
@@ -79,7 +73,7 @@ fn resolve_root_base_url(ctx: &BuildContext) -> String {
 }
 
 fn text_base_url(root_base_url: &str) -> String {
-    format!("{}/openai", root_base_url.trim_end_matches('/'))
+    siumai_core::standards::openai::compat::base_url::deepinfra_text_base_url(root_base_url)
 }
 
 fn inference_base_url(root_base_url: &str) -> String {

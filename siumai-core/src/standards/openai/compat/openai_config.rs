@@ -119,7 +119,7 @@ impl OpenAiCompatibleConfig {
         Self {
             provider_id: provider_id.to_string(),
             api_key: api_key.to_string(),
-            base_url: base_url.to_string(),
+            base_url: super::base_url::normalize_text_base_url(provider_id, base_url),
             model: String::new(),
             common_params: CommonParams::default(),
             http_config: HttpConfig::default(),
@@ -590,6 +590,56 @@ mod tests {
         assert_eq!(config.provider_id, "test");
         assert_eq!(config.api_key, "test-key");
         assert_eq!(config.base_url, "https://api.test.com/v1");
+    }
+
+    #[test]
+    fn test_deepinfra_config_normalizes_root_base_url_to_openai_text_prefix() {
+        let provider = super::super::provider_registry::ProviderConfig {
+            id: "deepinfra".to_string(),
+            name: "DeepInfra".to_string(),
+            base_url: "https://api.deepinfra.com/v1/openai".to_string(),
+            field_mappings: super::super::provider_registry::ProviderFieldMappings::default(),
+            capabilities: vec![
+                "completion".to_string(),
+                "tools".to_string(),
+                "vision".to_string(),
+                "embedding".to_string(),
+            ],
+            default_model: Some("meta-llama/Llama-3.3-70B-Instruct".to_string()),
+            supports_reasoning: false,
+            api_key_env: Some("DEEPINFRA_API_KEY".to_string()),
+            api_key_env_aliases: Vec::new(),
+        };
+
+        let adapter = Arc::new(super::super::provider_registry::ConfigurableAdapter::new(
+            provider,
+        ));
+
+        let root = OpenAiCompatibleConfig::new(
+            "deepinfra",
+            "test-key",
+            "https://example.com/deepinfra/v1",
+            adapter.clone(),
+        );
+        let openai = OpenAiCompatibleConfig::new(
+            "deepinfra",
+            "test-key",
+            "https://example.com/deepinfra/v1/openai",
+            adapter.clone(),
+        );
+        let inference = OpenAiCompatibleConfig::new(
+            "deepinfra",
+            "test-key",
+            "https://example.com/deepinfra/v1/inference",
+            adapter,
+        );
+
+        assert_eq!(root.base_url, "https://example.com/deepinfra/v1/openai");
+        assert_eq!(openai.base_url, "https://example.com/deepinfra/v1/openai");
+        assert_eq!(
+            inference.base_url,
+            "https://example.com/deepinfra/v1/openai"
+        );
     }
 
     #[test]

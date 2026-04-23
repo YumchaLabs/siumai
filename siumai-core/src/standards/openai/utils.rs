@@ -1349,6 +1349,7 @@ mod tests {
                     "openai",
                     "file-image",
                 )),
+                media_type: None,
                 detail: Some(crate::types::ImageDetail::High),
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,
@@ -1553,10 +1554,10 @@ mod tests {
                 parts[2]["url"],
                 serde_json::json!("https://example.com/report.pdf")
             );
-            assert_eq!(parts[3]["type"], serde_json::json!("file-reference"));
+            assert_eq!(parts[3]["type"], serde_json::json!("file-id"));
             assert_eq!(
-                parts[3]["providerReference"]["openai"],
-                serde_json::json!("file_openai")
+                parts[3]["fileId"],
+                serde_json::json!({ "openai": "file_openai" })
             );
             assert_eq!(parts[4]["type"], serde_json::json!("image-data"));
             assert_eq!(parts[4]["mediaType"], serde_json::json!("image/png"));
@@ -1565,10 +1566,10 @@ mod tests {
                 parts[5]["url"],
                 serde_json::json!("https://example.com/image.png")
             );
-            assert_eq!(parts[6]["type"], serde_json::json!("image-file-reference"));
+            assert_eq!(parts[6]["type"], serde_json::json!("image-file-id"));
             assert_eq!(
-                parts[6]["providerReference"]["openai"],
-                serde_json::json!("image_openai")
+                parts[6]["fileId"],
+                serde_json::json!({ "openai": "image_openai" })
             );
             assert_eq!(parts[7]["type"], serde_json::json!("custom"));
             assert_eq!(
@@ -1766,6 +1767,7 @@ mod tests {
                     "openai",
                     "file-image",
                 )),
+                media_type: None,
                 detail: None,
                 provider_options: ProviderOptionsMap::default(),
                 provider_metadata: None,
