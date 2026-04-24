@@ -51,6 +51,8 @@ Status legend:
 - [x] Add passive AI SDK callback/event payload structures for `GenerateTextStartEvent`,
   `GenerateTextStepStartEvent`, `GenerateTextEndEvent`, `StreamTextChunkEvent`,
   `ToolExecutionStartEvent`, `ToolExecutionEndEvent`, and `ToolOutput`.
+- [x] Add passive AI SDK step-control and policy payloads for `StopCondition`, `filterActiveTools`, prepare-step
+  options/results, tool approval status/configuration/context, and tool-call repair context/result.
 - [x] Add passive AI SDK output-part shapes for `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`.
 - [x] Add passive AI SDK output-part shapes for `ToolError` and `ToolOutputDenied`.

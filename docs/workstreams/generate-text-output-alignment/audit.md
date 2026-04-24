@@ -15,6 +15,11 @@ Reference files:
 - `repo-ref/ai/packages/ai/src/generate-text/tool-output-denied.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/core-events.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-execution-events.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/stop-condition.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/filter-active-tool.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/prepare-step.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-approval-configuration.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-call-repair-function.ts`
 - `repo-ref/ai/packages/ai/src/util/fix-json.ts`
 - `repo-ref/ai/packages/ai/src/util/parse-partial-json.ts`
 - `repo-ref/ai/packages/openai/src/chat/openai-chat-language-model.ts`
@@ -90,6 +95,17 @@ runtime invokes those callbacks.
 | `StreamTextChunkEvent` | Supported as passive event shape | Accepts either the passive `TextStreamPart` union or lifecycle markers `ai.stream.firstChunk` / `ai.stream.finish`. |
 | `ToolExecutionStartEvent` | Supported as passive event shape | Preserves `callId`, model messages, full `toolCall`, and optional `toolContext`. |
 | `ToolExecutionEndEvent` | Supported as passive event shape | Preserves `durationMs`, model messages, full `toolCall`, optional `toolContext`, and `ToolOutput`. |
+
+## Step Control and Tool Policy Payloads
+
+| AI SDK structure | Siumai status | Notes |
+| --- | --- | --- |
+| `StopCondition` helpers | Supported as symbolic Rust helpers | `StopCondition` represents the built-in `isStepCount`, `isLoopFinished`, and `hasToolCall` helpers as serializable data, and `is_stop_condition_met(...)` evaluates those built-ins against `GenerateTextStepResult` values. Custom function predicates remain intentionally opaque. |
+| `filterActiveTools` | Supported as Rust helper | `filter_active_tools(...)` filters `Vec<Tool>` by function or provider-defined tool names and returns `None` when the tool set itself is absent, matching the upstream helper's core behavior. |
+| `PrepareStepFunction` options/result | Supported as passive data shape | `PrepareStepOptions` and `PrepareStepResult` preserve the step number, previous steps, selected model identity, messages, context snapshots, and optional per-step overrides for model, tool choice, active tools, system/messages, contexts, and provider options. |
+| `ToolApprovalStatus` | Supported as passive data shape | Supports the string and object forms (`not-applicable`, `approved`, `denied`, `user-approval`, plus optional reason where upstream permits one). |
+| `ToolApprovalConfiguration` | Supported for static per-tool status maps | Function-valued approval callbacks are not serialized; `ToolApprovalDecisionContext` preserves the generic approval callback input payload for adapters that own executable logic. |
+| `ToolCallRepairFunction` context/result | Supported as passive data shape | `ToolCallRepairContext` stores system/messages, failed tool call, available tools, known input schemas keyed by tool name, and a narrowed repair error. The repair result is `Option<ToolCall>`, matching upstream `LanguageModelV4ToolCall | null` intent without depending on executable schema callbacks. |
 
 ## Streaming Partial Output
 

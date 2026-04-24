@@ -8,7 +8,8 @@ use super::chat::{ContentPart, SourcePart};
 use super::{
     AssistantModelMessage, DataContent, EmbeddingUsage, FinishReason, HttpRequestInfo,
     HttpResponseInfo, ModelMessage, ProviderMetadataMap, ProviderOptionsMap, ResponseMetadata,
-    StandardizedPrompt, Tool, ToolChoice, ToolModelMessage, ToolResultOutput, Usage, Warning,
+    StandardizedPrompt, SystemPrompt, Tool, ToolChoice, ToolModelMessage, ToolResultOutput, Usage,
+    Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -2651,10 +2652,143 @@ impl<NAME, INPUT, OUTPUT> From<TextStreamRawPart> for TextStreamPart<NAME, INPUT
 
 /// Passive representation of AI SDK `StopCondition`.
 ///
-/// The TypeScript surface accepts predicates/functions. Rust keeps this as JSON so
-/// callers can record symbolic stop-condition configuration without pretending those
-/// callbacks are executable across the spec boundary.
-pub type StopCondition = JSONValue;
+/// The TypeScript surface accepts predicates/functions. Rust exposes the built-in
+/// conditions as symbolic data and evaluates only those built-ins. `Custom` is a
+/// transport lane for application-owned metadata and never evaluates to `true`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum StopCondition {
+    /// Equivalent to AI SDK `isStepCount(stepCount)`.
+    StepCount {
+        /// Number of completed steps required for the condition to match.
+        #[serde(rename = "stepCount", alias = "step_count", alias = "maxSteps")]
+        step_count: usize,
+    },
+    /// Equivalent to AI SDK `isLoopFinished()`, which never stops by itself.
+    LoopFinished,
+    /// Equivalent to AI SDK `hasToolCall(...toolNames)`.
+    ToolCall {
+        /// Tool names that should stop the loop when present in the latest step.
+        #[serde(rename = "toolNames", alias = "tool_names")]
+        tool_names: Vec<String>,
+    },
+    /// Application-owned symbolic condition metadata.
+    Custom {
+        /// Opaque condition payload.
+        value: JSONValue,
+    },
+}
+
+impl StopCondition {
+    /// Create a step-count stop condition.
+    pub const fn is_step_count(step_count: usize) -> Self {
+        Self::StepCount { step_count }
+    }
+
+    /// Create a condition that never stops the loop by itself.
+    pub const fn is_loop_finished() -> Self {
+        Self::LoopFinished
+    }
+
+    /// Create a condition that matches tool calls in the latest step.
+    pub fn has_tool_call(tool_names: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        Self::ToolCall {
+            tool_names: tool_names.into_iter().map(Into::into).collect(),
+        }
+    }
+
+    /// Create an application-owned custom condition.
+    pub fn custom(value: impl Into<JSONValue>) -> Self {
+        Self::Custom {
+            value: value.into(),
+        }
+    }
+
+    /// Evaluate the built-in stop condition against completed steps.
+    pub fn is_met<NAME, INPUT, OUTPUT>(
+        &self,
+        steps: &[GenerateTextStepResult<NAME, INPUT, OUTPUT>],
+    ) -> bool
+    where
+        NAME: AsRef<str>,
+    {
+        match self {
+            Self::StepCount { step_count } => steps.len() == *step_count,
+            Self::LoopFinished | Self::Custom { .. } => false,
+            Self::ToolCall { tool_names } => {
+                let Some(step) = steps.last() else {
+                    return false;
+                };
+                step.tool_calls.iter().any(|tool_call| {
+                    tool_names
+                        .iter()
+                        .any(|tool_name| tool_name == tool_call.tool_name.as_ref())
+                })
+            }
+        }
+    }
+}
+
+/// Create a step-count stop condition.
+pub const fn is_step_count(step_count: usize) -> StopCondition {
+    StopCondition::is_step_count(step_count)
+}
+
+/// Create a condition that never stops the loop by itself.
+pub const fn is_loop_finished() -> StopCondition {
+    StopCondition::is_loop_finished()
+}
+
+/// Create a condition that matches tool calls in the latest step.
+pub fn has_tool_call(tool_names: impl IntoIterator<Item = impl Into<String>>) -> StopCondition {
+    StopCondition::has_tool_call(tool_names)
+}
+
+/// Evaluate built-in stop conditions, returning true when any condition matches.
+pub fn is_stop_condition_met<NAME, INPUT, OUTPUT>(
+    stop_conditions: &[StopCondition],
+    steps: &[GenerateTextStepResult<NAME, INPUT, OUTPUT>],
+) -> bool
+where
+    NAME: AsRef<str>,
+{
+    stop_conditions
+        .iter()
+        .any(|condition| condition.is_met(steps))
+}
+
+fn tool_name(tool: &Tool) -> &str {
+    match tool {
+        Tool::Function { function } => function.name.as_str(),
+        Tool::ProviderDefined(tool) => tool.name.as_str(),
+    }
+}
+
+/// Filter tools to the active tool names, matching AI SDK `filterActiveTools`.
+pub fn filter_active_tools<N>(
+    tools: Option<&[Tool]>,
+    active_tools: Option<&[N]>,
+) -> Option<Vec<Tool>>
+where
+    N: AsRef<str>,
+{
+    let tools = tools?;
+    let Some(active_tools) = active_tools else {
+        return Some(tools.to_vec());
+    };
+
+    Some(
+        tools
+            .iter()
+            .filter(|tool| {
+                active_tools
+                    .iter()
+                    .any(|active_tool| active_tool.as_ref() == tool_name(tool))
+            })
+            .cloned()
+            .collect(),
+    )
+}
 
 /// Common model information used across AI SDK callback events.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2768,6 +2902,54 @@ pub struct GenerateTextStepStartEvent<
     /// Standardized prompt flattened into the callback payload.
     #[serde(flatten)]
     pub prompt: StandardizedPrompt,
+}
+
+/// Passive options passed to an AI SDK `PrepareStepFunction`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareStepOptions<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// Steps that have already completed.
+    pub steps: Vec<GenerateTextStepResult<NAME, INPUT, OUTPUT>>,
+    /// Zero-based step index that is about to run.
+    pub step_number: u32,
+    /// Model selected for the step.
+    pub model: CallbackModelInfo,
+    /// Messages that will be sent for the current step.
+    pub messages: Vec<ModelMessage>,
+    /// Tool context snapshot.
+    pub tools_context: Context,
+    /// Runtime context snapshot.
+    pub runtime_context: Context,
+}
+
+/// Passive result returned by an AI SDK `PrepareStepFunction`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareStepResult {
+    /// Optional model override for this step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<CallbackModelInfo>,
+    /// Optional tool choice override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+    /// Optional active tool list override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_tools: Option<Vec<String>>,
+    /// Optional system prompt override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemPrompt>,
+    /// Optional full message list override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<ModelMessage>>,
+    /// Optional tool context override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools_context: Option<Context>,
+    /// Optional runtime context override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub runtime_context: Option<Context>,
+    /// Optional provider options override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<ProviderOptions>,
 }
 
 /// Event passed to AI SDK `onStepFinish` callbacks.
@@ -2899,6 +3081,172 @@ impl<NAME, INPUT, OUTPUT> StreamTextChunkEvent<NAME, INPUT, OUTPUT> {
         }
     }
 }
+
+/// AI SDK tool approval status discriminator.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToolApprovalStatusType {
+    /// The tool does not require approval.
+    NotApplicable,
+    /// The tool is automatically approved.
+    Approved,
+    /// The tool is automatically denied.
+    Denied,
+    /// The tool requires user approval.
+    UserApproval,
+}
+
+/// Object-form AI SDK tool approval status.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolApprovalStatusDetails {
+    /// Approval status discriminator.
+    #[serde(rename = "type")]
+    pub status_type: ToolApprovalStatusType,
+    /// Optional approval/denial reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl ToolApprovalStatusDetails {
+    /// Create a detailed approval status.
+    pub const fn new(status_type: ToolApprovalStatusType) -> Self {
+        Self {
+            status_type,
+            reason: None,
+        }
+    }
+
+    /// Attach an approval/denial reason.
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+}
+
+/// AI SDK tool approval status.
+///
+/// Upstream also treats `undefined` as not-applicable; Rust represents that with
+/// `Option<ToolApprovalStatus>`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum ToolApprovalStatus {
+    /// String status form.
+    Simple(ToolApprovalStatusType),
+    /// Object status form.
+    Detailed(ToolApprovalStatusDetails),
+}
+
+impl ToolApprovalStatus {
+    /// Create a string-form not-applicable status.
+    pub const fn not_applicable() -> Self {
+        Self::Simple(ToolApprovalStatusType::NotApplicable)
+    }
+
+    /// Create a string-form approved status.
+    pub const fn approved() -> Self {
+        Self::Simple(ToolApprovalStatusType::Approved)
+    }
+
+    /// Create a string-form denied status.
+    pub const fn denied() -> Self {
+        Self::Simple(ToolApprovalStatusType::Denied)
+    }
+
+    /// Create a string-form user-approval status.
+    pub const fn user_approval() -> Self {
+        Self::Simple(ToolApprovalStatusType::UserApproval)
+    }
+
+    /// Create an object-form status with an optional reason.
+    pub fn detailed(status_type: ToolApprovalStatusType, reason: Option<String>) -> Self {
+        Self::Detailed(ToolApprovalStatusDetails {
+            status_type,
+            reason,
+        })
+    }
+}
+
+/// Static per-tool approval configuration.
+///
+/// AI SDK also accepts approval functions. Rust keeps executable callbacks out of
+/// the spec layer and exposes the serializable per-tool status map honestly.
+pub type ToolApprovalConfiguration = HashMap<String, ToolApprovalStatus>;
+
+/// Passive options passed to a generic AI SDK tool approval function.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolApprovalDecisionContext<NAME = String, INPUT = JSONValue> {
+    /// Tool call that needs approval.
+    pub tool_call: ToolCall<NAME, INPUT>,
+    /// Tools available to the model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Tool>>,
+    /// Tool context snapshot.
+    pub tools_context: Context,
+    /// Runtime context snapshot.
+    pub runtime_context: Context,
+    /// Messages sent to the model before the assistant tool-call response.
+    pub messages: Vec<ModelMessage>,
+}
+
+/// Passive repair error category for AI SDK `ToolCallRepairFunction`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum ToolCallRepairError {
+    /// The requested tool name is not available.
+    NoSuchTool {
+        /// Tool name from the failed call.
+        #[serde(rename = "toolName", alias = "tool_name")]
+        tool_name: String,
+        /// Available tool names when known.
+        #[serde(
+            rename = "availableTools",
+            alias = "available_tools",
+            default,
+            skip_serializing_if = "Vec::is_empty"
+        )]
+        available_tools: Vec<String>,
+    },
+    /// The tool input failed schema validation or parsing.
+    InvalidToolInput {
+        /// Tool name from the failed call.
+        #[serde(rename = "toolName", alias = "tool_name")]
+        tool_name: String,
+        /// Provider/application error payload.
+        error: JSONValue,
+    },
+    /// Application-owned repair error payload.
+    Other {
+        /// Opaque error payload.
+        error: JSONValue,
+    },
+}
+
+/// Passive options passed to AI SDK `ToolCallRepairFunction`.
+///
+/// Upstream receives an `inputSchema(toolName)` function. Rust stores the known
+/// input schemas by tool name instead of pretending to serialize that callback.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCallRepairContext<NAME = String, INPUT = JSONValue> {
+    /// Optional system prompt override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemPrompt>,
+    /// Messages in the current generation step.
+    pub messages: Vec<ModelMessage>,
+    /// Tool call that failed to parse or validate.
+    pub tool_call: ToolCall<NAME, INPUT>,
+    /// Tools available to the model.
+    pub tools: Vec<Tool>,
+    /// Input schemas keyed by tool name.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub input_schemas: HashMap<String, JSONSchema7>,
+    /// Error that caused repair to be attempted.
+    pub error: ToolCallRepairError,
+}
+
+/// Passive repair result returned by an AI SDK `ToolCallRepairFunction`.
+pub type ToolCallRepairResult<NAME = String, INPUT = JSONValue> = Option<ToolCall<NAME, INPUT>>;
 
 /// Event passed to AI SDK tool execution start callbacks.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -4827,7 +5175,7 @@ mod tests {
                 ("x-drop".to_string(), None),
             ])),
             provider_options: Some(provider_options.clone()),
-            stop_when: vec![serde_json::json!({ "type": "step-count", "maxSteps": 2 })],
+            stop_when: vec![StopCondition::is_step_count(2)],
             output: Some(serde_json::json!({ "type": "object" })),
             tools_context: tools_context.clone(),
             runtime_context: runtime_context.clone(),
@@ -4857,6 +5205,10 @@ mod tests {
         );
         assert_eq!(json["maxRetries"], serde_json::json!(2));
         assert_eq!(json["timeout"]["totalMs"], serde_json::json!(30_000));
+        assert_eq!(
+            json["stopWhen"][0],
+            serde_json::json!({ "type": "step-count", "stepCount": 2 })
+        );
         assert_eq!(json["headers"]["x-test"], serde_json::json!("1"));
         assert!(json["headers"]["x-drop"].is_null());
         assert_eq!(json["messages"][0]["role"], serde_json::json!("assistant"));
@@ -4883,6 +5235,102 @@ mod tests {
         assert_eq!(step_json["toolChoice"], serde_json::json!("auto"));
         assert_eq!(step_json["activeTools"][0], serde_json::json!("search"));
         assert!(step_json["steps"].as_array().is_some_and(Vec::is_empty));
+    }
+
+    #[test]
+    fn stop_condition_helpers_match_ai_sdk_builtin_semantics() {
+        fn step_with_tool_calls(
+            step_number: u32,
+            tool_calls: Vec<ToolCall<String, JSONValue>>,
+        ) -> GenerateTextStepResult {
+            let timestamp = DateTime::parse_from_rfc3339("2026-04-24T00:00:00Z")
+                .expect("timestamp")
+                .with_timezone(&Utc);
+            let response = GenerateTextResponseMetadata::new(LanguageModelResponseMetadata {
+                id: format!("resp_{step_number}"),
+                timestamp,
+                model_id: "gpt-test".to_string(),
+                headers: None,
+            });
+
+            GenerateTextStepResult {
+                call_id: "call_1".to_string(),
+                step_number,
+                model: GenerateTextModelInfo::new("openai", "gpt-test"),
+                tools_context: Context::new(),
+                runtime_context: Context::new(),
+                content: Vec::new(),
+                text: String::new(),
+                reasoning: Vec::new(),
+                reasoning_text: None,
+                files: Vec::new(),
+                sources: Vec::new(),
+                tool_calls: tool_calls.clone(),
+                static_tool_calls: tool_calls,
+                dynamic_tool_calls: Vec::new(),
+                tool_results: Vec::new(),
+                static_tool_results: Vec::new(),
+                dynamic_tool_results: Vec::new(),
+                finish_reason: FinishReason::Stop,
+                raw_finish_reason: None,
+                usage: LanguageModelUsage::default(),
+                warnings: None,
+                request: LanguageModelRequestMetadata { body: None },
+                response,
+                provider_metadata: None,
+            }
+        }
+
+        let steps = vec![
+            step_with_tool_calls(0, Vec::new()),
+            step_with_tool_calls(
+                1,
+                vec![ToolCall::new(
+                    "call_final",
+                    "finalAnswer".to_string(),
+                    serde_json::json!({}),
+                )],
+            ),
+        ];
+
+        assert!(StopCondition::is_step_count(2).is_met(&steps));
+        assert!(!StopCondition::is_step_count(1).is_met(&steps));
+        assert!(!StopCondition::is_loop_finished().is_met(&steps));
+        assert!(StopCondition::has_tool_call(["search", "finalAnswer"]).is_met(&steps));
+        assert!(!StopCondition::has_tool_call(["search"]).is_met(&steps));
+        assert!(!StopCondition::custom(serde_json::json!({ "name": "custom" })).is_met(&steps));
+        assert!(is_stop_condition_met(
+            &[is_loop_finished(), has_tool_call(["finalAnswer"])],
+            &steps
+        ));
+    }
+
+    #[test]
+    fn filter_active_tools_matches_ai_sdk_helper_semantics() {
+        let tools = vec![
+            Tool::function(
+                "search",
+                "Search docs",
+                serde_json::json!({ "type": "object" }),
+            ),
+            Tool::function(
+                "weather",
+                "Get weather",
+                serde_json::json!({ "type": "object" }),
+            ),
+            Tool::provider_defined("openai.web_search", "webSearch"),
+        ];
+
+        let all_tools = filter_active_tools::<String>(Some(&tools), None)
+            .expect("tools should be returned when active tools are absent");
+        assert_eq!(all_tools.len(), 3);
+
+        let filtered = filter_active_tools(Some(&tools), Some(&["weather", "webSearch"]))
+            .expect("filtered tools should be returned");
+        let filtered_names: Vec<&str> = filtered.iter().map(tool_name).collect();
+        assert_eq!(filtered_names, vec!["weather", "webSearch"]);
+
+        assert!(filter_active_tools::<String>(None, Some(&[])).is_none());
     }
 
     #[test]
@@ -5042,6 +5490,159 @@ mod tests {
             "toolName": "delete"
         });
         assert!(serde_json::from_value::<ToolOutputDenied>(wrong_type).is_err());
+    }
+
+    #[test]
+    fn prepare_step_approval_and_repair_shapes_match_ai_sdk_options() {
+        let mut provider_options = ProviderOptionsMap::new();
+        provider_options.insert("anthropic", serde_json::json!({ "container": "ctn_1" }));
+        let mut tools_context = Context::new();
+        tools_context.insert("tenant".to_string(), serde_json::json!("docs"));
+        let mut runtime_context = Context::new();
+        runtime_context.insert("traceId".to_string(), serde_json::json!("trace_1"));
+        let messages = vec![ModelMessage::Assistant(AssistantModelMessage::new(
+            AssistantContent::text("calling search"),
+        ))];
+
+        let prepare_result = PrepareStepResult {
+            model: Some(CallbackModelInfo::new("anthropic", "claude-test")),
+            tool_choice: Some(ToolChoice::tool("search")),
+            active_tools: Some(vec!["search".to_string()]),
+            system: Some(SystemPrompt::Text("Use the docs.".to_string())),
+            messages: Some(messages.clone()),
+            tools_context: Some(tools_context.clone()),
+            runtime_context: Some(runtime_context.clone()),
+            provider_options: Some(provider_options),
+        };
+        let prepare_json =
+            serde_json::to_value(&prepare_result).expect("serialize prepare-step result");
+
+        assert_eq!(
+            prepare_json["model"]["provider"],
+            serde_json::json!("anthropic")
+        );
+        assert_eq!(
+            prepare_json["model"]["modelId"],
+            serde_json::json!("claude-test")
+        );
+        assert_eq!(
+            prepare_json["toolChoice"]["toolName"],
+            serde_json::json!("search")
+        );
+        assert_eq!(prepare_json["activeTools"][0], serde_json::json!("search"));
+        assert_eq!(prepare_json["system"], serde_json::json!("Use the docs."));
+        assert_eq!(
+            prepare_json["toolsContext"]["tenant"],
+            serde_json::json!("docs")
+        );
+        assert_eq!(
+            prepare_json["runtimeContext"]["traceId"],
+            serde_json::json!("trace_1")
+        );
+        assert_eq!(
+            prepare_json["providerOptions"]["anthropic"]["container"],
+            serde_json::json!("ctn_1")
+        );
+
+        let approval_status = ToolApprovalStatus::detailed(
+            ToolApprovalStatusType::Denied,
+            Some("policy denied".to_string()),
+        );
+        let approval_status_json =
+            serde_json::to_value(&approval_status).expect("serialize approval status");
+        assert_eq!(
+            approval_status_json,
+            serde_json::json!({ "type": "denied", "reason": "policy denied" })
+        );
+        assert_eq!(
+            serde_json::to_value(ToolApprovalStatus::user_approval())
+                .expect("serialize simple approval status"),
+            serde_json::json!("user-approval")
+        );
+
+        let approval_config = ToolApprovalConfiguration::from([(
+            "search".to_string(),
+            ToolApprovalStatus::approved(),
+        )]);
+        let approval_config_json =
+            serde_json::to_value(&approval_config).expect("serialize approval config");
+        assert_eq!(
+            approval_config_json["search"],
+            serde_json::json!("approved")
+        );
+
+        let tool_call = ToolCall::new(
+            "call_1",
+            "search".to_string(),
+            serde_json::json!({ "query": "rust" }),
+        );
+        let approval_context = ToolApprovalDecisionContext {
+            tool_call: tool_call.clone(),
+            tools: Some(vec![Tool::function(
+                "search",
+                "Search docs",
+                serde_json::json!({ "type": "object" }),
+            )]),
+            tools_context: tools_context.clone(),
+            runtime_context: runtime_context.clone(),
+            messages: messages.clone(),
+        };
+        let approval_context_json =
+            serde_json::to_value(&approval_context).expect("serialize approval context");
+        assert_eq!(
+            approval_context_json["toolCall"]["toolName"],
+            serde_json::json!("search")
+        );
+        assert_eq!(
+            approval_context_json["toolsContext"]["tenant"],
+            serde_json::json!("docs")
+        );
+
+        let repair_context = ToolCallRepairContext {
+            system: Some(SystemPrompt::Text("Use tools carefully.".to_string())),
+            messages,
+            tool_call: tool_call.clone(),
+            tools: vec![Tool::function(
+                "lookup",
+                "Lookup docs",
+                serde_json::json!({ "type": "object" }),
+            )],
+            input_schemas: HashMap::from([(
+                "lookup".to_string(),
+                serde_json::json!({ "type": "object" }),
+            )]),
+            error: ToolCallRepairError::NoSuchTool {
+                tool_name: "search".to_string(),
+                available_tools: vec!["lookup".to_string()],
+            },
+        };
+        let repair_json = serde_json::to_value(&repair_context).expect("serialize repair context");
+        assert_eq!(
+            repair_json["toolCall"]["toolName"],
+            serde_json::json!("search")
+        );
+        assert_eq!(
+            repair_json["inputSchemas"]["lookup"]["type"],
+            serde_json::json!("object")
+        );
+        assert_eq!(
+            repair_json["error"],
+            serde_json::json!({
+                "type": "no-such-tool",
+                "toolName": "search",
+                "availableTools": ["lookup"]
+            })
+        );
+
+        let repair_result: ToolCallRepairResult = Some(ToolCall::new(
+            "call_1",
+            "lookup".to_string(),
+            serde_json::json!({}),
+        ));
+        let repair_result_json =
+            serde_json::to_value(&repair_result).expect("serialize repair result");
+        assert_eq!(repair_result_json["type"], serde_json::json!("tool-call"));
+        assert_eq!(repair_result_json["toolName"], serde_json::json!("lookup"));
     }
 
     #[test]

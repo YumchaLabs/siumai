@@ -124,6 +124,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ProviderMetadata>();
     let _ = size_of::<ProviderOptions>();
     let _ = size_of::<ProviderReference>();
+    let _ = size_of::<PrepareStepOptions>();
+    let _ = size_of::<PrepareStepResult>();
     let _ = size_of::<ReasoningFileOutput>();
     let _ = size_of::<ReasoningOutput>();
     let _ = size_of::<RequestOptions>();
@@ -157,6 +159,14 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<PromptExecutionError>();
     let _ = size_of::<PromptValidationError>();
     let _ = size_of::<ToolCall<String, JSONValue>>();
+    let _ = size_of::<ToolApprovalConfiguration>();
+    let _ = size_of::<ToolApprovalDecisionContext>();
+    let _ = size_of::<ToolApprovalStatus>();
+    let _ = size_of::<ToolApprovalStatusDetails>();
+    let _ = size_of::<ToolApprovalStatusType>();
+    let _ = size_of::<ToolCallRepairContext>();
+    let _ = size_of::<ToolCallRepairError>();
+    let _ = size_of::<ToolCallRepairResult>();
     let _ = size_of::<ToolExecutionEndEvent>();
     let _ = size_of::<ToolExecutionStartEvent>();
     let _ = size_of::<ToolResult<String, JSONValue, ToolResultOutput>>();
@@ -186,6 +196,13 @@ fn public_surface_unified_imports_compile() {
     let _ = get_step_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_chunk_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_tool_timeout_ms as fn(Option<&TimeoutConfiguration>, &str) -> Option<u64>;
+    let _ = is_step_count as fn(usize) -> StopCondition;
+    let _ = is_loop_finished as fn() -> StopCondition;
+    let _ = is_stop_condition_met::<String, JSONValue, ToolResultOutput>
+        as fn(&[StopCondition], &[GenerateTextStepResult]) -> bool;
+    let _ = has_tool_call(["search"]);
+    let _ = filter_active_tools::<String>
+        as fn(Option<&[Tool]>, Option<&[String]>) -> Option<Vec<Tool>>;
     let _ = create_null_language_model_usage as fn() -> LanguageModelUsage;
     let _ = add_language_model_usage
         as fn(&LanguageModelUsage, &LanguageModelUsage) -> LanguageModelUsage;

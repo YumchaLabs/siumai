@@ -52,6 +52,11 @@ References:
 - `repo-ref/ai/packages/ai/src/generate-text/stream-text-result.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/core-events.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-execution-events.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/stop-condition.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/filter-active-tool.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/prepare-step.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-approval-configuration.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-call-repair-function.ts`
 
 Status legend:
 
@@ -165,9 +170,11 @@ The high-level generate-text data-shape gap is also narrower now: Siumai exposes
 the AI SDK callback/event payload views from `core-events.ts` and `tool-execution-events.ts`
 (`GenerateTextStartEvent`, `GenerateTextStepStartEvent`, `GenerateTextEndEvent`,
 `StreamTextChunkEvent`, `ToolExecutionStartEvent`, `ToolExecutionEndEvent`, and `ToolOutput`).
-These remain intentionally separate from runtime `ChatStreamPart` and current text helper returns,
-so the structure is importable and serde-aligned without falsely claiming full AI SDK
-`StreamTextResult` multi-lane runtime behavior.
+The same pass now covers the pure step-control/configuration data around `stop-condition.ts`,
+`filter-active-tool.ts`, `prepare-step.ts`, tool approval configuration, and tool-call repair
+contexts. These remain intentionally separate from runtime `ChatStreamPart` and current text
+helper returns, so the structure is importable and serde-aligned without falsely claiming full AI
+SDK `StreamTextResult` multi-lane runtime behavior or serializing TypeScript callback functions.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now
