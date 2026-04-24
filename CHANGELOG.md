@@ -124,6 +124,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `CommonParamsBuilder` now also supports `max_completion_tokens`, `CommonParams::cache_hash()`
   now includes it, and this slice is tracked under
   `docs/workstreams/language-model-call-options-alignment/`.
+- Shared usage helpers now mirror the AI SDK `usage.ts` helper surface with Rust-style names:
+  `create_null_language_model_usage`, `add_language_model_usage`, and `add_image_model_usage`
+  are exported through the stable facade alongside `LanguageModelUsage` and `ImageModelUsage`.
 - Prompt-side AI SDK compatibility helpers are now exposed on the stable Rust facade:
   deprecated `CallSettings` now exists as the shared projection of `LanguageModelCallOptions`
   plus non-timeout `RequestOptions`, free timeout helper functions mirror the AI SDK

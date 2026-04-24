@@ -1,6 +1,6 @@
 # Shared Type Surface Alignment - TODO
 
-Last updated: 2026-04-21
+Last updated: 2026-04-24
 
 Status legend:
 
@@ -36,6 +36,9 @@ Status legend:
 - [x] Re-export the new shared names from `siumai::prelude::unified::*`.
 - [x] Add public compile-guard coverage in `siumai/tests/public_surface_imports_test.rs`.
 - [x] Add local unit coverage for warning/metadata/usage conversion behavior.
+- [x] Expose Rust-style equivalents of the AI SDK usage helpers:
+  `create_null_language_model_usage`, `add_language_model_usage`, and
+  `add_image_model_usage`.
 
 ## Track D - Docs and changelog
 
@@ -44,7 +47,7 @@ Status legend:
 
 ## Track E - Intentional deferrals
 
-- [-] Do not expose `RequestOptions`, `TimeoutConfiguration`, or `LanguageModelCallOptions` in
-  this workstream without a separate design.
+- [-] `RequestOptions`, `TimeoutConfiguration`, and `LanguageModelCallOptions` are tracked by their
+  own dedicated workstreams.
 - [-] Do not pretend that every provider already captures speech/transcription response bodies in a
   stable cross-provider way.

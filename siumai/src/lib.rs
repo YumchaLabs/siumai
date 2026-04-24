@@ -2064,7 +2064,8 @@ pub mod prelude {
             ToolContent, ToolContentPart, ToolModelMessage, ToolResult, ToolResultOutput,
             ToolResultPart, TranscriptionModelResponseMetadata, TtsRequest, TtsResponse, Usage,
             UserContent, UserContentPart, UserModelMessage, VideoModelProviderMetadata,
-            VideoModelResponseMetadata, Warning, convert_data_content_to_base64_string,
+            VideoModelResponseMetadata, Warning, add_image_model_usage, add_language_model_usage,
+            convert_data_content_to_base64_string, create_null_language_model_usage,
             get_chunk_timeout_ms, get_step_timeout_ms, get_tool_timeout_ms, get_total_timeout_ms,
         };
 

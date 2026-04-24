@@ -1,6 +1,6 @@
 # Shared Type Surface Alignment - Design
 
-Last updated: 2026-04-21
+Last updated: 2026-04-24
 
 ## Problem
 
@@ -93,6 +93,15 @@ important shared carriers need explicit Rust structs:
 - request/response metadata structs expose the AI package fields directly and convert from the
   existing runtime carriers
 
+The upstream `usage.ts` helper functions are also mirrored with Rust-style names:
+
+- `create_null_language_model_usage()`
+- `add_language_model_usage(...)`
+- `add_image_model_usage(...)`
+
+These helpers are thin wrappers around the stable usage structs. Aggregated language-model usage
+intentionally drops raw provider usage metadata, matching the upstream aggregate helper behavior.
+
 This avoids the trap of “matching the name but not the data structure”.
 
 ### 3. Extend stable runtime carriers where the public contract requires it
@@ -138,8 +147,6 @@ This workstream is currently locked by:
 
 ## Deferred follow-up
 
-- Audit whether the AI package `LanguageModelUsage` helper functions deserve public Rust helper
-  functions instead of only `From<Usage>` plus `merge`.
 - Design `RequestOptions`, `TimeoutConfiguration`, and `LanguageModelCallOptions` separately.
 - Revisit response-body capture for speech/transcription once the runtime has a stable place to
   preserve it across providers.

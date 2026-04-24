@@ -85,6 +85,10 @@ fn public_surface_unified_imports_compile() {
     let _ = get_step_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_chunk_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_tool_timeout_ms as fn(Option<&TimeoutConfiguration>, &str) -> Option<u64>;
+    let _ = create_null_language_model_usage as fn() -> LanguageModelUsage;
+    let _ = add_language_model_usage
+        as fn(&LanguageModelUsage, &LanguageModelUsage) -> LanguageModelUsage;
+    let _ = add_image_model_usage as fn(&ImageModelUsage, &ImageModelUsage) -> ImageModelUsage;
     let _ = convert_data_content_to_base64_string as fn(&DataContent) -> String;
 
     let shared_data = DataContent::binary(vec![1, 2, 3]);

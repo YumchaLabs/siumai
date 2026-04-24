@@ -854,6 +854,24 @@ impl LanguageModelUsage {
     }
 }
 
+/// AI SDK-style helper for creating an empty language-model usage payload.
+pub fn create_null_language_model_usage() -> LanguageModelUsage {
+    LanguageModelUsage::default()
+}
+
+/// AI SDK-style helper for adding two language-model usage payloads.
+///
+/// Raw provider usage is intentionally dropped on the aggregated result, matching the
+/// upstream helper's normalized aggregate shape.
+pub fn add_language_model_usage(
+    usage1: &LanguageModelUsage,
+    usage2: &LanguageModelUsage,
+) -> LanguageModelUsage {
+    let mut merged = usage1.clone();
+    merged.merge(usage2);
+    merged
+}
+
 impl From<Usage> for LanguageModelUsage {
     fn from(value: Usage) -> Self {
         Self::from(&value)
@@ -949,6 +967,16 @@ impl ImageModelUsage {
         self.output_tokens = add_optional_u32(self.output_tokens, other.output_tokens);
         self.total_tokens = add_optional_u32(self.total_tokens, other.total_tokens);
     }
+}
+
+/// AI SDK-style helper for adding two image-model usage payloads.
+pub fn add_image_model_usage(
+    usage1: &ImageModelUsage,
+    usage2: &ImageModelUsage,
+) -> ImageModelUsage {
+    let mut merged = usage1.clone();
+    merged.merge(usage2);
+    merged
 }
 
 /// AI SDK-style request metadata for language-model helpers.
@@ -1293,6 +1321,8 @@ mod tests {
         let embedding = EmbeddingModelUsage::from(EmbeddingUsage::new(12, 12));
         let mut image = ImageModelUsage::new(Some(3), Some(5), Some(8));
         image.merge(&ImageModelUsage::new(Some(2), None, Some(2)));
+        let added_image =
+            add_image_model_usage(&image, &ImageModelUsage::new(None, Some(1), Some(1)));
         let call_options = LanguageModelCallOptions::from(&super::super::CommonParams {
             model: "gpt-5".to_string(),
             temperature: Some(0.7),
@@ -1340,11 +1370,27 @@ mod tests {
             cached_input_tokens: Some(1),
             raw: Some(serde_json::Map::new()),
         });
+        let added_language = add_language_model_usage(
+            &create_null_language_model_usage(),
+            &LanguageModelUsage {
+                input_tokens: Some(4),
+                input_token_details: LanguageModelInputTokenDetails::default(),
+                output_tokens: Some(3),
+                output_token_details: LanguageModelOutputTokenDetails::default(),
+                total_tokens: Some(7),
+                reasoning_tokens: None,
+                cached_input_tokens: None,
+                raw: Some(serde_json::Map::new()),
+            },
+        );
 
         assert_eq!(embedding.tokens, 12);
         assert_eq!(image.input_tokens, Some(5));
         assert_eq!(image.output_tokens, Some(5));
         assert_eq!(image.total_tokens, Some(10));
+        assert_eq!(added_image.input_tokens, Some(5));
+        assert_eq!(added_image.output_tokens, Some(6));
+        assert_eq!(added_image.total_tokens, Some(11));
         assert_eq!(call_options.max_output_tokens, Some(256));
         assert_eq!(call_options.temperature, Some(0.7));
         assert_eq!(call_options.stop_sequences, Some(vec!["END".to_string()]));
@@ -1356,6 +1402,10 @@ mod tests {
         assert_eq!(language.cached_input_tokens, Some(3));
         assert_eq!(language.output_token_details.reasoning_tokens, Some(2));
         assert_eq!(language.raw, None);
+        assert_eq!(added_language.input_tokens, Some(4));
+        assert_eq!(added_language.output_tokens, Some(3));
+        assert_eq!(added_language.total_tokens, Some(7));
+        assert_eq!(added_language.raw, None);
     }
 
     #[test]
