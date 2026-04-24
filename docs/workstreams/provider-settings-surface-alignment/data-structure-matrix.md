@@ -86,6 +86,17 @@ Reference: `repo-ref/ai/packages/togetherai/src/togetherai-provider.ts`
 | `headers` | supported | `TogetherAIProviderSettings.headers` |
 | `fetch` | supported | `TogetherAIProviderSettings.fetch` |
 
+## Mistral
+
+Reference: `repo-ref/ai/packages/mistral/src/mistral-provider.ts`
+
+| Upstream field | Rust status | Rust analogue / note |
+| --- | --- | --- |
+| `baseURL` | supported | `MistralProviderSettings.base_url` |
+| `apiKey` | supported | `MistralProviderSettings.api_key` |
+| `headers` | supported | `MistralProviderSettings.headers` |
+| `fetch` | supported | `MistralProviderSettings.fetch` |
+| `generateId` | deferred | shared OpenAI-compatible runtime does not yet own a comparable provider-level stable ID hook |
 ## Groq
 
 Reference: `repo-ref/ai/packages/groq/src/groq-provider.ts`
@@ -123,3 +134,4 @@ The audited package-surface alignment now also exposes:
 | TogetherAI | `provider_ext::togetherai::{TogetherAIProviderSettings, VERSION}` |
 | xAI | `provider_ext::xai::{XaiProviderSettings, VERSION}` |
 | Groq | `provider_ext::groq::{GroqProviderSettings, VERSION}` |
+| Mistral | `provider_ext::mistral::{MistralProviderSettings, VERSION}` |

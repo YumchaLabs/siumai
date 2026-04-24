@@ -1800,7 +1800,9 @@ fn public_surface_deepinfra_unified_builder_compiles() {
 fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
     use siumai::prelude::compat::{Provider, Siumai};
     use siumai::provider_ext::fireworks::{create_fireworks, fireworks as fireworks_builder};
-    use siumai::provider_ext::mistral::{create_mistral, mistral as mistral_builder};
+    use siumai::provider_ext::mistral::{
+        MistralProviderSettings, create_mistral, mistral as mistral_builder,
+    };
     use siumai::provider_ext::moonshotai::{create_moonshotai, moonshotai as moonshotai_builder};
     use siumai::provider_ext::perplexity::{create_perplexity, perplexity as perplexity_builder};
 
@@ -1814,6 +1816,14 @@ fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
     let _ = Siumai::builder().moonshotai();
     let _ = mistral_builder();
     let _ = create_mistral();
+    let _ = MistralProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/mistral")
+        .with_header("x-test", "1")
+        .into_builder_for_model("mistral-large-latest");
+    let _ = MistralProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model("mistral-large-latest");
     let _ = fireworks_builder();
     let _ = create_fireworks();
     let _ = perplexity_builder();
@@ -1991,8 +2001,9 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
     };
     use siumai::provider_ext::mistral::{
         MistralChatOptions, MistralChatRequestExt, MistralClient, MistralConfig,
-        MistralReasoningEffort, chat as mistral_chat, create_mistral,
-        embedding as mistral_embedding, mistral as mistral_builder,
+        MistralProviderSettings, MistralReasoningEffort, VERSION as MISTRAL_VERSION,
+        chat as mistral_chat, create_mistral, embedding as mistral_embedding,
+        mistral as mistral_builder,
     };
     use siumai::provider_ext::perplexity::{
         PerplexityChatRequestExt, PerplexityClient, PerplexityConfig, PerplexityOptions,
@@ -2001,6 +2012,8 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
 
     let _ = size_of::<MistralClient>();
     let _ = size_of::<MistralConfig>();
+    let _ = size_of::<MistralProviderSettings>();
+    let _ = MISTRAL_VERSION;
     let _ = size_of::<MistralChatOptions>();
     let _ = size_of::<MistralReasoningEffort>();
     let _ = size_of::<FireworksClient>();

@@ -33,6 +33,7 @@ pub mod default_models;
 pub mod ext;
 pub mod middleware;
 pub mod openai_client;
+pub mod settings;
 pub mod spec;
 // Macro list for generating builder methods across modules
 pub mod builder_list;
@@ -111,6 +112,7 @@ pub use ext::{
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
+pub use settings::MistralProviderSettings;
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
 /// AI SDK-aligned OpenAI-compatible error envelope.
@@ -260,6 +262,8 @@ pub type OpenAICompatibleConfig = OpenAiCompatibleConfig;
 pub type MistralClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for Mistral compat configs.
 pub type MistralConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the Mistral package-surface facade.
+pub const MISTRAL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// AI SDK-style provider-scoped alias for Perplexity compat clients.
 pub type PerplexityClient = openai_client::OpenAiCompatibleClient;

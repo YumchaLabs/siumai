@@ -17691,6 +17691,23 @@ mod openai_compatible_audio_public_path {
         assert_eq!(req.body["response_format"], serde_json::json!("url"));
     }
 
+    #[test]
+    fn mistral_package_settings_preserve_supported_provider_inputs() {
+        let config = siumai::provider_ext::mistral::MistralProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/mistral")
+            .with_header("x-test", "1")
+            .into_config_for_model("mistral-large-latest")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "mistral");
+        assert_eq!(config.base_url, "https://example.com/mistral");
+        assert_eq!(config.common_params.model, "mistral-large-latest");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
     #[tokio::test]
     async fn mistral_siumai_provider_config_embedding_request_are_equivalent() {
         let siumai_transport = CaptureTransport::default();

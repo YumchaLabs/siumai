@@ -1,4 +1,4 @@
-//! # Siumai - A Unified LLM Interface Library
+﻿//! # Siumai - A Unified LLM Interface Library
 //!
 //! Siumai is a unified LLM interface library for Rust, supporting multiple AI providers.
 //! It adopts a trait-separated architectural pattern and provides a type-safe API.
@@ -506,7 +506,7 @@ pub mod provider_ext {
         /// [`mistral()`], [`create_mistral()`], [`crate::Provider::mistral()`], or
         /// [`crate::provider::SiumaiBuilder::mistral()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            MistralClient, MistralConfig,
+            MISTRAL_VERSION as VERSION, MistralClient, MistralConfig, MistralProviderSettings,
         };
 
         /// Curated Mistral model constants aligned with the audited AI SDK package subset.
