@@ -6,8 +6,11 @@
 
 use crate::error::LlmError;
 use crate::streaming::{ChatStream, StreamProcessor};
-use crate::types::{ChatResponse, ChatStreamEvent, ContentPart, FinishReason, MessageContent};
-use futures::StreamExt;
+use crate::types::{
+    ChatResponse, ChatStreamEvent, ChatStreamPart, ContentPart, FinishReason, MessageContent,
+};
+use futures::{Stream, StreamExt};
+use std::pin::Pin;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JsonRepairState {
@@ -49,6 +52,29 @@ pub struct PartialJsonParseResult {
     /// Parse state describing whether repair was needed.
     pub state: PartialJsonParseState,
 }
+
+/// Streaming event emitted by `partial_json_value_stream`.
+#[derive(Debug, Clone)]
+pub enum PartialJsonValueStreamEvent {
+    /// A newly parsed partial JSON value.
+    Partial {
+        /// Parsed partial JSON value.
+        value: serde_json::Value,
+        /// Parse state used to produce this partial value.
+        state: PartialJsonParseState,
+    },
+    /// Final parsed JSON value plus the final chat response.
+    Finish {
+        /// Final parsed JSON value.
+        value: serde_json::Value,
+        /// Final response assembled from the source stream.
+        response: ChatResponse,
+    },
+}
+
+/// Stream of parsed partial JSON values from a chat stream.
+pub type PartialJsonValueStream =
+    Pin<Box<dyn Stream<Item = Result<PartialJsonValueStreamEvent, LlmError>> + Send>>;
 
 fn process_partial_value_start(
     stack: &mut Vec<JsonRepairState>,
@@ -377,6 +403,97 @@ pub fn parse_partial_json(json_text: Option<&str>) -> PartialJsonParseResult {
         value: None,
         state: PartialJsonParseState::FailedParse,
     }
+}
+
+fn text_delta_from_stream_event(event: &ChatStreamEvent) -> Option<&str> {
+    match event {
+        ChatStreamEvent::ContentDelta { delta, .. } => Some(delta),
+        ChatStreamEvent::Part {
+            part: ChatStreamPart::TextDelta { delta, .. },
+        }
+        | ChatStreamEvent::PartWithReplay {
+            part: ChatStreamPart::TextDelta { delta, .. },
+            ..
+        } => Some(delta),
+        _ => None,
+    }
+}
+
+fn partial_json_event_if_changed(
+    accumulated_text: &str,
+    last_published_value: &mut Option<String>,
+) -> Option<PartialJsonValueStreamEvent> {
+    let result = parse_partial_json(Some(accumulated_text));
+    let value = result.value?;
+    let current_value = serde_json::to_string(&value).ok()?;
+
+    if last_published_value.as_deref() == Some(current_value.as_str()) {
+        return None;
+    }
+
+    *last_published_value = Some(current_value);
+    Some(PartialJsonValueStreamEvent::Partial {
+        value,
+        state: result.state,
+    })
+}
+
+/// Parse partial and final JSON values from an existing chat stream.
+///
+/// This is the Rust foundation for AI SDK `partialOutputStream` JSON behavior. It consumes the
+/// source stream and emits parsed partial values when the accumulated text can be parsed or
+/// repaired, followed by a final parsed value when the stream ends.
+pub fn partial_json_value_stream(mut stream: ChatStream) -> PartialJsonValueStream {
+    Box::pin(async_stream::try_stream! {
+        let mut processor = StreamProcessor::new();
+        let mut accumulated_text = String::new();
+        let mut last_published_value: Option<String> = None;
+
+        while let Some(item) = stream.next().await {
+            let event = item?;
+
+            if let Some(delta) = text_delta_from_stream_event(&event) {
+                accumulated_text.push_str(delta);
+            }
+
+            match &event {
+                ChatStreamEvent::StreamEnd { response } => {
+                    let _ = processor.process_event(event.clone());
+                    let final_response =
+                        merge_stream_end_response_with_accumulated(&processor, response.clone());
+                    let value = if final_response.finish_reason == Some(FinishReason::Unknown) {
+                        extract_json_value_from_incomplete_stream_response(&final_response)?
+                    } else {
+                        extract_json_value_from_response(&final_response)?
+                    };
+
+                    yield PartialJsonValueStreamEvent::Finish {
+                        value,
+                        response: final_response,
+                    };
+                    return;
+                }
+                ChatStreamEvent::Error { error } => {
+                    Err(LlmError::StreamError(error.clone()))?;
+                }
+                _ => {
+                    let _ = processor.process_event(event);
+                    if let Some(partial_event) =
+                        partial_json_event_if_changed(&accumulated_text, &mut last_published_value)
+                    {
+                        yield partial_event;
+                    }
+                }
+            }
+        }
+
+        let final_response = processor.build_final_response();
+        let value = extract_json_value_from_incomplete_stream_response(&final_response)?;
+        yield PartialJsonValueStreamEvent::Finish {
+            value,
+            response: final_response,
+        };
+    })
 }
 
 fn extract_first_markdown_fenced_block(text: &str) -> Option<&str> {
@@ -738,6 +855,7 @@ pub fn extract_json_from_response<T: serde::de::DeserializeOwned>(
 mod tests {
     use super::*;
     use crate::types::{ChatResponse, MessageContent, Usage};
+    use futures::StreamExt;
     use serde::Deserialize;
 
     #[test]
@@ -801,6 +919,90 @@ mod tests {
         let repaired = parse_partial_json(Some(r#"{"text":"你好"#));
         assert_eq!(repaired.state, PartialJsonParseState::RepairedParse);
         assert_eq!(repaired.value, Some(serde_json::json!({ "text": "你好" })));
+    }
+
+    #[tokio::test]
+    async fn partial_json_value_stream_emits_changed_partials_and_finish() {
+        let events = vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: r#"{"foo":"#.to_string(),
+                index: Some(0),
+            }),
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "1".to_string(),
+                index: Some(0),
+            }),
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "}".to_string(),
+                index: Some(0),
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::new(MessageContent::Text(r#"{"foo":1}"#.to_string())),
+            }),
+        ];
+        let mut stream = partial_json_value_stream(Box::pin(futures::stream::iter(events)));
+        let mut out = Vec::new();
+        while let Some(event) = stream.next().await {
+            out.push(event.expect("stream event"));
+        }
+
+        assert_eq!(out.len(), 3);
+        assert!(matches!(
+            &out[0],
+            PartialJsonValueStreamEvent::Partial { value, state }
+                if value == &serde_json::json!({}) && *state == PartialJsonParseState::RepairedParse
+        ));
+        assert!(matches!(
+            &out[1],
+            PartialJsonValueStreamEvent::Partial { value, state }
+                if value == &serde_json::json!({ "foo": 1 })
+                    && *state == PartialJsonParseState::RepairedParse
+        ));
+        assert!(matches!(
+            &out[2],
+            PartialJsonValueStreamEvent::Finish { value, response }
+                if value == &serde_json::json!({ "foo": 1 })
+                    && response.text().as_deref() == Some(r#"{"foo":1}"#)
+        ));
+    }
+
+    #[tokio::test]
+    async fn partial_json_value_stream_reads_typed_text_delta_parts() {
+        let events = vec![
+            Ok(ChatStreamEvent::Part {
+                part: ChatStreamPart::TextDelta {
+                    id: "txt_1".to_string(),
+                    delta: r#"{"ok":true}"#.to_string(),
+                    provider_metadata: None,
+                },
+            }),
+            Ok(ChatStreamEvent::StreamEnd {
+                response: ChatResponse::empty_with_finish_reason(FinishReason::Unknown),
+            }),
+        ];
+        let mut stream = partial_json_value_stream(Box::pin(futures::stream::iter(events)));
+        let first = stream
+            .next()
+            .await
+            .expect("partial event")
+            .expect("partial ok");
+        assert!(matches!(
+            first,
+            PartialJsonValueStreamEvent::Partial { value, state }
+                if value == serde_json::json!({ "ok": true })
+                    && state == PartialJsonParseState::SuccessfulParse
+        ));
+        let finish = stream
+            .next()
+            .await
+            .expect("finish event")
+            .expect("finish ok");
+        assert!(matches!(
+            finish,
+            PartialJsonValueStreamEvent::Finish { value, .. }
+                if value == serde_json::json!({ "ok": true })
+        ));
+        assert!(stream.next().await.is_none());
     }
 
     #[test]

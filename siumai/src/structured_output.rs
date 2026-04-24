@@ -19,7 +19,10 @@ use std::sync::Arc;
 
 use crate::text::{GenerateOptions, LanguageModel, TextRequest};
 
-pub use siumai_core::structured_output::{PartialJsonParseResult, PartialJsonParseState};
+pub use siumai_core::structured_output::{
+    PartialJsonParseResult, PartialJsonParseState, PartialJsonValueStream,
+    PartialJsonValueStreamEvent,
+};
 
 /// Context passed to a structured-output repair callback.
 #[derive(Debug, Clone)]
@@ -519,6 +522,11 @@ pub fn fix_partial_json(input: &str) -> String {
 /// Parse a partial JSON string using AI SDK `parsePartialJson` semantics.
 pub fn parse_partial_json(json_text: Option<&str>) -> PartialJsonParseResult {
     siumai_core::structured_output::parse_partial_json(json_text)
+}
+
+/// Parse partial and final JSON values from an existing chat stream.
+pub fn partial_json_value_stream(stream: ChatStream) -> PartialJsonValueStream {
+    siumai_core::structured_output::partial_json_value_stream(stream)
 }
 
 /// Extract a `serde_json::Value` from a unified chat response.

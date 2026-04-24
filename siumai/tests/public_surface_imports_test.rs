@@ -20,6 +20,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<GenerateObjectSchema<JSONValue>>();
     let _ = size_of::<PartialJsonParseResult>();
     let _ = size_of::<PartialJsonParseState>();
+    let _ = size_of::<PartialJsonValueStream>();
+    let _ = size_of::<PartialJsonValueStreamEvent>();
     let _ = size_of::<RepairTextContext>();
     let _ = size_of::<RepairTextFunction>();
     let _ = size_of::<RepairTextFuture>();
@@ -135,6 +137,7 @@ fn public_surface_unified_imports_compile() {
         parse_partial_json(Some(r#"{"value":"ok""#)).state,
         PartialJsonParseState::RepairedParse
     );
+    let _ = partial_json_value_stream as fn(ChatStream) -> PartialJsonValueStream;
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")

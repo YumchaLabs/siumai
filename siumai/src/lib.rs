@@ -157,9 +157,9 @@ pub mod speech;
 pub mod structured_output;
 pub use structured_output::{
     GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, PartialJsonParseResult,
-    PartialJsonParseState, RepairTextContext, RepairTextFunction, RepairTextFuture,
-    fix_partial_json, generate_array, generate_choice, generate_enum, generate_json,
-    generate_object, parse_partial_json,
+    PartialJsonParseState, PartialJsonValueStream, PartialJsonValueStreamEvent, RepairTextContext,
+    RepairTextFunction, RepairTextFuture, fix_partial_json, generate_array, generate_choice,
+    generate_enum, generate_json, generate_object, parse_partial_json, partial_json_value_stream,
 };
 pub mod text;
 pub mod transcription;
@@ -2042,9 +2042,10 @@ pub mod prelude {
         };
         pub use crate::structured_output::{
             GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema,
-            PartialJsonParseResult, PartialJsonParseState, RepairTextContext, RepairTextFunction,
-            RepairTextFuture, fix_partial_json, generate_array, generate_choice, generate_enum,
-            generate_json, generate_object, parse_partial_json,
+            PartialJsonParseResult, PartialJsonParseState, PartialJsonValueStream,
+            PartialJsonValueStreamEvent, RepairTextContext, RepairTextFunction, RepairTextFuture,
+            fix_partial_json, generate_array, generate_choice, generate_enum, generate_json,
+            generate_object, parse_partial_json, partial_json_value_stream,
         };
         pub use crate::tooling;
         pub use crate::tools;

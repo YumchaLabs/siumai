@@ -25,6 +25,15 @@ Reference files:
 | `choice(...)` | Supported | `structured_output::generate_choice(...)` uses the upstream `{ result: "..." }` wrapper and permits labels. |
 | `json(...)` | Supported | `structured_output::generate_json(...)` sends schema-less JSON response format and parses `serde_json::Value`. |
 
+## Streaming Partial Output
+
+| AI SDK stream lane | Siumai status | Notes |
+| --- | --- | --- |
+| `partialOutputStream` for JSON | Foundation supported | `partial_json_value_stream(...)` emits parsed partial JSON values from a consumed `ChatStream`. |
+| `elementStream` for arrays | Deferred | Needs typed array projection over partial JSON plus validator semantics. |
+| `fullStream` with enriched partial output | Deferred | Requires a tee-able Rust result object rather than a one-shot stream transformer. |
+| `output` promise | Deferred | Existing final extraction helpers cover the parse, but not the combined stream result object. |
+
 ## Provider Response Format Mapping
 
 | Provider family | Schema-backed JSON | Schema-less JSON |
@@ -40,7 +49,7 @@ Reference files:
 ## Remaining Gap
 
 AI SDK output specs also define partial parsing and element stream transforms. Siumai intentionally
-does not expose stream-transform surface yet because the current text family returns provider
-stream events directly. The underlying partial JSON parser is now available through
-`parse_partial_json(...)`, so a future streaming structured-output workstream can build real
-partial-output and array element streams on top of it rather than reparsing only final responses.
+does not expose the full multi-lane stream result yet because the current text family returns
+provider stream events directly. The underlying partial JSON parser and one-shot
+`partial_json_value_stream(...)` projection are available, so a future streaming structured-output
+workstream can build real array element streams and tee-able result handles on top of them.

@@ -42,6 +42,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::structured_output::{fix_partial_json, parse_partial_json}` plus
   `PartialJsonParseState` / `PartialJsonParseResult`, providing the scanner-based partial JSON
   repair foundation required for future `streamText` structured-output transforms.
+- Structured-output streaming now has a narrow Rust projection:
+  `siumai::structured_output::partial_json_value_stream(...)` consumes a `ChatStream` and emits
+  changed partial JSON values plus the final parsed JSON value, without claiming the full AI SDK
+  multi-lane `StreamTextResult` contract yet.
 - Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
   `provider_ext::{openai,azure,bedrock}` now expose package-level
   `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and

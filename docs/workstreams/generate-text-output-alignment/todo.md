@@ -45,5 +45,7 @@ Status legend:
 ## Track E - Deferred Streaming Output
 
 - [x] Land the partial JSON parser foundation needed by future streaming output transforms.
-- [-] Do not expose partial-output streams until incremental JSON parsing is designed.
+- [x] Add a narrow `partial_json_value_stream(...)` projection over existing `ChatStream`.
+- [-] Do not expose the full AI SDK `StreamTextResult` multi-lane contract until tee/backpressure
+  semantics are designed.
 - [-] Do not add an `Output` trait that claims streaming parity before Track E exists.

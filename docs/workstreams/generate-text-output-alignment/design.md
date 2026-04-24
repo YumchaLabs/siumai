@@ -52,6 +52,10 @@ foundation as:
 This is deliberately lower-level than `streamText.output`: it enables honest partial parsing
 without yet claiming `partialOutputStream` / `elementStream` parity.
 
+Siumai also exposes `partial_json_value_stream(...)`, a narrow stream projection that consumes a
+`ChatStream` and emits parsed partial JSON values plus a final parsed value. It intentionally does
+not replace `text::stream(...)` or promise a tee-able multi-lane stream result.
+
 ### 1. Schema-less response format
 
 `ResponseFormat::json_object()` serializes to:
@@ -114,3 +118,4 @@ This workstream is locked by:
 - `cargo nextest run -p siumai --test public_surface_imports_test --no-default-features --features openai,anthropic,google,google-vertex --no-fail-fast`
 - provider protocol unit tests for OpenAI, Gemini, and Ollama response format mapping
 - `cargo nextest run -p siumai-core partial_json --no-fail-fast`
+- `cargo nextest run -p siumai-core partial_json_value_stream --no-fail-fast`
