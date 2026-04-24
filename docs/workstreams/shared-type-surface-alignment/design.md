@@ -106,8 +106,9 @@ important shared carriers need explicit Rust structs:
   same as provider V4 usage
 - `ProviderOptions` and `Context` are honest aliases onto the existing open JSON-object carriers
 - `ToolCall` and `ToolResult` are passive Rust data structures that mirror the provider-utils
-  helper shape without pretending Siumai already has one exact runtime source for every typed tool
-  helper result
+  helper shape, including output-side metadata such as `providerMetadata`, `title`, invalid-tool
+  `invalid` / `error`, and `preliminary`, without pretending Siumai already has one exact runtime
+  source for every typed tool helper result
 - `EmbeddingModelUsage` stays the audited one-field shape `{ tokens }`
 - `ImageModelUsage` mirrors the AI package `ImageModelV4Usage` token totals
 - `Source` mirrors the AI package language-model source union with a fixed `type: "source"` marker

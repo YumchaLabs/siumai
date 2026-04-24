@@ -236,6 +236,22 @@ pub struct ToolCall<NAME = String, INPUT = JSONValue> {
     /// Whether the tool is dynamic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dynamic: Option<bool>,
+    /// Whether the tool call is invalid, e.g. caused by invalid input or an unknown tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<bool>,
+    /// Error payload explaining why the tool call is invalid when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<JSONValue>,
+    /// Human-readable title for the tool call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
 }
 
 impl<NAME, INPUT> ToolCall<NAME, INPUT> {
@@ -247,6 +263,10 @@ impl<NAME, INPUT> ToolCall<NAME, INPUT> {
             input,
             provider_executed: None,
             dynamic: None,
+            invalid: None,
+            error: None,
+            title: None,
+            provider_metadata: None,
         }
     }
 
@@ -259,6 +279,30 @@ impl<NAME, INPUT> ToolCall<NAME, INPUT> {
     /// Mark whether the tool call is dynamic.
     pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
         self.dynamic = Some(dynamic);
+        self
+    }
+
+    /// Mark whether the tool call is invalid.
+    pub const fn with_invalid(mut self, invalid: bool) -> Self {
+        self.invalid = Some(invalid);
+        self
+    }
+
+    /// Attach an invalid-tool-call error payload.
+    pub fn with_error(mut self, error: impl Into<JSONValue>) -> Self {
+        self.error = Some(error.into());
+        self
+    }
+
+    /// Attach a human-readable title.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Attach provider-specific response metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
         self
     }
 }
@@ -286,6 +330,19 @@ pub struct ToolResult<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutpu
     /// Whether the tool is dynamic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dynamic: Option<bool>,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Whether the result is preliminary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preliminary: Option<bool>,
+    /// Human-readable title for the tool result.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 }
 
 impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
@@ -303,6 +360,9 @@ impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
             output,
             provider_executed: None,
             dynamic: None,
+            provider_metadata: None,
+            preliminary: None,
+            title: None,
         }
     }
 
@@ -315,6 +375,24 @@ impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
     /// Mark whether the tool is dynamic.
     pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
         self.dynamic = Some(dynamic);
+        self
+    }
+
+    /// Attach provider-specific response metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Mark whether the tool result is preliminary.
+    pub const fn with_preliminary(mut self, preliminary: bool) -> Self {
+        self.preliminary = Some(preliminary);
+        self
+    }
+
+    /// Attach a human-readable title.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 }
@@ -1689,13 +1767,22 @@ mod tests {
         let mut provider_options = ProviderOptions::default();
         provider_options.insert("openai", serde_json::json!({ "serviceTier": "flex" }));
 
+        let provider_metadata = ProviderMetadata::from([(
+            "openai".to_string(),
+            serde_json::json!({ "itemId": "item_1" }),
+        )]);
+
         let tool_call = ToolCall::new(
             "call_1",
             "search".to_string(),
             serde_json::json!({ "q": "rust" }),
         )
         .with_provider_executed(true)
-        .with_dynamic(true);
+        .with_dynamic(true)
+        .with_invalid(true)
+        .with_error(serde_json::json!({ "message": "unknown tool" }))
+        .with_title("Search")
+        .with_provider_metadata(provider_metadata.clone());
 
         let tool_result = ToolResult::new(
             "call_1",
@@ -1704,7 +1791,10 @@ mod tests {
             ToolResultOutput::json(serde_json::json!({ "ok": true })),
         )
         .with_provider_executed(true)
-        .with_dynamic(true);
+        .with_dynamic(true)
+        .with_preliminary(true)
+        .with_title("Search result")
+        .with_provider_metadata(provider_metadata);
 
         assert_eq!(context.get("tenant"), Some(&serde_json::json!("acme")));
         assert_eq!(
@@ -1716,8 +1806,32 @@ mod tests {
         );
         assert_eq!(tool_call.tool_call_id, "call_1");
         assert_eq!(tool_call.provider_executed, Some(true));
+        assert_eq!(tool_call.invalid, Some(true));
         assert_eq!(tool_result.tool_call_id, "call_1");
         assert_eq!(tool_result.dynamic, Some(true));
+
+        let tool_call_json = serde_json::to_value(&tool_call).expect("serialize tool call");
+        assert_eq!(
+            tool_call_json["providerMetadata"]["openai"]["itemId"],
+            serde_json::json!("item_1")
+        );
+        assert_eq!(tool_call_json["title"], serde_json::json!("Search"));
+        assert_eq!(tool_call_json["invalid"], serde_json::json!(true));
+        assert_eq!(
+            tool_call_json["error"],
+            serde_json::json!({ "message": "unknown tool" })
+        );
+
+        let tool_result_json = serde_json::to_value(&tool_result).expect("serialize tool result");
+        assert_eq!(
+            tool_result_json["providerMetadata"]["openai"]["itemId"],
+            serde_json::json!("item_1")
+        );
+        assert_eq!(
+            tool_result_json["title"],
+            serde_json::json!("Search result")
+        );
+        assert_eq!(tool_result_json["preliminary"], serde_json::json!(true));
     }
 
     #[test]

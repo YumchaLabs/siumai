@@ -336,8 +336,12 @@ fn public_surface_unified_imports_compile() {
         serde_json::json!({ "q": "rust" }),
     )
     .with_provider_executed(true)
-    .with_dynamic(true);
+    .with_dynamic(true)
+    .with_invalid(true)
+    .with_error(serde_json::json!({ "message": "invalid input" }))
+    .with_title("Search");
     assert_eq!(tool_call.tool_call_id, "call_1");
+    assert_eq!(tool_call.invalid, Some(true));
 
     let tool_result = ToolResult::new(
         "call_1",
@@ -346,8 +350,11 @@ fn public_surface_unified_imports_compile() {
         ToolResultOutput::json(serde_json::json!({ "ok": true })),
     )
     .with_provider_executed(true)
-    .with_dynamic(true);
+    .with_dynamic(true)
+    .with_preliminary(true)
+    .with_title("Search result");
     assert_eq!(tool_result.tool_call_id, "call_1");
+    assert_eq!(tool_result.preliminary, Some(true));
 
     let source = Source::url_with_title("source_1", "https://example.com", "Example");
     let source_value = serde_json::to_value(&source).expect("serialize shared source");

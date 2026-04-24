@@ -87,6 +87,8 @@ Status legend:
 - [x] Expose existing runtime tool helpers from the facade/prelude:
   `tool`, `dynamic_tool`, `ToolExecutionOptions`, `ToolExecuteFunction`, `ToolSet`, and execution
   helpers.
+- [x] Extend passive `ToolCall` / `ToolResult` with the current AI SDK output-side metadata:
+  `providerMetadata`, `title`, invalid-tool `invalid` / `error`, and result `preliminary`.
 - [x] Keep `Tool` as the passive spec-level data shape and `ExecutableTool` as the runtime binding
   shape instead of merging provider wire schema and Rust closures into one serializable type.
 - [x] Preserve the legacy `tool!` macro; the root `tool(...)` function coexists in Rust's value
