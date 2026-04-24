@@ -19,6 +19,7 @@ Status: done
 - widen `Warning` with `Deprecated { setting, message }`
 - add conversion helpers from existing runtime carriers
 - expose provider-utils-style `ProviderOptions`, `Context`, `ToolCall`, and `ToolResult`
+- expose the AI SDK language-model `Source` citation contract as a stable shared type
 
 ## M3 - Public facade exposure
 

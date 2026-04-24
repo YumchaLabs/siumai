@@ -21,6 +21,8 @@ several important ways:
 - the current `Usage` type is a compatibility-oriented superset of provider V4 usage, but the AI
   package also exposes a higher-level `LanguageModelUsage` projection that Siumai did not model
   explicitly
+- the AI SDK language-model `Source` citation shape was only available indirectly as a content
+  part variant, not as a stable shared public data structure
 
 This was not a single runtime bug. It was a shared contract gap:
 
@@ -60,6 +62,7 @@ not provider-owned:
   - `ProviderOptions`
   - `Context`
   - `Embedding`
+  - `Source`
   - `ImageModelProviderMetadata`
 - usage/data structures:
   - `ToolCall`
@@ -91,6 +94,8 @@ important shared carriers need explicit Rust structs:
   helper result
 - `EmbeddingModelUsage` stays the audited one-field shape `{ tokens }`
 - `ImageModelUsage` mirrors the AI package `ImageModelV4Usage` token totals
+- `Source` mirrors the AI package language-model source union with a fixed `type: "source"` marker
+  and a strict `sourceType: "url" | "document"` payload
 - request/response metadata structs expose the AI package fields directly and convert from the
   existing runtime carriers
 

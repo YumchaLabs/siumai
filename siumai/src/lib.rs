@@ -2057,7 +2057,7 @@ pub mod prelude {
             PromptTokensDetails, PromptValidationError, ProviderDefinedTool, ProviderMetadata,
             ProviderOptions, ProviderOptionsMap, ProviderReference, ProviderType,
             ReasoningFilePart, ReasoningPart, RequestOptions, RerankRequest, RerankResponse,
-            ResponseFormat, ResponseMetadata, SchemaValidator, SpeechModelResponseMetadata,
+            ResponseFormat, ResponseMetadata, SchemaValidator, Source, SpeechModelResponseMetadata,
             StandardizedPrompt, StreamRequestOptions, SttRequest, SttResponse, SystemModelMessage,
             SystemPrompt, TextPart, TimeoutConfiguration, TimeoutConfigurationSettings, Tool,
             ToolApprovalRequest, ToolApprovalResponse, ToolCall, ToolCallPart, ToolChoice,

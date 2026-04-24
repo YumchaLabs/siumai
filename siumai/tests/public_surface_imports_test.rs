@@ -48,6 +48,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ProviderOptions>();
     let _ = size_of::<ProviderReference>();
     let _ = size_of::<RequestOptions>();
+    let _ = size_of::<Source>();
     let _ = size_of::<StreamRequestOptions>();
     let _ = size_of::<SpeechModelResponseMetadata>();
     let _ = size_of::<ModelMessageRole>();
@@ -203,6 +204,16 @@ fn public_surface_unified_imports_compile() {
     .with_provider_executed(true)
     .with_dynamic(true);
     assert_eq!(tool_result.tool_call_id, "call_1");
+
+    let source = Source::url_with_title("source_1", "https://example.com", "Example");
+    let source_value = serde_json::to_value(&source).expect("serialize shared source");
+    assert_eq!(source_value["type"], serde_json::json!("source"));
+    assert_eq!(source_value["sourceType"], serde_json::json!("url"));
+    let source_part: ContentPart = source.clone().into();
+    assert_eq!(
+        Source::try_from(source_part).expect("content source converts back"),
+        source
+    );
 
     let approval_response = ToolApprovalResponse::new("approval_1", true)
         .with_reason("approved")

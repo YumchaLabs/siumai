@@ -18,6 +18,7 @@ Status legend:
 - [x] Expose `JSONValue`, `CallWarning`, `ProviderMetadata`, and `ImageModelProviderMetadata`.
 - [x] Expose `ProviderOptions` and `Context`.
 - [x] Expose the shared `Embedding` vector alias from `types/embedding-model.ts`.
+- [x] Expose the shared language-model `Source` citation shape from `types/language-model.ts`.
 - [x] Expose provider-utils-style `ToolCall` and `ToolResult`.
 - [x] Expose `EmbeddingModelUsage`, `ImageModelUsage`, and `LanguageModelUsage`.
 - [x] Expose `LanguageModelRequestMetadata`, `LanguageModelResponseMetadata`,

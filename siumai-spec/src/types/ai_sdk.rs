@@ -4,12 +4,13 @@
 //! Siumai already has a stable equivalent or can expose a passive data structure honestly
 //! without pretending the runtime wiring is more complete than it is today.
 
+use super::chat::{ContentPart, SourcePart};
 use super::{
     EmbeddingUsage, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap,
     ResponseMetadata, ToolResultOutput, Usage, Warning,
 };
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
@@ -31,6 +32,179 @@ pub type Context = HashMap<String, JSONValue>;
 
 /// AI SDK-style single embedding vector.
 pub type Embedding = Vec<f32>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SourceMarker {
+    Source,
+}
+
+impl Default for SourceMarker {
+    fn default() -> Self {
+        Self::Source
+    }
+}
+
+impl Serialize for SourceMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("source")
+    }
+}
+
+impl<'de> Deserialize<'de> for SourceMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "source" {
+            Ok(Self::Source)
+        } else {
+            Err(serde::de::Error::custom(format!(
+                "expected source type marker `source`, got `{value}`"
+            )))
+        }
+    }
+}
+
+/// AI SDK-style source citation used by language-model responses.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Source {
+    /// Fixed AI SDK type marker. Serialized as `type: "source"`.
+    #[serde(rename = "type", default)]
+    kind: SourceMarker,
+    /// Source id.
+    pub id: String,
+    /// Strict URL/document source union.
+    #[serde(flatten)]
+    pub source: SourcePart,
+    /// Additional provider metadata for the source.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl Source {
+    /// Create a URL-backed source without a title.
+    pub fn url(id: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: id.into(),
+            source: SourcePart::Url {
+                url: url.into(),
+                title: None,
+            },
+            provider_metadata: None,
+        }
+    }
+
+    /// Create a URL-backed source with a title.
+    pub fn url_with_title(
+        id: impl Into<String>,
+        url: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: id.into(),
+            source: SourcePart::Url {
+                url: url.into(),
+                title: Some(title.into()),
+            },
+            provider_metadata: None,
+        }
+    }
+
+    /// Create a document-backed source.
+    pub fn document(
+        id: impl Into<String>,
+        media_type: impl Into<String>,
+        title: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: id.into(),
+            source: SourcePart::Document {
+                media_type: media_type.into(),
+                title: title.into(),
+                filename,
+            },
+            provider_metadata: None,
+        }
+    }
+
+    /// Return the fixed AI SDK source marker.
+    pub const fn r#type(&self) -> &'static str {
+        "source"
+    }
+
+    /// Return the source-type discriminator.
+    pub fn source_type(&self) -> &'static str {
+        self.source.source_type()
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+}
+
+impl From<Source> for ContentPart {
+    fn from(value: Source) -> Self {
+        Self::Source {
+            id: value.id,
+            source: value.source,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
+
+impl TryFrom<ContentPart> for Source {
+    type Error = ContentPart;
+
+    fn try_from(value: ContentPart) -> Result<Self, Self::Error> {
+        match value {
+            ContentPart::Source {
+                id,
+                source,
+                provider_metadata,
+            } => Ok(Self {
+                kind: SourceMarker::Source,
+                id,
+                source,
+                provider_metadata,
+            }),
+            other => Err(other),
+        }
+    }
+}
+
+impl TryFrom<&ContentPart> for Source {
+    type Error = &'static str;
+
+    fn try_from(value: &ContentPart) -> Result<Self, Self::Error> {
+        match value {
+            ContentPart::Source {
+                id,
+                source,
+                provider_metadata,
+            } => Ok(Self {
+                kind: SourceMarker::Source,
+                id: id.clone(),
+                source: source.clone(),
+                provider_metadata: provider_metadata.clone(),
+            }),
+            _ => Err("content part is not a source"),
+        }
+    }
+}
 
 /// AI SDK-style shared image-provider metadata root.
 pub type ImageModelProviderMetadata = ProviderMetadata;
@@ -1208,6 +1382,48 @@ fn string_body_to_json_value(body: String) -> JSONValue {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_shape_matches_language_model_source_contract() {
+        let mut provider_metadata = ProviderMetadataMap::new();
+        provider_metadata.insert("anthropic".to_string(), serde_json::json!({ "foo": "bar" }));
+
+        let source = Source::url_with_title("source-0", "https://example.com", "Example")
+            .with_provider_metadata(provider_metadata);
+
+        let value = serde_json::to_value(&source).expect("serialize source");
+        assert_eq!(value["type"], serde_json::json!("source"));
+        assert_eq!(value["sourceType"], serde_json::json!("url"));
+        assert_eq!(value["id"], serde_json::json!("source-0"));
+        assert_eq!(value["url"], serde_json::json!("https://example.com"));
+        assert_eq!(value["title"], serde_json::json!("Example"));
+        assert_eq!(
+            value["providerMetadata"]["anthropic"],
+            serde_json::json!({ "foo": "bar" })
+        );
+
+        let roundtrip: Source = serde_json::from_value(value).expect("deserialize source");
+        assert_eq!(roundtrip.r#type(), "source");
+        assert_eq!(roundtrip.source_type(), "url");
+        assert_eq!(roundtrip, source);
+
+        let content_part: ContentPart = source.clone().into();
+        let converted = Source::try_from(&content_part).expect("convert source content part");
+        assert_eq!(converted, source);
+    }
+
+    #[test]
+    fn source_rejects_non_source_type_marker() {
+        let error = serde_json::from_value::<Source>(serde_json::json!({
+            "type": "text",
+            "sourceType": "url",
+            "id": "source-0",
+            "url": "https://example.com"
+        }))
+        .expect_err("non-source marker should be rejected");
+
+        assert!(error.to_string().contains("expected source type marker"));
+    }
 
     #[test]
     fn language_model_request_metadata_parses_json_body_and_falls_back_to_string() {

@@ -129,6 +129,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   are exported through the stable facade alongside `LanguageModelUsage` and `ImageModelUsage`.
 - The shared `Embedding` vector alias from the AI SDK `types/embedding-model.ts` surface is now
   available through `siumai::types::*` and `siumai::prelude::unified::*`.
+- The shared language-model `Source` citation shape from the AI SDK `types/language-model.ts`
+  surface is now available through `siumai::types::*` and `siumai::prelude::unified::*`, with a
+  strict fixed `type: "source"` marker and URL/document `sourceType` payload.
 - Prompt-side AI SDK compatibility helpers are now exposed on the stable Rust facade:
   deprecated `CallSettings` now exists as the shared projection of `LanguageModelCallOptions`
   plus non-timeout `RequestOptions`, free timeout helper functions mirror the AI SDK
