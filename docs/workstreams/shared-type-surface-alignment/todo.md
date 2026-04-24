@@ -23,6 +23,8 @@ Status legend:
 - [x] Expose provider-utils-style `ToolCall` and `ToolResult`.
 - [x] Align shared `ToolChoice` serde with the AI SDK forced-tool object shape while preserving
   legacy Rust enum object deserialization.
+- [x] Align shared `FinishReason` serde with the AI SDK kebab-case public values while preserving
+  provider snake_case input compatibility.
 - [x] Expose `EmbeddingModelUsage`, `ImageModelUsage`, and `LanguageModelUsage`.
 - [x] Expose `LanguageModelRequestMetadata`, `LanguageModelResponseMetadata`,
   `ImageModelResponseMetadata`, `SpeechModelResponseMetadata`, and

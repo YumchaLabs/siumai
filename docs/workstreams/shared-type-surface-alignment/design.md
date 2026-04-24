@@ -103,6 +103,8 @@ important shared carriers need explicit Rust structs:
   and a strict `sourceType: "url" | "document"` payload
 - `ToolChoice` remains the stable Rust enum but now serializes the forced-tool case as the AI SDK
   `{ type: "tool", toolName: "..." }` object instead of serde's externally tagged enum shape
+- `FinishReason` remains the stable Rust enum but now serializes the AI SDK public values
+  (`tool-calls`, `content-filter`, `other`) and accepts provider snake_case values on input
 - request/response metadata structs expose the AI package fields directly and convert from the
   existing runtime carriers
 

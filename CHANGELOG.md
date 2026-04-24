@@ -137,6 +137,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Shared `ToolChoice` serialization now matches the AI SDK `types/language-model.ts` contract:
   forced tool choices serialize as `{ "type": "tool", "toolName": "..." }` while still accepting
   the previous Rust enum object shape on input for compatibility.
+- Shared `FinishReason` serialization now uses the AI SDK public values (`tool-calls`,
+  `content-filter`, `other`) while still accepting provider/legacy snake_case values on input.
 - The shared language-model `Source` citation shape from the AI SDK `types/language-model.ts`
   surface is now available through `siumai::types::*` and `siumai::prelude::unified::*`, with a
   strict fixed `type: "source"` marker and URL/document `sourceType` payload.

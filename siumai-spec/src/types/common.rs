@@ -293,10 +293,11 @@ impl FinishReason {
         match value {
             "stop" => Self::Stop,
             "length" => Self::Length,
-            "tool_calls" => Self::ToolCalls,
-            "content_filter" => Self::ContentFilter,
+            "tool-calls" | "tool_calls" | "tool_use" => Self::ToolCalls,
+            "content-filter" | "content_filter" => Self::ContentFilter,
             "stop_sequence" => Self::StopSequence,
             "error" => Self::Error,
+            "other" => Self::Other("other".to_string()),
             "unknown" => Self::Unknown,
             other => Self::Other(other.to_string()),
         }
@@ -306,12 +307,11 @@ impl FinishReason {
         match self {
             Self::Stop => "stop",
             Self::Length => "length",
-            Self::ToolCalls => "tool_calls",
-            Self::ContentFilter => "content_filter",
-            Self::StopSequence => "stop_sequence",
+            Self::ToolCalls => "tool-calls",
+            Self::ContentFilter => "content-filter",
+            Self::StopSequence => "stop",
             Self::Error => "error",
-            Self::Other(value) => value.as_str(),
-            Self::Unknown => "unknown",
+            Self::Other(_) | Self::Unknown => "other",
         }
     }
 }
@@ -366,8 +366,9 @@ impl<'de> Deserialize<'de> for FinishReason {
 
                 let reason = match key.as_str() {
                     "other" => FinishReason::Other(map.next_value::<String>()?),
-                    "stop" | "length" | "tool_calls" | "content_filter" | "stop_sequence"
-                    | "error" | "unknown" => {
+                    "stop" | "length" | "tool-calls" | "tool_calls" | "tool_use"
+                    | "content-filter" | "content_filter" | "stop_sequence" | "error"
+                    | "unknown" => {
                         let _: Option<de::IgnoredAny> = map.next_value()?;
                         FinishReason::from_wire_value(&key)
                     }
@@ -647,6 +648,43 @@ mod tests {
         let value =
             serde_json::to_value(FinishReason::Other("other".to_string())).expect("serialize");
         assert_eq!(value, serde_json::json!("other"));
+    }
+
+    #[test]
+    fn finish_reason_serializes_ai_sdk_values() {
+        assert_eq!(
+            serde_json::to_value(FinishReason::ToolCalls).expect("serialize"),
+            serde_json::json!("tool-calls")
+        );
+        assert_eq!(
+            serde_json::to_value(FinishReason::ContentFilter).expect("serialize"),
+            serde_json::json!("content-filter")
+        );
+        assert_eq!(
+            serde_json::to_value(FinishReason::StopSequence).expect("serialize"),
+            serde_json::json!("stop")
+        );
+        assert_eq!(
+            serde_json::to_value(FinishReason::Unknown).expect("serialize"),
+            serde_json::json!("other")
+        );
+    }
+
+    #[test]
+    fn finish_reason_deserializes_ai_sdk_and_provider_legacy_values() {
+        let tool_calls: FinishReason =
+            serde_json::from_value(serde_json::json!("tool-calls")).expect("deserialize");
+        let legacy_tool_calls: FinishReason =
+            serde_json::from_value(serde_json::json!("tool_calls")).expect("deserialize");
+        let content_filter: FinishReason =
+            serde_json::from_value(serde_json::json!("content-filter")).expect("deserialize");
+        let legacy_content_filter: FinishReason =
+            serde_json::from_value(serde_json::json!("content_filter")).expect("deserialize");
+
+        assert_eq!(tool_calls, FinishReason::ToolCalls);
+        assert_eq!(legacy_tool_calls, FinishReason::ToolCalls);
+        assert_eq!(content_filter, FinishReason::ContentFilter);
+        assert_eq!(legacy_content_filter, FinishReason::ContentFilter);
     }
 
     #[test]
