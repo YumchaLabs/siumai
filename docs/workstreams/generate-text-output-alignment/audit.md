@@ -35,6 +35,9 @@ Reference files:
 
 | AI SDK output part | Siumai status | Notes |
 | --- | --- | --- |
+| `text` | Supported as passive output shape | `TextOutput` preserves `type: "text"`, generated text, and provider metadata without reusing request-side prompt parts. |
+| `custom` | Supported as passive output shape | `CustomOutput` preserves `type: "custom"`, the provider-owned `kind`, and provider metadata. |
+| `file` | Supported as passive output shape | `FileOutput` preserves the AI SDK output-side nested `file: GeneratedFile` shape instead of the prompt-side flattened file input shape. |
 | `tool-call` | Supported as passive output shape | `ToolCall` now preserves the output-part `type: "tool-call"` discriminator plus provider metadata, title, invalid/error, dynamic, and provider-executed fields. |
 | `tool-result` | Supported as passive output shape | `ToolResult` now preserves the output-part `type: "tool-result"` discriminator plus provider metadata, title, dynamic/provider-executed, and preliminary result fields. |
 | `GeneratedFile` | Supported as passive output shape | `GeneratedFile` stores stable `base64` plus `mediaType` and exposes Rust byte decoding through `uint8_array()`. |

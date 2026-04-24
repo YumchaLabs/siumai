@@ -66,6 +66,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<AssistantContent>();
     let _ = size_of::<ToolContent>();
     let _ = size_of::<GenerateImageRequest>();
+    let _ = size_of::<TextOutput>();
+    let _ = size_of::<CustomOutput>();
+    let _ = size_of::<FileOutput>();
     let _ = size_of::<GeneratedFile>();
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
@@ -387,6 +390,12 @@ fn public_surface_unified_imports_compile() {
         generated_file.uint8_array().expect("decode generated file"),
         b"hello"
     );
+    let text_output = TextOutput::new("hello");
+    assert_eq!(text_output.r#type(), "text");
+    let custom_output = CustomOutput::new("openai.compaction");
+    assert_eq!(custom_output.r#type(), "custom");
+    let file_output = FileOutput::new(generated_file.clone());
+    assert_eq!(file_output.r#type(), "file");
     let reasoning_output = ReasoningOutput::new("thinking");
     assert_eq!(reasoning_output.r#type(), "reasoning");
     let reasoning_file_output = ReasoningFileOutput::new(generated_file);

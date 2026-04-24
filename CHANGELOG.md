@@ -26,9 +26,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK `generateText` tool approval output parts are now represented directly by
   `ToolApprovalRequestOutput` / `ToolApprovalResponseOutput`, including the nested full `toolCall`
   payload and `isAutomatic` / `providerExecuted` flags.
-- AI SDK text-output file and reasoning parts now have direct Rust data structures:
-  `GeneratedFile`, `ReasoningOutput`, and `ReasoningFileOutput`, preserving the upstream
-  `base64` / `mediaType` file shape plus provider metadata.
+- AI SDK text-output basic content, file, and reasoning parts now have direct Rust data structures:
+  `TextOutput`, `CustomOutput`, `FileOutput`, `GeneratedFile`, `ReasoningOutput`, and
+  `ReasoningFileOutput`, preserving the upstream nested generated-file `base64` / `mediaType`
+  shape plus provider metadata.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:

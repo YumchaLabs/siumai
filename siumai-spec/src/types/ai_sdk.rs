@@ -252,6 +252,222 @@ impl GeneratedFile {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TextOutputMarker {
+    Text,
+}
+
+impl Default for TextOutputMarker {
+    fn default() -> Self {
+        Self::Text
+    }
+}
+
+impl Serialize for TextOutputMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("text")
+    }
+}
+
+impl<'de> Deserialize<'de> for TextOutputMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "text" {
+            Ok(Self::Text)
+        } else {
+            Err(serde::de::Error::custom("expected text type marker"))
+        }
+    }
+}
+
+/// AI SDK-style text output content part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TextOutput {
+    #[serde(rename = "type", default)]
+    marker: TextOutputMarker,
+    /// Generated text.
+    pub text: String,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl TextOutput {
+    /// Create a text output content part.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            marker: TextOutputMarker::Text,
+            text: text.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "text"
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CustomOutputMarker {
+    Custom,
+}
+
+impl Default for CustomOutputMarker {
+    fn default() -> Self {
+        Self::Custom
+    }
+}
+
+impl Serialize for CustomOutputMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("custom")
+    }
+}
+
+impl<'de> Deserialize<'de> for CustomOutputMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "custom" {
+            Ok(Self::Custom)
+        } else {
+            Err(serde::de::Error::custom("expected custom type marker"))
+        }
+    }
+}
+
+/// AI SDK-style custom output content part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CustomOutput {
+    #[serde(rename = "type", default)]
+    marker: CustomOutputMarker,
+    /// Provider-specific custom output kind, e.g. `openai.compaction`.
+    pub kind: String,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl CustomOutput {
+    /// Create a custom output content part.
+    pub fn new(kind: impl Into<String>) -> Self {
+        Self {
+            marker: CustomOutputMarker::Custom,
+            kind: kind.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "custom"
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileOutputMarker {
+    File,
+}
+
+impl Default for FileOutputMarker {
+    fn default() -> Self {
+        Self::File
+    }
+}
+
+impl Serialize for FileOutputMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("file")
+    }
+}
+
+impl<'de> Deserialize<'de> for FileOutputMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "file" {
+            Ok(Self::File)
+        } else {
+            Err(serde::de::Error::custom("expected file type marker"))
+        }
+    }
+}
+
+/// AI SDK-style generated file output content part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FileOutput {
+    #[serde(rename = "type", default)]
+    marker: FileOutputMarker,
+    /// Generated file payload.
+    pub file: GeneratedFile,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl FileOutput {
+    /// Create a generated file output content part.
+    pub fn new(file: GeneratedFile) -> Self {
+        Self {
+            marker: FileOutputMarker::File,
+            file,
+            provider_metadata: None,
+        }
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "file"
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReasoningOutputMarker {
     Reasoning,
 }
@@ -2501,6 +2717,67 @@ mod tests {
             serde_json::json!("Search result")
         );
         assert_eq!(tool_result_json["preliminary"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn generate_text_basic_content_outputs_match_ai_sdk_shape() {
+        let provider_metadata = ProviderMetadata::from([(
+            "openai".to_string(),
+            serde_json::json!({ "itemId": "msg_1" }),
+        )]);
+
+        let text = TextOutput::new("hello").with_provider_metadata(provider_metadata.clone());
+        assert_eq!(text.r#type(), "text");
+        assert_eq!(
+            serde_json::to_value(&text).expect("serialize text output"),
+            serde_json::json!({
+                "type": "text",
+                "text": "hello",
+                "providerMetadata": {
+                    "openai": { "itemId": "msg_1" }
+                }
+            })
+        );
+
+        let custom = CustomOutput::new("openai.compaction")
+            .with_provider_metadata(provider_metadata.clone());
+        assert_eq!(custom.r#type(), "custom");
+        assert_eq!(
+            serde_json::to_value(&custom).expect("serialize custom output"),
+            serde_json::json!({
+                "type": "custom",
+                "kind": "openai.compaction",
+                "providerMetadata": {
+                    "openai": { "itemId": "msg_1" }
+                }
+            })
+        );
+
+        let file = FileOutput::new(GeneratedFile::from_bytes(b"hello", "text/plain"))
+            .with_provider_metadata(provider_metadata);
+        assert_eq!(file.r#type(), "file");
+        assert_eq!(
+            serde_json::to_value(&file).expect("serialize file output"),
+            serde_json::json!({
+                "type": "file",
+                "file": {
+                    "base64": "aGVsbG8=",
+                    "mediaType": "text/plain"
+                },
+                "providerMetadata": {
+                    "openai": { "itemId": "msg_1" }
+                }
+            })
+        );
+
+        let wrong_type = serde_json::json!({
+            "type": "image",
+            "file": {
+                "base64": "aGVsbG8=",
+                "mediaType": "text/plain"
+            }
+        });
+        assert!(serde_json::from_value::<FileOutput>(wrong_type).is_err());
     }
 
     #[test]
