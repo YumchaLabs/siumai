@@ -18466,6 +18466,26 @@ mod openai_compatible_audio_public_path {
         assert!(siumai_req.body.get("includeRawChunks").is_none());
     }
 
+    #[test]
+    fn fireworks_package_settings_preserve_supported_provider_inputs() {
+        let config = siumai::provider_ext::fireworks::FireworksProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/fireworks")
+            .with_header("x-test", "1")
+            .into_config_for_model("accounts/fireworks/models/llama-v3p1-8b-instruct")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "fireworks");
+        assert_eq!(config.base_url, "https://example.com/fireworks");
+        assert_eq!(
+            config.common_params.model,
+            "accounts/fireworks/models/llama-v3p1-8b-instruct"
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
     #[tokio::test]
     async fn fireworks_siumai_provider_config_embedding_request_options_are_equivalent() {
         let siumai_transport = CaptureTransport::default();

@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   explicitly deferred until the shared runtime owns a stable ID hook.
 - Add compat-backed AI SDK-style `PerplexityProviderSettings` for the audited package-level
   `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
+- Add compat-backed AI SDK-style `FireworksProviderSettings` for the audited package-level
+  `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
 
 - Add AI SDK-aligned completion-family execution on the real OpenAI-compatible `/completions`
   route for both non-stream and SSE flows, including completion response usage/metadata/provider

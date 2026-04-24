@@ -86,6 +86,16 @@ Reference: `repo-ref/ai/packages/togetherai/src/togetherai-provider.ts`
 | `headers` | supported | `TogetherAIProviderSettings.headers` |
 | `fetch` | supported | `TogetherAIProviderSettings.fetch` |
 
+## Fireworks
+
+Reference: `repo-ref/ai/packages/fireworks/src/fireworks-provider.ts`
+
+| Upstream field | Rust status | Rust analogue / note |
+| --- | --- | --- |
+| `apiKey` | supported | `FireworksProviderSettings.api_key` |
+| `baseURL` | supported | `FireworksProviderSettings.base_url` |
+| `headers` | supported | `FireworksProviderSettings.headers` |
+| `fetch` | supported | `FireworksProviderSettings.fetch` |
 ## Perplexity
 
 Reference: `repo-ref/ai/packages/perplexity/src/perplexity-provider.ts`
@@ -149,3 +159,4 @@ The audited package-surface alignment now also exposes:
 | Groq | `provider_ext::groq::{GroqProviderSettings, VERSION}` |
 | Mistral | `provider_ext::mistral::{MistralProviderSettings, VERSION}` |
 | Perplexity | `provider_ext::perplexity::{PerplexityProviderSettings, VERSION}` |
+| Fireworks | `provider_ext::fireworks::{FireworksProviderSettings, VERSION}` |

@@ -1,4 +1,4 @@
-﻿//! # Siumai - A Unified LLM Interface Library
+//! # Siumai - A Unified LLM Interface Library
 //!
 //! Siumai is a unified LLM interface library for Rust, supporting multiple AI providers.
 //! It adopts a trait-separated architectural pattern and provides a type-safe API.
@@ -618,8 +618,9 @@ pub mod provider_ext {
         /// [`create_fireworks()`], [`crate::Provider::fireworks()`], or
         /// [`crate::provider::SiumaiBuilder::fireworks()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            FireworksClient, FireworksConfig, FireworksEmbeddingModelId, FireworksErrorData,
-            FireworksImageModelId,
+            FIREWORKS_VERSION as VERSION, FireworksClient, FireworksConfig,
+            FireworksEmbeddingModelId, FireworksErrorData, FireworksImageModelId,
+            FireworksProviderSettings,
         };
 
         /// Curated Fireworks model constants aligned with the audited AI SDK package subset.

@@ -1799,7 +1799,9 @@ fn public_surface_deepinfra_unified_builder_compiles() {
 #[allow(deprecated)]
 fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
     use siumai::prelude::compat::{Provider, Siumai};
-    use siumai::provider_ext::fireworks::{create_fireworks, fireworks as fireworks_builder};
+    use siumai::provider_ext::fireworks::{
+        FireworksProviderSettings, create_fireworks, fireworks as fireworks_builder,
+    };
     use siumai::provider_ext::mistral::{
         MistralProviderSettings, create_mistral, mistral as mistral_builder,
     };
@@ -1828,6 +1830,16 @@ fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
         .into_config_for_model("mistral-large-latest");
     let _ = fireworks_builder();
     let _ = create_fireworks();
+    let _ = FireworksProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/fireworks")
+        .with_header("x-test", "1")
+        .into_config_for_model("accounts/fireworks/models/llama-v3p1-8b-instruct");
+    let _ = FireworksProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/fireworks")
+        .with_header("x-test", "1")
+        .into_builder_for_model("accounts/fireworks/models/llama-v3p1-8b-instruct");
     let _ = perplexity_builder();
     let _ = create_perplexity();
     let _ = PerplexityProviderSettings::new()
@@ -2007,9 +2019,9 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
         FireworksChatOptions, FireworksChatRequestExt, FireworksClient, FireworksConfig,
         FireworksEmbeddingModelId, FireworksEmbeddingModelOptions,
         FireworksEmbeddingProviderOptions, FireworksErrorData, FireworksImageModelId,
-        FireworksProviderOptions, FireworksReasoningHistory, FireworksThinkingConfig,
-        FireworksThinkingType, chat as fireworks_chat, create_fireworks,
-        fireworks as fireworks_builder,
+        FireworksProviderOptions, FireworksProviderSettings, FireworksReasoningHistory,
+        FireworksThinkingConfig, FireworksThinkingType, VERSION as FIREWORKS_VERSION,
+        chat as fireworks_chat, create_fireworks, fireworks as fireworks_builder,
     };
     use siumai::provider_ext::mistral::{
         MistralChatOptions, MistralChatRequestExt, MistralClient, MistralConfig,
@@ -2031,6 +2043,8 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
     let _ = size_of::<MistralReasoningEffort>();
     let _ = size_of::<FireworksClient>();
     let _ = size_of::<FireworksConfig>();
+    let _ = size_of::<FireworksProviderSettings>();
+    let _ = FIREWORKS_VERSION;
     let _ = size_of::<FireworksChatOptions>();
     let _ = size_of::<FireworksErrorData>();
     let _ = size_of::<FireworksEmbeddingModelId>();

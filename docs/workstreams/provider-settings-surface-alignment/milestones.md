@@ -6,7 +6,7 @@ Last updated: 2026-04-24
 
 Acceptance criteria:
 
-- The upstream OpenAI / Azure / Bedrock / Cohere / DeepSeek / TogetherAI / xAI / Groq / Mistral / Perplexity provider settings
+- The upstream OpenAI / Azure / Bedrock / Cohere / DeepSeek / TogetherAI / xAI / Groq / Mistral / Perplexity / Fireworks provider settings
   references are recorded.
 - The supported/deferred matrix is explicit.
 - The workstream scope distinguishes package-shape parity from runtime parity.
@@ -17,7 +17,7 @@ Status: completed
 
 Acceptance criteria:
 
-- OpenAI, Azure, Bedrock, Cohere, DeepSeek, TogetherAI, xAI, Groq, Mistral, and Perplexity each expose a dedicated package-level
+- OpenAI, Azure, Bedrock, Cohere, DeepSeek, TogetherAI, xAI, Groq, Mistral, Perplexity, and Fireworks each expose a dedicated package-level
   provider settings carrier.
 - Those settings carriers are model-agnostic.
 - They convert into the provider-owned builder/config surfaces without special-case backdoors.
@@ -44,6 +44,8 @@ Current state:
   `provider_ext::mistral` facade.
 - `PerplexityProviderSettings` is exposed from the OpenAI-compatible module and the top-level
   `provider_ext::perplexity` facade.
+- `FireworksProviderSettings` is exposed from the OpenAI-compatible module and the top-level
+  `provider_ext::fireworks` facade.
 - Each carrier now exposes `new()`, fluent `with_*` setters, `into_builder()`,
   `into_builder_for_model(...)`, and `into_config_for_model(...)`.
 
@@ -62,7 +64,7 @@ Current state:
 - `providers::{openai,azure_openai,bedrock}::VERSION` now exist.
 - `provider_ext::{openai,azure,bedrock}::VERSION` now exist.
 - `provider_ext::cohere::VERSION` now exists.
-- `provider_ext::{deepseek,togetherai,xai,groq,mistral,perplexity}::VERSION` now exist.
+- `provider_ext::{deepseek,togetherai,xai,groq,mistral,perplexity,fireworks}::VERSION` now exist.
 - Public compile/path tests now lock the new settings carriers on the top-level facade.
 
 Status: completed
