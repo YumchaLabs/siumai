@@ -150,18 +150,76 @@ where
     S: Into<GenerateObjectSchema<T>>,
 {
     let schema = schema.into().into_schema();
-    let mut response_format = ResponseFormat::json_schema(schema.json_schema().clone());
+    let response_schema = schema.json_schema().clone();
 
-    if let Some(name) = options.schema_name {
-        response_format = response_format.with_name(name);
-    }
-    if let Some(description) = options.schema_description {
-        response_format = response_format.with_description(description);
-    }
-    if let Some(strict) = options.strict {
-        response_format = response_format.with_strict(strict);
-    }
+    generate_with_response_schema(model, request, response_schema, options, move |value| {
+        parse_generated_object(&schema, value)
+    })
+    .await
+}
 
+/// Generate a typed array from a language model using AI SDK's wrapped array output strategy.
+///
+/// Providers receive a JSON Schema for `{ "elements": [...] }`, matching AI SDK's `output:
+/// "array"` strategy. The returned Rust object is the extracted `Vec<T>`.
+pub async fn generate_array<M, T, S>(
+    model: &M,
+    request: TextRequest,
+    element_schema: S,
+    options: GenerateObjectOptions,
+) -> Result<GenerateObjectResult<Vec<T>>, LlmError>
+where
+    M: LanguageModel + ?Sized,
+    T: DeserializeOwned,
+    S: Into<GenerateObjectSchema<T>>,
+{
+    let schema = element_schema.into().into_schema();
+    let response_schema = array_output_json_schema(schema.json_schema().clone());
+
+    generate_with_response_schema(model, request, response_schema, options, move |value| {
+        parse_generated_array(&schema, value)
+    })
+    .await
+}
+
+/// Generate one string from a fixed enum set using AI SDK's wrapped enum output strategy.
+///
+/// Providers receive a JSON Schema for `{ "result": "..." }`, matching AI SDK's `output:
+/// "enum"` strategy. Schema names and descriptions are rejected for this helper to preserve the
+/// upstream contract.
+pub async fn generate_enum<M, I, V>(
+    model: &M,
+    request: TextRequest,
+    enum_values: I,
+    options: GenerateObjectOptions,
+) -> Result<GenerateObjectResult<String>, LlmError>
+where
+    M: LanguageModel + ?Sized,
+    I: IntoIterator<Item = V>,
+    V: Into<String>,
+{
+    validate_enum_options(&options)?;
+    let enum_values = enum_values.into_iter().map(Into::into).collect::<Vec<_>>();
+    let response_schema = enum_output_json_schema(&enum_values);
+
+    generate_with_response_schema(model, request, response_schema, options, move |value| {
+        parse_generated_enum(&enum_values, value)
+    })
+    .await
+}
+
+async fn generate_with_response_schema<M, T, P>(
+    model: &M,
+    request: TextRequest,
+    response_schema: JSONSchema7,
+    options: GenerateObjectOptions,
+    parse: P,
+) -> Result<GenerateObjectResult<T>, LlmError>
+where
+    M: LanguageModel + ?Sized,
+    P: FnOnce(serde_json::Value) -> Result<T, LlmError>,
+{
+    let response_format = response_format_from_schema(response_schema, &options);
     let request = request.with_response_format(response_format);
     let (request, effective_options) =
         crate::text::prepare_generate_request(request, options.generate_options);
@@ -173,7 +231,7 @@ where
 
     let response = crate::text::generate_prepared(model, request, effective_options).await?;
     let value = extract_json_value_from_response(&response)?;
-    let object = parse_generated_object(&schema, value)?;
+    let object = parse(value)?;
 
     Ok(GenerateObjectResult::from_response(
         object,
@@ -182,6 +240,73 @@ where
         model_id,
         response,
     ))
+}
+
+fn response_format_from_schema(
+    schema: JSONSchema7,
+    options: &GenerateObjectOptions,
+) -> ResponseFormat {
+    let mut response_format = ResponseFormat::json_schema(schema);
+
+    if let Some(name) = options.schema_name.clone() {
+        response_format = response_format.with_name(name);
+    }
+    if let Some(description) = options.schema_description.clone() {
+        response_format = response_format.with_description(description);
+    }
+    if let Some(strict) = options.strict {
+        response_format = response_format.with_strict(strict);
+    }
+
+    response_format
+}
+
+fn array_output_json_schema(mut item_schema: JSONSchema7) -> JSONSchema7 {
+    if let Some(object) = item_schema.as_object_mut() {
+        object.remove("$schema");
+    }
+
+    serde_json::json!({
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "elements": {
+                "type": "array",
+                "items": item_schema,
+            },
+        },
+        "required": ["elements"],
+        "additionalProperties": false,
+    })
+}
+
+fn enum_output_json_schema(enum_values: &[String]) -> JSONSchema7 {
+    serde_json::json!({
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": {
+            "result": {
+                "type": "string",
+                "enum": enum_values,
+            },
+        },
+        "required": ["result"],
+        "additionalProperties": false,
+    })
+}
+
+fn validate_enum_options(options: &GenerateObjectOptions) -> Result<(), LlmError> {
+    if options.schema_name.is_some() {
+        return Err(LlmError::InvalidParameter(
+            "schema_name is not supported for enum output".to_string(),
+        ));
+    }
+    if options.schema_description.is_some() {
+        return Err(LlmError::InvalidParameter(
+            "schema_description is not supported for enum output".to_string(),
+        ));
+    }
+    Ok(())
 }
 
 /// Extract a `serde_json::Value` from a model output string.
@@ -234,6 +359,51 @@ where
                 "Failed to deserialize generated object into target type: {error}"
             ))
         }),
+    }
+}
+
+fn parse_generated_array<T>(
+    schema: &Schema<T>,
+    value: serde_json::Value,
+) -> Result<Vec<T>, LlmError>
+where
+    T: DeserializeOwned,
+{
+    let elements = value
+        .get("elements")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| {
+            LlmError::ParseError(
+                "Generated array output must be an object with an elements array".to_string(),
+            )
+        })?;
+
+    elements
+        .iter()
+        .cloned()
+        .map(|element| parse_generated_object(schema, element))
+        .collect()
+}
+
+fn parse_generated_enum(
+    enum_values: &[String],
+    value: serde_json::Value,
+) -> Result<String, LlmError> {
+    let result = value
+        .get("result")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| {
+            LlmError::ParseError(
+                "Generated enum output must be an object with a string result".to_string(),
+            )
+        })?;
+
+    if enum_values.iter().any(|value| value == result) {
+        Ok(result.to_string())
+    } else {
+        Err(LlmError::ParseError(format!(
+            "Generated enum output {result:?} is not one of the allowed values"
+        )))
     }
 }
 
@@ -473,5 +643,135 @@ mod tests {
                 name: "ADA".to_string()
             }
         );
+    }
+
+    #[tokio::test]
+    async fn generate_array_wraps_schema_and_extracts_elements() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"elements\":[{\"name\":\"Ada\"},{\"name\":\"Grace\"}]}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request: seen_request.clone(),
+        };
+        let schema = siumai_core::types::json_schema_with_validator(
+            serde_json::json!({
+                "$schema": "http://json-schema.org/draft-07/schema#",
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"]
+            }),
+            |value| {
+                value
+                    .get("name")
+                    .and_then(serde_json::Value::as_str)
+                    .map(|name| {
+                        ValidationResult::success(Person {
+                            name: name.to_string(),
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        ValidationResult::failure(LlmError::ParseError("missing name".to_string()))
+                    })
+            },
+        );
+
+        let result = generate_array(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            schema,
+            GenerateObjectOptions::default(),
+        )
+        .await
+        .expect("generate array");
+
+        assert_eq!(
+            result.object,
+            vec![
+                Person {
+                    name: "Ada".to_string()
+                },
+                Person {
+                    name: "Grace".to_string()
+                }
+            ]
+        );
+
+        let request = seen_request
+            .lock()
+            .expect("request lock")
+            .clone()
+            .expect("request should be captured");
+        let ResponseFormat::Json { schema, .. } = request
+            .response_format
+            .as_ref()
+            .expect("response format should be set");
+        assert_eq!(schema["properties"]["elements"]["type"], "array");
+        assert!(
+            schema["properties"]["elements"]["items"]
+                .get("$schema")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_enum_wraps_values_and_extracts_result() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"result\":\"green\"}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request: seen_request.clone(),
+        };
+
+        let result = generate_enum(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            ["red", "green", "blue"],
+            GenerateObjectOptions::default(),
+        )
+        .await
+        .expect("generate enum");
+
+        assert_eq!(result.object, "green");
+
+        let request = seen_request
+            .lock()
+            .expect("request lock")
+            .clone()
+            .expect("request should be captured");
+        let ResponseFormat::Json { schema, .. } = request
+            .response_format
+            .as_ref()
+            .expect("response format should be set");
+        assert_eq!(
+            schema["properties"]["result"]["enum"],
+            serde_json::json!(["red", "green", "blue"])
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_enum_rejects_schema_labels() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"result\":\"green\"}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request,
+        };
+
+        let error = generate_enum(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            ["red", "green"],
+            GenerateObjectOptions::new().with_schema_name("color"),
+        )
+        .await
+        .expect_err("schema name should be rejected for enum output");
+
+        assert!(matches!(error, LlmError::InvalidParameter(_)));
     }
 }

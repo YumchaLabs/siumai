@@ -156,7 +156,8 @@ pub mod speech;
 /// Structured output helpers (JSON extraction + parsing).
 pub mod structured_output;
 pub use structured_output::{
-    GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, generate_object,
+    GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, generate_array,
+    generate_enum, generate_object,
 };
 pub mod text;
 pub mod transcription;
@@ -2038,7 +2039,8 @@ pub mod prelude {
             UploadSkillProviderMetadata, UploadSkillResult,
         };
         pub use crate::structured_output::{
-            GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, generate_object,
+            GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, generate_array,
+            generate_enum, generate_object,
         };
         pub use crate::tooling;
         pub use crate::tools;

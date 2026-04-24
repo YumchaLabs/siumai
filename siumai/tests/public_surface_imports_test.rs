@@ -580,10 +580,12 @@ fn public_family_helpers_compile_against_stable_family_models() {
             self, GenerateImageRequest, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
             ImageModel, ImageVariationRequest,
         },
-        prelude::unified::{ChatMessage, JSONValue, registry::*},
+        prelude::unified::{
+            ChatMessage, JSONValue, generate_array, generate_enum, generate_object, registry::*,
+        },
         rerank::{self, RerankRequest, RerankingModel},
         speech::{self, SpeechModel, TtsRequest},
-        structured_output::{self, GenerateObjectSchema},
+        structured_output::GenerateObjectSchema,
         text::{self, LanguageModel, TextRequest},
         transcription::{self, SttRequest, TranscriptionModel},
         video::{self, VideoGenerationRequest, VideoModel},
@@ -619,10 +621,22 @@ fn public_family_helpers_compile_against_stable_family_models() {
         ));
         let schema: GenerateObjectSchema<JSONValue> =
             serde_json::json!({ "type": "object" }).into();
-        std::mem::drop(structured_output::generate_object(
+        std::mem::drop(generate_object(
+            model,
+            request.clone(),
+            schema.clone(),
+            Default::default(),
+        ));
+        std::mem::drop(generate_array(
+            model,
+            request.clone(),
+            schema,
+            Default::default(),
+        ));
+        std::mem::drop(generate_enum(
             model,
             request,
-            schema,
+            ["red", "green"],
             Default::default(),
         ));
     }

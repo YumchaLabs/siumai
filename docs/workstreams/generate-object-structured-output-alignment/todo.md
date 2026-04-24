@@ -42,8 +42,10 @@ Status legend:
 
 ## Track D - Deferred AI SDK output strategies
 
-- [-] Add a Rust output-strategy API before supporting `output: "array"`.
-- [-] Add a Rust output-strategy API before supporting `output: "enum"`.
+- [x] Support `output: "array"` as `structured_output::generate_array(...)` with the upstream
+  `{ elements: [...] }` wrapper strategy.
+- [x] Support `output: "enum"` as `structured_output::generate_enum(...)` with the upstream
+  `{ result: "..." }` wrapper strategy.
 - [-] Add a Rust output-strategy API before supporting `output: "no-schema"`.
 - [-] Add repair callback support only with an explicit Rust error/context contract.
 - [-] Add `streamObject` only after the runtime owns incremental structured JSON parsing and can

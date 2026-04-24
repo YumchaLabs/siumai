@@ -96,9 +96,18 @@ Upstream `generateObject` also supports:
 - `output: "no-schema"`
 - `experimental_repairText`
 
-This slice intentionally implements the stable object-schema path first. Array/enum/no-schema and
-repair callbacks need a dedicated Rust output-strategy API instead of being squeezed into
-`GenerateObjectSchema<T>`.
+The non-streaming array and enum strategies are exposed as Rust-specific helper functions instead
+of overloading one TypeScript-style option union:
+
+- `generate_array(...)` wraps the element schema under `{ "elements": [...] }`, sends that schema
+  to the provider, and returns the extracted `Vec<T>`
+- `generate_enum(...)` wraps the allowed values under `{ "result": "..." }`, sends that schema to
+  the provider, validates that the result is one of the allowed strings, and returns the extracted
+  `String`
+
+`no-schema` and repair callbacks remain deferred. `no-schema` needs a first-class `ResponseFormat`
+representation for "JSON output without JSON Schema"; using a permissive schema would be a
+different contract.
 
 ## Validation
 

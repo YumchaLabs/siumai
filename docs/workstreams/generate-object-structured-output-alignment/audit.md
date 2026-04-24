@@ -33,8 +33,8 @@ Reference files:
 | AI SDK output strategy | Siumai status | Rationale |
 | --- | --- | --- |
 | `object` | Supported | Directly maps to provider JSON Schema response format and Rust typed validation/deserialization. |
-| `array` | Deferred | Upstream wraps elements in an object; Rust should model that as an explicit output strategy rather than overloading schema conversion. |
-| `enum` | Deferred | Upstream wraps the enum under `result`; Rust needs a typed strategy for allowed values and result extraction. |
+| `array` | Supported as `generate_array(...)` | Uses the upstream `{ elements: [...] }` wrapper schema and returns the extracted `Vec<T>`. |
+| `enum` | Supported as `generate_enum(...)` | Uses the upstream `{ result: "..." }` wrapper schema and returns the extracted string after allowed-value validation. |
 | `no-schema` | Deferred | Requires a separate contract because it intentionally has no provider-facing schema. |
 | `experimental_repairText` | Deferred | Needs an explicit Rust repair callback context and error type before exposing a stable helper. |
 
