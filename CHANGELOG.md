@@ -131,6 +131,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   available through `siumai::types::*` and `siumai::prelude::unified::*`.
 - The existing stable `EmbeddingModel` trait is now directly exported from
   `siumai::prelude::unified::*`, matching the AI SDK `types/index.ts` model-family export shape.
+- The existing runtime `LanguageModelMiddleware` trait is now directly exported from
+  `siumai::prelude::unified::*`; embedding/image middleware remain intentionally deferred until
+  those model families have real middleware execution hooks.
 - The shared language-model `Source` citation shape from the AI SDK `types/language-model.ts`
   surface is now available through `siumai::types::*` and `siumai::prelude::unified::*`, with a
   strict fixed `type: "source"` marker and URL/document `sourceType` payload.

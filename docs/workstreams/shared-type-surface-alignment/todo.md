@@ -39,6 +39,8 @@ Status legend:
 - [x] Re-export the new shared names from `siumai::prelude::unified::*`.
 - [x] Re-export the existing stable `EmbeddingModel` trait from `siumai::prelude::unified::*` so
   the direct model-family names match the audited AI SDK `types/index.ts` surface.
+- [x] Re-export the existing runtime `LanguageModelMiddleware` trait from
+  `siumai::prelude::unified::*`.
 - [x] Add public compile-guard coverage in `siumai/tests/public_surface_imports_test.rs`.
 - [x] Add local unit coverage for warning/metadata/usage conversion behavior.
 - [x] Expose Rust-style equivalents of the AI SDK usage helpers:
@@ -54,5 +56,7 @@ Status legend:
 
 - [-] `RequestOptions`, `TimeoutConfiguration`, and `LanguageModelCallOptions` are tracked by their
   own dedicated workstreams.
+- [-] `EmbeddingModelMiddleware` and `ImageModelMiddleware` are deferred until those model families
+  have real middleware execution hooks; do not expose empty placeholder traits.
 - [-] Do not pretend that every provider already captures speech/transcription response bodies in a
   stable cross-provider way.

@@ -2025,6 +2025,7 @@ pub mod prelude {
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::completion::CompletionModel;
         pub use siumai_core::error::{ErrorCategory, LlmError};
+        pub use siumai_core::execution::middleware::LanguageModelMiddleware;
         pub use siumai_core::image::{ImageModel, ImageModelV4};
         pub use siumai_core::rerank::RerankingModel;
         pub use siumai_core::speech::SpeechModel;

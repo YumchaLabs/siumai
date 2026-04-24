@@ -82,6 +82,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<*const dyn ImageModelV4>();
     let _ = size_of::<*const dyn EmbeddingModel>();
     let _ = size_of::<*const dyn LanguageModel>();
+    let _ = size_of::<*const dyn LanguageModelMiddleware>();
     let _ = size_of::<*const dyn RerankingModel>();
     let _ = size_of::<*const dyn SpeechModel>();
     let _ = size_of::<*const dyn TranscriptionModel>();

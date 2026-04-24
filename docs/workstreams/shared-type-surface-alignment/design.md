@@ -23,6 +23,8 @@ several important ways:
   explicitly
 - the AI SDK language-model `Source` citation shape was only available indirectly as a content
   part variant, not as a stable shared public data structure
+- `LanguageModelMiddleware` existed in the Rust runtime but was not directly visible from the
+  stable facade, while embedding/image middleware did not yet have honest runtime equivalents
 
 This was not a single runtime bug. It was a shared contract gap:
 
@@ -150,6 +152,10 @@ The existing Rust-first `EmbeddingModel` trait is also re-exported directly from
 shape alongside `LanguageModel`, `ImageModel`, `RerankingModel`, `SpeechModel`, and
 `TranscriptionModel`.
 
+The existing runtime `LanguageModelMiddleware` trait is also re-exported directly. Embedding and
+image middleware are intentionally not fabricated in this slice because there is no corresponding
+embedding/image middleware execution path yet.
+
 ## Validation
 
 This workstream is currently locked by:
@@ -162,5 +168,6 @@ This workstream is currently locked by:
 ## Deferred follow-up
 
 - Design `RequestOptions`, `TimeoutConfiguration`, and `LanguageModelCallOptions` separately.
+- Design embedding/image middleware once those model families have real middleware execution hooks.
 - Revisit response-body capture for speech/transcription once the runtime has a stable place to
   preserve it across providers.
