@@ -1,4 +1,4 @@
-//! # Siumai - A Unified LLM Interface Library
+﻿//! # Siumai - A Unified LLM Interface Library
 //!
 //! Siumai is a unified LLM interface library for Rust, supporting multiple AI providers.
 //! It adopts a trait-separated architectural pattern and provides a type-safe API.
@@ -676,7 +676,8 @@ pub mod provider_ext {
         /// [`create_moonshotai()`], [`crate::Provider::moonshotai()`], or
         /// [`crate::provider::SiumaiBuilder::moonshotai()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            MoonshotAIChatModelId, MoonshotAIClient, MoonshotAIConfig,
+            MOONSHOTAI_VERSION as VERSION, MoonshotAIChatModelId, MoonshotAIClient,
+            MoonshotAIConfig, MoonshotAIProviderSettings,
         };
 
         /// Curated MoonshotAI model constants aligned with the audited AI SDK package subset.

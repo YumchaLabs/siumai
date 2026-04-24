@@ -12,7 +12,7 @@ Status legend:
 ## 0) Audit and scope
 
 - [x] Lock the audited AI SDK provider reference files for OpenAI, Azure, Bedrock, Cohere,
-  DeepSeek, TogetherAI, xAI, Groq, Mistral, Perplexity, and Fireworks.
+  DeepSeek, TogetherAI, xAI, Groq, Mistral, Perplexity, Fireworks, and MoonshotAI.
 - [x] Confirm the local provider-owned builder/config surfaces can already support most of the
   upstream package-level settings.
 - [x] Separate supported fields from deferred fields before exposing any new Rust struct.
@@ -30,6 +30,7 @@ Status legend:
 - [x] Add compat-backed `MistralProviderSettings`.
 - [x] Add compat-backed `PerplexityProviderSettings`.
 - [x] Add compat-backed `FireworksProviderSettings`.
+- [x] Add compat-backed `MoonshotAIProviderSettings`.
 - [x] Keep the new settings carriers model-agnostic.
 - [x] Expose `into_builder()`, `into_builder_for_model(...)`, and `into_config_for_model(...)`.
 
@@ -49,7 +50,7 @@ Status legend:
 - [x] Re-export the new provider settings carriers from the provider-owned modules.
 - [x] Re-export package `VERSION` from the provider-owned modules.
 - [x] Mirror those exports on
-  `siumai::provider_ext::{openai,azure,bedrock,cohere,deepseek,togetherai,xai,groq,mistral,perplexity,fireworks}`.
+  `siumai::provider_ext::{openai,azure,bedrock,cohere,deepseek,togetherai,xai,groq,mistral,perplexity,fireworks,moonshotai}`.
 - [x] Extend public-surface compile guards for the new exports.
 - [x] Extend top-level public-path parity coverage for the new exports.
 

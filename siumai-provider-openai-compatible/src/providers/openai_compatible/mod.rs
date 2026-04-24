@@ -1,4 +1,4 @@
-//! OpenAI-Compatible Provider Interface
+﻿//! OpenAI-Compatible Provider Interface
 //!
 //! This module provides model constants for OpenAI-compatible providers.
 //! These providers use a dedicated OpenAI-compatible client (`OpenAiCompatibleClient`) that
@@ -113,7 +113,8 @@ pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{
-    FireworksProviderSettings, MistralProviderSettings, PerplexityProviderSettings,
+    FireworksProviderSettings, MistralProviderSettings, MoonshotAIProviderSettings,
+    PerplexityProviderSettings,
 };
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
@@ -320,6 +321,8 @@ pub type DeepInfraConfig = openai_config::OpenAiCompatibleConfig;
 pub type MoonshotAIClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for MoonshotAI compat language-model configs.
 pub type MoonshotAIConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the MoonshotAI package-surface facade.
+pub const MOONSHOTAI_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// AI SDK-style MoonshotAI chat model id alias.
 ///

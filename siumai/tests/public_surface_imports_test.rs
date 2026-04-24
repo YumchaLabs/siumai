@@ -1,4 +1,4 @@
-﻿use std::mem::size_of;
+use std::mem::size_of;
 
 #[test]
 #[allow(deprecated)]
@@ -1805,7 +1805,9 @@ fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
     use siumai::provider_ext::mistral::{
         MistralProviderSettings, create_mistral, mistral as mistral_builder,
     };
-    use siumai::provider_ext::moonshotai::{create_moonshotai, moonshotai as moonshotai_builder};
+    use siumai::provider_ext::moonshotai::{
+        MoonshotAIProviderSettings, create_moonshotai, moonshotai as moonshotai_builder,
+    };
     use siumai::provider_ext::perplexity::{
         PerplexityProviderSettings, create_perplexity, perplexity as perplexity_builder,
     };
@@ -1854,6 +1856,11 @@ fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
         .into_builder_for_model("sonar");
     let _ = moonshotai_builder();
     let _ = create_moonshotai();
+    let _ = MoonshotAIProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/moonshot")
+        .with_header("x-test", "1")
+        .into_builder_for_model("kimi-k2.5");
     let _ = Provider::mistral().model("mistral-large-latest");
     let _ = Provider::fireworks().model("accounts/fireworks/models/llama-v3p1-8b-instruct");
     let _ = Provider::perplexity().model("sonar");
@@ -1868,12 +1875,15 @@ fn public_surface_moonshotai_provider_ext_compile() {
     use siumai::provider_ext::moonshotai::{
         MoonshotAIChatModelId, MoonshotAIChatOptions, MoonshotAIChatRequestExt, MoonshotAIClient,
         MoonshotAIConfig, MoonshotAILanguageModelOptions, MoonshotAIProviderOptions,
-        MoonshotAIReasoningHistory, MoonshotAIThinkingConfig, MoonshotAIThinkingType,
-        create_moonshotai, model_sets, moonshotai as moonshotai_builder, recommended,
+        MoonshotAIProviderSettings, MoonshotAIReasoningHistory, MoonshotAIThinkingConfig,
+        MoonshotAIThinkingType, VERSION, create_moonshotai, model_sets,
+        moonshotai as moonshotai_builder, recommended,
     };
 
     let _ = size_of::<MoonshotAIClient>();
     let _ = size_of::<MoonshotAIConfig>();
+    let _ = size_of::<MoonshotAIProviderSettings>();
+    let _ = VERSION;
     let _ = size_of::<MoonshotAIChatModelId>();
     let _ = size_of::<MoonshotAIChatOptions>();
     let _ = size_of::<MoonshotAILanguageModelOptions>();
@@ -1894,6 +1904,11 @@ fn public_surface_moonshotai_provider_ext_compile() {
     let _ = model_sets::KIMI_K2P5;
     let _ = moonshotai_builder();
     let _ = create_moonshotai();
+    let _ = MoonshotAIProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/moonshot")
+        .with_header("x-test", "1")
+        .into_config_for_model("kimi-k2.5");
 }
 
 #[cfg(feature = "bedrock")]

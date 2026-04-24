@@ -19305,6 +19305,23 @@ mod openai_compatible_audio_public_path {
         assert_mixed_capture_transports_unused(&[&registry_transport]);
     }
 
+    #[test]
+    fn moonshotai_package_settings_preserve_supported_provider_inputs() {
+        let config = siumai::provider_ext::moonshotai::MoonshotAIProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/moonshot")
+            .with_header("x-test", "1")
+            .into_config_for_model("kimi-k2.5")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "moonshotai");
+        assert_eq!(config.base_url, "https://example.com/moonshot");
+        assert_eq!(config.common_params.model, "kimi-k2.5");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
     #[tokio::test]
     async fn moonshotai_public_completion_family_is_intentionally_unsupported() {
         let siumai_transport = CaptureTransport::default();
