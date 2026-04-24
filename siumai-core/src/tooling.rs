@@ -36,6 +36,12 @@ pub type ToolExecuteWithOptionsFn = Arc<
         + Sync,
 >;
 
+/// AI SDK-style tool execution function alias.
+///
+/// This is the Rust facade equivalent of provider-utils `ToolExecuteFunction`: it receives the
+/// parsed tool input and the shared `ToolExecutionOptions`, then resolves one final JSON value.
+pub type ToolExecuteFunction = ToolExecuteWithOptionsFn;
+
 /// Raw streaming execution output for tools that produce intermediate values.
 pub type ToolExecuteValueStream = BoxStream<'static, Result<Value, LlmError>>;
 

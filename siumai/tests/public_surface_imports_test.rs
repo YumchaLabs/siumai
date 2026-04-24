@@ -16,6 +16,14 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ValidationResult>();
     let _ = size_of::<IdGenerator>();
     let _ = size_of::<IdGeneratorOptions>();
+    let _ = size_of::<ExecutableTool>();
+    let _ = size_of::<ExecutableTools>();
+    let _ = size_of::<ToolExecuteFunction>();
+    let _ = size_of::<ToolExecutionOptions>();
+    let _ = size_of::<ToolExecutionResult>();
+    let _ = size_of::<ToolExecutionStream>();
+    let _ = size_of::<ToolModelOutputContext>();
+    let _ = size_of::<ToolSet>();
     let _ = size_of::<CallWarning>();
     let _ = size_of::<CancelHandle>();
     let _ = size_of::<Context>();
@@ -165,6 +173,31 @@ fn public_surface_unified_imports_compile() {
     let prefixed_id = prefixed_id_generator();
     assert!(prefixed_id.starts_with("tool-"));
     assert_eq!(prefixed_id["tool-".len()..].chars().count(), 6);
+
+    let runtime_tool = tool(Tool::function(
+        "runtime_weather",
+        "Runtime weather tool",
+        serde_json::json!({ "type": "object" }),
+    ));
+    assert!(!is_executable_tool(Some(&runtime_tool)));
+    assert!(
+        dynamic_tool(runtime_tool.clone())
+            .runtime_metadata()
+            .dynamic()
+    );
+    let tool_options = ToolExecutionOptions::new("call_runtime")
+        .try_with_chat_messages(&[ChatMessage::user("hello").build()])
+        .expect("chat messages project to model messages");
+    assert_eq!(tool_options.messages.len(), 1);
+    let projected_messages =
+        model_messages_from_chat_messages(&[ChatMessage::user("hello again").build()])
+            .expect("project messages");
+    assert_eq!(projected_messages.len(), 1);
+    std::mem::drop(execute_tool(
+        &runtime_tool,
+        serde_json::json!({}),
+        ToolExecutionOptions::new("call_unsupported"),
+    ));
 
     let shared_data = DataContent::binary(vec![1, 2, 3]);
     let stt_request = SttRequest::from_data_content(shared_data.clone(), "audio/mpeg");

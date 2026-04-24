@@ -30,6 +30,8 @@ several important ways:
   carrier contract
 - the root AI SDK package re-exports `createIdGenerator`, `generateId`, and `IdGenerator`, but
   Siumai did not have a shared facade-level equivalent
+- the root AI SDK package re-exports provider-utils tool helpers directly, while Siumai's real
+  runtime tool helpers were only visible through the nested `tooling` module
 
 This was not a single runtime bug. It was a shared contract gap:
 
@@ -150,6 +152,18 @@ facade:
 The implementation intentionally remains non-cryptographic, matching AI SDK's helper. Rust uses
 `Result` for invalid options instead of modeling JavaScript exceptions.
 
+The provider-utils tool surface is split into two honest Rust concepts:
+
+- `siumai::types::Tool` remains the passive provider-facing schema shape
+- `ExecutableTool` binds a passive tool to Rust closures, callbacks, approval checks, and
+  to-model-output conversion
+- `ToolSet` remains an alias to `ExecutableTools`
+- `ToolExecuteFunction` is an alias to the options-aware runtime callback type
+- `tool(...)` and `dynamic_tool(...)` are re-exported from the root facade and the unified prelude
+
+This avoids serializing Rust closures into the spec-level tool shape while still matching the
+provider-utils runtime helper ergonomics.
+
 ### 3. Extend stable runtime carriers where the public contract requires it
 
 Two shared runtime carriers needed real semantic widening:
@@ -209,12 +223,16 @@ pulling from implementation modules.
 The ID helpers are root facade exports as well as prelude exports because AI SDK exposes them from
 the package root, not only from a nested utility module.
 
+The tool runtime helpers are also root facade exports. The historical `tool!` macro remains
+available in macro syntax, while `tool(...)` is the value-level helper aligned with provider-utils.
+
 ## Validation
 
 This workstream is currently locked by:
 
 - `cargo nextest run -p siumai-spec schema --no-fail-fast`
 - `cargo nextest run -p siumai-core id --no-fail-fast`
+- `cargo nextest run -p siumai-core tooling --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test`
 - public compile guards in `siumai/tests/public_surface_imports_test.rs`
 - local unit tests in `siumai-spec/src/types/{common,ai_sdk,schema}.rs`
@@ -226,3 +244,5 @@ This workstream is currently locked by:
 - Revisit response-body capture for speech/transcription once the runtime has a stable place to
   preserve it across providers.
 - Add real Rust schema-library adapters if/when the crate adopts a validator/converter backend.
+- Keep TypeScript-only inference helpers (`InferToolInput` / `InferToolOutput`) deferred unless a
+  meaningful Rust generic API emerges.

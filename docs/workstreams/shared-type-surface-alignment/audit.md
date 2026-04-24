@@ -66,6 +66,19 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `createIdGenerator` | `siumai::create_id_generator`, `prelude::unified::create_id_generator` | done | Rust-style name with `IdGeneratorOptions`; returns `Result` instead of throwing. |
 | `generateId` | `siumai::generate_id`, `prelude::unified::generate_id` | done | Generates the AI SDK-compatible default 16-character non-cryptographic ID. |
 
+## `@ai-sdk/provider-utils` root tool exports
+
+| AI SDK export | Rust surface | Status | Notes |
+| --- | --- | --- | --- |
+| `Tool` | `siumai::types::Tool`, `prelude::unified::Tool` | done | Passive spec-level tool shape; executable bindings live in `ExecutableTool`. |
+| `tool` | `siumai::tool`, `prelude::unified::tool` | done | Runtime helper wrapping a spec `Tool` into `ExecutableTool`. The legacy `tool!` macro remains available in Rust macro syntax. |
+| `dynamicTool` | `siumai::dynamic_tool`, `prelude::unified::dynamic_tool` | done | Rust-style name over the existing runtime-defined tool flag. |
+| `ToolSet` | `siumai::ToolSet`, `prelude::unified::ToolSet` | done | Alias to `ExecutableTools`. |
+| `ToolExecutionOptions` | `siumai::ToolExecutionOptions`, `prelude::unified::ToolExecutionOptions` | done | Includes tool call id, model messages, abort signal, and context. |
+| `ToolExecuteFunction` | `siumai::ToolExecuteFunction`, `prelude::unified::ToolExecuteFunction` | done | Alias to the options-aware Rust execution callback type. |
+| `ToolApprovalRequest` / `ToolApprovalResponse` | `siumai::types::*`, `prelude::unified::*` | done | Shared passive data structures. |
+| `InferToolInput` / `InferToolOutput` | none | deferred | TypeScript conditional inference helpers have no honest runtime Rust equivalent. |
+
 ## Current deferred work
 
 - Add real `EmbeddingModelMiddleware` only after embedding helper/runtime calls can apply middleware.

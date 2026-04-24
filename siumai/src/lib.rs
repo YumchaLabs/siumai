@@ -165,6 +165,13 @@ pub mod video;
 /// Tool runtime (schema + execution binding).
 pub mod tooling;
 
+/// AI SDK-style tool runtime helpers.
+pub use siumai_core::tooling::{
+    ExecutableTool, ExecutableTools, ToolExecuteFunction, ToolExecutionOptions,
+    ToolExecutionResult, ToolExecutionStream, ToolModelOutputContext, ToolSet, dynamic_tool,
+    execute_tool, is_executable_tool, model_messages_from_chat_messages, tool,
+};
+
 /// Compatibility surface for legacy, method-style APIs (time-bounded).
 pub mod compat;
 
@@ -2028,6 +2035,11 @@ pub mod prelude {
         pub use crate::{
             DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, IdGenerator, IdGeneratorOptions,
             create_id_generator, generate_id,
+        };
+        pub use crate::{
+            ExecutableTool, ExecutableTools, ToolExecuteFunction, ToolExecutionOptions,
+            ToolExecutionResult, ToolExecutionStream, ToolModelOutputContext, ToolSet,
+            dynamic_tool, execute_tool, is_executable_tool, model_messages_from_chat_messages,
         };
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
         pub use crate::{

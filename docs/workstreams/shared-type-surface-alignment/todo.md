@@ -81,7 +81,18 @@ Status legend:
   custom alphabet, and non-cryptographic generation.
 - [x] Return `Result` for invalid Rust options instead of mimicking JavaScript exceptions.
 
-## Track G - Intentional deferrals
+## Track G - Provider-utils tool surface
+
+- [x] Audit `repo-ref/ai/packages/provider-utils/src/types/tool.ts`.
+- [x] Expose existing runtime tool helpers from the facade/prelude:
+  `tool`, `dynamic_tool`, `ToolExecutionOptions`, `ToolExecuteFunction`, `ToolSet`, and execution
+  helpers.
+- [x] Keep `Tool` as the passive spec-level data shape and `ExecutableTool` as the runtime binding
+  shape instead of merging provider wire schema and Rust closures into one serializable type.
+- [x] Preserve the legacy `tool!` macro; the root `tool(...)` function coexists in Rust's value
+  namespace.
+
+## Track H - Intentional deferrals
 
 - [-] `RequestOptions`, `TimeoutConfiguration`, and `LanguageModelCallOptions` are tracked by their
   own dedicated workstreams.
@@ -91,3 +102,5 @@ Status legend:
   stable cross-provider way.
 - [-] Do not expose `zodSchema` or Standard Schema adapters until a real Rust schema backend owns
   the validation/conversion behavior.
+- [-] Do not expose fake `InferToolInput` / `InferToolOutput` aliases; they are TypeScript-only
+  compile-time inference helpers.
