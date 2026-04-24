@@ -1,4 +1,4 @@
-use std::mem::size_of;
+﻿use std::mem::size_of;
 
 #[test]
 #[allow(deprecated)]
@@ -1804,7 +1804,9 @@ fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
         MistralProviderSettings, create_mistral, mistral as mistral_builder,
     };
     use siumai::provider_ext::moonshotai::{create_moonshotai, moonshotai as moonshotai_builder};
-    use siumai::provider_ext::perplexity::{create_perplexity, perplexity as perplexity_builder};
+    use siumai::provider_ext::perplexity::{
+        PerplexityProviderSettings, create_perplexity, perplexity as perplexity_builder,
+    };
 
     let _ = Provider::mistral;
     let _ = Provider::fireworks;
@@ -1828,6 +1830,16 @@ fn public_surface_ai_sdk_compat_promoted_unified_builders_compile() {
     let _ = create_fireworks();
     let _ = perplexity_builder();
     let _ = create_perplexity();
+    let _ = PerplexityProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/perplexity")
+        .with_header("x-test", "1")
+        .into_config_for_model("sonar");
+    let _ = PerplexityProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/perplexity")
+        .with_header("x-test", "1")
+        .into_builder_for_model("sonar");
     let _ = moonshotai_builder();
     let _ = create_moonshotai();
     let _ = Provider::mistral().model("mistral-large-latest");
@@ -2007,7 +2019,8 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
     };
     use siumai::provider_ext::perplexity::{
         PerplexityChatRequestExt, PerplexityClient, PerplexityConfig, PerplexityOptions,
-        chat as perplexity_chat, create_perplexity, perplexity as perplexity_builder,
+        PerplexityProviderSettings, VERSION as PERPLEXITY_VERSION, chat as perplexity_chat,
+        create_perplexity, perplexity as perplexity_builder,
     };
 
     let _ = size_of::<MistralClient>();
@@ -2027,6 +2040,8 @@ fn public_surface_mistral_fireworks_perplexity_provider_ext_compile() {
     let _ = size_of::<FireworksProviderOptions>();
     let _ = size_of::<PerplexityClient>();
     let _ = size_of::<PerplexityConfig>();
+    let _ = size_of::<PerplexityProviderSettings>();
+    let _ = PERPLEXITY_VERSION;
     let _ = size_of::<PerplexityOptions>();
 
     let _ = mistral_chat::MISTRAL_LARGE_LATEST;

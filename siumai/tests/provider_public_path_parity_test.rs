@@ -19463,6 +19463,23 @@ mod openai_compatible_audio_public_path {
         ]);
     }
 
+    #[test]
+    fn perplexity_package_settings_preserve_supported_provider_inputs() {
+        let config = siumai::provider_ext::perplexity::PerplexityProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/perplexity")
+            .with_header("x-test", "1")
+            .into_config_for_model("sonar")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "perplexity");
+        assert_eq!(config.base_url, "https://example.com/perplexity");
+        assert_eq!(config.common_params.model, "sonar");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
     #[tokio::test]
     async fn perplexity_top_level_builder_chat_request_matches_config_registry_path() {
         let siumai_transport = CaptureTransport::default();

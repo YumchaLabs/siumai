@@ -1,4 +1,4 @@
-//! OpenAI-Compatible Provider Interface
+﻿//! OpenAI-Compatible Provider Interface
 //!
 //! This module provides model constants for OpenAI-compatible providers.
 //! These providers use a dedicated OpenAI-compatible client (`OpenAiCompatibleClient`) that
@@ -112,7 +112,7 @@ pub use ext::{
 pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
-pub use settings::MistralProviderSettings;
+pub use settings::{MistralProviderSettings, PerplexityProviderSettings};
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
 /// AI SDK-aligned OpenAI-compatible error envelope.
@@ -269,6 +269,8 @@ pub const MISTRAL_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub type PerplexityClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for Perplexity compat configs.
 pub type PerplexityConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the Perplexity package-surface facade.
+pub const PERPLEXITY_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// AI SDK-style provider-scoped alias for Fireworks compat text-family clients.
 pub type FireworksClient = openai_client::OpenAiCompatibleClient;

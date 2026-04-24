@@ -86,6 +86,19 @@ Reference: `repo-ref/ai/packages/togetherai/src/togetherai-provider.ts`
 | `headers` | supported | `TogetherAIProviderSettings.headers` |
 | `fetch` | supported | `TogetherAIProviderSettings.fetch` |
 
+## Perplexity
+
+Reference: `repo-ref/ai/packages/perplexity/src/perplexity-provider.ts`
+
+| Upstream field | Rust status | Rust analogue / note |
+| --- | --- | --- |
+| `baseURL` | supported | `PerplexityProviderSettings.base_url` |
+| `apiKey` | supported | `PerplexityProviderSettings.api_key` |
+| `headers` | supported | `PerplexityProviderSettings.headers` |
+| `fetch` | supported | `PerplexityProviderSettings.fetch` |
+
+Note: upstream Perplexity imports `generateId` internally, but `generateId` is not a field on
+`PerplexityProviderSettings`; Siumai should not track it as a deferred Perplexity settings gap.
 ## Mistral
 
 Reference: `repo-ref/ai/packages/mistral/src/mistral-provider.ts`
@@ -135,3 +148,4 @@ The audited package-surface alignment now also exposes:
 | xAI | `provider_ext::xai::{XaiProviderSettings, VERSION}` |
 | Groq | `provider_ext::groq::{GroqProviderSettings, VERSION}` |
 | Mistral | `provider_ext::mistral::{MistralProviderSettings, VERSION}` |
+| Perplexity | `provider_ext::perplexity::{PerplexityProviderSettings, VERSION}` |

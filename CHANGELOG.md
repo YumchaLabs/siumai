@@ -36,6 +36,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `provider_ext::mistral::{MistralProviderSettings, VERSION}` exposes the audited
   `apiKey` / `baseURL` / `headers` / `fetch` subset, while upstream `generateId` remains
   explicitly deferred until the compat runtime owns a stable ID hook.
+- Perplexity now joins the provider-settings pass through the shared OpenAI-compatible runtime:
+  `provider_ext::perplexity::{PerplexityProviderSettings, VERSION}` exposes the audited
+  `apiKey` / `baseURL` / `headers` / `fetch` subset.
 - `@ai-sdk/google-vertex` package-surface parity is now tighter on the Rust facade:
   `provider_ext::google_vertex` / `providers::vertex` now expose `VERSION` plus a dedicated
   `GoogleVertexProviderSettings` input struct with `into_builder()` /

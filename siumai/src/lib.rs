@@ -555,7 +555,8 @@ pub mod provider_ext {
         /// [`create_perplexity()`], [`crate::Provider::perplexity()`], or
         /// [`crate::provider::SiumaiBuilder::perplexity()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            PerplexityClient, PerplexityConfig,
+            PERPLEXITY_VERSION as VERSION, PerplexityClient, PerplexityConfig,
+            PerplexityProviderSettings,
         };
 
         /// Curated Perplexity model constants aligned with the audited AI SDK package subset.
