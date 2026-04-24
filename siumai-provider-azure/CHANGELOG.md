@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Native Azure OpenAI provider now also exposes package-level `AzureOpenAIProviderSettings` plus
+  `VERSION` on the provider-owned/public Rust surface. The new settings carrier keeps provider
+  construction model-agnostic (`into_builder()`, `into_builder_for_model(...)`,
+  `into_config_for_model(...)`), Azure builder/config surfaces now also expose honest
+  `resourceName` and header helpers, and audited package-level inputs such as `apiVersion` and
+  `useDeploymentBasedUrls` now have a direct Rust-side settings carrier instead of only indirect
+  builder/config wiring.
+
 ### Fixed
 
 - Native Azure OpenAI completion now follows the AI SDK completion-family execution path on the

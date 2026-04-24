@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 This file lists noteworthy changes. Sections are grouped by version to make upgrades clearer.
 
@@ -6,6 +6,29 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
+  `provider_ext::{openai,azure,bedrock}` now expose package-level
+  `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and
+  `AmazonBedrockProviderSettings` carriers plus `VERSION`; the provider-owned builder/config
+  surfaces now also expose the minimal honest helper set required to support those carriers
+  directly (`headers` / `header` across the three providers, plus Azure `resourceName`), and the
+  supported vs deferred upstream field matrix is now tracked under
+  `docs/workstreams/provider-settings-surface-alignment/`.
+- Native Cohere package-surface parity now follows the same provider-settings rule:
+  `provider_ext::cohere` now exposes `CohereProviderSettings` plus `VERSION`, with model-agnostic
+  `into_builder()` / `into_builder_for_model(...)` / `into_config_for_model(...)` helpers and
+  direct header/fetch/base-url support on the provider-owned builder/config surface. Upstream
+  `generateId` remains explicitly deferred until the Cohere runtime owns a comparable stable ID
+  hook.
+- DeepSeek and TogetherAI package surfaces now also expose AI SDK-style provider settings carriers:
+  `provider_ext::deepseek::{DeepSeekProviderSettings, VERSION}` and
+  `provider_ext::togetherai::{TogetherAIProviderSettings, VERSION}` mirror the supported
+  `apiKey` / `baseURL` / `headers` / `fetch` construction subset with model-agnostic conversion
+  helpers.
+- xAI now joins that provider-settings pass: `provider_ext::xai::{XaiProviderSettings, VERSION}`
+  exposes the audited `apiKey` / `baseURL` / `headers` / `fetch` package settings subset.
+  Upstream xAI uses `generateId` internally but does not expose it on `XaiProviderSettings`, so it is
+  not tracked as a deferred xAI settings field.
 - `@ai-sdk/google-vertex` package-surface parity is now tighter on the Rust facade:
   `provider_ext::google_vertex` / `providers::vertex` now expose `VERSION` plus a dedicated
   `GoogleVertexProviderSettings` input struct with `into_builder()` /
@@ -1428,9 +1451,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - Prefer `registry::global()` for new code, or use builder-style construction via `Siumai::builder()` (unified) / `Provider::<provider>()` / `siumai::provider_ext::<provider>::*` (provider-specific).
 - Provider-specific capability traits were removed from the core surface (e.g. `traits::{OpenAiCapability, AnthropicCapability, GeminiCapability, ...}`).
   - Use `siumai::prelude::unified::*` for the stable surface, and `siumai::prelude::extensions::*` / `siumai::provider_ext::<provider>` for opt-in provider-specific features.
-- “Audio” is no longer a first-class unified family: prefer `SpeechCapability` (TTS) and `TranscriptionCapability` (STT).
+- 鈥淎udio鈥?is no longer a first-class unified family: prefer `SpeechCapability` (TTS) and `TranscriptionCapability` (STT).
   - For OpenAI SSE audio/transcript streaming, use provider extensions: `siumai::provider_ext::openai::{speech_streaming, transcription_streaming}`.
-- OpenAI’s public API does not expose a rerank endpoint.
+- OpenAI鈥檚 public API does not expose a rerank endpoint.
   - If you call rerank with the default OpenAI base URL (`https://api.openai.com/v1`), Siumai returns `UnsupportedOperation`.
   - For rerank, use a rerank-capable provider (e.g. `cohere`, `togetherai`, `bedrock`) or an OpenAI-compatible vendor that exposes `/rerank` (e.g. `siliconflow`).
 - Vertex base URL helper now prefers the regional host (`https://{location}-aiplatform.googleapis.com`); if you hardcoded `https://aiplatform.googleapis.com` you may want to update.
@@ -1444,7 +1467,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   - `registry.reranking_model(..)`, `registry.speech_model(..)`, `registry.transcription_model(..)`
 - Local test tier scripts for faster iteration during fearless refactors:
   - `./scripts/test-fast.sh`, `./scripts/test-smoke.sh`, `./scripts/test-full.sh`
-- M1 “core trio” smoke scripts (fixture audit + transcoding + tool-loop gateway):
+- M1 鈥渃ore trio鈥?smoke scripts (fixture audit + transcoding + tool-loop gateway):
   - Windows: `./scripts/test-m1.bat`
   - Unix: `./scripts/test-m1.sh`
 - Split-phase architecture docs:
@@ -1622,8 +1645,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 ### Fixed
 
 - Applied gzip/brotli/cookie_store flags when building HTTP client
-- Correct model propagation for OpenAI‑compatible in unified builder
-- Env var loading for OpenAI‑compatible (`{PROVIDER_ID}_API_KEY`)
+- Correct model propagation for OpenAI鈥慶ompatible in unified builder
+- Env var loading for OpenAI鈥慶ompatible (`{PROVIDER_ID}_API_KEY`)
 - Default/alias model handling across providers
 
 ## [0.11.0-beta.2] - 2025-11-08
@@ -1637,7 +1660,7 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ## [0.11.0-beta.1] - 2025-10-28
 
-This beta delivers a major refactor of module layout, execution/streaming, and provider integration. Design inspired by Cherry Studio’s transformer design and the Vercel AI SDK’s adapter architecture.
+This beta delivers a major refactor of module layout, execution/streaming, and provider integration. Design inspired by Cherry Studio鈥檚 transformer design and the Vercel AI SDK鈥檚 adapter architecture.
 
 ### Added
 - Provider Registry and model handles (`siumai/src/registry/*`)
@@ -1660,9 +1683,9 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
 
 ### Changed
 - Workspace split into `siumai` and `siumai-extras`.
-- Unified streaming events (start/delta/usage/end); improved UTF‑8-safe chunking and tag extraction.
+- Unified streaming events (start/delta/usage/end); improved UTF鈥?-safe chunking and tag extraction.
 - Unified retry facade (`retry_api`) with idempotency and 401 token refresh retry.
-- OpenAI‑compatible providers consolidated via adapter; consistent transformers/executors paths.
+- OpenAI鈥慶ompatible providers consolidated via adapter; consistent transformers/executors paths.
 - Clippy cleanups; boxed large enum variants internally (minor internal breaking).
 
 ### Removed
@@ -1671,7 +1694,7 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
 
 ### Fixed
 - Ensure `before_send_hook` is correctly applied across providers.
-- UTF‑8 safety: tag extraction, string slicing, streaming chunk boundaries, and token masking.
+- UTF鈥? safety: tag extraction, string slicing, streaming chunk boundaries, and token masking.
 - Reliability fixes in streaming, headers, and parameter mapping; expanded fixture-based tests.
 
 ### Known Issues
@@ -1691,8 +1714,8 @@ This beta delivers a major refactor of module layout, execution/streaming, and p
 - Gemini: `.api_key(..)` or `GEMINI_API_KEY` (env fallback)
 - xAI: `.api_key(..)` or `XAI_API_KEY` (env fallback)
 - Ollama: no API key (local service, default `http://localhost:11434`)
-- OpenAI‑compatible via Builder: `.api_key(..)` or `{PROVIDER_ID}_API_KEY`
-- OpenAI‑compatible via Registry: reads `{PROVIDER_ID}_API_KEY` (e.g., `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`)
+- OpenAI鈥慶ompatible via Builder: `.api_key(..)` or `{PROVIDER_ID}_API_KEY`
+- OpenAI鈥慶ompatible via Registry: reads `{PROVIDER_ID}_API_KEY` (e.g., `DEEPSEEK_API_KEY`, `OPENROUTER_API_KEY`)
 
 ### Migration Guide
 
@@ -2056,3 +2079,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 - Streaming support and multimodal content
 - Retry mechanisms and parameter validation
 - Macros: `user!()`, `system!()`, `assistant!()`, `tool!()`
+
+

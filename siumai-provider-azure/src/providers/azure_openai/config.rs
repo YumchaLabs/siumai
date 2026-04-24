@@ -5,6 +5,7 @@
 
 use super::{AzureChatMode, AzureUrlConfig};
 use crate::types::{CommonParams, HttpConfig, ProviderOptionsMap};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::execution::http::interceptor::HttpInterceptor;
@@ -52,6 +53,15 @@ impl std::fmt::Debug for AzureOpenAiConfig {
 }
 
 impl AzureOpenAiConfig {
+    pub fn base_url_for_resource(resource_name: &str) -> String {
+        let resource_name = resource_name.trim().trim_end_matches('/');
+        if resource_name.is_empty() {
+            String::new()
+        } else {
+            format!("https://{resource_name}.openai.azure.com/openai")
+        }
+    }
+
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
@@ -75,6 +85,12 @@ impl AzureOpenAiConfig {
 
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         self.base_url = base_url.into();
+        self
+    }
+
+    pub fn with_resource_name<S: Into<String>>(mut self, resource_name: S) -> Self {
+        let resource_name = resource_name.into();
+        self.base_url = Self::base_url_for_resource(&resource_name);
         self
     }
 
@@ -124,6 +140,16 @@ impl AzureOpenAiConfig {
     /// Merge the full default provider options map.
     pub fn with_provider_options_map(mut self, map: ProviderOptionsMap) -> Self {
         self.provider_options_map.merge_overrides(map);
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.http_config.headers.extend(headers);
+        self
+    }
+
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.http_config.headers.insert(name.into(), value.into());
         self
     }
 

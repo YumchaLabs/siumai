@@ -216,6 +216,25 @@ Current state:
     tests now instantiate the newer shared `ResponseMetadata.headers` field
   - top-level MiniMaxi/public retry file-upload tests now also follow the shared
     `filename: Option<String>` contract
+- Native OpenAI / Azure / Bedrock package-level provider settings are now also explicitly aligned
+  on the honest Rust boundary:
+  - provider-owned/public facades expose
+    `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and
+    `AmazonBedrockProviderSettings`
+  - the same package boundaries now also expose `VERSION`
+  - unsupported upstream fields such as OpenAI `name` and Bedrock credential-provider inputs are
+    tracked explicitly under `docs/workstreams/provider-settings-surface-alignment/` instead of
+    being faked on the public Rust surface
+- Native Cohere package-level provider settings now follow the same rule:
+  - provider-owned/public facades expose `CohereProviderSettings` plus `VERSION`
+  - supported `baseURL` / `apiKey` / `headers` / `fetch` inputs are backed by real builder/config
+    behavior
+  - upstream `generateId` is tracked as deferred until the runtime owns a comparable hook
+- Native DeepSeek and TogetherAI package-level provider settings now follow the same rule:
+  - provider-owned/public facades expose `DeepSeekProviderSettings` and
+    `TogetherAIProviderSettings` plus `VERSION`
+  - supported `apiKey` / `baseURL` / `headers` / `fetch` inputs are backed by real builder/config
+    behavior
 Status: completed
 
 ## ASA-M3 - Stable prompt/content model reaches V4-capable parity

@@ -134,6 +134,16 @@ impl DeepSeekConfig {
         self
     }
 
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.http_config.headers.extend(headers);
+        self
+    }
+
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.http_config.headers.insert(name.into(), value.into());
+        self
+    }
+
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
         self

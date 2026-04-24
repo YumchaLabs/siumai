@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add curated TogetherAI `chat/completion/embedding/image/rerank` model constants plus AI SDK-style
   `TogetherAiImageModelOptions` / `TogetherAiRerankingModelOptions` aliases, keeping deprecated
   compatibility aliases available for side-by-side package export checks.
+- Native TogetherAI provider now also exposes package-level `TogetherAIProviderSettings` plus
+  `VERSION` on the provider-owned/public Rust surface. The new settings carrier keeps provider
+  construction model-agnostic and maps the audited `apiKey` / `baseURL` / `headers` / `fetch`
+  subset onto the real provider-owned builder/config path.
 
 ## [0.11.0-beta.5] - 2026-01-15
 

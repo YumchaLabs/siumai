@@ -39,11 +39,15 @@ mod files;
 mod http;
 mod image;
 pub mod models;
+pub mod settings;
 mod video;
 
 pub use builder::XaiBuilder;
 pub use client::XaiClient;
 pub use config::XaiConfig;
+pub use settings::XaiProviderSettings;
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// AI SDK-aligned xAI error envelope.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]

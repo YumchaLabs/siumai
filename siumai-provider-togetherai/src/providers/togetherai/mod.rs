@@ -9,11 +9,14 @@ pub mod client;
 pub mod config;
 pub mod ext;
 pub mod models;
+pub mod settings;
 
 pub use builder::TogetherAiBuilder;
 pub use client::TogetherAiClient;
 pub use config::TogetherAiConfig;
 pub use ext::{TogetherAiImageRequestExt, TogetherAiRerankRequestExt};
+pub use settings::TogetherAIProviderSettings;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// AI SDK-aligned TogetherAI error envelope.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

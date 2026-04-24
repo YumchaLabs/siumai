@@ -173,6 +173,21 @@ impl XaiConfig {
         self
     }
 
+    pub fn with_api_key<S: Into<String>>(mut self, api_key: S) -> Self {
+        self.api_key = SecretString::from(api_key.into());
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.http_config.headers.extend(headers);
+        self
+    }
+
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.http_config.headers.insert(key.into(), value.into());
+        self
+    }
+
     pub const fn with_temperature(mut self, temperature: f64) -> Self {
         self.common_params.temperature = Some(temperature);
         self

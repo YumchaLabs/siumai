@@ -690,7 +690,7 @@ fn public_surface_streaming_aliases_compile() {
 fn public_surface_openai_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::openai::{
-        OpenAiBuilder, OpenAiClient, OpenAiConfig, create_openai,
+        OpenAIProviderSettings, OpenAiBuilder, OpenAiClient, OpenAiConfig, VERSION, create_openai,
         ext::{
             OpenAiResponsesEventConverter, moderation, responses, speech_streaming,
             transcription_streaming,
@@ -704,6 +704,7 @@ fn public_surface_openai_provider_ext_compiles() {
     let _ = size_of::<OpenAiBuilder>();
     let _ = size_of::<OpenAiClient>();
     let _ = size_of::<OpenAiConfig>();
+    let _ = size_of::<OpenAIProviderSettings>();
     let _ = size_of::<OpenAIContextManagementConfig>();
     let _ = size_of::<OpenAIContextManagementType>();
     let _ = size_of::<OpenAILanguageModelChatOptions>();
@@ -732,6 +733,18 @@ fn public_surface_openai_provider_ext_compiles() {
     let _ = OpenAiClient::set_retry_options;
     let _ = openai_builder();
     let _ = create_openai();
+    let _ = VERSION;
+    let _ = OpenAIProviderSettings::new();
+    let _ = OpenAIProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/openai")
+        .with_organization("org-123")
+        .with_project("proj-456")
+        .with_header("x-test", "1")
+        .into_builder_for_model("gpt-4.1-mini");
+    let _ = OpenAIProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model("gpt-4.1-mini");
 
     let req = ChatRequest::new(vec![user!("hi")]).with_openai_options(OpenAiOptions::new());
     let _ = req;
@@ -1547,13 +1560,14 @@ fn public_surface_google_provider_ext_compiles() {
 fn public_surface_cohere_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::cohere::{
-        CohereBuilder, CohereClient, CohereConfig, chat, cohere as cohere_builder, create_cohere,
-        embedding, model_sets, options::*, rerank,
+        CohereBuilder, CohereClient, CohereConfig, CohereProviderSettings, VERSION, chat,
+        cohere as cohere_builder, create_cohere, embedding, model_sets, options::*, rerank,
     };
 
     let _ = size_of::<CohereBuilder>();
     let _ = size_of::<CohereClient>();
     let _ = size_of::<CohereConfig>();
+    let _ = size_of::<CohereProviderSettings>();
     let _ = size_of::<CohereChatOptions>();
     let _ = size_of::<CohereLanguageModelOptions>();
     let _ = size_of::<CohereChatModelOptions>();
@@ -1581,6 +1595,16 @@ fn public_surface_cohere_provider_ext_compiles() {
     let _ = model_sets::ALL_RERANK;
     let _ = cohere_builder();
     let _ = create_cohere();
+    let _ = VERSION;
+    let _ = CohereProviderSettings::new();
+    let _ = CohereProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/cohere")
+        .with_header("x-test", "1")
+        .into_builder_for_model("command-a-03-2025");
+    let _ = CohereProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model("command-a-03-2025");
 
     fn _assert_chat_req_ext<T: CohereChatRequestExt>() {}
     fn _assert_embed_req_ext<T: CohereEmbeddingRequestExt>() {}
@@ -1628,14 +1652,15 @@ fn public_surface_togetherai_provider_ext_compiles() {
     use siumai::prelude::extensions::types::{ImageEditInput, ImageEditRequest};
     use siumai::prelude::unified::*;
     use siumai::provider_ext::togetherai::{
-        TogetherAIErrorData, TogetherAiBuilder, TogetherAiClient, TogetherAiConfig, chat,
-        completion, create_togetherai, embedding, image, model_sets, options::*, rerank,
-        togetherai as togetherai_builder,
+        TogetherAIErrorData, TogetherAIProviderSettings, TogetherAiBuilder, TogetherAiClient,
+        TogetherAiConfig, VERSION, chat, completion, create_togetherai, embedding, image,
+        model_sets, options::*, rerank, togetherai as togetherai_builder,
     };
 
     let _ = size_of::<TogetherAiBuilder>();
     let _ = size_of::<TogetherAiClient>();
     let _ = size_of::<TogetherAiConfig>();
+    let _ = size_of::<TogetherAIProviderSettings>();
     let _ = size_of::<TogetherAIErrorData>();
     let _ = size_of::<TogetherAiImageOptions>();
     let _ = size_of::<TogetherAIImageModelOptions>();
@@ -1666,6 +1691,16 @@ fn public_surface_togetherai_provider_ext_compiles() {
     let _ = model_sets::ALL_RERANK;
     let _ = togetherai_builder();
     let _ = create_togetherai();
+    let _ = VERSION;
+    let _ = TogetherAIProviderSettings::new();
+    let _ = TogetherAIProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/together")
+        .with_header("x-test", "1")
+        .into_builder_for_model("Salesforce/Llama-Rank-v1");
+    let _ = TogetherAIProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model("Salesforce/Llama-Rank-v1");
     let decoded_error: TogetherAIErrorData = serde_json::from_value(serde_json::json!({
         "error": {
             "message": "bad request"
@@ -1833,11 +1868,13 @@ fn public_surface_moonshotai_provider_ext_compile() {
 fn public_surface_bedrock_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::bedrock::{
-        BedrockBuilder, BedrockClient, BedrockConfig, BedrockEmbeddingRequestExt,
-        BedrockMessageExt, BedrockRequestContentPartExt, assistant_message_with_reasoning_metadata,
-        bedrock as bedrock_builder, create_amazon_bedrock, metadata::*, options::*,
+        AmazonBedrockProviderSettings, BedrockBuilder, BedrockClient, BedrockConfig,
+        BedrockEmbeddingRequestExt, BedrockMessageExt, BedrockRequestContentPartExt, VERSION,
+        assistant_message_with_reasoning_metadata, bedrock as bedrock_builder,
+        create_amazon_bedrock, metadata::*, options::*,
     };
 
+    let _ = size_of::<AmazonBedrockProviderSettings>();
     let _ = size_of::<BedrockBuilder>();
     let _ = size_of::<BedrockClient>();
     let _ = size_of::<BedrockConfig>();
@@ -1871,6 +1908,16 @@ fn public_surface_bedrock_provider_ext_compiles() {
     let _ = BedrockClient::set_retry_options;
     let _ = bedrock_builder();
     let _ = create_amazon_bedrock();
+    let _ = VERSION;
+    let _ = AmazonBedrockProviderSettings::new();
+    let _ = AmazonBedrockProviderSettings::new()
+        .with_api_key("test-key")
+        .with_region("us-west-2")
+        .with_header("x-test", "1")
+        .into_builder_for_model("amazon.nova-lite-v1:0");
+    let _ = AmazonBedrockProviderSettings::new()
+        .with_base_url("https://bedrock-runtime.us-east-1.amazonaws.com")
+        .into_config_for_model("amazon.nova-lite-v1:0");
 
     let chat_req = ChatRequest::new(vec![user!("hi")]).with_bedrock_chat_options(
         BedrockChatOptions::new()
@@ -2340,8 +2387,8 @@ fn public_surface_groq_provider_ext_compiles() {
 fn public_surface_xai_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::xai::{
-        XaiBuilder, XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId, create_xai, metadata::*,
-        options::*, xai as xai_builder,
+        VERSION, XaiBuilder, XaiClient, XaiConfig, XaiErrorData, XaiProviderSettings,
+        XaiVideoModelId, create_xai, metadata::*, options::*, xai as xai_builder,
     };
     use std::collections::HashMap;
 
@@ -2349,6 +2396,8 @@ fn public_surface_xai_provider_ext_compiles() {
     let _ = size_of::<XaiClient>();
     let _ = size_of::<XaiConfig>();
     let _ = size_of::<XaiErrorData>();
+    let _ = size_of::<XaiProviderSettings>();
+    let _ = VERSION;
     let _ = size_of::<XaiChatOptions>();
     let _ = size_of::<XaiLanguageModelChatOptions>();
     #[allow(deprecated)]
@@ -2386,6 +2435,14 @@ fn public_surface_xai_provider_ext_compiles() {
     let _ = XaiClient::set_retry_options;
     let _ = xai_builder();
     let _ = create_xai();
+    let _ = XaiProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/xai")
+        .with_header("x-test", "1")
+        .into_builder_for_model("grok-4");
+    let _ = XaiProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model("grok-4");
     let _ = size_of::<XaiMetadata>();
     let _ = size_of::<XaiSource>();
     let _ = size_of::<XaiSourceMetadata>();
@@ -2686,10 +2743,12 @@ fn public_surface_minimaxi_provider_ext_compiles() {
 fn public_surface_azure_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::azure::{
-        AzureChatMode, AzureOpenAiBuilder, AzureOpenAiClient, AzureOpenAiConfig, AzureOpenAiSpec,
-        AzureUrlConfig, azure as azure_builder, create_azure, metadata::*, options::*,
+        AzureChatMode, AzureOpenAIProviderSettings, AzureOpenAiBuilder, AzureOpenAiClient,
+        AzureOpenAiConfig, AzureOpenAiSpec, AzureUrlConfig, VERSION, azure as azure_builder,
+        create_azure, metadata::*, options::*,
     };
 
+    let _ = size_of::<AzureOpenAIProviderSettings>();
     let _ = size_of::<AzureOpenAiBuilder>();
     let _ = size_of::<AzureOpenAiClient>();
     let _ = size_of::<AzureOpenAiConfig>();
@@ -2712,6 +2771,19 @@ fn public_surface_azure_provider_ext_compiles() {
     let _ = size_of::<AzureContentPartMetadata>();
     let _ = azure_builder();
     let _ = create_azure();
+    let _ = VERSION;
+    let _ = AzureOpenAIProviderSettings::new();
+    let _ = AzureOpenAIProviderSettings::new()
+        .with_api_key("test-key")
+        .with_resource_name("demo-resource")
+        .with_header("x-test", "1")
+        .with_api_version("2024-10-21")
+        .with_use_deployment_based_urls(true)
+        .into_builder_for_model("deployment-id");
+    let _ = AzureOpenAIProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.openai.azure.com/openai")
+        .into_config_for_model("deployment-id");
 
     fn _assert_req_ext<T: AzureOpenAiChatRequestExt>() {}
     fn _assert_resp_ext<T: AzureChatResponseExt>() {}
@@ -2759,14 +2831,16 @@ fn public_surface_azure_provider_ext_compiles() {
 fn public_surface_deepseek_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::deepseek::{
-        DeepSeekBuilder, DeepSeekClient, DeepSeekConfig, DeepSeekErrorData, chat, create_deepseek,
-        deepseek as deepseek_builder, metadata::*, model_sets, options::*,
+        DeepSeekBuilder, DeepSeekClient, DeepSeekConfig, DeepSeekErrorData,
+        DeepSeekProviderSettings, VERSION, chat, create_deepseek, deepseek as deepseek_builder,
+        metadata::*, model_sets, options::*,
     };
 
     let _ = size_of::<DeepSeekBuilder>();
     let _ = size_of::<DeepSeekClient>();
     let _ = size_of::<DeepSeekConfig>();
     let _ = size_of::<DeepSeekErrorData>();
+    let _ = size_of::<DeepSeekProviderSettings>();
     let _ = size_of::<DeepSeekOptions>();
     let _ = size_of::<DeepSeekLanguageModelOptions>();
     #[allow(deprecated)]
@@ -2786,6 +2860,16 @@ fn public_surface_deepseek_provider_ext_compiles() {
     let _ = model_sets::CHAT;
     let _ = deepseek_builder();
     let _ = create_deepseek();
+    let _ = VERSION;
+    let _ = DeepSeekProviderSettings::new();
+    let _ = DeepSeekProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/deepseek")
+        .with_header("x-test", "1")
+        .into_builder_for_model("deepseek-chat");
+    let _ = DeepSeekProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model("deepseek-chat");
     let decoded_error: DeepSeekErrorData = serde_json::from_value(serde_json::json!({
         "error": {
             "message": "bad request"

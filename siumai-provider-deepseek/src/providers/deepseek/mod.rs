@@ -31,11 +31,13 @@ mod client;
 pub mod config;
 pub mod ext;
 pub mod models;
+pub mod settings;
 pub mod spec;
 
 pub use builder::DeepSeekBuilder;
 pub use client::DeepSeekClient;
 pub use config::DeepSeekConfig;
+pub use settings::DeepSeekProviderSettings;
 pub use siumai_provider_openai_compatible::providers::openai_compatible::OpenAiCompatibleErrorData as DeepSeekErrorData;
 
 // Provider-owned typed options live at the crate root; re-export them under the provider path.
@@ -44,6 +46,7 @@ pub use crate::provider_options::{
     DeepSeekChatOptions, DeepSeekLanguageModelOptions, DeepSeekOptions,
 };
 pub use spec::DeepSeekSpec;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[cfg(test)]
 mod tests {

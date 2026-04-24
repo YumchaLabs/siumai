@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   package, alongside AI SDK-style option aliases
   (`CohereLanguageModelOptions`, `CohereEmbeddingModelOptions`,
   `CohereRerankingModelOptions`) and deprecated migration aliases for side-by-side compile checks.
+- Native Cohere provider now also exposes package-level `CohereProviderSettings` plus `VERSION` on
+  the provider-owned/public Rust surface. The new settings carrier keeps provider construction
+  model-agnostic (`into_builder()`, `into_builder_for_model(...)`, `into_config_for_model(...)`),
+  and the underlying builder/config surfaces now expose honest header helpers instead of requiring
+  indirect HTTP-config mutation for audited package-level header parity.
 
 ### Changed
 

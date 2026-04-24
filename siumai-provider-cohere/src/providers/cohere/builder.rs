@@ -5,6 +5,7 @@ use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
 use secrecy::ExposeSecret;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Provider-owned builder for Cohere native clients.
@@ -59,6 +60,19 @@ impl CohereBuilder {
 
     pub fn connect_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.core = self.core.connect_timeout(timeout);
+        self
+    }
+
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.core.http_config.headers.extend(headers);
+        self
+    }
+
+    pub fn header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.core
+            .http_config
+            .headers
+            .insert(name.into(), value.into());
         self
     }
 

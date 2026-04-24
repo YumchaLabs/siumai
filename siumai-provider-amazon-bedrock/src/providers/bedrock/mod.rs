@@ -7,6 +7,7 @@ pub mod builder;
 pub mod client;
 pub mod config;
 pub mod ext;
+pub mod settings;
 
 pub use builder::BedrockBuilder;
 pub use client::BedrockClient;
@@ -16,3 +17,5 @@ pub use ext::{
     BedrockRequestContentPartExt, BedrockRerankRequestExt,
     assistant_message_with_reasoning_metadata,
 };
+pub use settings::AmazonBedrockProviderSettings;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");

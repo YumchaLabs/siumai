@@ -688,8 +688,8 @@ mod openai_public_path {
         AudioStreamEvent, EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
     use siumai::provider_ext::openai::{
-        OpenAiChatRequestExt, OpenAiChatResponseExt, OpenAiContentPartExt, OpenAiOptions,
-        OpenAiSourceExt, ReasoningEffort, ResponsesApiConfig,
+        OpenAIProviderSettings, OpenAiChatRequestExt, OpenAiChatResponseExt, OpenAiContentPartExt,
+        OpenAiOptions, OpenAiSourceExt, ReasoningEffort, ResponsesApiConfig,
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::entry::{BuildContext, ProviderFactory};
@@ -776,6 +776,27 @@ mod openai_public_path {
                 auto_middleware: true,
             }),
         )
+    }
+
+    #[test]
+    fn openai_package_settings_preserve_supported_provider_inputs() {
+        let config = OpenAIProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.invalid/openai")
+            .with_organization("org-123")
+            .with_project("proj-456")
+            .with_header("x-test", "1")
+            .into_config_for_model("gpt-4.1-mini")
+            .expect("settings into config");
+
+        assert_eq!(config.base_url, "https://example.invalid/openai");
+        assert_eq!(config.organization.as_deref(), Some("org-123"));
+        assert_eq!(config.project.as_deref(), Some("proj-456"));
+        assert_eq!(config.common_params.model, "gpt-4.1-mini");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
     }
 
     async fn collect_tts_audio(mut stream: siumai_core::types::AudioStream) -> Vec<u8> {
@@ -5256,6 +5277,7 @@ mod azure_public_path {
     use super::*;
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{ResponseFormat, Tool, ToolChoice};
+    use siumai::provider_ext::azure::AzureOpenAIProviderSettings;
     use siumai::registry::ProviderBuildOverrides;
 
     fn azure_responses_text_stream_body() -> Vec<u8> {
@@ -5346,6 +5368,30 @@ mod azure_public_path {
                 auto_middleware: true,
             }),
         )
+    }
+
+    #[test]
+    fn azure_package_settings_preserve_supported_provider_inputs() {
+        let config = AzureOpenAIProviderSettings::new()
+            .with_api_key("test-key")
+            .with_resource_name("demo-resource")
+            .with_header("x-test", "1")
+            .with_api_version("2024-10-21")
+            .with_use_deployment_based_urls(true)
+            .into_config_for_model("deployment-id")
+            .expect("settings into config");
+
+        assert_eq!(
+            config.base_url,
+            "https://demo-resource.openai.azure.com/openai"
+        );
+        assert_eq!(config.common_params.model, "deployment-id");
+        assert_eq!(config.url_config.api_version, "2024-10-21");
+        assert!(config.url_config.use_deployment_based_urls);
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
     }
 
     fn custom_events_by_type(
@@ -9431,10 +9477,27 @@ mod cohere_public_path {
     use siumai::provider_ext::cohere::{
         CohereChatOptions, CohereChatRequestExt, CohereClient, CohereConfig,
         CohereEmbeddingInputType, CohereEmbeddingOptions, CohereEmbeddingRequestExt,
-        CohereEmbeddingTruncate, CohereRerankOptions, CohereRerankRequestExt, CohereThinkingConfig,
-        CohereThinkingType,
+        CohereEmbeddingTruncate, CohereProviderSettings, CohereRerankOptions,
+        CohereRerankRequestExt, CohereThinkingConfig, CohereThinkingType,
     };
     use siumai::registry::ProviderBuildOverrides;
+
+    #[test]
+    fn cohere_package_settings_preserve_supported_provider_inputs() {
+        let config = CohereProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/cohere")
+            .with_header("x-test", "1")
+            .into_config_for_model("command-a-03-2025")
+            .expect("settings into config");
+
+        assert_eq!(config.base_url, "https://example.com/cohere");
+        assert_eq!(config.common_params.model, "command-a-03-2025");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
 
     #[tokio::test]
     async fn cohere_public_builder_exposes_unified_capabilities() {
@@ -9943,10 +10006,27 @@ mod togetherai_public_path {
     use reqwest::header::AUTHORIZATION;
     use siumai::experimental::client::LlmClient;
     use siumai::provider_ext::togetherai::{
-        TogetherAIImageModelOptions, TogetherAIRerankingModelOptions, TogetherAiImageRequestExt,
-        TogetherAiRerankRequestExt,
+        TogetherAIImageModelOptions, TogetherAIProviderSettings, TogetherAIRerankingModelOptions,
+        TogetherAiImageRequestExt, TogetherAiRerankRequestExt,
     };
     use siumai::registry::ProviderBuildOverrides;
+
+    #[test]
+    fn togetherai_package_settings_preserve_supported_provider_inputs() {
+        let config = TogetherAIProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/together")
+            .with_header("x-test", "1")
+            .into_config_for_model("Salesforce/Llama-Rank-v1")
+            .expect("settings into config");
+
+        assert_eq!(config.base_url, "https://example.com/together");
+        assert_eq!(config.common_params.model, "Salesforce/Llama-Rank-v1");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
 
     #[tokio::test]
     async fn togetherai_public_builder_exposes_unified_capabilities() {
@@ -11897,10 +11977,27 @@ mod deepseek_public_path {
         EmbeddingExtensions, EmbeddingRequest, ResponseFormat, Tool, ToolChoice,
     };
     use siumai::provider_ext::deepseek::{
-        DeepSeekChatRequestExt, DeepSeekChatResponseExt, DeepSeekOptions,
+        DeepSeekChatRequestExt, DeepSeekChatResponseExt, DeepSeekOptions, DeepSeekProviderSettings,
     };
     use siumai::registry::ProviderBuildOverrides;
     use siumai_registry::registry::builder::RegistryBuilder;
+
+    #[test]
+    fn deepseek_package_settings_preserve_supported_provider_inputs() {
+        let config = DeepSeekProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/deepseek")
+            .with_header("x-test", "1")
+            .into_config_for_model("deepseek-chat")
+            .expect("settings into config");
+
+        assert_eq!(config.base_url, "https://example.com/deepseek");
+        assert_eq!(config.common_params.model, "deepseek-chat");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
 
     fn make_registry_with_global_reasoning_defaults(
         transport: Arc<dyn HttpTransport>,
@@ -34016,8 +34113,9 @@ mod bedrock_public_path {
         ToolChoice,
     };
     use siumai::provider_ext::bedrock::{
-        BedrockChatOptions, BedrockChatRequestExt, BedrockChatResponseExt, BedrockEmbeddingOptions,
-        BedrockEmbeddingRequestExt, BedrockRerankOptions, BedrockRerankRequestExt,
+        AmazonBedrockProviderSettings, BedrockChatOptions, BedrockChatRequestExt,
+        BedrockChatResponseExt, BedrockEmbeddingOptions, BedrockEmbeddingRequestExt,
+        BedrockRerankOptions, BedrockRerankRequestExt,
     };
     use siumai::registry::ProviderBuildOverrides;
 
@@ -34061,6 +34159,31 @@ mod bedrock_public_path {
                 auto_middleware: true,
             }),
         )
+    }
+
+    #[test]
+    fn bedrock_package_settings_preserve_supported_provider_inputs() {
+        let config = AmazonBedrockProviderSettings::new()
+            .with_api_key("test-key")
+            .with_region("us-west-2")
+            .with_header("x-test", "1")
+            .into_config_for_model("amazon.nova-lite-v1:0")
+            .expect("settings into config");
+
+        assert_eq!(config.region, "us-west-2");
+        assert_eq!(config.common_params.model, "amazon.nova-lite-v1:0");
+        assert_eq!(
+            config.runtime_base_url,
+            "https://bedrock-runtime.us-west-2.amazonaws.com"
+        );
+        assert_eq!(
+            config.agent_runtime_base_url,
+            "https://bedrock-agent-runtime.us-west-2.amazonaws.com"
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
     }
 
     #[tokio::test]
@@ -43349,6 +43472,23 @@ mod xai_public_path {
                 }),
             )])
             .build()
+    }
+
+    #[test]
+    fn xai_package_settings_preserve_supported_provider_inputs() {
+        let config = siumai::provider_ext::xai::XaiProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/xai")
+            .with_header("x-test", "1")
+            .into_config_for_model("grok-4")
+            .expect("settings into config");
+
+        assert_eq!(config.base_url, "https://example.com/xai");
+        assert_eq!(config.common_params.model, "grok-4");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
     }
 
     fn assert_xai_weather_tool_call_response(response: &siumai::prelude::unified::ChatResponse) {

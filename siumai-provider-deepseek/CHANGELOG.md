@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The provider-owned public model surface now exposes curated `chat` constants plus
   `models::ALL_CHAT` / `model_sets` for the stable `deepseek-chat` and `deepseek-reasoner`
   subset.
+- Native DeepSeek provider now also exposes package-level `DeepSeekProviderSettings` plus
+  `VERSION` on the provider-owned/public Rust surface. The new settings carrier keeps provider
+  construction model-agnostic and maps the audited `apiKey` / `baseURL` / `headers` / `fetch`
+  subset onto the real OpenAI-compatible-backed builder/config path.
 
 ### Fixed
 

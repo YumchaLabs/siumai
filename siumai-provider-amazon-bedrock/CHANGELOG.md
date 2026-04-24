@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Native Bedrock provider now also exposes package-level `AmazonBedrockProviderSettings` plus
+  `VERSION` on the provider-owned/public Rust surface. The new settings carrier keeps provider
+  construction model-agnostic (`into_builder()`, `into_builder_for_model(...)`,
+  `into_config_for_model(...)`), and the underlying builder/config surfaces now also expose honest
+  header helpers (`headers(...)`, `header(...)`, `with_headers(...)`, `with_header(...)`) so the
+  audited supported subset of AI SDK provider settings no longer requires raw HTTP-config
+  mutation.
+
 ### Fixed
 
 - Native Bedrock prompt conversion now rejects prompt-side provider-owned user file/image

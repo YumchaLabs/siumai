@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+### Added
+
+- Added AI SDK-style `XaiProviderSettings` and `VERSION` exports for the audited package-level
+  `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
 
 ### Changed
 
@@ -32,3 +37,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Fixture parity and Responses stream mapping aligned with Vercel AI SDK.
+
+

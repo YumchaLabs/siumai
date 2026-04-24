@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `providerReference` / `providerMetadata` are returned from the stable result shape, and
   `defaultVersion` / `latestVersion` plus timestamps are preserved under the `openai` provider
   root.
+- Native OpenAI provider now also exposes package-level `OpenAIProviderSettings` plus `VERSION`
+  on the provider-owned/public Rust surface. The new settings carrier keeps provider construction
+  model-agnostic (`into_builder()`, `into_builder_for_model(...)`, `into_config_for_model(...)`),
+  and the underlying builder/config surfaces now also expose honest header helpers
+  (`headers(...)`, `header(...)`, `with_headers(...)`, `with_header(...)`) instead of requiring
+  indirect HTTP-config mutation for audited package-level header parity.
 - Native OpenAI provider now also exposes the main AI SDK-style typed option names on the
   provider-owned/public surface:
   `OpenAILanguageModel{Chat,Responses,Completion}Options`,

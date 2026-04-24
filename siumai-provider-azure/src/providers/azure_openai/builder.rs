@@ -5,6 +5,7 @@ use crate::builder::{BuilderBase, ProviderCore};
 use crate::error::LlmError;
 use crate::retry_api::RetryOptions;
 use crate::types::ProviderOptionsMap;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Provider-owned builder for Azure OpenAI clients.
@@ -29,6 +30,11 @@ impl AzureOpenAiBuilder {
 
     pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         self.config = self.config.with_base_url(base_url);
+        self
+    }
+
+    pub fn resource_name<S: Into<String>>(mut self, resource_name: S) -> Self {
+        self.config = self.config.with_resource_name(resource_name);
         self
     }
 
@@ -120,6 +126,16 @@ impl AzureOpenAiBuilder {
 
     pub fn provider_metadata_key(mut self, key: &'static str) -> Self {
         self.config = self.config.with_provider_metadata_key(key);
+        self
+    }
+
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.core.http_config.headers.extend(headers);
+        self
+    }
+
+    pub fn header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.core.http_config.headers.insert(name.into(), value.into());
         self
     }
 
@@ -218,9 +234,7 @@ impl AzureOpenAiBuilder {
         {
             let resource = resource.trim();
             if !resource.is_empty() {
-                self.config = self
-                    .config
-                    .with_base_url(format!("https://{resource}.openai.azure.com/openai"));
+                self.config = self.config.with_resource_name(resource);
             }
         }
 

@@ -5,6 +5,7 @@ use crate::execution::http::interceptor::HttpInterceptor;
 use crate::execution::http::transport::HttpTransport;
 use crate::types::{CommonParams, HttpConfig};
 use secrecy::{ExposeSecret, SecretString};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// Provider-owned config-first surface for Cohere.
@@ -98,6 +99,16 @@ impl CohereConfig {
 
     pub fn with_connect_timeout(mut self, timeout: std::time::Duration) -> Self {
         self.http_config.connect_timeout = Some(timeout);
+        self
+    }
+
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.http_config.headers.extend(headers);
+        self
+    }
+
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.http_config.headers.insert(name.into(), value.into());
         self
     }
 

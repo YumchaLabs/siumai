@@ -47,6 +47,7 @@ pub mod adapter;
 pub mod builder;
 pub mod client;
 pub mod config;
+pub mod settings;
 pub mod types;
 pub mod utils;
 
@@ -89,6 +90,7 @@ pub use crate::providers::openai::ext::OpenAiSttRequestExt;
 pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
+pub use settings::OpenAIProviderSettings;
 #[cfg(feature = "openai-websocket")]
 pub use incremental_session::OpenAiIncrementalWebSocketSession;
 pub use middleware::OpenAiResponsesInputWarningsMiddleware;
@@ -97,6 +99,7 @@ pub use types::*;
 pub use websocket_session::{OpenAiWebSocketRecoveryConfig, OpenAiWebSocketSession};
 #[cfg(feature = "openai-websocket")]
 pub use websocket_transport::OpenAiWebSocketTransport;
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 // Provider-owned typed options (kept out of `siumai-core`).
 pub use crate::provider_options::openai::{

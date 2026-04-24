@@ -167,6 +167,18 @@ impl OpenAiConfig {
         self
     }
 
+    /// Merge default headers into the canonical config-first HTTP surface.
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.http_config.headers.extend(headers);
+        self
+    }
+
+    /// Insert a single default header into the canonical config-first HTTP surface.
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
+        self.http_config.headers.insert(name.into(), value.into());
+        self
+    }
+
     /// Set a custom HTTP transport (Vercel-style "custom fetch" parity).
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);

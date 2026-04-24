@@ -218,6 +218,21 @@ Status legend:
     Anthropic protocol streaming fixtures, top-level experimental bridge/transcoding tests, and
     MiniMaxi/public retry file-upload tests now all accept `ResponseMetadata.headers` and
     optional upload filenames
+- [x] Close the remaining package-level provider-settings gap for native OpenAI / Azure / Bedrock.
+  - provider-owned and public facades now expose
+    `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and
+    `AmazonBedrockProviderSettings`
+  - the same audited package boundaries now also expose `VERSION` on the Rust side
+  - supported vs deferred upstream fields are now tracked under
+    `docs/workstreams/provider-settings-surface-alignment/`
+- [x] Extend the package-level provider-settings pass to native Cohere.
+  - provider-owned and public facades now expose `CohereProviderSettings` plus `VERSION`
+  - supported `baseURL` / `apiKey` / `headers` / `fetch` fields now have a direct carrier
+  - upstream `generateId` remains documented as deferred until Cohere has a real stable-ID hook
+- [x] Extend the package-level provider-settings pass to native DeepSeek and TogetherAI.
+  - provider-owned and public facades now expose `DeepSeekProviderSettings` and
+    `TogetherAIProviderSettings` plus `VERSION`
+  - supported `apiKey` / `baseURL` / `headers` / `fetch` fields now have direct carriers
 
 ## Track A - Shared semantic fixes
 

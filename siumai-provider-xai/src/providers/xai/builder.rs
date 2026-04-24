@@ -105,6 +105,10 @@ impl XaiBuilder {
         self
     }
 
+    pub fn headers(self, headers: HashMap<String, String>) -> Self {
+        self.custom_headers(headers)
+    }
+
     pub fn header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
         self.inner = self.inner.header(key, value);
         self

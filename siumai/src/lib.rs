@@ -311,7 +311,7 @@ pub mod provider_ext {
         #[cfg(feature = "openai-websocket")]
         pub use siumai_provider_openai::providers::openai::OpenAiWebSocketTransport;
         pub use siumai_provider_openai::providers::openai::{
-            OpenAiBuilder, OpenAiClient, OpenAiConfig,
+            OpenAIProviderSettings, OpenAiBuilder, OpenAiClient, OpenAiConfig, VERSION,
         };
 
         /// Create the OpenAI provider builder.
@@ -772,7 +772,7 @@ pub mod provider_ext {
     #[cfg(feature = "bedrock")]
     pub mod bedrock {
         pub use siumai_provider_amazon_bedrock::providers::bedrock::{
-            BedrockBuilder, BedrockClient, BedrockConfig,
+            AmazonBedrockProviderSettings, BedrockBuilder, BedrockClient, BedrockConfig, VERSION,
         };
 
         /// Create the Bedrock provider builder.
@@ -854,7 +854,7 @@ pub mod provider_ext {
     #[cfg(feature = "cohere")]
     pub mod cohere {
         pub use siumai_provider_cohere::providers::cohere::{
-            CohereBuilder, CohereClient, CohereConfig,
+            CohereBuilder, CohereClient, CohereConfig, CohereProviderSettings, VERSION,
         };
 
         /// Create the Cohere provider builder.
@@ -903,7 +903,8 @@ pub mod provider_ext {
     #[cfg(feature = "togetherai")]
     pub mod togetherai {
         pub use siumai_provider_togetherai::providers::togetherai::{
-            TogetherAIErrorData, TogetherAiBuilder, TogetherAiClient, TogetherAiConfig,
+            TogetherAIErrorData, TogetherAIProviderSettings, TogetherAiBuilder, TogetherAiClient,
+            TogetherAiConfig, VERSION,
         };
 
         /// Create the unified TogetherAI provider builder.
@@ -953,8 +954,8 @@ pub mod provider_ext {
     #[cfg(feature = "azure")]
     pub mod azure {
         pub use siumai_provider_azure::providers::azure_openai::{
-            AzureChatMode, AzureOpenAiBuilder, AzureOpenAiClient, AzureOpenAiConfig,
-            AzureOpenAiSpec, AzureUrlConfig,
+            AzureChatMode, AzureOpenAIProviderSettings, AzureOpenAiBuilder, AzureOpenAiClient,
+            AzureOpenAiConfig, AzureOpenAiSpec, AzureUrlConfig, VERSION,
         };
 
         /// Create the unified Azure provider builder.
@@ -1704,6 +1705,7 @@ pub mod provider_ext {
     pub mod deepseek {
         pub use siumai_provider_deepseek::providers::deepseek::{
             DeepSeekBuilder, DeepSeekClient, DeepSeekConfig, DeepSeekErrorData,
+            DeepSeekProviderSettings, VERSION,
         };
 
         /// Create the DeepSeek provider builder.
@@ -1764,7 +1766,8 @@ pub mod provider_ext {
     #[cfg(feature = "xai")]
     pub mod xai {
         pub use siumai_provider_xai::providers::xai::{
-            XaiBuilder, XaiClient, XaiConfig, XaiErrorData, XaiVideoModelId,
+            VERSION, XaiBuilder, XaiClient, XaiConfig, XaiErrorData, XaiProviderSettings,
+            XaiVideoModelId,
         };
 
         /// Create the xAI provider builder.
