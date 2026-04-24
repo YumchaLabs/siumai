@@ -62,7 +62,26 @@ Status legend:
 - [x] Add a shared type-surface audit matrix for `repo-ref/ai/packages/ai/src/types/*`.
 - [x] Record the shared type-surface alignment slice in `CHANGELOG.md` `Unreleased`.
 
-## Track E - Intentional deferrals
+## Track E - Provider-utils schema surface
+
+- [x] Audit `repo-ref/ai/packages/provider-utils/src/schema.ts`.
+- [x] Expose `Schema`, `ValidationResult`, `FlexibleSchema`, and `LazySchema` through
+  `siumai::types::*` and `siumai::prelude::unified::*`.
+- [x] Expose Rust-style equivalents of AI SDK `jsonSchema`, `asSchema`, and `lazySchema`:
+  `json_schema`, `as_schema`, `as_schema_or_empty`, and `lazy_schema`.
+- [x] Keep Zod and TypeScript Standard Schema integration deferred instead of adding placeholders
+  that cannot validate in Rust.
+
+## Track F - Provider-utils ID surface
+
+- [x] Audit `repo-ref/ai/packages/provider-utils/src/generate-id.ts`.
+- [x] Expose `IdGenerator`, `IdGeneratorOptions`, `create_id_generator`, and `generate_id` from
+  the root facade and `siumai::prelude::unified::*`.
+- [x] Preserve upstream semantics: 16-character default random suffix, optional prefix/separator,
+  custom alphabet, and non-cryptographic generation.
+- [x] Return `Result` for invalid Rust options instead of mimicking JavaScript exceptions.
+
+## Track G - Intentional deferrals
 
 - [-] `RequestOptions`, `TimeoutConfiguration`, and `LanguageModelCallOptions` are tracked by their
   own dedicated workstreams.
@@ -70,3 +89,5 @@ Status legend:
   have real middleware execution hooks; do not expose empty placeholder traits.
 - [-] Do not pretend that every provider already captures speech/transcription response bodies in a
   stable cross-provider way.
+- [-] Do not expose `zodSchema` or Standard Schema adapters until a real Rust schema backend owns
+  the validation/conversion behavior.

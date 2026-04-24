@@ -6,6 +6,15 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- AI SDK provider-utils schema parity now has an honest Rust surface:
+  `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
+  `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,
+  `as_schema_or_empty`, and `empty_json_schema`. Zod and TypeScript Standard Schema adapters remain
+  explicitly deferred until backed by real Rust validation/conversion behavior.
+- AI SDK provider-utils ID helper parity is now exposed from the Rust facade:
+  `siumai::{IdGenerator, IdGeneratorOptions, create_id_generator, generate_id}` and the same names
+  in `prelude::unified` mirror the upstream non-cryptographic `createIdGenerator` / `generateId`
+  contract with Rust `Result`-based option validation.
 - Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
   `provider_ext::{openai,azure,bedrock}` now expose package-level
   `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and

@@ -28,6 +28,7 @@
 pub mod builder_helpers;
 pub mod cancel;
 pub mod chat_request;
+pub mod id;
 pub mod mime;
 pub mod model_alias;
 pub mod url;
@@ -37,6 +38,7 @@ pub mod utf8_decoder;
 pub mod vertex;
 
 // Re-exports for convenience
+pub use id::*;
 pub use mime::*;
 pub use model_alias::*;
 pub use url::*;

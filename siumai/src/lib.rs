@@ -99,6 +99,12 @@ pub mod types {
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
 pub use siumai_core::hosted_tools;
 
+/// AI SDK-style ID generation helpers.
+pub use siumai_core::utils::{
+    DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, IdGenerator, IdGeneratorOptions, create_id_generator,
+    generate_id,
+};
+
 /// Protocol mapping facade (stable imports for protocol standards).
 ///
 /// This module exists to decouple downstream code from internal crate names.
@@ -2019,6 +2025,10 @@ pub mod prelude {
         };
         pub use crate::tooling;
         pub use crate::tools;
+        pub use crate::{
+            DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, IdGenerator, IdGeneratorOptions,
+            create_id_generator, generate_id,
+        };
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
         pub use crate::{
             completion, embedding, files, image, rerank, skills, speech, text, transcription, video,
@@ -2049,28 +2059,31 @@ pub mod prelude {
             ChatRequestBuilder, ChatResponse, CommonParams, CompletionRequest, CompletionResponse,
             CompletionTokensDetails, ContentPart, Context, CustomPart, CustomProviderOptions,
             DataContent, Embedding, EmbeddingModelUsage, EmbeddingRequest, EmbeddingResponse,
-            FilePart, FilePartSource, FinishReason, GenerateImageRequest, GeneratedImage,
-            HttpConfig, ImageDetail, ImageGenerationRequest, ImageGenerationResponse,
-            ImageModelProviderMetadata, ImageModelResponseMetadata, ImageModelUsage, ImagePart,
-            InvalidDataContentError, JSONSchema7, JSONValue, LanguageModelCallOptions,
-            LanguageModelInputTokenDetails, LanguageModelOutputTokenDetails,
-            LanguageModelReasoning, LanguageModelRequestMetadata, LanguageModelResponseMetadata,
-            LanguageModelUsage, MediaSource, MessageContent, MessageMetadata, MessageRole,
-            MissingToolResultsError, ModelInfo, ModelMessage, ModelMessageConversionError,
-            ModelMessageRole, OutputSchema, Prompt, PromptExecutionError, PromptInput,
-            PromptTokensDetails, PromptValidationError, ProviderDefinedTool, ProviderMetadata,
-            ProviderOptions, ProviderOptionsMap, ProviderReference, ProviderType,
-            ReasoningFilePart, ReasoningPart, RequestOptions, RerankRequest, RerankResponse,
-            ResponseFormat, ResponseMetadata, SchemaValidator, Source, SpeechModelResponseMetadata,
-            StandardizedPrompt, StreamRequestOptions, SttRequest, SttResponse, SystemModelMessage,
-            SystemPrompt, TextPart, TimeoutConfiguration, TimeoutConfigurationSettings, Tool,
+            FilePart, FilePartSource, FinishReason, FlexibleSchema, GenerateImageRequest,
+            GeneratedImage, HttpConfig, ImageDetail, ImageGenerationRequest,
+            ImageGenerationResponse, ImageModelProviderMetadata, ImageModelResponseMetadata,
+            ImageModelUsage, ImagePart, InvalidDataContentError, JSONSchema7, JSONValue,
+            LanguageModelCallOptions, LanguageModelInputTokenDetails,
+            LanguageModelOutputTokenDetails, LanguageModelReasoning, LanguageModelRequestMetadata,
+            LanguageModelResponseMetadata, LanguageModelUsage, LazySchema, MediaSource,
+            MessageContent, MessageMetadata, MessageRole, MissingToolResultsError, ModelInfo,
+            ModelMessage, ModelMessageConversionError, ModelMessageRole, OutputSchema, Prompt,
+            PromptExecutionError, PromptInput, PromptTokensDetails, PromptValidationError,
+            ProviderDefinedTool, ProviderMetadata, ProviderOptions, ProviderOptionsMap,
+            ProviderReference, ProviderType, ReasoningFilePart, ReasoningPart, RequestOptions,
+            RerankRequest, RerankResponse, ResponseFormat, ResponseMetadata, Schema,
+            SchemaValidator, Source, SpeechModelResponseMetadata, StandardizedPrompt,
+            StreamRequestOptions, SttRequest, SttResponse, SystemModelMessage, SystemPrompt,
+            TextPart, TimeoutConfiguration, TimeoutConfigurationSettings, Tool,
             ToolApprovalRequest, ToolApprovalResponse, ToolCall, ToolCallPart, ToolChoice,
             ToolContent, ToolContentPart, ToolModelMessage, ToolResult, ToolResultOutput,
             ToolResultPart, TranscriptionModelResponseMetadata, TtsRequest, TtsResponse, Usage,
-            UserContent, UserContentPart, UserModelMessage, VideoModelProviderMetadata,
-            VideoModelResponseMetadata, Warning, add_image_model_usage, add_language_model_usage,
+            UserContent, UserContentPart, UserModelMessage, ValidationResult,
+            VideoModelProviderMetadata, VideoModelResponseMetadata, Warning, add_image_model_usage,
+            add_language_model_usage, as_schema, as_schema_or_empty,
             convert_data_content_to_base64_string, create_null_language_model_usage,
-            get_chunk_timeout_ms, get_step_timeout_ms, get_tool_timeout_ms, get_total_timeout_ms,
+            empty_json_schema, get_chunk_timeout_ms, get_step_timeout_ms, get_tool_timeout_ms,
+            get_total_timeout_ms, json_schema, json_schema_with_validator, lazy_schema,
         };
 
         pub mod registry {

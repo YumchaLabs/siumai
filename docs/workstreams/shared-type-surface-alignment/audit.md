@@ -45,9 +45,32 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `types/video-model.ts` `VideoModelProviderMetadata` | `siumai::types::VideoModelProviderMetadata`, `prelude::unified::*` | done | Alias to shared provider metadata. |
 | `types/video-model-response-metadata.ts` | `siumai::types::VideoModelResponseMetadata`, `prelude::unified::*` | done | Includes optional provider metadata. |
 
+## `@ai-sdk/provider-utils` root schema exports
+
+| AI SDK export | Rust surface | Status | Notes |
+| --- | --- | --- | --- |
+| `Schema` | `siumai::types::Schema`, `prelude::unified::Schema` | done | JSON Schema carrier with optional Rust validator callback. |
+| `ValidationResult` | `siumai::types::ValidationResult`, `prelude::unified::ValidationResult` | done | Explicit success/failure enum using `LlmError` for validation failures. |
+| `FlexibleSchema` | `siumai::types::FlexibleSchema`, `prelude::unified::FlexibleSchema` | done | Supports concrete and lazy Rust schemas. |
+| `jsonSchema` | `siumai::types::json_schema`, `prelude::unified::json_schema` | done | Rust-style name; creates a passive JSON Schema carrier. |
+| `asSchema` | `siumai::types::as_schema`, `prelude::unified::as_schema` | done | Resolves concrete/lazy schemas. `as_schema_or_empty` covers the upstream `undefined` fallback. |
+| `lazySchema` | `siumai::types::lazy_schema`, `prelude::unified::lazy_schema` | done | Cached lazy schema initialization. Upstream does not export this from `packages/ai/src/index.ts`, but provider-utils owns it. |
+| `zodSchema` | none | deferred | Zod is TypeScript-specific. Rust should expose real schema-library adapters only when a Rust validator integration is added. |
+| `StandardSchema` support | none | deferred | TypeScript standard-schema interop has no direct Rust equivalent in this crate today. |
+
+## `@ai-sdk/provider-utils` root ID exports
+
+| AI SDK export | Rust surface | Status | Notes |
+| --- | --- | --- | --- |
+| `IdGenerator` | `siumai::IdGenerator`, `prelude::unified::IdGenerator` | done | Cloneable `Arc<dyn Fn() -> String + Send + Sync>` generator. |
+| `createIdGenerator` | `siumai::create_id_generator`, `prelude::unified::create_id_generator` | done | Rust-style name with `IdGeneratorOptions`; returns `Result` instead of throwing. |
+| `generateId` | `siumai::generate_id`, `prelude::unified::generate_id` | done | Generates the AI SDK-compatible default 16-character non-cryptographic ID. |
+
 ## Current deferred work
 
 - Add real `EmbeddingModelMiddleware` only after embedding helper/runtime calls can apply middleware.
 - Add real `ImageModelMiddleware` only after image helper/runtime calls can apply middleware.
+- Add Rust schema-library adapters only when they can validate through a real Rust backend; do not
+  expose empty `zodSchema`/standard-schema placeholders.
 - Revisit whether historical `siumai::Provider` should be renamed or moved further into compat in a
   breaking facade cleanup. Do not alias it to AI SDK `Provider`; the semantics are different.

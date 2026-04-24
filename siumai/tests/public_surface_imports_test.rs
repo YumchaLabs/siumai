@@ -1,4 +1,4 @@
-﻿use std::mem::size_of;
+use std::mem::size_of;
 
 #[test]
 #[allow(deprecated)]
@@ -10,6 +10,12 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<CallSettings>();
     let _ = size_of::<JSONSchema7>();
     let _ = size_of::<JSONValue>();
+    let _ = size_of::<Schema>();
+    let _ = size_of::<LazySchema>();
+    let _ = size_of::<FlexibleSchema>();
+    let _ = size_of::<ValidationResult>();
+    let _ = size_of::<IdGenerator>();
+    let _ = size_of::<IdGeneratorOptions>();
     let _ = size_of::<CallWarning>();
     let _ = size_of::<CancelHandle>();
     let _ = size_of::<Context>();
@@ -99,6 +105,66 @@ fn public_surface_unified_imports_compile() {
         as fn(&LanguageModelUsage, &LanguageModelUsage) -> LanguageModelUsage;
     let _ = add_image_model_usage as fn(&ImageModelUsage, &ImageModelUsage) -> ImageModelUsage;
     let _ = convert_data_content_to_base64_string as fn(&DataContent) -> String;
+
+    let schema = json_schema(serde_json::json!({ "type": "object" }));
+    assert_eq!(schema.json_schema()["type"], serde_json::json!("object"));
+
+    let typed_schema = json_schema_with_validator(
+        serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"]
+        }),
+        |value| {
+            value
+                .get("answer")
+                .and_then(serde_json::Value::as_str)
+                .map(|answer| ValidationResult::success(answer.to_string()))
+                .unwrap_or_else(|| {
+                    ValidationResult::failure(LlmError::ParseError(
+                        "Expected answer string".to_string(),
+                    ))
+                })
+        },
+    );
+    assert_eq!(
+        typed_schema
+            .validate(&serde_json::json!({ "answer": "42" }))
+            .expect("validator present")
+            .into_result()
+            .expect("valid schema value"),
+        "42"
+    );
+
+    let lazy = lazy_schema(|| json_schema(serde_json::json!({ "type": "string" })));
+    assert_eq!(
+        as_schema(lazy).json_schema()["type"],
+        serde_json::json!("string")
+    );
+    let empty = as_schema_or_empty::<JSONValue>(None::<Schema>);
+    assert_eq!(
+        empty.json_schema()["additionalProperties"],
+        serde_json::json!(false)
+    );
+    assert_eq!(
+        empty_json_schema::<JSONValue>().json_schema()["properties"],
+        serde_json::json!({})
+    );
+
+    let id = generate_id();
+    assert_eq!(id.chars().count(), DEFAULT_ID_SIZE);
+    assert!(id.chars().all(|ch| DEFAULT_ID_ALPHABET.contains(ch)));
+
+    let prefixed_id_generator = create_id_generator(
+        IdGeneratorOptions::new()
+            .with_prefix("tool")
+            .with_size(6)
+            .with_alphabet("ab"),
+    )
+    .expect("valid id generator options");
+    let prefixed_id = prefixed_id_generator();
+    assert!(prefixed_id.starts_with("tool-"));
+    assert_eq!(prefixed_id["tool-".len()..].chars().count(), 6);
 
     let shared_data = DataContent::binary(vec![1, 2, 3]);
     let stt_request = SttRequest::from_data_content(shared_data.clone(), "audio/mpeg");

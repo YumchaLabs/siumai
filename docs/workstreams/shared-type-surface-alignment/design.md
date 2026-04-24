@@ -25,6 +25,11 @@ several important ways:
   part variant, not as a stable shared public data structure
 - `LanguageModelMiddleware` existed in the Rust runtime but was not directly visible from the
   stable facade, while embedding/image middleware did not yet have honest runtime equivalents
+- the root AI SDK package also re-exports schema helpers from `@ai-sdk/provider-utils`, but Siumai's
+  existing `OutputSchema` / `SchemaValidator` types did not provide the same public `Schema`
+  carrier contract
+- the root AI SDK package re-exports `createIdGenerator`, `generateId`, and `IdGenerator`, but
+  Siumai did not have a shared facade-level equivalent
 
 This was not a single runtime bug. It was a shared contract gap:
 
@@ -51,6 +56,8 @@ This was not a single runtime bug. It was a shared contract gap:
 - Do not fabricate richer runtime capture than Siumai currently has; for example, speech response
   `body` stays optional because the shared carrier is now present before the runtime is fully
   wired.
+- Do not pretend that TypeScript-only Zod or Standard Schema objects exist in Rust. Rust adapters
+  should be added only when backed by a real Rust schema conversion/validation implementation.
 
 ## Chosen design
 
@@ -119,6 +126,30 @@ intentionally drops raw provider usage metadata, matching the upstream aggregate
 
 This avoids the trap of “matching the name but not the data structure”.
 
+The provider-utils schema helpers are mirrored as honest Rust carriers:
+
+- `Schema<T>` always owns a provider-facing `JSONSchema7`
+- `ValidationResult<T>` models the AI SDK success/failure union with `LlmError` failures
+- `FlexibleSchema<T>` accepts concrete and lazily-created Rust schemas
+- `json_schema(...)`, `json_schema_with_validator(...)`, `lazy_schema(...)`,
+  `as_schema(...)`, `as_schema_or_empty(...)`, and `empty_json_schema(...)` provide Rust-style
+  equivalents of the upstream helper flow
+
+The optional validator is a Rust callback. If a schema has no validator, callers can still pass the
+JSON Schema to providers, but `Schema::validate(...)` returns `None` instead of fabricating a
+validation result.
+
+The provider-utils ID helpers are mirrored in `siumai-core::utils` and re-exported from the root
+facade:
+
+- `IdGenerator` is a cloneable `Arc<dyn Fn() -> String + Send + Sync>`
+- `IdGeneratorOptions` mirrors prefix, separator, size, and alphabet controls
+- `create_id_generator(...)` validates options and returns `Result<IdGenerator, LlmError>`
+- `generate_id()` produces the default 16-character random ID
+
+The implementation intentionally remains non-cryptographic, matching AI SDK's helper. Rust uses
+`Result` for invalid options instead of modeling JavaScript exceptions.
+
 ### 3. Extend stable runtime carriers where the public contract requires it
 
 Two shared runtime carriers needed real semantic widening:
@@ -171,14 +202,22 @@ The existing runtime `LanguageModelMiddleware` trait is also re-exported directl
 image middleware are intentionally not fabricated in this slice because there is no corresponding
 embedding/image middleware execution path yet.
 
+The schema helpers are also re-exported from `siumai::prelude::unified::*` so root-package audits
+against `repo-ref/ai/packages/ai/src/index.ts` can see the provider-utils schema surface without
+pulling from implementation modules.
+
+The ID helpers are root facade exports as well as prelude exports because AI SDK exposes them from
+the package root, not only from a nested utility module.
+
 ## Validation
 
 This workstream is currently locked by:
 
-- `cargo check -p siumai-spec --tests`
+- `cargo nextest run -p siumai-spec schema --no-fail-fast`
+- `cargo nextest run -p siumai-core id --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test`
 - public compile guards in `siumai/tests/public_surface_imports_test.rs`
-- local unit tests in `siumai-spec/src/types/{common,ai_sdk}.rs`
+- local unit tests in `siumai-spec/src/types/{common,ai_sdk,schema}.rs`
 
 ## Deferred follow-up
 
@@ -186,3 +225,4 @@ This workstream is currently locked by:
 - Design embedding/image middleware once those model families have real middleware execution hooks.
 - Revisit response-body capture for speech/transcription once the runtime has a stable place to
   preserve it across providers.
+- Add real Rust schema-library adapters if/when the crate adopts a validator/converter backend.
