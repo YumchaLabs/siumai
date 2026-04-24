@@ -141,6 +141,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::prelude::unified::*` as the honest Rust equivalent of the AI SDK provider model-family
   factory contract; the historical `siumai::Provider` builder entry point remains a compat/top-level
   construction helper, not that provider interface.
+- The shared type workstream now includes an explicit audit matrix for
+  `repo-ref/ai/packages/ai/src/types/*`, including completed Rust surfaces and the deferred
+  embedding/image middleware hooks.
 - Shared `ToolChoice` serialization now matches the AI SDK `types/language-model.ts` contract:
   forced tool choices serialize as `{ "type": "tool", "toolName": "..." }` while still accepting
   the previous Rust enum object shape on input for compatibility.

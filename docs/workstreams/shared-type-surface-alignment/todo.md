@@ -59,6 +59,7 @@ Status legend:
 ## Track D - Docs and changelog
 
 - [x] Create a dedicated `docs/workstreams/shared-type-surface-alignment/` folder.
+- [x] Add a shared type-surface audit matrix for `repo-ref/ai/packages/ai/src/types/*`.
 - [x] Record the shared type-surface alignment slice in `CHANGELOG.md` `Unreleased`.
 
 ## Track E - Intentional deferrals
