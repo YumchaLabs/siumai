@@ -86,6 +86,16 @@ Reference: `repo-ref/ai/packages/togetherai/src/togetherai-provider.ts`
 | `headers` | supported | `TogetherAIProviderSettings.headers` |
 | `fetch` | supported | `TogetherAIProviderSettings.fetch` |
 
+## Groq
+
+Reference: `repo-ref/ai/packages/groq/src/groq-provider.ts`
+
+| Upstream field | Rust status | Rust analogue / note |
+| --- | --- | --- |
+| `baseURL` | supported | `GroqProviderSettings.base_url` |
+| `apiKey` | supported | `GroqProviderSettings.api_key` |
+| `headers` | supported | `GroqProviderSettings.headers` |
+| `fetch` | supported | `GroqProviderSettings.fetch` |
 ## xAI
 
 Reference: `repo-ref/ai/packages/xai/src/xai-provider.ts`
@@ -112,4 +122,4 @@ The audited package-surface alignment now also exposes:
 | DeepSeek | `provider_ext::deepseek::{DeepSeekProviderSettings, VERSION}` |
 | TogetherAI | `provider_ext::togetherai::{TogetherAIProviderSettings, VERSION}` |
 | xAI | `provider_ext::xai::{XaiProviderSettings, VERSION}` |
-
+| Groq | `provider_ext::groq::{GroqProviderSettings, VERSION}` |

@@ -29,6 +29,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   exposes the audited `apiKey` / `baseURL` / `headers` / `fetch` package settings subset.
   Upstream xAI uses `generateId` internally but does not expose it on `XaiProviderSettings`, so it is
   not tracked as a deferred xAI settings field.
+- Groq now joins that provider-settings pass: `provider_ext::groq::{GroqProviderSettings, VERSION}`
+  exposes the audited `apiKey` / `baseURL` / `headers` / `fetch` package settings subset and
+  converts it into the provider-owned builder/config paths.
 - `@ai-sdk/google-vertex` package-surface parity is now tighter on the Rust facade:
   `provider_ext::google_vertex` / `providers::vertex` now expose `VERSION` plus a dedicated
   `GoogleVertexProviderSettings` input struct with `into_builder()` /

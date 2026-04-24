@@ -1844,7 +1844,9 @@ pub mod provider_ext {
 
     #[cfg(feature = "groq")]
     pub mod groq {
-        pub use siumai_provider_groq::providers::groq::{GroqBuilder, GroqClient, GroqConfig};
+        pub use siumai_provider_groq::providers::groq::{
+            GroqBuilder, GroqClient, GroqConfig, GroqProviderSettings, VERSION,
+        };
 
         /// Create the Groq provider builder.
         pub fn groq() -> GroqBuilder {

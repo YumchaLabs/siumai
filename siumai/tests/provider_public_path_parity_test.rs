@@ -24932,6 +24932,22 @@ mod groq_public_path {
         )
     }
 
+    #[test]
+    fn groq_package_settings_preserve_supported_provider_inputs() {
+        let config = siumai::provider_ext::groq::GroqProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/groq")
+            .with_header("x-test", "1")
+            .into_config_for_model("openai/gpt-oss-20b")
+            .expect("settings into config");
+
+        assert_eq!(config.base_url, "https://example.com/groq");
+        assert_eq!(config.common_params.model, "openai/gpt-oss-20b");
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
     fn make_groq_tool_call_request(model: &str) -> ChatRequest {
         ChatRequest::builder()
             .model(model)

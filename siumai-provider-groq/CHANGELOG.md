@@ -1,4 +1,4 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project will be documented in this file.
 
@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- Added AI SDK-style `GroqProviderSettings` and `VERSION` exports for the audited package-level
+  `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
 
 - The provider-owned/public Groq surface now also exposes the AI SDK-style
   `GroqTranscriptionModelOptions` alias in addition to the earlier

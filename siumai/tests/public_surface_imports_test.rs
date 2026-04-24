@@ -2337,12 +2337,14 @@ fn public_surface_protocol_gemini_compiles() {
 fn public_surface_groq_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::groq::{
-        GroqBuilder, GroqClient, create_groq, ext::audio_options, groq as groq_builder,
-        metadata::*, options::*,
+        GroqBuilder, GroqClient, GroqProviderSettings, VERSION, create_groq, ext::audio_options,
+        groq as groq_builder, metadata::*, options::*,
     };
 
     let _ = size_of::<GroqBuilder>();
     let _ = size_of::<GroqClient>();
+    let _ = size_of::<GroqProviderSettings>();
+    let _ = VERSION;
     let _ = size_of::<GroqOptions>();
     let _ = size_of::<GroqLanguageModelOptions>();
     #[allow(deprecated)]
@@ -2360,6 +2362,14 @@ fn public_surface_groq_provider_ext_compiles() {
     let _ = GroqClient::set_retry_options;
     let _ = groq_builder();
     let _ = create_groq();
+    let _ = GroqProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/groq")
+        .with_header("x-test", "1")
+        .into_builder_for_model("openai/gpt-oss-20b");
+    let _ = GroqProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model("openai/gpt-oss-20b");
     let _ = siumai::Provider::groq().headers(Default::default());
     let _ = size_of::<audio_options::GroqTtsOptions>();
     let _ = size_of::<audio_options::GroqSttOptions>();

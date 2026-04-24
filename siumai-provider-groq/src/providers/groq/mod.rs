@@ -37,6 +37,7 @@ pub mod config;
 pub mod ext;
 mod middleware;
 pub mod models;
+pub mod settings;
 pub mod spec;
 mod transformers;
 mod utils;
@@ -50,4 +51,7 @@ pub use builder::GroqBuilder;
 pub use client::GroqClient;
 pub use config::GroqConfig;
 pub use ext::{GroqChatRequestExt, GroqSttRequestExt};
+pub use settings::GroqProviderSettings;
 pub use spec::GroqSpec;
+
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
