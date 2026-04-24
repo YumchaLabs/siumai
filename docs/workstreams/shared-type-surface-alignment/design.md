@@ -162,6 +162,11 @@ the stable `types/index.ts` export list today, but the Rust facade already owns 
 task-oriented video family and should keep that family importable with the rest of the model
 surface.
 
+For the AI SDK `Provider` interface, the honest Rust equivalent is the registry `ProviderFactory`
+trait because it owns model-family factory methods. The historical `siumai::Provider` type remains
+a top-level/compat construction helper, so this workstream exposes `ProviderFactory` directly
+instead of aliasing the old builder entry point to an incompatible provider-interface meaning.
+
 The existing runtime `LanguageModelMiddleware` trait is also re-exported directly. Embedding and
 image middleware are intentionally not fabricated in this slice because there is no corresponding
 embedding/image middleware execution path yet.

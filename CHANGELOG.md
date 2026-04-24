@@ -137,6 +137,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - The stable video family is now visible from `siumai::prelude::unified::*` as `video`,
   `VideoModel`, `VideoModelV3`, and `VideoModelV4`, matching the already-audited
   `types/video-model.ts` surface.
+- The registry `ProviderFactory` interface is now directly visible from
+  `siumai::prelude::unified::*` as the honest Rust equivalent of the AI SDK provider model-family
+  factory contract; the historical `siumai::Provider` builder entry point remains a compat/top-level
+  construction helper, not that provider interface.
 - Shared `ToolChoice` serialization now matches the AI SDK `types/language-model.ts` contract:
   forced tool choices serialize as `{ "type": "tool", "toolName": "..." }` while still accepting
   the previous Rust enum object shape on input for compatibility.

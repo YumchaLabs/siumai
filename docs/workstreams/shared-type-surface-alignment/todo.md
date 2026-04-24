@@ -47,6 +47,9 @@ Status legend:
   `siumai::prelude::unified::*`.
 - [x] Re-export the implemented video family module and `VideoModel*` traits from
   `siumai::prelude::unified::*`.
+- [x] Re-export `ProviderFactory` directly from `siumai::prelude::unified::*` as the honest Rust
+  provider-interface equivalent while leaving historical `siumai::Provider` on compat/top-level
+  construction paths.
 - [x] Add public compile-guard coverage in `siumai/tests/public_surface_imports_test.rs`.
 - [x] Add local unit coverage for warning/metadata/usage conversion behavior.
 - [x] Expose Rust-style equivalents of the AI SDK usage helpers:

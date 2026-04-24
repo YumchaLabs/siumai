@@ -78,6 +78,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LlmError>();
     let _ = size_of::<*const dyn CompletionCapability>();
     let _ = size_of::<*const dyn CompletionModel>();
+    let _ = size_of::<*const dyn ProviderFactory>();
     let _ = size_of::<*const dyn ImageModel>();
     let _ = size_of::<*const dyn ImageModelV4>();
     let _ = size_of::<*const dyn EmbeddingModel>();

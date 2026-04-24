@@ -2011,6 +2011,7 @@ pub mod prelude {
         };
         #[doc(hidden)]
         pub use crate::provider::Siumai;
+        pub use crate::registry::ProviderFactory;
         pub use crate::retry_api::*;
         pub use crate::skills::{
             UploadSkillApi, UploadSkillFile, UploadSkillFileContent, UploadSkillOptions,
