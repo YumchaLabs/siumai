@@ -582,6 +582,226 @@ impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolErrorMarker {
+    ToolError,
+}
+
+impl Default for ToolErrorMarker {
+    fn default() -> Self {
+        Self::ToolError
+    }
+}
+
+impl Serialize for ToolErrorMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("tool-error")
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolErrorMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "tool-error" {
+            Ok(Self::ToolError)
+        } else {
+            Err(serde::de::Error::custom("expected tool-error type marker"))
+        }
+    }
+}
+
+/// AI SDK-style `tool-error` output part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolError<NAME = String, INPUT = JSONValue> {
+    #[serde(rename = "type", default)]
+    marker: ToolErrorMarker,
+    /// ID of the tool call.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Name of the tool that failed.
+    #[serde(rename = "toolName")]
+    pub tool_name: NAME,
+    /// Tool input.
+    pub input: INPUT,
+    /// Error payload.
+    pub error: JSONValue,
+    /// Whether the tool call was provider-executed.
+    #[serde(
+        rename = "providerExecuted",
+        alias = "provider_executed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_executed: Option<bool>,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Whether the tool is dynamic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+    /// Human-readable title for the tool error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+impl<NAME, INPUT> ToolError<NAME, INPUT> {
+    /// Create a tool error output part.
+    pub fn new(
+        tool_call_id: impl Into<String>,
+        tool_name: NAME,
+        input: INPUT,
+        error: impl Into<JSONValue>,
+    ) -> Self {
+        Self {
+            marker: ToolErrorMarker::ToolError,
+            tool_call_id: tool_call_id.into(),
+            tool_name,
+            input,
+            error: error.into(),
+            provider_executed: None,
+            provider_metadata: None,
+            dynamic: None,
+            title: None,
+        }
+    }
+
+    /// Mark whether the tool call was provider-executed.
+    pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Attach provider-specific response metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Mark whether the tool is dynamic.
+    pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
+        self.dynamic = Some(dynamic);
+        self
+    }
+
+    /// Attach a human-readable title.
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-error"
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolOutputDeniedMarker {
+    ToolOutputDenied,
+}
+
+impl Default for ToolOutputDeniedMarker {
+    fn default() -> Self {
+        Self::ToolOutputDenied
+    }
+}
+
+impl Serialize for ToolOutputDeniedMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("tool-output-denied")
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolOutputDeniedMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "tool-output-denied" {
+            Ok(Self::ToolOutputDenied)
+        } else {
+            Err(serde::de::Error::custom(
+                "expected tool-output-denied type marker",
+            ))
+        }
+    }
+}
+
+/// AI SDK-style `tool-output-denied` output part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolOutputDenied<NAME = String> {
+    #[serde(rename = "type", default)]
+    marker: ToolOutputDeniedMarker,
+    /// ID of the tool call.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Name of the tool whose output was denied.
+    #[serde(rename = "toolName")]
+    pub tool_name: NAME,
+    /// Whether the tool call was provider-executed.
+    #[serde(
+        rename = "providerExecuted",
+        alias = "provider_executed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_executed: Option<bool>,
+    /// Whether the tool is dynamic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+}
+
+impl<NAME> ToolOutputDenied<NAME> {
+    /// Create a tool-output-denied output part.
+    pub fn new(tool_call_id: impl Into<String>, tool_name: NAME) -> Self {
+        Self {
+            marker: ToolOutputDeniedMarker::ToolOutputDenied,
+            tool_call_id: tool_call_id.into(),
+            tool_name,
+            provider_executed: None,
+            dynamic: None,
+        }
+    }
+
+    /// Mark whether the tool call was provider-executed.
+    pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Mark whether the tool is dynamic.
+    pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
+        self.dynamic = Some(dynamic);
+        self
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-output-denied"
+    }
+}
+
+/// Static tool-output-denied view. Rust keeps the same runtime carrier as the typed view.
+pub type StaticToolOutputDenied<NAME = String> = ToolOutputDenied<NAME>;
+
+/// Typed tool-output-denied view. Rust keeps the same runtime carrier as the static view.
+pub type TypedToolOutputDenied<NAME = String> = ToolOutputDenied<NAME>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolApprovalRequestOutputMarker {
     ToolApprovalRequest,
 }
@@ -2253,6 +2473,69 @@ mod tests {
             "text": "nope"
         });
         assert!(serde_json::from_value::<ReasoningOutput>(wrong_type).is_err());
+    }
+
+    #[test]
+    fn tool_error_and_output_denied_match_ai_sdk_shape() {
+        let provider_metadata = ProviderMetadata::from([(
+            "openai".to_string(),
+            serde_json::json!({ "itemId": "item_error" }),
+        )]);
+        let tool_error = ToolError::new(
+            "call_1",
+            "search".to_string(),
+            serde_json::json!({ "q": "rust" }),
+            serde_json::json!({ "message": "timeout" }),
+        )
+        .with_provider_executed(true)
+        .with_provider_metadata(provider_metadata)
+        .with_dynamic(true)
+        .with_title("Search failed");
+        let tool_error_json = serde_json::to_value(&tool_error).expect("serialize tool error");
+
+        assert_eq!(tool_error.r#type(), "tool-error");
+        assert_eq!(
+            tool_error_json,
+            serde_json::json!({
+                "type": "tool-error",
+                "toolCallId": "call_1",
+                "toolName": "search",
+                "input": { "q": "rust" },
+                "error": { "message": "timeout" },
+                "providerExecuted": true,
+                "providerMetadata": {
+                    "openai": { "itemId": "item_error" }
+                },
+                "dynamic": true,
+                "title": "Search failed"
+            })
+        );
+        let roundtrip: ToolError =
+            serde_json::from_value(tool_error_json).expect("deserialize tool error");
+        assert_eq!(roundtrip.tool_call_id, "call_1");
+
+        let denied = ToolOutputDenied::new("call_2", "delete".to_string())
+            .with_provider_executed(false)
+            .with_dynamic(false);
+        let denied_json = serde_json::to_value(&denied).expect("serialize output denied");
+
+        assert_eq!(denied.r#type(), "tool-output-denied");
+        assert_eq!(
+            denied_json,
+            serde_json::json!({
+                "type": "tool-output-denied",
+                "toolCallId": "call_2",
+                "toolName": "delete",
+                "providerExecuted": false,
+                "dynamic": false
+            })
+        );
+        let wrong_type = serde_json::json!({
+            "type": "tool-denied",
+            "toolCallId": "call_2",
+            "toolName": "delete"
+        });
+        assert!(serde_json::from_value::<ToolOutputDenied>(wrong_type).is_err());
     }
 
     #[test]

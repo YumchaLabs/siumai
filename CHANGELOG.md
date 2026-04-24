@@ -28,6 +28,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK text-output file and reasoning parts now have direct Rust data structures:
   `GeneratedFile`, `ReasoningOutput`, and `ReasoningFileOutput`, preserving the upstream
   `base64` / `mediaType` file shape plus provider metadata.
+- AI SDK text-output tool failure parts now have direct Rust data structures:
+  `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:
   `siumai::parse_json_event_stream` and `prelude::unified::parse_json_event_stream` parse SSE
   `data:` JSON payloads while ignoring `[DONE]`, using Rust stream item errors instead of a

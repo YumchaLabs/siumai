@@ -41,6 +41,7 @@ Status legend:
 - [x] Add `structured_output::generate_choice(...)`.
 - [x] Add passive AI SDK output-part shapes for `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`.
+- [x] Add passive AI SDK output-part shapes for `ToolError` and `ToolOutputDenied`.
 - [x] Add passive AI SDK output-part shapes for `ToolApprovalRequestOutput` and
   `ToolApprovalResponseOutput`.
 - [x] Re-export the new helpers from the root facade and `prelude::unified::*`.

@@ -10,6 +10,8 @@ Reference files:
 - `repo-ref/ai/packages/ai/src/generate-text/reasoning-output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-request-output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-response-output.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-error.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-output-denied.ts`
 - `repo-ref/ai/packages/ai/src/util/fix-json.ts`
 - `repo-ref/ai/packages/ai/src/util/parse-partial-json.ts`
 - `repo-ref/ai/packages/openai/src/chat/openai-chat-language-model.ts`
@@ -36,6 +38,8 @@ Reference files:
 | `GeneratedFile` | Supported as passive output shape | `GeneratedFile` stores stable `base64` plus `mediaType` and exposes Rust byte decoding through `uint8_array()`. |
 | `reasoning` | Supported as passive output shape | `ReasoningOutput` carries `type: "reasoning"`, text, and provider metadata. |
 | `reasoning-file` | Supported as passive output shape | `ReasoningFileOutput` carries `type: "reasoning-file"`, a nested `GeneratedFile`, and provider metadata. |
+| `tool-error` | Supported as passive output shape | `ToolError` carries the full AI SDK output-side error part shape with input, error payload, provider metadata, dynamic flag, and title. |
+| `tool-output-denied` | Supported as passive output shape | `ToolOutputDenied` plus `StaticToolOutputDenied` / `TypedToolOutputDenied` aliases model the AI SDK denial part. |
 | `tool-approval-request` | Supported as passive output shape | `ToolApprovalRequestOutput` carries the full nested `toolCall` plus optional `isAutomatic`. Runtime prompt continuity still keeps ID-oriented approval parts until the tool-loop projection is refactored. |
 | `tool-approval-response` | Supported as passive output shape | `ToolApprovalResponseOutput` carries the full nested `toolCall`, `approved`, optional `reason`, and `providerExecuted`. |
 

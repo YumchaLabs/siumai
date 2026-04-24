@@ -55,6 +55,10 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ToolApprovalRequestOutput<String, JSONValue>>();
     let _ = size_of::<ToolApprovalResponse>();
     let _ = size_of::<ToolApprovalResponseOutput<String, JSONValue>>();
+    let _ = size_of::<ToolError<String, JSONValue>>();
+    let _ = size_of::<ToolOutputDenied<String>>();
+    let _ = size_of::<StaticToolOutputDenied<String>>();
+    let _ = size_of::<TypedToolOutputDenied<String>>();
     let _ = size_of::<UserContentPart>();
     let _ = size_of::<AssistantContentPart>();
     let _ = size_of::<ToolContentPart>();
@@ -360,6 +364,20 @@ fn public_surface_unified_imports_compile() {
     .with_title("Search result");
     assert_eq!(tool_result.tool_call_id, "call_1");
     assert_eq!(tool_result.preliminary, Some(true));
+
+    let tool_error = ToolError::new(
+        "call_1",
+        "search".to_string(),
+        serde_json::json!({ "q": "rust" }),
+        serde_json::json!({ "message": "timeout" }),
+    )
+    .with_dynamic(true)
+    .with_title("Search failed");
+    assert_eq!(tool_error.r#type(), "tool-error");
+    let denied = ToolOutputDenied::new("call_2", "delete".to_string())
+        .with_provider_executed(false)
+        .with_dynamic(false);
+    assert_eq!(denied.r#type(), "tool-output-denied");
 
     let generated_file = GeneratedFile::from_bytes(b"hello", "text/plain");
     assert_eq!(generated_file.base64(), "aGVsbG8=");
