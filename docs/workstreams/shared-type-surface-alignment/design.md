@@ -32,6 +32,8 @@ several important ways:
   Siumai did not have a shared facade-level equivalent
 - the root AI SDK package re-exports provider-utils tool helpers directly, while Siumai's real
   runtime tool helpers were only visible through the nested `tooling` module
+- the root AI SDK package re-exports `parseJsonEventStream`, but Siumai only exposed the lower-level
+  provider/runtime SSE JSON parser
 
 This was not a single runtime bug. It was a shared contract gap:
 
@@ -164,6 +166,15 @@ The provider-utils tool surface is split into two honest Rust concepts:
 This avoids serializing Rust closures into the spec-level tool shape while still matching the
 provider-utils runtime helper ergonomics.
 
+The provider-utils stream parser is exposed as a thin public wrapper:
+
+- `parse_json_event_stream(...)` parses byte streams containing SSE `data:` JSON payloads
+- `[DONE]` is ignored by default, matching the upstream helper
+- invalid JSON is returned through the Rust stream error channel as `LlmError::ParseError`
+
+This intentionally does not clone the TypeScript `ParseResult` union. Rust callers already have a
+standard stream item error channel.
+
 ### 3. Extend stable runtime carriers where the public contract requires it
 
 Two shared runtime carriers needed real semantic widening:
@@ -226,6 +237,9 @@ the package root, not only from a nested utility module.
 The tool runtime helpers are also root facade exports. The historical `tool!` macro remains
 available in macro syntax, while `tool(...)` is the value-level helper aligned with provider-utils.
 
+`parse_json_event_stream` is root-exported and prelude-exported as the public wrapper around the
+existing provider-agnostic SSE JSON parser.
+
 ## Validation
 
 This workstream is currently locked by:
@@ -233,6 +247,7 @@ This workstream is currently locked by:
 - `cargo nextest run -p siumai-spec schema --no-fail-fast`
 - `cargo nextest run -p siumai-core id --no-fail-fast`
 - `cargo nextest run -p siumai-core tooling --no-fail-fast`
+- `cargo nextest run -p siumai-core sse_json --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test`
 - public compile guards in `siumai/tests/public_surface_imports_test.rs`
 - local unit tests in `siumai-spec/src/types/{common,ai_sdk,schema}.rs`

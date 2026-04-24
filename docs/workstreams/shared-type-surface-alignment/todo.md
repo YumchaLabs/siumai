@@ -92,7 +92,14 @@ Status legend:
 - [x] Preserve the legacy `tool!` macro; the root `tool(...)` function coexists in Rust's value
   namespace.
 
-## Track H - Intentional deferrals
+## Track H - Provider-utils stream parsing surface
+
+- [x] Audit `repo-ref/ai/packages/provider-utils/src/parse-json-event-stream.ts`.
+- [x] Expose `parse_json_event_stream` as the Rust-style equivalent of `parseJsonEventStream`.
+- [x] Use Rust stream item errors (`Stream<Item = Result<Value, LlmError>>`) instead of copying the
+  TypeScript `ParseResult` union shape.
+
+## Track I - Intentional deferrals
 
 - [-] `RequestOptions`, `TimeoutConfiguration`, and `LanguageModelCallOptions` are tracked by their
   own dedicated workstreams.

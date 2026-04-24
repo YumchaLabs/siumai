@@ -79,6 +79,12 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `ToolApprovalRequest` / `ToolApprovalResponse` | `siumai::types::*`, `prelude::unified::*` | done | Shared passive data structures. |
 | `InferToolInput` / `InferToolOutput` | none | deferred | TypeScript conditional inference helpers have no honest runtime Rust equivalent. |
 
+## `@ai-sdk/provider-utils` root stream parsing export
+
+| AI SDK export | Rust surface | Status | Notes |
+| --- | --- | --- | --- |
+| `parseJsonEventStream` | `siumai::parse_json_event_stream`, `prelude::unified::parse_json_event_stream` | done | Parses SSE `data:` payloads into `serde_json::Value` items with Rust `Result` stream errors. |
+
 ## Current deferred work
 
 - Add real `EmbeddingModelMiddleware` only after embedding helper/runtime calls can apply middleware.

@@ -172,6 +172,9 @@ pub use siumai_core::tooling::{
     execute_tool, is_executable_tool, model_messages_from_chat_messages, tool,
 };
 
+/// AI SDK-style JSON event stream parser.
+pub use siumai_core::streaming::parse_json_event_stream;
+
 /// Compatibility surface for legacy, method-style APIs (time-bounded).
 pub mod compat;
 
@@ -2022,6 +2025,7 @@ pub mod prelude {
             FileUploadProvider, UploadFileApi, UploadFileOptions, UploadFileProviderMetadata,
             UploadFileResult,
         };
+        pub use crate::parse_json_event_stream;
         #[doc(hidden)]
         pub use crate::provider::Siumai;
         pub use crate::registry::ProviderFactory;

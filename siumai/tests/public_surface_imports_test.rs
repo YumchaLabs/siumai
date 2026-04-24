@@ -432,6 +432,7 @@ fn public_surface_unified_imports_compile() {
 #[tokio::test]
 async fn public_surface_tooling_imports_compile() {
     use futures::StreamExt;
+    use siumai::prelude::unified::{LlmError, parse_json_event_stream};
     use siumai::tooling::{
         ExecutableTool, ExecutableTools, ToolExecutionOptions, ToolExecutionResult, ToolSet,
         dynamic_tool, execute_tool, is_executable_tool, model_messages_from_chat_messages, tool,
@@ -498,6 +499,16 @@ async fn public_surface_tooling_imports_compile() {
         .await
         .expect("execute by name");
     assert_eq!(out["hello"], serde_json::json!("world"));
+
+    let parsed = parse_json_event_stream(futures::stream::iter(vec![Ok::<_, LlmError>(
+        b"data: {\"ok\":true}\n\n".to_vec(),
+    )]))
+    .collect::<Vec<_>>()
+    .await;
+    assert_eq!(
+        parsed[0].as_ref().expect("json event")["ok"],
+        serde_json::json!(true)
+    );
 }
 
 #[test]

@@ -34,6 +34,29 @@ impl SseJsonStreamConfig {
 pub type JsonSseStream =
     Pin<Box<dyn Stream<Item = Result<serde_json::Value, LlmError>> + Send + Sync>>;
 
+/// Parse a byte stream of SSE `data:` payloads into JSON values.
+///
+/// This is the Rust facade equivalent of AI SDK `parseJsonEventStream`. It uses Rust's
+/// `Stream<Item = Result<...>>` error channel instead of returning a TypeScript-style
+/// `ParseResult` union for each item.
+pub fn parse_json_event_stream<S, B>(byte_stream: S) -> JsonSseStream
+where
+    S: Stream<Item = Result<B, LlmError>> + Send + Sync + Unpin + 'static,
+    B: AsRef<[u8]> + Send + Sync + 'static,
+{
+    stream_sse_json_values(
+        byte_stream,
+        Vec::new(),
+        HttpRequestContext {
+            request_id: "parse-json-event-stream".to_string(),
+            provider_id: "provider-utils".to_string(),
+            url: String::new(),
+            stream: true,
+        },
+        SseJsonStreamConfig::new("json event stream"),
+    )
+}
+
 /// Convert a bytes stream into a JSON stream by parsing SSE `data:` payloads.
 ///
 /// - Calls `HttpInterceptor::on_sse_event` for every SSE event.
@@ -169,5 +192,26 @@ mod tests {
             LlmError::ParseError(msg) => assert!(msg.contains("Failed to parse SSE JSON")),
             other => panic!("unexpected error variant: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn parse_json_event_stream_uses_public_defaults() {
+        let data: Vec<Result<&[u8], LlmError>> = vec![
+            Ok(b"data: {\"a\":1}\n\n".as_slice()),
+            Ok(b"data: [DONE]\n\n".as_slice()),
+            Ok(b"data: {\"b\":2}\n\n".as_slice()),
+        ];
+
+        let out = parse_json_event_stream(futures_util::stream::iter(data))
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<Vec<_>, _>>()
+            .expect("valid json events");
+
+        assert_eq!(
+            out,
+            vec![serde_json::json!({ "a": 1 }), serde_json::json!({ "b": 2 })]
+        );
     }
 }

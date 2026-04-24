@@ -19,6 +19,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::{tool, dynamic_tool, ToolExecutionOptions, ToolExecuteFunction, ToolSet}` and the same
   names in `prelude::unified` expose the existing runtime tool binding surface without merging
   Rust closures into the passive provider-facing `Tool` schema.
+- AI SDK provider-utils stream parsing parity now has a public Rust wrapper:
+  `siumai::parse_json_event_stream` and `prelude::unified::parse_json_event_stream` parse SSE
+  `data:` JSON payloads while ignoring `[DONE]`, using Rust stream item errors instead of a
+  TypeScript-style `ParseResult` union.
 - Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
   `provider_ext::{openai,azure,bedrock}` now expose package-level
   `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and
