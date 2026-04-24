@@ -46,6 +46,8 @@ Status legend:
 - [x] Add passive AI SDK result envelope structures for `ResponseMessage`, `StepResult`, and
   `GenerateTextResult` without changing the current runtime return type, including the split
   between step-side `providerOptions` reasoning and final result-side `providerMetadata` reasoning.
+- [x] Add passive AI SDK `TextStreamPart` output structures without replacing runtime
+  `ChatStreamPart` provider V4 semantics.
 - [x] Add passive AI SDK output-part shapes for `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`.
 - [x] Add passive AI SDK output-part shapes for `ToolError` and `ToolOutputDenied`.
@@ -58,6 +60,6 @@ Status legend:
 
 - [x] Land the partial JSON parser foundation needed by future streaming output transforms.
 - [x] Add a narrow `partial_json_value_stream(...)` projection over existing `ChatStream`.
-- [-] Do not expose the full AI SDK `StreamTextResult` multi-lane contract until tee/backpressure
+- [-] Do not expose the full AI SDK `StreamTextResult` multi-lane result object until tee/backpressure
   semantics are designed.
 - [-] Do not add an `Output` trait that claims streaming parity before Track E exists.

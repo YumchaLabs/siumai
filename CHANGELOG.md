@@ -37,6 +37,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   and `GenerateTextResult`. Step reasoning intentionally uses the provider-utils
   `data` / `mediaType` / `providerOptions` shape, while final result reasoning keeps the
   output-side `file` / `providerMetadata` shape.
+- AI SDK `streamText` output events now have a passive `TextStreamPart` union and named
+  `TextStream*Part` structures matching `generate-text/stream-text-result.ts`, including the
+  higher-level `text` reasoning/text deltas, `start-step` / `finish-step`, `finish.totalUsage`,
+  `abort`, `raw.rawValue`, and aliases over the existing tool output parts.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:

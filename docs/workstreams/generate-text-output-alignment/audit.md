@@ -60,6 +60,15 @@ because request-side file/provider-option carriers use different wire shapes.
 | `StepResult` | Supported as passive output shape | `GenerateTextStepResult` preserves the AI SDK step envelope fields while using JSON `Context` carriers for Rust runtime/tool context snapshots. Step reasoning is represented by `GenerateTextStepReasoningPart`, matching the provider-utils `data` / `mediaType` / `providerOptions` shape instead of the final result output shape. |
 | `GenerateTextResult` | Supported as passive output shape | `GenerateTextResult` preserves the non-streaming result envelope, including content, derived views, request/response metadata, total usage, steps, provider metadata, and structured `output`. Runtime helpers still return existing Rust text responses until a separate projection layer is built. |
 
+## Stream Text Parts
+
+| AI SDK stream structure | Siumai status | Notes |
+| --- | --- | --- |
+| `TextStreamPart` | Supported as passive output shape | `TextStreamPart` mirrors the higher-level `streamText` output union from `generate-text/stream-text-result.ts` and intentionally stays separate from runtime `ChatStreamPart`, which models provider V4 stream semantics. |
+| `text-delta` / `reasoning-delta` | Supported as passive output shape | The passive stream output shape uses the AI SDK `text` field, not provider V4's `delta` field. |
+| `start-step` / `finish-step` / `finish` | Supported as passive output shape | The passive output shape preserves `request`, `response`, `usage`, `finishReason`, `rawFinishReason`, `providerMetadata`, and final `totalUsage` without changing the current runtime stream event contract. |
+| `StreamTextResult` object | Deferred | The full result object still needs a tee/backpressure design before Rust can honestly expose all promise-like and stream lanes together. |
+
 ## Streaming Partial Output
 
 | AI SDK stream lane | Siumai status | Notes |
