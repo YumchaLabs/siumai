@@ -1278,6 +1278,124 @@ impl<NAME, INPUT> ToolApprovalResponseOutput<NAME, INPUT> {
     }
 }
 
+/// AI SDK-style `generateText` content part union.
+///
+/// This is the output-side content union from `packages/ai/src/generate-text/content-part.ts`.
+/// It intentionally stays separate from the prompt/runtime `ContentPart`, whose file and provider
+/// option shapes represent request-side content.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum GenerateTextContentPart<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    Text(TextOutput),
+    Custom(CustomOutput),
+    Reasoning(ReasoningOutput),
+    ReasoningFile(ReasoningFileOutput),
+    Source(Source),
+    File(FileOutput),
+    ToolCall(ToolCall<NAME, INPUT>),
+    ToolResult(ToolResult<NAME, INPUT, OUTPUT>),
+    ToolError(ToolError<NAME, INPUT>),
+    ToolApprovalRequest(ToolApprovalRequestOutput<NAME, INPUT>),
+    ToolApprovalResponse(ToolApprovalResponseOutput<NAME, INPUT>),
+}
+
+impl<NAME, INPUT, OUTPUT> GenerateTextContentPart<NAME, INPUT, OUTPUT> {
+    /// Return the AI SDK content part discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::Text(part) => part.r#type(),
+            Self::Custom(part) => part.r#type(),
+            Self::Reasoning(part) => part.r#type(),
+            Self::ReasoningFile(part) => part.r#type(),
+            Self::Source(part) => part.r#type(),
+            Self::File(part) => part.r#type(),
+            Self::ToolCall(part) => part.r#type(),
+            Self::ToolResult(part) => part.r#type(),
+            Self::ToolError(part) => part.r#type(),
+            Self::ToolApprovalRequest(part) => part.r#type(),
+            Self::ToolApprovalResponse(part) => part.r#type(),
+        }
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextOutput> for GenerateTextContentPart<NAME, INPUT, OUTPUT> {
+    fn from(value: TextOutput) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<CustomOutput> for GenerateTextContentPart<NAME, INPUT, OUTPUT> {
+    fn from(value: CustomOutput) -> Self {
+        Self::Custom(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ReasoningOutput> for GenerateTextContentPart<NAME, INPUT, OUTPUT> {
+    fn from(value: ReasoningOutput) -> Self {
+        Self::Reasoning(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ReasoningFileOutput>
+    for GenerateTextContentPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ReasoningFileOutput) -> Self {
+        Self::ReasoningFile(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<Source> for GenerateTextContentPart<NAME, INPUT, OUTPUT> {
+    fn from(value: Source) -> Self {
+        Self::Source(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<FileOutput> for GenerateTextContentPart<NAME, INPUT, OUTPUT> {
+    fn from(value: FileOutput) -> Self {
+        Self::File(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolCall<NAME, INPUT>>
+    for GenerateTextContentPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolCall<NAME, INPUT>) -> Self {
+        Self::ToolCall(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolResult<NAME, INPUT, OUTPUT>>
+    for GenerateTextContentPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolResult<NAME, INPUT, OUTPUT>) -> Self {
+        Self::ToolResult(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolError<NAME, INPUT>>
+    for GenerateTextContentPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolError<NAME, INPUT>) -> Self {
+        Self::ToolError(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolApprovalRequestOutput<NAME, INPUT>>
+    for GenerateTextContentPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolApprovalRequestOutput<NAME, INPUT>) -> Self {
+        Self::ToolApprovalRequest(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolApprovalResponseOutput<NAME, INPUT>>
+    for GenerateTextContentPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolApprovalResponseOutput<NAME, INPUT>) -> Self {
+        Self::ToolApprovalResponse(value)
+    }
+}
+
 /// A cloneable cancellation handle for request-scoped abort semantics.
 #[derive(Clone, Debug, Default)]
 pub struct CancelHandle {
@@ -2778,6 +2896,78 @@ mod tests {
             }
         });
         assert!(serde_json::from_value::<FileOutput>(wrong_type).is_err());
+    }
+
+    #[test]
+    fn generate_text_content_part_union_roundtrips_ai_sdk_shape() {
+        let tool_call = ToolCall::new(
+            "call_1",
+            "search".to_string(),
+            serde_json::json!({ "q": "rust" }),
+        )
+        .with_dynamic(true);
+        let parts: Vec<GenerateTextContentPart> = vec![
+            TextOutput::new("hello").into(),
+            CustomOutput::new("openai.compaction").into(),
+            ReasoningOutput::new("thinking").into(),
+            ReasoningFileOutput::new(GeneratedFile::from_bytes(b"trace", "text/plain")).into(),
+            Source::url("source_1", "https://example.com").into(),
+            FileOutput::new(GeneratedFile::from_bytes(b"hello", "text/plain")).into(),
+            tool_call.clone().into(),
+            ToolResult::new(
+                "call_1",
+                "search".to_string(),
+                serde_json::json!({ "q": "rust" }),
+                ToolResultOutput::json(serde_json::json!({ "ok": true })),
+            )
+            .into(),
+            ToolError::new(
+                "call_2",
+                "fetch".to_string(),
+                serde_json::json!({ "url": "https://example.com" }),
+                serde_json::json!({ "message": "timeout" }),
+            )
+            .into(),
+            ToolApprovalRequestOutput::new("approval_1", tool_call.clone()).into(),
+            ToolApprovalResponseOutput::new("approval_1", tool_call, true).into(),
+        ];
+
+        let part_types: Vec<&'static str> =
+            parts.iter().map(GenerateTextContentPart::r#type).collect();
+        assert_eq!(
+            part_types,
+            vec![
+                "text",
+                "custom",
+                "reasoning",
+                "reasoning-file",
+                "source",
+                "file",
+                "tool-call",
+                "tool-result",
+                "tool-error",
+                "tool-approval-request",
+                "tool-approval-response"
+            ]
+        );
+
+        let json = serde_json::to_value(&parts).expect("serialize generate text content parts");
+        assert_eq!(json[0]["type"], serde_json::json!("text"));
+        assert_eq!(
+            json[5]["file"]["mediaType"],
+            serde_json::json!("text/plain")
+        );
+        assert_eq!(json[6]["type"], serde_json::json!("tool-call"));
+        assert_eq!(json[7]["type"], serde_json::json!("tool-result"));
+        assert_eq!(json[9]["toolCall"]["type"], serde_json::json!("tool-call"));
+
+        let roundtrip: Vec<GenerateTextContentPart> =
+            serde_json::from_value(json).expect("deserialize generate text content parts");
+        let roundtrip_types: Vec<&'static str> = roundtrip
+            .iter()
+            .map(GenerateTextContentPart::r#type)
+            .collect();
+        assert_eq!(roundtrip_types, part_types);
     }
 
     #[test]

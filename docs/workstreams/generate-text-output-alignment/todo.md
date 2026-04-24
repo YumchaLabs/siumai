@@ -41,6 +41,8 @@ Status legend:
 - [x] Add `structured_output::generate_choice(...)`.
 - [x] Add passive AI SDK output-part shapes for basic `text`, `custom`, and generated `file`
   content parts without reusing prompt-side request carriers.
+- [x] Add `GenerateTextContentPart` as the passive output-side union matching AI SDK
+  `generate-text/content-part.ts`.
 - [x] Add passive AI SDK output-part shapes for `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`.
 - [x] Add passive AI SDK output-part shapes for `ToolError` and `ToolOutputDenied`.

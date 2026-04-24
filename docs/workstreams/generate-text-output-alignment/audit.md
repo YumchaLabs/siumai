@@ -33,6 +33,10 @@ Reference files:
 
 ## Output Content Parts
 
+Siumai now exposes `GenerateTextContentPart` as the passive Rust union for AI SDK
+`generateText` output content. It is intentionally separate from prompt/runtime `ContentPart`
+because request-side file/provider-option carriers use different wire shapes.
+
 | AI SDK output part | Siumai status | Notes |
 | --- | --- | --- |
 | `text` | Supported as passive output shape | `TextOutput` preserves `type: "text"`, generated text, and provider metadata without reusing request-side prompt parts. |

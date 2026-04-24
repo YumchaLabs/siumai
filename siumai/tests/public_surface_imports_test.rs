@@ -66,6 +66,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<AssistantContent>();
     let _ = size_of::<ToolContent>();
     let _ = size_of::<GenerateImageRequest>();
+    let _ = size_of::<GenerateTextContentPart>();
     let _ = size_of::<TextOutput>();
     let _ = size_of::<CustomOutput>();
     let _ = size_of::<FileOutput>();
@@ -392,6 +393,8 @@ fn public_surface_unified_imports_compile() {
     );
     let text_output = TextOutput::new("hello");
     assert_eq!(text_output.r#type(), "text");
+    let text_content_part: GenerateTextContentPart = text_output.clone().into();
+    assert_eq!(text_content_part.r#type(), "text");
     let custom_output = CustomOutput::new("openai.compaction");
     assert_eq!(custom_output.r#type(), "custom");
     let file_output = FileOutput::new(generated_file.clone());
