@@ -67,6 +67,13 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ToolContent>();
     let _ = size_of::<GenerateImageRequest>();
     let _ = size_of::<GenerateTextContentPart>();
+    let _ = size_of::<GenerateTextModelInfo>();
+    let _ = size_of::<GenerateTextReasoningPart>();
+    let _ = size_of::<GenerateTextResponseMetadata>();
+    let _ = size_of::<GenerateTextResult<JSONValue>>();
+    let _ = size_of::<GenerateTextStepReasoningPart>();
+    let _ = size_of::<GenerateTextStepResult>();
+    let _ = size_of::<ResponseMessage>();
     let _ = size_of::<TextOutput>();
     let _ = size_of::<CustomOutput>();
     let _ = size_of::<FileOutput>();
@@ -395,6 +402,10 @@ fn public_surface_unified_imports_compile() {
     assert_eq!(text_output.r#type(), "text");
     let text_content_part: GenerateTextContentPart = text_output.clone().into();
     assert_eq!(text_content_part.r#type(), "text");
+    let model_info = GenerateTextModelInfo::new("openai", "gpt-test");
+    assert_eq!(model_info.model_id, "gpt-test");
+    let step_reasoning = GenerateTextStepReasoningPart::reasoning_file("dHJhY2U=", "text/plain");
+    assert_eq!(step_reasoning.r#type(), "reasoning-file");
     let custom_output = CustomOutput::new("openai.compaction");
     assert_eq!(custom_output.r#type(), "custom");
     let file_output = FileOutput::new(generated_file.clone());

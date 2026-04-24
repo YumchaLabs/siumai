@@ -52,6 +52,14 @@ because request-side file/provider-option carriers use different wire shapes.
 | `tool-approval-request` | Supported as passive output shape | `ToolApprovalRequestOutput` carries the full nested `toolCall` plus optional `isAutomatic`. Runtime prompt continuity still keeps ID-oriented approval parts until the tool-loop projection is refactored. |
 | `tool-approval-response` | Supported as passive output shape | `ToolApprovalResponseOutput` carries the full nested `toolCall`, `approved`, optional `reason`, and `providerExecuted`. |
 
+## Result Envelopes
+
+| AI SDK result structure | Siumai status | Notes |
+| --- | --- | --- |
+| `ResponseMessage` | Supported as passive output shape | `ResponseMessage` is the generated assistant/tool message union used by result response metadata. |
+| `StepResult` | Supported as passive output shape | `GenerateTextStepResult` preserves the AI SDK step envelope fields while using JSON `Context` carriers for Rust runtime/tool context snapshots. Step reasoning is represented by `GenerateTextStepReasoningPart`, matching the provider-utils `data` / `mediaType` / `providerOptions` shape instead of the final result output shape. |
+| `GenerateTextResult` | Supported as passive output shape | `GenerateTextResult` preserves the non-streaming result envelope, including content, derived views, request/response metadata, total usage, steps, provider metadata, and structured `output`. Runtime helpers still return existing Rust text responses until a separate projection layer is built. |
+
 ## Streaming Partial Output
 
 | AI SDK stream lane | Siumai status | Notes |

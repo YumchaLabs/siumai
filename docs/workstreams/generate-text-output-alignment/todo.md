@@ -43,6 +43,9 @@ Status legend:
   content parts without reusing prompt-side request carriers.
 - [x] Add `GenerateTextContentPart` as the passive output-side union matching AI SDK
   `generate-text/content-part.ts`.
+- [x] Add passive AI SDK result envelope structures for `ResponseMessage`, `StepResult`, and
+  `GenerateTextResult` without changing the current runtime return type, including the split
+  between step-side `providerOptions` reasoning and final result-side `providerMetadata` reasoning.
 - [x] Add passive AI SDK output-part shapes for `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`.
 - [x] Add passive AI SDK output-part shapes for `ToolError` and `ToolOutputDenied`.

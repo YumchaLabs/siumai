@@ -31,6 +31,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `ReasoningFileOutput`, preserving the upstream nested generated-file `base64` / `mediaType`
   shape plus provider metadata. `GenerateTextContentPart` now also provides the passive
   output-side content union without reusing prompt/runtime `ContentPart`.
+- AI SDK `generateText` result envelopes now have passive Rust data structures:
+  `ResponseMessage`, `GenerateTextResponseMetadata`, `GenerateTextModelInfo`,
+  `GenerateTextReasoningPart`, `GenerateTextStepReasoningPart`, `GenerateTextStepResult`,
+  and `GenerateTextResult`. Step reasoning intentionally uses the provider-utils
+  `data` / `mediaType` / `providerOptions` shape, while final result reasoning keeps the
+  output-side `file` / `providerMetadata` shape.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:
