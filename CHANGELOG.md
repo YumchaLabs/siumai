@@ -33,6 +33,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   upstream, and `GenerateObjectOptions::with_repair_text_fn(...)` mirrors the non-streaming repair
   callback path after parse or validation failure. Streaming `streamObject` partial object streams
   and no-schema output remain explicitly deferred.
+- Structured object generation failures now use an AI SDK-style `LlmError::NoObjectGenerated`
+  variant that preserves generated text, response metadata, usage, finish reason, and the
+  underlying parse/validation cause.
 - Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
   `provider_ext::{openai,azure,bedrock}` now expose package-level
   `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and

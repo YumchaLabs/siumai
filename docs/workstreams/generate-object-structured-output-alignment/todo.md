@@ -30,6 +30,8 @@ Status legend:
   include a model id.
 - [x] Serialize request metadata from the prepared request after JSON response format and text call
   options are applied.
+- [x] Wrap final parse/validation failures in `LlmError::NoObjectGenerated` with text, response,
+  usage, finish reason, and cause.
 - [-] Do not fabricate HTTP response body or headers until provider runtimes expose them on the
   stable chat response.
 

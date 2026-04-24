@@ -87,6 +87,10 @@ the language-model metadata.
 `request.body` is serialized from the prepared request after response format and text call options
 have been applied. This avoids exposing a metadata body that differs from the actual model request.
 
+Final parse or validation failures are wrapped as `LlmError::NoObjectGenerated`, preserving the raw
+generated text, response metadata, usage, finish reason, and underlying parse/validation cause. This
+is the Rust error equivalent of AI SDK `NoObjectGeneratedError`.
+
 ### 4. Keep unsupported output strategies explicit
 
 Upstream `generateObject` also supports:

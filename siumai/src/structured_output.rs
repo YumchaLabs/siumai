@@ -279,13 +279,36 @@ where
     let model_id = model.model_id().to_string();
 
     let response = crate::text::generate_prepared(model, request, effective_options).await?;
-    let object = parse_generated_value_with_optional_repair(&response, parse, repair_text).await?;
+    let response_metadata = language_model_response_metadata_from_chat_response(
+        &response,
+        response_timestamp,
+        model_id,
+    );
+    let finish_reason = response
+        .finish_reason
+        .clone()
+        .unwrap_or(FinishReason::Unknown);
+    let usage = response
+        .usage
+        .as_ref()
+        .map(LanguageModelUsage::from)
+        .unwrap_or_default();
+    let object = parse_generated_value_with_optional_repair(&response, parse, repair_text)
+        .await
+        .map_err(|error| {
+            no_object_generated_error(
+                &response,
+                response_metadata.clone(),
+                usage.clone(),
+                finish_reason.clone(),
+                error,
+            )
+        })?;
 
     Ok(GenerateObjectResult::from_response(
         object,
         request_metadata,
-        response_timestamp,
-        model_id,
+        response_metadata,
         response,
     ))
 }
@@ -316,6 +339,24 @@ where
             let repaired_value = extract_json_value(&repaired_text)?;
             parse(repaired_value)
         }
+    }
+}
+
+fn no_object_generated_error(
+    response: &ChatResponse,
+    response_metadata: LanguageModelResponseMetadata,
+    usage: LanguageModelUsage,
+    finish_reason: FinishReason,
+    error: LlmError,
+) -> LlmError {
+    LlmError::NoObjectGenerated {
+        message: "No object generated: response did not match the requested structured output."
+            .to_string(),
+        text: response.text(),
+        response: Some(response_metadata),
+        usage: Some(usage),
+        finish_reason: Some(finish_reason),
+        cause: Some(Box::new(error)),
     }
 }
 
@@ -488,8 +529,7 @@ impl<T> GenerateObjectResult<T> {
     fn from_response(
         object: T,
         request: LanguageModelRequestMetadata,
-        response_timestamp: DateTime<Utc>,
-        model_id: String,
+        response: LanguageModelResponseMetadata,
         raw_response: ChatResponse,
     ) -> Self {
         let reasoning = raw_response
@@ -497,11 +537,6 @@ impl<T> GenerateObjectResult<T> {
             .into_iter()
             .collect::<Vec<_>>()
             .join("\n");
-        let response = language_model_response_metadata_from_chat_response(
-            &raw_response,
-            response_timestamp,
-            model_id,
-        );
 
         Self {
             object,
@@ -767,6 +802,50 @@ mod tests {
                 .as_deref(),
             Some("{\"title\":\"Ada\"}")
         );
+    }
+
+    #[tokio::test]
+    async fn generate_object_wraps_final_parse_failure_as_no_object_generated() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"title\":\"Ada\"}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request,
+        };
+
+        let error = generate_object::<_, Person, _>(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            serde_json::json!({
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"]
+            }),
+            GenerateObjectOptions::default(),
+        )
+        .await
+        .expect_err("invalid object should use structured error");
+
+        let LlmError::NoObjectGenerated {
+            text,
+            response,
+            finish_reason,
+            cause,
+            ..
+        } = error
+        else {
+            panic!("expected no object generated error");
+        };
+
+        assert_eq!(text.as_deref(), Some("{\"title\":\"Ada\"}"));
+        assert_eq!(
+            response.map(|response| response.model_id),
+            Some("fake-model".to_string())
+        );
+        assert_eq!(finish_reason, Some(FinishReason::Unknown));
+        assert!(matches!(cause.as_deref(), Some(LlmError::ParseError(_))));
     }
 
     #[tokio::test]
