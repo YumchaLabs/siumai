@@ -9,6 +9,376 @@ use crate::streaming::{ChatStream, StreamProcessor};
 use crate::types::{ChatResponse, ChatStreamEvent, ContentPart, FinishReason, MessageContent};
 use futures::StreamExt;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum JsonRepairState {
+    Root,
+    Finish,
+    InsideString,
+    InsideStringEscape,
+    InsideLiteral,
+    InsideNumber,
+    InsideObjectStart,
+    InsideObjectKey,
+    InsideObjectAfterKey,
+    InsideObjectBeforeValue,
+    InsideObjectAfterValue,
+    InsideObjectAfterComma,
+    InsideArrayStart,
+    InsideArrayAfterValue,
+    InsideArrayAfterComma,
+}
+
+/// State returned by `parse_partial_json`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartialJsonParseState {
+    /// No input was provided.
+    UndefinedInput,
+    /// The input parsed successfully without repair.
+    SuccessfulParse,
+    /// The input needed partial-JSON repair before it parsed successfully.
+    RepairedParse,
+    /// The input could not be parsed even after repair.
+    FailedParse,
+}
+
+/// Result returned by `parse_partial_json`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartialJsonParseResult {
+    /// Parsed JSON value when parsing succeeded.
+    pub value: Option<serde_json::Value>,
+    /// Parse state describing whether repair was needed.
+    pub state: PartialJsonParseState,
+}
+
+fn process_partial_value_start(
+    stack: &mut Vec<JsonRepairState>,
+    ch: char,
+    byte_start: usize,
+    byte_end: usize,
+    last_valid_end: &mut Option<usize>,
+    literal_start: &mut Option<usize>,
+    swap_state: JsonRepairState,
+) {
+    match ch {
+        '"' => {
+            *last_valid_end = Some(byte_end);
+            stack.pop();
+            stack.push(swap_state);
+            stack.push(JsonRepairState::InsideString);
+        }
+        'f' | 't' | 'n' => {
+            *last_valid_end = Some(byte_end);
+            *literal_start = Some(byte_start);
+            stack.pop();
+            stack.push(swap_state);
+            stack.push(JsonRepairState::InsideLiteral);
+        }
+        '-' => {
+            stack.pop();
+            stack.push(swap_state);
+            stack.push(JsonRepairState::InsideNumber);
+        }
+        '0'..='9' => {
+            *last_valid_end = Some(byte_end);
+            stack.pop();
+            stack.push(swap_state);
+            stack.push(JsonRepairState::InsideNumber);
+        }
+        '{' => {
+            *last_valid_end = Some(byte_end);
+            stack.pop();
+            stack.push(swap_state);
+            stack.push(JsonRepairState::InsideObjectStart);
+        }
+        '[' => {
+            *last_valid_end = Some(byte_end);
+            stack.pop();
+            stack.push(swap_state);
+            stack.push(JsonRepairState::InsideArrayStart);
+        }
+        _ => {}
+    }
+}
+
+fn process_after_object_value(
+    stack: &mut Vec<JsonRepairState>,
+    ch: char,
+    byte_end: usize,
+    last_valid_end: &mut Option<usize>,
+) {
+    match ch {
+        ',' => {
+            stack.pop();
+            stack.push(JsonRepairState::InsideObjectAfterComma);
+        }
+        '}' => {
+            *last_valid_end = Some(byte_end);
+            stack.pop();
+        }
+        _ => {}
+    }
+}
+
+fn process_after_array_value(
+    stack: &mut Vec<JsonRepairState>,
+    ch: char,
+    byte_end: usize,
+    last_valid_end: &mut Option<usize>,
+) {
+    match ch {
+        ',' => {
+            stack.pop();
+            stack.push(JsonRepairState::InsideArrayAfterComma);
+        }
+        ']' => {
+            *last_valid_end = Some(byte_end);
+            stack.pop();
+        }
+        _ => {}
+    }
+}
+
+/// Repair incomplete JSON using the same single-pass strategy as AI SDK `fixJson`.
+///
+/// This helper is intentionally conservative: it repairs incomplete JSON by truncating to the last
+/// valid token and appending required delimiters. Fully invalid JSON is still rejected by the
+/// subsequent JSON parser.
+pub fn fix_partial_json(input: &str) -> String {
+    let mut stack = vec![JsonRepairState::Root];
+    let mut last_valid_end: Option<usize> = None;
+    let mut literal_start: Option<usize> = None;
+
+    for (byte_start, ch) in input.char_indices() {
+        let byte_end = byte_start + ch.len_utf8();
+        let current_state = *stack.last().unwrap_or(&JsonRepairState::Finish);
+
+        match current_state {
+            JsonRepairState::Root => {
+                process_partial_value_start(
+                    &mut stack,
+                    ch,
+                    byte_start,
+                    byte_end,
+                    &mut last_valid_end,
+                    &mut literal_start,
+                    JsonRepairState::Finish,
+                );
+            }
+            JsonRepairState::InsideObjectStart => match ch {
+                '"' => {
+                    stack.pop();
+                    stack.push(JsonRepairState::InsideObjectKey);
+                }
+                '}' => {
+                    last_valid_end = Some(byte_end);
+                    stack.pop();
+                }
+                _ => {}
+            },
+            JsonRepairState::InsideObjectAfterComma => {
+                if ch == '"' {
+                    stack.pop();
+                    stack.push(JsonRepairState::InsideObjectKey);
+                }
+            }
+            JsonRepairState::InsideObjectKey => {
+                if ch == '"' {
+                    stack.pop();
+                    stack.push(JsonRepairState::InsideObjectAfterKey);
+                }
+            }
+            JsonRepairState::InsideObjectAfterKey => {
+                if ch == ':' {
+                    stack.pop();
+                    stack.push(JsonRepairState::InsideObjectBeforeValue);
+                }
+            }
+            JsonRepairState::InsideObjectBeforeValue => {
+                process_partial_value_start(
+                    &mut stack,
+                    ch,
+                    byte_start,
+                    byte_end,
+                    &mut last_valid_end,
+                    &mut literal_start,
+                    JsonRepairState::InsideObjectAfterValue,
+                );
+            }
+            JsonRepairState::InsideObjectAfterValue => {
+                process_after_object_value(&mut stack, ch, byte_end, &mut last_valid_end);
+            }
+            JsonRepairState::InsideString => match ch {
+                '"' => {
+                    stack.pop();
+                    last_valid_end = Some(byte_end);
+                }
+                '\\' => stack.push(JsonRepairState::InsideStringEscape),
+                _ => last_valid_end = Some(byte_end),
+            },
+            JsonRepairState::InsideArrayStart => match ch {
+                ']' => {
+                    last_valid_end = Some(byte_end);
+                    stack.pop();
+                }
+                _ => {
+                    last_valid_end = Some(byte_end);
+                    process_partial_value_start(
+                        &mut stack,
+                        ch,
+                        byte_start,
+                        byte_end,
+                        &mut last_valid_end,
+                        &mut literal_start,
+                        JsonRepairState::InsideArrayAfterValue,
+                    );
+                }
+            },
+            JsonRepairState::InsideArrayAfterValue => match ch {
+                ',' => {
+                    stack.pop();
+                    stack.push(JsonRepairState::InsideArrayAfterComma);
+                }
+                ']' => {
+                    last_valid_end = Some(byte_end);
+                    stack.pop();
+                }
+                _ => last_valid_end = Some(byte_end),
+            },
+            JsonRepairState::InsideArrayAfterComma => {
+                process_partial_value_start(
+                    &mut stack,
+                    ch,
+                    byte_start,
+                    byte_end,
+                    &mut last_valid_end,
+                    &mut literal_start,
+                    JsonRepairState::InsideArrayAfterValue,
+                );
+            }
+            JsonRepairState::InsideStringEscape => {
+                stack.pop();
+                last_valid_end = Some(byte_end);
+            }
+            JsonRepairState::InsideNumber => match ch {
+                '0'..='9' => last_valid_end = Some(byte_end),
+                'e' | 'E' | '-' | '.' => {}
+                ',' => {
+                    stack.pop();
+                    if stack.last() == Some(&JsonRepairState::InsideArrayAfterValue) {
+                        process_after_array_value(&mut stack, ch, byte_end, &mut last_valid_end);
+                    }
+                    if stack.last() == Some(&JsonRepairState::InsideObjectAfterValue) {
+                        process_after_object_value(&mut stack, ch, byte_end, &mut last_valid_end);
+                    }
+                }
+                '}' => {
+                    stack.pop();
+                    if stack.last() == Some(&JsonRepairState::InsideObjectAfterValue) {
+                        process_after_object_value(&mut stack, ch, byte_end, &mut last_valid_end);
+                    }
+                }
+                ']' => {
+                    stack.pop();
+                    if stack.last() == Some(&JsonRepairState::InsideArrayAfterValue) {
+                        process_after_array_value(&mut stack, ch, byte_end, &mut last_valid_end);
+                    }
+                }
+                _ => {
+                    stack.pop();
+                }
+            },
+            JsonRepairState::InsideLiteral => {
+                let Some(start) = literal_start else {
+                    continue;
+                };
+                let partial_literal = &input[start..byte_end];
+
+                if !("false".starts_with(partial_literal)
+                    || "true".starts_with(partial_literal)
+                    || "null".starts_with(partial_literal))
+                {
+                    stack.pop();
+
+                    if stack.last() == Some(&JsonRepairState::InsideObjectAfterValue) {
+                        process_after_object_value(&mut stack, ch, byte_end, &mut last_valid_end);
+                    } else if stack.last() == Some(&JsonRepairState::InsideArrayAfterValue) {
+                        process_after_array_value(&mut stack, ch, byte_end, &mut last_valid_end);
+                    }
+                } else {
+                    last_valid_end = Some(byte_end);
+                }
+            }
+            JsonRepairState::Finish => {}
+        }
+    }
+
+    let mut result = input[..last_valid_end.unwrap_or(0)].to_string();
+
+    for state in stack.iter().rev() {
+        match state {
+            JsonRepairState::InsideString => result.push('"'),
+            JsonRepairState::InsideObjectKey
+            | JsonRepairState::InsideObjectAfterKey
+            | JsonRepairState::InsideObjectAfterComma
+            | JsonRepairState::InsideObjectStart
+            | JsonRepairState::InsideObjectBeforeValue
+            | JsonRepairState::InsideObjectAfterValue => result.push('}'),
+            JsonRepairState::InsideArrayStart
+            | JsonRepairState::InsideArrayAfterComma
+            | JsonRepairState::InsideArrayAfterValue => result.push(']'),
+            JsonRepairState::InsideLiteral => {
+                let Some(start) = literal_start else {
+                    continue;
+                };
+                let partial_literal = &input[start..];
+                if "true".starts_with(partial_literal) {
+                    result.push_str(&"true"[partial_literal.len()..]);
+                } else if "false".starts_with(partial_literal) {
+                    result.push_str(&"false"[partial_literal.len()..]);
+                } else if "null".starts_with(partial_literal) {
+                    result.push_str(&"null"[partial_literal.len()..]);
+                }
+            }
+            JsonRepairState::Root
+            | JsonRepairState::Finish
+            | JsonRepairState::InsideStringEscape
+            | JsonRepairState::InsideNumber => {}
+        }
+    }
+
+    result
+}
+
+/// Parse a partial JSON string using AI SDK `parsePartialJson` semantics.
+pub fn parse_partial_json(json_text: Option<&str>) -> PartialJsonParseResult {
+    let Some(json_text) = json_text else {
+        return PartialJsonParseResult {
+            value: None,
+            state: PartialJsonParseState::UndefinedInput,
+        };
+    };
+
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_text) {
+        return PartialJsonParseResult {
+            value: Some(value),
+            state: PartialJsonParseState::SuccessfulParse,
+        };
+    }
+
+    let repaired = fix_partial_json(json_text);
+    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&repaired) {
+        return PartialJsonParseResult {
+            value: Some(value),
+            state: PartialJsonParseState::RepairedParse,
+        };
+    }
+
+    PartialJsonParseResult {
+        value: None,
+        state: PartialJsonParseState::FailedParse,
+    }
+}
+
 fn extract_first_markdown_fenced_block(text: &str) -> Option<&str> {
     let start = text.find("```")?;
     let after_start = start + 3;
@@ -369,6 +739,69 @@ mod tests {
     use super::*;
     use crate::types::{ChatResponse, MessageContent, Usage};
     use serde::Deserialize;
+
+    #[test]
+    fn fix_partial_json_matches_ai_sdk_scalar_repairs() {
+        assert_eq!(fix_partial_json(""), "");
+        assert_eq!(fix_partial_json("nul"), "null");
+        assert_eq!(fix_partial_json("t"), "true");
+        assert_eq!(fix_partial_json("fals"), "false");
+        assert_eq!(fix_partial_json("12."), "12");
+        assert_eq!(fix_partial_json("-"), "");
+        assert_eq!(fix_partial_json("2.5e-"), "2.5");
+        assert_eq!(fix_partial_json(r#""abc"#), r#""abc""#);
+        assert_eq!(
+            fix_partial_json(r#""value with \"quoted\" text"#),
+            r#""value with \"quoted\" text""#
+        );
+    }
+
+    #[test]
+    fn fix_partial_json_matches_ai_sdk_array_and_object_repairs() {
+        assert_eq!(fix_partial_json("["), "[]");
+        assert_eq!(fix_partial_json("[[1], [2"), "[[1], [2]]");
+        assert_eq!(fix_partial_json("[1, "), "[1]");
+        assert_eq!(fix_partial_json(r#"{"key":"#), "{}");
+        assert_eq!(
+            fix_partial_json(r#"{"a": {"b": 1}, "c": {"d": 2"#),
+            r#"{"a": {"b": 1}, "c": {"d": 2}}"#
+        );
+        assert_eq!(fix_partial_json(r#"{"ke"#), "{}");
+        assert_eq!(fix_partial_json(r#"{"k1": 1, "k2":"#), r#"{"k1": 1}"#);
+        assert_eq!(
+            fix_partial_json(r#"{"key": [1, 2, {"#),
+            r#"{"key": [1, 2, {}]}"#
+        );
+    }
+
+    #[test]
+    fn parse_partial_json_reports_state() {
+        let undefined = parse_partial_json(None);
+        assert_eq!(undefined.state, PartialJsonParseState::UndefinedInput);
+        assert_eq!(undefined.value, None);
+
+        let successful = parse_partial_json(Some(r#"{"key":"value"}"#));
+        assert_eq!(successful.state, PartialJsonParseState::SuccessfulParse);
+        assert_eq!(
+            successful.value,
+            Some(serde_json::json!({ "key": "value" }))
+        );
+
+        let repaired = parse_partial_json(Some(r#"{"key":"value""#));
+        assert_eq!(repaired.state, PartialJsonParseState::RepairedParse);
+        assert_eq!(repaired.value, Some(serde_json::json!({ "key": "value" })));
+
+        let failed = parse_partial_json(Some("not json at all"));
+        assert_eq!(failed.state, PartialJsonParseState::FailedParse);
+        assert_eq!(failed.value, None);
+    }
+
+    #[test]
+    fn parse_partial_json_handles_unicode_inside_strings() {
+        let repaired = parse_partial_json(Some(r#"{"text":"你好"#));
+        assert_eq!(repaired.state, PartialJsonParseState::RepairedParse);
+        assert_eq!(repaired.value, Some(serde_json::json!({ "text": "你好" })));
+    }
 
     #[test]
     fn extracts_json_from_plain_text() {

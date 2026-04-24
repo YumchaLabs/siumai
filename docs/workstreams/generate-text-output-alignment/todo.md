@@ -22,6 +22,9 @@ Status legend:
 - [x] Add `ResponseFormat::json_object()` for AI SDK `{ type: "json" }` without schema.
 - [x] Preserve existing `ResponseFormat::json_schema(...)` serialization and deserialization.
 - [x] Add public surface coverage for schema-less JSON response format.
+- [x] Add AI SDK `parsePartialJson` / `fixJson` parity as Rust
+  `fix_partial_json(...)`, `parse_partial_json(...)`, `PartialJsonParseState`, and
+  `PartialJsonParseResult`.
 
 ## Track C - Provider Mapping
 
@@ -41,5 +44,6 @@ Status legend:
 
 ## Track E - Deferred Streaming Output
 
+- [x] Land the partial JSON parser foundation needed by future streaming output transforms.
 - [-] Do not expose partial-output streams until incremental JSON parsing is designed.
 - [-] Do not add an `Output` trait that claims streaming parity before Track E exists.

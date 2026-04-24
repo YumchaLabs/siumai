@@ -18,6 +18,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<GenerateObjectOptions>();
     let _ = size_of::<GenerateObjectResult<JSONValue>>();
     let _ = size_of::<GenerateObjectSchema<JSONValue>>();
+    let _ = size_of::<PartialJsonParseResult>();
+    let _ = size_of::<PartialJsonParseState>();
     let _ = size_of::<RepairTextContext>();
     let _ = size_of::<RepairTextFunction>();
     let _ = size_of::<RepairTextFuture>();
@@ -127,6 +129,11 @@ fn public_surface_unified_imports_compile() {
         serde_json::to_value(ResponseFormat::json_object().with_name("payload"))
             .expect("serialize response format"),
         serde_json::json!({ "type": "json", "name": "payload" })
+    );
+    assert_eq!(fix_partial_json(r#"{"value":"ok""#), r#"{"value":"ok"}"#);
+    assert_eq!(
+        parse_partial_json(Some(r#"{"value":"ok""#)).state,
+        PartialJsonParseState::RepairedParse
     );
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")

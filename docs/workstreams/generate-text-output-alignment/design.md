@@ -38,6 +38,20 @@ provider contract.
 
 ## Chosen Design
 
+### 0. Partial JSON utility
+
+AI SDK streaming output depends on `parsePartialJson`, which first attempts strict JSON parsing and
+then runs a single-pass `fixJson` scanner over incomplete JSON text. Siumai now exposes the same
+foundation as:
+
+- `structured_output::fix_partial_json(...)`
+- `structured_output::parse_partial_json(...)`
+- `PartialJsonParseState`
+- `PartialJsonParseResult`
+
+This is deliberately lower-level than `streamText.output`: it enables honest partial parsing
+without yet claiming `partialOutputStream` / `elementStream` parity.
+
 ### 1. Schema-less response format
 
 `ResponseFormat::json_object()` serializes to:
@@ -99,3 +113,4 @@ This workstream is locked by:
 - `cargo nextest run -p siumai structured_output --no-default-features --features openai --no-fail-fast`
 - `cargo nextest run -p siumai --test public_surface_imports_test --no-default-features --features openai,anthropic,google,google-vertex --no-fail-fast`
 - provider protocol unit tests for OpenAI, Gemini, and Ollama response format mapping
+- `cargo nextest run -p siumai-core partial_json --no-fail-fast`

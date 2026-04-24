@@ -156,9 +156,10 @@ pub mod speech;
 /// Structured output helpers (JSON extraction + parsing).
 pub mod structured_output;
 pub use structured_output::{
-    GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, RepairTextContext,
-    RepairTextFunction, RepairTextFuture, generate_array, generate_choice, generate_enum,
-    generate_json, generate_object,
+    GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, PartialJsonParseResult,
+    PartialJsonParseState, RepairTextContext, RepairTextFunction, RepairTextFuture,
+    fix_partial_json, generate_array, generate_choice, generate_enum, generate_json,
+    generate_object, parse_partial_json,
 };
 pub mod text;
 pub mod transcription;
@@ -2040,9 +2041,10 @@ pub mod prelude {
             UploadSkillProviderMetadata, UploadSkillResult,
         };
         pub use crate::structured_output::{
-            GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, RepairTextContext,
-            RepairTextFunction, RepairTextFuture, generate_array, generate_choice, generate_enum,
-            generate_json, generate_object,
+            GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema,
+            PartialJsonParseResult, PartialJsonParseState, RepairTextContext, RepairTextFunction,
+            RepairTextFuture, fix_partial_json, generate_array, generate_choice, generate_enum,
+            generate_json, generate_object, parse_partial_json,
         };
         pub use crate::tooling;
         pub use crate::tools;

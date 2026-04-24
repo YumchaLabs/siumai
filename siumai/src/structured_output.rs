@@ -19,6 +19,8 @@ use std::sync::Arc;
 
 use crate::text::{GenerateOptions, LanguageModel, TextRequest};
 
+pub use siumai_core::structured_output::{PartialJsonParseResult, PartialJsonParseState};
+
 /// Context passed to a structured-output repair callback.
 #[derive(Debug, Clone)]
 pub struct RepairTextContext {
@@ -507,6 +509,16 @@ fn validate_enum_options(options: &GenerateObjectOptions) -> Result<(), LlmError
 /// Extract a `serde_json::Value` from a model output string.
 pub fn extract_json_value(text: &str) -> Result<serde_json::Value, LlmError> {
     siumai_core::structured_output::extract_json_value(text)
+}
+
+/// Repair incomplete JSON using AI SDK `fixJson` semantics.
+pub fn fix_partial_json(input: &str) -> String {
+    siumai_core::structured_output::fix_partial_json(input)
+}
+
+/// Parse a partial JSON string using AI SDK `parsePartialJson` semantics.
+pub fn parse_partial_json(json_text: Option<&str>) -> PartialJsonParseResult {
+    siumai_core::structured_output::parse_partial_json(json_text)
 }
 
 /// Extract a `serde_json::Value` from a unified chat response.

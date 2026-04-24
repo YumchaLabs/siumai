@@ -38,6 +38,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Structured object generation failures now use an AI SDK-style `LlmError::NoObjectGenerated`
   variant that preserves generated text, response metadata, usage, finish reason, and the
   underlying parse/validation cause.
+- AI SDK `parsePartialJson` parity is now available as
+  `siumai::structured_output::{fix_partial_json, parse_partial_json}` plus
+  `PartialJsonParseState` / `PartialJsonParseResult`, providing the scanner-based partial JSON
+  repair foundation required for future `streamText` structured-output transforms.
 - Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
   `provider_ext::{openai,azure,bedrock}` now expose package-level
   `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and

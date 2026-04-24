@@ -6,6 +6,8 @@ Reference files:
 
 - `repo-ref/ai/packages/ai/src/generate-text/output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/output-utils.ts`
+- `repo-ref/ai/packages/ai/src/util/fix-json.ts`
+- `repo-ref/ai/packages/ai/src/util/parse-partial-json.ts`
 - `repo-ref/ai/packages/openai/src/chat/openai-chat-language-model.ts`
 - `repo-ref/ai/packages/openai/src/responses/openai-responses-language-model.ts`
 - `repo-ref/ai/packages/openai-compatible/src/chat/openai-compatible-chat-language-model.ts`
@@ -38,6 +40,7 @@ Reference files:
 ## Remaining Gap
 
 AI SDK output specs also define partial parsing and element stream transforms. Siumai intentionally
-does not expose this surface yet because the current structured-output runtime parses complete
-responses or finished streams, not incremental JSON states. This should be handled as a dedicated
-streaming structured-output workstream.
+does not expose stream-transform surface yet because the current text family returns provider
+stream events directly. The underlying partial JSON parser is now available through
+`parse_partial_json(...)`, so a future streaming structured-output workstream can build real
+partial-output and array element streams on top of it rather than reparsing only final responses.
