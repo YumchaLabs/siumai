@@ -86,6 +86,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<*const dyn RerankingModel>();
     let _ = size_of::<*const dyn SpeechModel>();
     let _ = size_of::<*const dyn TranscriptionModel>();
+    let _ = size_of::<*const dyn VideoModel>();
+    let _ = size_of::<*const dyn VideoModelV3>();
+    let _ = size_of::<*const dyn VideoModelV4>();
     let _ = get_total_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_step_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;
     let _ = get_chunk_timeout_ms as fn(Option<&TimeoutConfiguration>) -> Option<u64>;

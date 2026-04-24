@@ -134,6 +134,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - The existing runtime `LanguageModelMiddleware` trait is now directly exported from
   `siumai::prelude::unified::*`; embedding/image middleware remain intentionally deferred until
   those model families have real middleware execution hooks.
+- The stable video family is now visible from `siumai::prelude::unified::*` as `video`,
+  `VideoModel`, `VideoModelV3`, and `VideoModelV4`, matching the already-audited
+  `types/video-model.ts` surface.
 - Shared `ToolChoice` serialization now matches the AI SDK `types/language-model.ts` contract:
   forced tool choices serialize as `{ "type": "tool", "toolName": "..." }` while still accepting
   the previous Rust enum object shape on input for compatibility.

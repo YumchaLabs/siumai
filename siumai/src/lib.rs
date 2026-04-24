@@ -2020,7 +2020,7 @@ pub mod prelude {
         pub use crate::tools;
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
         pub use crate::{
-            completion, embedding, files, image, rerank, skills, speech, text, transcription,
+            completion, embedding, files, image, rerank, skills, speech, text, transcription, video,
         };
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::completion::CompletionModel;
@@ -2037,6 +2037,7 @@ pub mod prelude {
             SpeechCapability, TranscriptionCapability,
         };
         pub use siumai_core::transcription::TranscriptionModel;
+        pub use siumai_core::video::{VideoModel, VideoModelV3, VideoModelV4};
 
         pub use siumai_core::embedding::EmbeddingModel;
         // Core request/response types for the six stable model families.

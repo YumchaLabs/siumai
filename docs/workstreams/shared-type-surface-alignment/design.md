@@ -156,6 +156,12 @@ The existing Rust-first `EmbeddingModel` trait is also re-exported directly from
 shape alongside `LanguageModel`, `ImageModel`, `RerankingModel`, `SpeechModel`, and
 `TranscriptionModel`.
 
+The implemented video family is also exported from the unified prelude as `video`, `VideoModel`,
+`VideoModelV3`, and `VideoModelV4`. Upstream keeps video under `types/video-model.ts` rather than
+the stable `types/index.ts` export list today, but the Rust facade already owns a stable
+task-oriented video family and should keep that family importable with the rest of the model
+surface.
+
 The existing runtime `LanguageModelMiddleware` trait is also re-exported directly. Embedding and
 image middleware are intentionally not fabricated in this slice because there is no corresponding
 embedding/image middleware execution path yet.
