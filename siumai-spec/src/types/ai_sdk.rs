@@ -29,6 +29,9 @@ pub type ProviderOptions = ProviderOptionsMap;
 /// AI SDK-style shared execution context object.
 pub type Context = HashMap<String, JSONValue>;
 
+/// AI SDK-style single embedding vector.
+pub type Embedding = Vec<f32>;
+
 /// AI SDK-style shared image-provider metadata root.
 pub type ImageModelProviderMetadata = ProviderMetadata;
 

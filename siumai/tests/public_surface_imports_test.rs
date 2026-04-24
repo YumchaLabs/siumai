@@ -15,6 +15,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<DataContent>();
     let _ = size_of::<CompletionRequest>();
     let _ = size_of::<CompletionResponse>();
+    let _ = size_of::<Embedding>();
     let _ = size_of::<EmbeddingModelUsage>();
     let _ = size_of::<TextPart>();
     let _ = size_of::<ImagePart>();

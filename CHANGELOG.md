@@ -127,6 +127,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Shared usage helpers now mirror the AI SDK `usage.ts` helper surface with Rust-style names:
   `create_null_language_model_usage`, `add_language_model_usage`, and `add_image_model_usage`
   are exported through the stable facade alongside `LanguageModelUsage` and `ImageModelUsage`.
+- The shared `Embedding` vector alias from the AI SDK `types/embedding-model.ts` surface is now
+  available through `siumai::types::*` and `siumai::prelude::unified::*`.
 - Prompt-side AI SDK compatibility helpers are now exposed on the stable Rust facade:
   deprecated `CallSettings` now exists as the shared projection of `LanguageModelCallOptions`
   plus non-timeout `RequestOptions`, free timeout helper functions mirror the AI SDK

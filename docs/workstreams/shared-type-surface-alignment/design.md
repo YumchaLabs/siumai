@@ -59,6 +59,7 @@ not provider-owned:
   - `ProviderMetadata`
   - `ProviderOptions`
   - `Context`
+  - `Embedding`
   - `ImageModelProviderMetadata`
 - usage/data structures:
   - `ToolCall`
