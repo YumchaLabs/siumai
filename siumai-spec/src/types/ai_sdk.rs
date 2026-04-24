@@ -9,6 +9,7 @@ use super::{
     EmbeddingUsage, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap,
     ResponseMetadata, ToolResultOutput, Usage, Warning,
 };
+use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
@@ -214,6 +215,189 @@ pub type ImageModelProviderMetadata = ProviderMetadata;
 
 /// AI SDK-style shared video-provider metadata root.
 pub type VideoModelProviderMetadata = ProviderMetadata;
+
+/// AI SDK-style generated file returned by text helper output parts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GeneratedFile {
+    /// File content as a base64 encoded string.
+    pub base64: String,
+    /// IANA media type of the file.
+    #[serde(rename = "mediaType", alias = "media_type")]
+    pub media_type: String,
+}
+
+impl GeneratedFile {
+    /// Create a generated file from base64 content.
+    pub fn from_base64(base64: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self {
+            base64: base64.into(),
+            media_type: media_type.into(),
+        }
+    }
+
+    /// Create a generated file from bytes.
+    pub fn from_bytes(data: impl AsRef<[u8]>, media_type: impl Into<String>) -> Self {
+        Self::from_base64(STANDARD.encode(data.as_ref()), media_type)
+    }
+
+    /// Return base64 content.
+    pub fn base64(&self) -> &str {
+        self.base64.as_str()
+    }
+
+    /// Decode the file into bytes.
+    pub fn uint8_array(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        STANDARD.decode(&self.base64)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReasoningOutputMarker {
+    Reasoning,
+}
+
+impl Default for ReasoningOutputMarker {
+    fn default() -> Self {
+        Self::Reasoning
+    }
+}
+
+impl Serialize for ReasoningOutputMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("reasoning")
+    }
+}
+
+impl<'de> Deserialize<'de> for ReasoningOutputMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "reasoning" {
+            Ok(Self::Reasoning)
+        } else {
+            Err(serde::de::Error::custom("expected reasoning type marker"))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReasoningFileOutputMarker {
+    ReasoningFile,
+}
+
+impl Default for ReasoningFileOutputMarker {
+    fn default() -> Self {
+        Self::ReasoningFile
+    }
+}
+
+impl Serialize for ReasoningFileOutputMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("reasoning-file")
+    }
+}
+
+impl<'de> Deserialize<'de> for ReasoningFileOutputMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "reasoning-file" {
+            Ok(Self::ReasoningFile)
+        } else {
+            Err(serde::de::Error::custom(
+                "expected reasoning-file type marker",
+            ))
+        }
+    }
+}
+
+/// AI SDK-style reasoning output part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReasoningOutput {
+    #[serde(rename = "type", default)]
+    marker: ReasoningOutputMarker,
+    /// Reasoning text.
+    pub text: String,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl ReasoningOutput {
+    /// Create a reasoning output part.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            marker: ReasoningOutputMarker::Reasoning,
+            text: text.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Attach provider-specific response metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "reasoning"
+    }
+}
+
+/// AI SDK-style reasoning-file output part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReasoningFileOutput {
+    #[serde(rename = "type", default)]
+    marker: ReasoningFileOutputMarker,
+    /// Generated file attached to model reasoning.
+    pub file: GeneratedFile,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl ReasoningFileOutput {
+    /// Create a reasoning-file output part.
+    pub fn new(file: GeneratedFile) -> Self {
+        Self {
+            marker: ReasoningFileOutputMarker::ReasoningFile,
+            file,
+            provider_metadata: None,
+        }
+    }
+
+    /// Attach provider-specific response metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "reasoning-file"
+    }
+}
 
 /// AI SDK-style typed tool call view returned by higher-level text helpers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2009,6 +2193,66 @@ mod tests {
             serde_json::json!("Search result")
         );
         assert_eq!(tool_result_json["preliminary"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn generated_file_and_reasoning_outputs_match_ai_sdk_shape() {
+        let file = GeneratedFile::from_bytes(b"hello", "text/plain");
+        assert_eq!(file.base64(), "aGVsbG8=");
+        assert_eq!(file.uint8_array().expect("decode generated file"), b"hello");
+        assert_eq!(
+            serde_json::to_value(&file).expect("serialize generated file"),
+            serde_json::json!({
+                "base64": "aGVsbG8=",
+                "mediaType": "text/plain"
+            })
+        );
+
+        let provider_metadata = ProviderMetadata::from([(
+            "openai".to_string(),
+            serde_json::json!({ "reasoningId": "rs_1" }),
+        )]);
+        let reasoning = ReasoningOutput::new("internal reasoning")
+            .with_provider_metadata(provider_metadata.clone());
+        let reasoning_json = serde_json::to_value(&reasoning).expect("serialize reasoning output");
+        assert_eq!(reasoning.r#type(), "reasoning");
+        assert_eq!(
+            reasoning_json,
+            serde_json::json!({
+                "type": "reasoning",
+                "text": "internal reasoning",
+                "providerMetadata": {
+                    "openai": { "reasoningId": "rs_1" }
+                }
+            })
+        );
+        let reasoning_roundtrip: ReasoningOutput =
+            serde_json::from_value(reasoning_json).expect("deserialize reasoning output");
+        assert_eq!(reasoning_roundtrip.text, "internal reasoning");
+
+        let reasoning_file =
+            ReasoningFileOutput::new(file).with_provider_metadata(provider_metadata);
+        let reasoning_file_json =
+            serde_json::to_value(&reasoning_file).expect("serialize reasoning-file output");
+        assert_eq!(reasoning_file.r#type(), "reasoning-file");
+        assert_eq!(
+            reasoning_file_json,
+            serde_json::json!({
+                "type": "reasoning-file",
+                "file": {
+                    "base64": "aGVsbG8=",
+                    "mediaType": "text/plain"
+                },
+                "providerMetadata": {
+                    "openai": { "reasoningId": "rs_1" }
+                }
+            })
+        );
+        let wrong_type = serde_json::json!({
+            "type": "reasoning-text",
+            "text": "nope"
+        });
+        assert!(serde_json::from_value::<ReasoningOutput>(wrong_type).is_err());
     }
 
     #[test]

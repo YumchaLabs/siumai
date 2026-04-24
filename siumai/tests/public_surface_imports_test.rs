@@ -62,6 +62,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<AssistantContent>();
     let _ = size_of::<ToolContent>();
     let _ = size_of::<GenerateImageRequest>();
+    let _ = size_of::<GeneratedFile>();
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
     let _ = size_of::<ImageModelUsage>();
@@ -75,6 +76,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ProviderMetadata>();
     let _ = size_of::<ProviderOptions>();
     let _ = size_of::<ProviderReference>();
+    let _ = size_of::<ReasoningFileOutput>();
+    let _ = size_of::<ReasoningOutput>();
     let _ = size_of::<RequestOptions>();
     let _ = size_of::<Source>();
     let _ = size_of::<StreamRequestOptions>();
@@ -357,6 +360,17 @@ fn public_surface_unified_imports_compile() {
     .with_title("Search result");
     assert_eq!(tool_result.tool_call_id, "call_1");
     assert_eq!(tool_result.preliminary, Some(true));
+
+    let generated_file = GeneratedFile::from_bytes(b"hello", "text/plain");
+    assert_eq!(generated_file.base64(), "aGVsbG8=");
+    assert_eq!(
+        generated_file.uint8_array().expect("decode generated file"),
+        b"hello"
+    );
+    let reasoning_output = ReasoningOutput::new("thinking");
+    assert_eq!(reasoning_output.r#type(), "reasoning");
+    let reasoning_file_output = ReasoningFileOutput::new(generated_file);
+    assert_eq!(reasoning_file_output.r#type(), "reasoning-file");
 
     let source = Source::url_with_title("source_1", "https://example.com", "Example");
     let source_value = serde_json::to_value(&source).expect("serialize shared source");

@@ -6,6 +6,8 @@ Reference files:
 
 - `repo-ref/ai/packages/ai/src/generate-text/output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/output-utils.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/generated-file.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/reasoning-output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-request-output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-response-output.ts`
 - `repo-ref/ai/packages/ai/src/util/fix-json.ts`
@@ -31,6 +33,9 @@ Reference files:
 
 | AI SDK output part | Siumai status | Notes |
 | --- | --- | --- |
+| `GeneratedFile` | Supported as passive output shape | `GeneratedFile` stores stable `base64` plus `mediaType` and exposes Rust byte decoding through `uint8_array()`. |
+| `reasoning` | Supported as passive output shape | `ReasoningOutput` carries `type: "reasoning"`, text, and provider metadata. |
+| `reasoning-file` | Supported as passive output shape | `ReasoningFileOutput` carries `type: "reasoning-file"`, a nested `GeneratedFile`, and provider metadata. |
 | `tool-approval-request` | Supported as passive output shape | `ToolApprovalRequestOutput` carries the full nested `toolCall` plus optional `isAutomatic`. Runtime prompt continuity still keeps ID-oriented approval parts until the tool-loop projection is refactored. |
 | `tool-approval-response` | Supported as passive output shape | `ToolApprovalResponseOutput` carries the full nested `toolCall`, `approved`, optional `reason`, and `providerExecuted`. |
 
