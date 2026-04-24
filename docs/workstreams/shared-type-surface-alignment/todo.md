@@ -109,5 +109,8 @@ Status legend:
   stable cross-provider way.
 - [-] Do not expose `zodSchema` or Standard Schema adapters until a real Rust schema backend owns
   the validation/conversion behavior.
+- [-] Do not expose fake `InferSchema`; Rust callers use generic type parameters directly.
 - [-] Do not expose fake `InferToolInput` / `InferToolOutput` aliases; they are TypeScript-only
   compile-time inference helpers.
+- [-] Do not alias Siumai gateway/proxy bridge utilities to AI SDK `createGateway` / `gateway`;
+  those are different provider-construction semantics.

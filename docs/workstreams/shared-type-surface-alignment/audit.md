@@ -52,6 +52,7 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `Schema` | `siumai::types::Schema`, `prelude::unified::Schema` | done | JSON Schema carrier with optional Rust validator callback. |
 | `ValidationResult` | `siumai::types::ValidationResult`, `prelude::unified::ValidationResult` | done | Explicit success/failure enum using `LlmError` for validation failures. |
 | `FlexibleSchema` | `siumai::types::FlexibleSchema`, `prelude::unified::FlexibleSchema` | done | Supports concrete and lazy Rust schemas. |
+| `InferSchema` | none | deferred | TypeScript conditional inference helper; Rust callers use generic type parameters directly. |
 | `jsonSchema` | `siumai::types::json_schema`, `prelude::unified::json_schema` | done | Rust-style name; creates a passive JSON Schema carrier. |
 | `asSchema` | `siumai::types::as_schema`, `prelude::unified::as_schema` | done | Resolves concrete/lazy schemas. `as_schema_or_empty` covers the upstream `undefined` fallback. |
 | `lazySchema` | `siumai::types::lazy_schema`, `prelude::unified::lazy_schema` | done | Cached lazy schema initialization. Upstream does not export this from `packages/ai/src/index.ts`, but provider-utils owns it. |
@@ -84,6 +85,12 @@ to keep public type-surface checks mechanical and avoid false parity.
 | AI SDK export | Rust surface | Status | Notes |
 | --- | --- | --- | --- |
 | `parseJsonEventStream` | `siumai::parse_json_event_stream`, `prelude::unified::parse_json_event_stream` | done | Parses SSE `data:` payloads into `serde_json::Value` items with Rust `Result` stream errors. |
+
+## `packages/ai/src/index.ts` non-provider-utils root exports
+
+| AI SDK export | Rust surface | Status | Notes |
+| --- | --- | --- | --- |
+| `createGateway` / `gateway` / `GatewayModelId` | none | deferred | Siumai has gateway/proxy bridge utilities in extras, but not an AI SDK Gateway provider equivalent. Do not alias bridge helpers to Gateway provider construction. |
 
 ## Current deferred work
 
