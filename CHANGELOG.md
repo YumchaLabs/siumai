@@ -21,7 +21,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   Rust closures into the passive provider-facing `Tool` schema.
 - AI SDK provider-utils `ToolCall` / `ToolResult` passive data structures now preserve the
   current output-side metadata fields: `providerMetadata`, `title`, invalid-tool `error`,
-  `invalid`, and preliminary tool results.
+  `invalid`, and preliminary tool results. Their serialized output now also preserves the
+  upstream `type: "tool-call"` / `type: "tool-result"` discriminators.
 - AI SDK `generateText` tool approval output parts are now represented directly by
   `ToolApprovalRequestOutput` / `ToolApprovalResponseOutput`, including the nested full `toolCall`
   payload and `isAutomatic` / `providerExecuted` flags.

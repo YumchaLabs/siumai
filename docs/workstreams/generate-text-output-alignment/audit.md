@@ -35,6 +35,8 @@ Reference files:
 
 | AI SDK output part | Siumai status | Notes |
 | --- | --- | --- |
+| `tool-call` | Supported as passive output shape | `ToolCall` now preserves the output-part `type: "tool-call"` discriminator plus provider metadata, title, invalid/error, dynamic, and provider-executed fields. |
+| `tool-result` | Supported as passive output shape | `ToolResult` now preserves the output-part `type: "tool-result"` discriminator plus provider metadata, title, dynamic/provider-executed, and preliminary result fields. |
 | `GeneratedFile` | Supported as passive output shape | `GeneratedFile` stores stable `base64` plus `mediaType` and exposes Rust byte decoding through `uint8_array()`. |
 | `reasoning` | Supported as passive output shape | `ReasoningOutput` carries `type: "reasoning"`, text, and provider metadata. |
 | `reasoning-file` | Supported as passive output shape | `ReasoningFileOutput` carries `type: "reasoning-file"`, a nested `GeneratedFile`, and provider metadata. |

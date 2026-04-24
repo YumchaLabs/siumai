@@ -400,8 +400,44 @@ impl ReasoningFileOutput {
 }
 
 /// AI SDK-style typed tool call view returned by higher-level text helpers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolCallMarker {
+    ToolCall,
+}
+
+impl Default for ToolCallMarker {
+    fn default() -> Self {
+        Self::ToolCall
+    }
+}
+
+impl Serialize for ToolCallMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("tool-call")
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolCallMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "tool-call" {
+            Ok(Self::ToolCall)
+        } else {
+            Err(serde::de::Error::custom("expected tool-call type marker"))
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolCall<NAME = String, INPUT = JSONValue> {
+    #[serde(rename = "type", default)]
+    marker: ToolCallMarker,
     /// ID of the tool call. This ID is used to match the tool call with the tool result.
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
@@ -442,6 +478,7 @@ impl<NAME, INPUT> ToolCall<NAME, INPUT> {
     /// Create a typed tool call.
     pub fn new(tool_call_id: impl Into<String>, tool_name: NAME, input: INPUT) -> Self {
         Self {
+            marker: ToolCallMarker::ToolCall,
             tool_call_id: tool_call_id.into(),
             tool_name,
             input,
@@ -489,11 +526,52 @@ impl<NAME, INPUT> ToolCall<NAME, INPUT> {
         self.provider_metadata = Some(provider_metadata);
         self
     }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-call"
+    }
 }
 
 /// AI SDK-style typed tool result view returned by higher-level text helpers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolResultMarker {
+    ToolResult,
+}
+
+impl Default for ToolResultMarker {
+    fn default() -> Self {
+        Self::ToolResult
+    }
+}
+
+impl Serialize for ToolResultMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("tool-result")
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolResultMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "tool-result" {
+            Ok(Self::ToolResult)
+        } else {
+            Err(serde::de::Error::custom("expected tool-result type marker"))
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolResult<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    #[serde(rename = "type", default)]
+    marker: ToolResultMarker,
     /// ID of the tool call. This ID is used to match the tool call with the tool result.
     #[serde(rename = "toolCallId")]
     pub tool_call_id: String,
@@ -538,6 +616,7 @@ impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
         output: OUTPUT,
     ) -> Self {
         Self {
+            marker: ToolResultMarker::ToolResult,
             tool_call_id: tool_call_id.into(),
             tool_name,
             input,
@@ -578,6 +657,11 @@ impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
     pub fn with_title(mut self, title: impl Into<String>) -> Self {
         self.title = Some(title.into());
         self
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-result"
     }
 }
 
@@ -2392,6 +2476,8 @@ mod tests {
         assert_eq!(tool_result.dynamic, Some(true));
 
         let tool_call_json = serde_json::to_value(&tool_call).expect("serialize tool call");
+        assert_eq!(tool_call.r#type(), "tool-call");
+        assert_eq!(tool_call_json["type"], serde_json::json!("tool-call"));
         assert_eq!(
             tool_call_json["providerMetadata"]["openai"]["itemId"],
             serde_json::json!("item_1")
@@ -2404,6 +2490,8 @@ mod tests {
         );
 
         let tool_result_json = serde_json::to_value(&tool_result).expect("serialize tool result");
+        assert_eq!(tool_result.r#type(), "tool-result");
+        assert_eq!(tool_result_json["type"], serde_json::json!("tool-result"));
         assert_eq!(
             tool_result_json["providerMetadata"]["openai"]["itemId"],
             serde_json::json!("item_1")
@@ -2559,6 +2647,7 @@ mod tests {
                 "type": "tool-approval-request",
                 "approvalId": "approval_1",
                 "toolCall": {
+                    "type": "tool-call",
                     "toolCallId": "call_approval",
                     "toolName": "dangerous_tool",
                     "input": { "path": "/tmp/file" },
@@ -2585,6 +2674,7 @@ mod tests {
                 "type": "tool-approval-response",
                 "approvalId": "approval_1",
                 "toolCall": {
+                    "type": "tool-call",
                     "toolCallId": "call_approval",
                     "toolName": "dangerous_tool",
                     "input": { "path": "/tmp/file" },
