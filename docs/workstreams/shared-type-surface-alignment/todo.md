@@ -15,7 +15,8 @@ Status legend:
   files it re-exports.
 - [x] Add a dedicated `siumai-spec/src/types/ai_sdk.rs` module for shared AI SDK-style public
   names.
-- [x] Expose `JSONValue`, `CallWarning`, `ProviderMetadata`, and `ImageModelProviderMetadata`.
+- [x] Expose `JSONSchema7`, `JSONValue`, `CallWarning`, `ProviderMetadata`, and
+  `ImageModelProviderMetadata`.
 - [x] Expose `ProviderOptions` and `Context`.
 - [x] Expose the shared `Embedding` vector alias from `types/embedding-model.ts`.
 - [x] Expose the shared language-model `Source` citation shape from `types/language-model.ts`.

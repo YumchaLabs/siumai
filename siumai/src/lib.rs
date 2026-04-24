@@ -2049,7 +2049,7 @@ pub mod prelude {
             FilePart, FilePartSource, FinishReason, GenerateImageRequest, GeneratedImage,
             HttpConfig, ImageDetail, ImageGenerationRequest, ImageGenerationResponse,
             ImageModelProviderMetadata, ImageModelResponseMetadata, ImageModelUsage, ImagePart,
-            InvalidDataContentError, JSONValue, LanguageModelCallOptions,
+            InvalidDataContentError, JSONSchema7, JSONValue, LanguageModelCallOptions,
             LanguageModelInputTokenDetails, LanguageModelOutputTokenDetails,
             LanguageModelReasoning, LanguageModelRequestMetadata, LanguageModelResponseMetadata,
             LanguageModelUsage, MediaSource, MessageContent, MessageMetadata, MessageRole,

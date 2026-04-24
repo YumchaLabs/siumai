@@ -9,7 +9,7 @@ Siumai already had most of the runtime carriers, but the public shared type laye
 several important ways:
 
 - the public Rust surface did not expose audited shared names such as `JSONValue`,
-  `CallWarning`, `ProviderMetadata`, `ImageModelProviderMetadata`,
+  `JSONSchema7`, `CallWarning`, `ProviderMetadata`, `ImageModelProviderMetadata`,
   `LanguageModelRequestMetadata`, `LanguageModelResponseMetadata`,
   `ImageModelResponseMetadata`, `SpeechModelResponseMetadata`,
   `TranscriptionModelResponseMetadata`, `EmbeddingModelUsage`, and `ImageModelUsage`
@@ -58,6 +58,7 @@ This was not a single runtime bug. It was a shared contract gap:
 not provider-owned:
 
 - aliases:
+  - `JSONSchema7`
   - `JSONValue`
   - `CallWarning`
   - `ProviderMetadata`

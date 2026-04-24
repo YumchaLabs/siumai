@@ -8,6 +8,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ChatRequest>();
     let _ = size_of::<ChatResponse>();
     let _ = size_of::<CallSettings>();
+    let _ = size_of::<JSONSchema7>();
     let _ = size_of::<JSONValue>();
     let _ = size_of::<CallWarning>();
     let _ = size_of::<CancelHandle>();

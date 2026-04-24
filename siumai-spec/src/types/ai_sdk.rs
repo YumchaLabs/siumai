@@ -18,6 +18,9 @@ use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 /// AI SDK-style JSON value alias.
 pub type JSONValue = serde_json::Value;
 
+/// AI SDK-style JSON Schema draft-07 value alias.
+pub type JSONSchema7 = serde_json::Value;
+
 /// AI SDK-style shared warning alias.
 pub type CallWarning = Warning;
 

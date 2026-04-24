@@ -148,8 +148,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   the shared conversion layer intentionally narrows richer `ChatMessage` / `ContentPart` values
   instead of aliasing them directly, and this slice is tracked under
   `docs/workstreams/prompt-model-message-surface-alignment/`.
-- Shared AI SDK-style type surface is now exposed on the stable Rust facade: `JSONValue`,
-  `CallWarning`, `ProviderMetadata`, `ImageModelProviderMetadata`, `LanguageModelUsage`,
+- Shared AI SDK-style type surface is now exposed on the stable Rust facade: `JSONSchema7`,
+  `JSONValue`, `CallWarning`, `ProviderMetadata`, `ImageModelProviderMetadata`, `LanguageModelUsage`,
   `EmbeddingModelUsage`, `ImageModelUsage`, and the shared request/response metadata structs now
   live on `siumai::types::*` and `siumai::prelude::unified::*`; the shared facade now also
   exposes provider-utils-style `ProviderOptions`, `Context`, `ToolCall`, and `ToolResult`,
