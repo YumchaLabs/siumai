@@ -78,7 +78,7 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `ToolExecutionOptions` | `siumai::ToolExecutionOptions`, `prelude::unified::ToolExecutionOptions` | done | Includes tool call id, model messages, abort signal, and context. |
 | `ToolExecuteFunction` | `siumai::ToolExecuteFunction`, `prelude::unified::ToolExecuteFunction` | done | Alias to the options-aware Rust execution callback type. |
 | `ToolCall` / `ToolResult` | `siumai::types::{ToolCall, ToolResult}`, `prelude::unified::*` | done | Passive provider-utils-style views now include the current AI SDK output-side fields: `providerMetadata`, `title`, invalid-tool `invalid` / `error`, and `preliminary` tool results. |
-| `ToolApprovalRequest` / `ToolApprovalResponse` | `siumai::types::*`, `prelude::unified::*` | done | Shared passive data structures. |
+| `ToolApprovalRequest` / `ToolApprovalResponse` | `siumai::types::*`, `prelude::unified::*` | done | Prompt-continuity data structures. AI SDK output-side full-`toolCall` structures are exposed separately as `ToolApprovalRequestOutput` / `ToolApprovalResponseOutput`. |
 | `InferToolInput` / `InferToolOutput` | none | deferred | TypeScript conditional inference helpers have no honest runtime Rust equivalent. |
 
 ## `@ai-sdk/provider-utils` root stream parsing export

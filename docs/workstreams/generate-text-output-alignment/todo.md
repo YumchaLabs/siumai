@@ -39,6 +39,8 @@ Status legend:
 
 - [x] Add `structured_output::generate_json(...)`.
 - [x] Add `structured_output::generate_choice(...)`.
+- [x] Add passive AI SDK output-part shapes for `ToolApprovalRequestOutput` and
+  `ToolApprovalResponseOutput`.
 - [x] Re-export the new helpers from the root facade and `prelude::unified::*`.
 - [x] Keep `generate_enum(...)` strict for generateObject enum parity.
 

@@ -22,6 +22,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK provider-utils `ToolCall` / `ToolResult` passive data structures now preserve the
   current output-side metadata fields: `providerMetadata`, `title`, invalid-tool `error`,
   `invalid`, and preliminary tool results.
+- AI SDK `generateText` tool approval output parts are now represented directly by
+  `ToolApprovalRequestOutput` / `ToolApprovalResponseOutput`, including the nested full `toolCall`
+  payload and `isAutomatic` / `providerExecuted` flags.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:
   `siumai::parse_json_event_stream` and `prelude::unified::parse_json_event_stream` parse SSE
   `data:` JSON payloads while ignoring `[DONE]`, using Rust stream item errors instead of a

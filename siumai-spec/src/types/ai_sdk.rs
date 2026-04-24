@@ -397,6 +397,183 @@ impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolApprovalRequestOutputMarker {
+    ToolApprovalRequest,
+}
+
+impl Default for ToolApprovalRequestOutputMarker {
+    fn default() -> Self {
+        Self::ToolApprovalRequest
+    }
+}
+
+impl Serialize for ToolApprovalRequestOutputMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("tool-approval-request")
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolApprovalRequestOutputMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "tool-approval-request" {
+            Ok(Self::ToolApprovalRequest)
+        } else {
+            Err(serde::de::Error::custom(
+                "expected tool-approval-request type marker",
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolApprovalResponseOutputMarker {
+    ToolApprovalResponse,
+}
+
+impl Default for ToolApprovalResponseOutputMarker {
+    fn default() -> Self {
+        Self::ToolApprovalResponse
+    }
+}
+
+impl Serialize for ToolApprovalResponseOutputMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("tool-approval-response")
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolApprovalResponseOutputMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "tool-approval-response" {
+            Ok(Self::ToolApprovalResponse)
+        } else {
+            Err(serde::de::Error::custom(
+                "expected tool-approval-response type marker",
+            ))
+        }
+    }
+}
+
+/// AI SDK-style `tool-approval-request` output part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolApprovalRequestOutput<NAME = String, INPUT = JSONValue> {
+    #[serde(rename = "type", default)]
+    marker: ToolApprovalRequestOutputMarker,
+    /// ID of the tool approval request.
+    #[serde(rename = "approvalId")]
+    pub approval_id: String,
+    /// Tool call that the approval request is for.
+    #[serde(rename = "toolCall")]
+    pub tool_call: ToolCall<NAME, INPUT>,
+    /// Whether the tool was automatically approved or denied.
+    #[serde(
+        rename = "isAutomatic",
+        alias = "is_automatic",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub is_automatic: Option<bool>,
+}
+
+impl<NAME, INPUT> ToolApprovalRequestOutput<NAME, INPUT> {
+    /// Create a tool approval request output part.
+    pub fn new(approval_id: impl Into<String>, tool_call: ToolCall<NAME, INPUT>) -> Self {
+        Self {
+            marker: ToolApprovalRequestOutputMarker::ToolApprovalRequest,
+            approval_id: approval_id.into(),
+            tool_call,
+            is_automatic: None,
+        }
+    }
+
+    /// Mark whether the request was generated automatically.
+    pub const fn with_is_automatic(mut self, is_automatic: bool) -> Self {
+        self.is_automatic = Some(is_automatic);
+        self
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-approval-request"
+    }
+}
+
+/// AI SDK-style `tool-approval-response` output part returned by text helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ToolApprovalResponseOutput<NAME = String, INPUT = JSONValue> {
+    #[serde(rename = "type", default)]
+    marker: ToolApprovalResponseOutputMarker,
+    /// ID of the tool approval.
+    #[serde(rename = "approvalId")]
+    pub approval_id: String,
+    /// Tool call that the approval response is for.
+    #[serde(rename = "toolCall")]
+    pub tool_call: ToolCall<NAME, INPUT>,
+    /// Whether the approval was granted or denied.
+    pub approved: bool,
+    /// Optional reason for the approval or denial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    /// Whether the tool call is provider-executed.
+    #[serde(
+        rename = "providerExecuted",
+        alias = "provider_executed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_executed: Option<bool>,
+}
+
+impl<NAME, INPUT> ToolApprovalResponseOutput<NAME, INPUT> {
+    /// Create a tool approval response output part.
+    pub fn new(
+        approval_id: impl Into<String>,
+        tool_call: ToolCall<NAME, INPUT>,
+        approved: bool,
+    ) -> Self {
+        Self {
+            marker: ToolApprovalResponseOutputMarker::ToolApprovalResponse,
+            approval_id: approval_id.into(),
+            tool_call,
+            approved,
+            reason: None,
+            provider_executed: None,
+        }
+    }
+
+    /// Attach an optional human-readable approval reason.
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    /// Mark whether the approval response refers to a provider-executed tool call.
+    pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Return the AI SDK output part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-approval-response"
+    }
+}
+
 /// A cloneable cancellation handle for request-scoped abort semantics.
 #[derive(Clone, Debug, Default)]
 pub struct CancelHandle {
@@ -1832,6 +2009,76 @@ mod tests {
             serde_json::json!("Search result")
         );
         assert_eq!(tool_result_json["preliminary"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn generate_text_tool_approval_outputs_match_ai_sdk_shape() {
+        let tool_call = ToolCall::new(
+            "call_approval",
+            "dangerous_tool".to_string(),
+            serde_json::json!({ "path": "/tmp/file" }),
+        )
+        .with_provider_executed(true)
+        .with_title("Dangerous tool");
+
+        let request =
+            ToolApprovalRequestOutput::new("approval_1", tool_call.clone()).with_is_automatic(true);
+        let request_json = serde_json::to_value(&request).expect("serialize request output");
+
+        assert_eq!(request.r#type(), "tool-approval-request");
+        assert_eq!(
+            request_json,
+            serde_json::json!({
+                "type": "tool-approval-request",
+                "approvalId": "approval_1",
+                "toolCall": {
+                    "toolCallId": "call_approval",
+                    "toolName": "dangerous_tool",
+                    "input": { "path": "/tmp/file" },
+                    "providerExecuted": true,
+                    "title": "Dangerous tool"
+                },
+                "isAutomatic": true
+            })
+        );
+        let roundtrip: ToolApprovalRequestOutput =
+            serde_json::from_value(request_json).expect("deserialize request output");
+        assert_eq!(roundtrip.approval_id, "approval_1");
+        assert_eq!(roundtrip.tool_call.tool_call_id, "call_approval");
+
+        let response = ToolApprovalResponseOutput::new("approval_1", tool_call, false)
+            .with_reason("denied by policy")
+            .with_provider_executed(true);
+        let response_json = serde_json::to_value(&response).expect("serialize response output");
+
+        assert_eq!(response.r#type(), "tool-approval-response");
+        assert_eq!(
+            response_json,
+            serde_json::json!({
+                "type": "tool-approval-response",
+                "approvalId": "approval_1",
+                "toolCall": {
+                    "toolCallId": "call_approval",
+                    "toolName": "dangerous_tool",
+                    "input": { "path": "/tmp/file" },
+                    "providerExecuted": true,
+                    "title": "Dangerous tool"
+                },
+                "approved": false,
+                "reason": "denied by policy",
+                "providerExecuted": true
+            })
+        );
+        let wrong_type = serde_json::json!({
+            "type": "tool-approval",
+            "approvalId": "approval_1",
+            "toolCall": {
+                "toolCallId": "call_approval",
+                "toolName": "dangerous_tool",
+                "input": {}
+            }
+        });
+        assert!(serde_json::from_value::<ToolApprovalRequestOutput>(wrong_type).is_err());
     }
 
     #[test]

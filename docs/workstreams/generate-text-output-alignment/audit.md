@@ -6,6 +6,8 @@ Reference files:
 
 - `repo-ref/ai/packages/ai/src/generate-text/output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/output-utils.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-approval-request-output.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-approval-response-output.ts`
 - `repo-ref/ai/packages/ai/src/util/fix-json.ts`
 - `repo-ref/ai/packages/ai/src/util/parse-partial-json.ts`
 - `repo-ref/ai/packages/openai/src/chat/openai-chat-language-model.ts`
@@ -24,6 +26,13 @@ Reference files:
 | `array(...)` | Supported | `structured_output::generate_array(...)` uses the upstream `{ elements: [...] }` wrapper. |
 | `choice(...)` | Supported | `structured_output::generate_choice(...)` uses the upstream `{ result: "..." }` wrapper and permits labels. |
 | `json(...)` | Supported | `structured_output::generate_json(...)` sends schema-less JSON response format and parses `serde_json::Value`. |
+
+## Output Content Parts
+
+| AI SDK output part | Siumai status | Notes |
+| --- | --- | --- |
+| `tool-approval-request` | Supported as passive output shape | `ToolApprovalRequestOutput` carries the full nested `toolCall` plus optional `isAutomatic`. Runtime prompt continuity still keeps ID-oriented approval parts until the tool-loop projection is refactored. |
+| `tool-approval-response` | Supported as passive output shape | `ToolApprovalResponseOutput` carries the full nested `toolCall`, `approved`, optional `reason`, and `providerExecuted`. |
 
 ## Streaming Partial Output
 

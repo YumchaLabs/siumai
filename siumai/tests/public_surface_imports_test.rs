@@ -52,7 +52,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ToolCallPart>();
     let _ = size_of::<ToolResultPart>();
     let _ = size_of::<ToolApprovalRequest>();
+    let _ = size_of::<ToolApprovalRequestOutput<String, JSONValue>>();
     let _ = size_of::<ToolApprovalResponse>();
+    let _ = size_of::<ToolApprovalResponseOutput<String, JSONValue>>();
     let _ = size_of::<UserContentPart>();
     let _ = size_of::<AssistantContentPart>();
     let _ = size_of::<ToolContentPart>();
@@ -370,6 +372,19 @@ fn public_surface_unified_imports_compile() {
         .with_reason("approved")
         .with_provider_executed(true);
     assert_eq!(approval_response.approval_id, "approval_1");
+
+    let approval_request_output =
+        ToolApprovalRequestOutput::new("approval_1", tool_call.clone()).with_is_automatic(true);
+    assert_eq!(approval_request_output.r#type(), "tool-approval-request");
+    assert_eq!(
+        serde_json::to_value(&approval_request_output).expect("serialize approval request output")
+            ["toolCall"]["toolCallId"],
+        serde_json::json!("call_1")
+    );
+    let approval_response_output = ToolApprovalResponseOutput::new("approval_1", tool_call, true)
+        .with_reason("approved")
+        .with_provider_executed(true);
+    assert_eq!(approval_response_output.r#type(), "tool-approval-response");
     assert_eq!(approval_response.reason.as_deref(), Some("approved"));
     assert_eq!(approval_response.provider_executed, Some(true));
 
