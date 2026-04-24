@@ -11184,6 +11184,40 @@ mod vertex_maas_public_path {
         http_config
     }
 
+    #[test]
+    fn vertex_maas_package_settings_preserve_supported_provider_inputs() {
+        let transport = CaptureTransport::default();
+        let config = siumai::provider_ext::vertex_maas::GoogleVertexMaasProviderSettings::new()
+            .with_project("test-project")
+            .with_location("us-central1")
+            .with_header("Authorization", "Bearer test-token")
+            .with_header("x-test", "1")
+            .with_fetch(Arc::new(transport.clone()))
+            .into_config_for_model("deepseek-ai/deepseek-v3.2-maas")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "vertex-maas");
+        assert_eq!(
+            config.base_url,
+            vertex_maas_base_url("test-project", "us-central1")
+        );
+        assert_eq!(config.common_params.model, "deepseek-ai/deepseek-v3.2-maas");
+        assert_eq!(
+            config
+                .http_config
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer test-token")
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+        assert!(config.http_transport.is_some());
+        assert!(transport.take().is_none());
+    }
+
     #[tokio::test]
     async fn vertex_maas_public_builder_exposes_chat_completion_embedding_capabilities() {
         let transport = CaptureTransport::default();
@@ -36235,6 +36269,7 @@ mod bedrock_public_path {
 #[cfg(feature = "anthropic")]
 mod anthropic_public_path {
     use super::*;
+    use secrecy::ExposeSecret;
     use siumai::experimental::client::LlmClient;
     use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
     use siumai::prelude::unified::{
@@ -36244,7 +36279,7 @@ mod anthropic_public_path {
         AnthropicChatRequestExt, AnthropicChatResponseExt, AnthropicClient, AnthropicConfig,
         AnthropicContextManagementConfig, AnthropicContextManagementEdit,
         AnthropicContextManagementInputTokensValue, AnthropicEffort, AnthropicOptions,
-        AnthropicStructuredOutputMode, ThinkingModeConfig,
+        AnthropicProviderSettings, AnthropicStructuredOutputMode, ThinkingModeConfig,
     };
     use siumai::registry::ProviderBuildOverrides;
 
@@ -36288,6 +36323,36 @@ mod anthropic_public_path {
                 auto_middleware: true,
             }),
         )
+    }
+
+    #[test]
+    fn anthropic_package_settings_preserve_supported_provider_inputs() {
+        let transport = CaptureTransport::default();
+        let config = AnthropicProviderSettings::new()
+            .with_auth_token("test-token")
+            .with_base_url("https://example.com/anthropic")
+            .with_header("x-test", "1")
+            .with_fetch(Arc::new(transport.clone()))
+            .into_config_for_model("claude-sonnet-4-5-20250929")
+            .expect("settings into config");
+
+        assert!(config.api_key.expose_secret().is_empty());
+        assert_eq!(config.base_url, "https://example.com/anthropic");
+        assert_eq!(config.common_params.model, "claude-sonnet-4-5-20250929");
+        assert_eq!(
+            config
+                .http_config
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer test-token")
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+        assert!(config.http_transport.is_some());
+        assert!(transport.take().is_none());
     }
 
     fn make_anthropic_request(model: &str, stream: bool) -> ChatRequest {

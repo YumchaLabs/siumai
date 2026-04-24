@@ -783,13 +783,14 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
         ConfigurableAdapter, MetadataExtractor, OpenAICompatibleChatModelId,
         OpenAICompatibleClient, OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
         OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData, OpenAICompatibleImageModelId,
-        OpenAICompatibleRequestSettings, OpenAiCompatibleChatModelId, OpenAiCompatibleClient,
-        OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
-        OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData, OpenAiCompatibleImageModelId,
-        OpenAiCompatibleRequestSettings, ProviderAdapter, ProviderCompatibility, ProviderConfig,
-        ProviderErrorStructure, RequestBodyTransformer, ResponseMetadataExtractor, deepinfra,
-        fireworks, get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter,
-        options::*, provider_supports_capability, siliconflow, xai,
+        OpenAICompatibleProviderSettings, OpenAICompatibleRequestSettings,
+        OpenAiCompatibleChatModelId, OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId,
+        OpenAiCompatibleConfig, OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
+        OpenAiCompatibleImageModelId, OpenAiCompatibleRequestSettings, ProviderAdapter,
+        ProviderCompatibility, ProviderConfig, ProviderErrorStructure, RequestBodyTransformer,
+        ResponseMetadataExtractor, VERSION, deepinfra, fireworks, generic_provider_config,
+        get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter, options::*,
+        provider_supports_capability, siliconflow, xai,
     };
     use std::sync::Arc;
 
@@ -800,7 +801,9 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
     let _ = size_of::<OpenAICompatibleEmbeddingModelId>();
     let _ = size_of::<OpenAICompatibleErrorData>();
     let _ = size_of::<OpenAICompatibleImageModelId>();
+    let _ = size_of::<OpenAICompatibleProviderSettings>();
     let _ = size_of::<OpenAICompatibleRequestSettings>();
+    let _ = VERSION;
     let _ = size_of::<OpenAiCompatibleChatModelId>();
     let _ = size_of::<OpenAiCompatibleClient>();
     let _ = size_of::<OpenAiCompatibleCompletionModelId>();
@@ -861,6 +864,14 @@ fn public_surface_openai_compatible_provider_ext_compiles() {
         supports_structured_outputs: Some(false),
         request_body_transformer: None,
     };
+    let _ = OpenAICompatibleProviderSettings::new("acme", "https://example.com/v1")
+        .with_api_key("test-key")
+        .with_header("x-test", "1")
+        .with_query_param("api-version", "2025-04-01")
+        .with_include_usage(true)
+        .with_supports_structured_outputs(false)
+        .into_config_for_model("acme-chat");
+    let _ = generic_provider_config("acme", "Acme", "https://example.com/v1");
     let extractor: Arc<dyn ResponseMetadataExtractor> = Arc::new(|raw: &serde_json::Value| {
         raw.get("test").map(|value| {
             std::collections::HashMap::from([(
@@ -1096,8 +1107,8 @@ fn public_surface_fireworks_provider_ext_compiles() {
 fn public_surface_anthropic_provider_ext_compiles() {
     use siumai::prelude::unified::*;
     use siumai::provider_ext::anthropic::{
-        AnthropicBuilder, AnthropicClient, AnthropicConfig, anthropic as anthropic_builder,
-        create_anthropic,
+        AnthropicBuilder, AnthropicClient, AnthropicConfig, AnthropicProviderSettings, VERSION,
+        anthropic as anthropic_builder, create_anthropic,
         ext::{structured_output, thinking, tools},
         find_anthropic_container_id_from_last_step, forward_anthropic_container_id_from_last_step,
         metadata::*,
@@ -1109,6 +1120,8 @@ fn public_surface_anthropic_provider_ext_compiles() {
     let _ = size_of::<AnthropicBuilder>();
     let _ = size_of::<AnthropicClient>();
     let _ = size_of::<AnthropicConfig>();
+    let _ = size_of::<AnthropicProviderSettings>();
+    let _ = VERSION;
     let _ = size_of::<AnthropicOptions>();
     let _ = size_of::<AnthropicLanguageModelOptions>();
     let _ = size_of::<AnthropicProviderOptions>();
@@ -1131,6 +1144,15 @@ fn public_surface_anthropic_provider_ext_compiles() {
     let _ = size_of::<AnthropicThinkingDisplay>();
     let _ = anthropic_builder();
     let _ = create_anthropic();
+    let _ = AnthropicProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/anthropic")
+        .with_header("x-test", "1")
+        .into_builder_for_model("claude-sonnet-4-5-20250929");
+    let _ = AnthropicProviderSettings::new()
+        .with_auth_token("test-token")
+        .with_base_url("https://example.com/anthropic")
+        .into_config_for_model("claude-sonnet-4-5-20250929");
     let _ = size_of::<AnthropicResponseFormat>();
     let _ = size_of::<AnthropicStructuredOutputMode>();
     let _ = size_of::<ThinkingModeConfig>();
@@ -2281,14 +2303,35 @@ fn public_surface_google_vertex_provider_ext_compiles() {
 #[allow(deprecated)]
 fn public_surface_vertex_maas_provider_ext_compiles() {
     use siumai::prelude::compat::{Provider, Siumai};
-    use siumai::provider_ext::vertex_maas::{chat, completion, embedding, model_sets};
+    use siumai::provider_ext::vertex_maas::{
+        GoogleVertexMaasClient, GoogleVertexMaasConfig, GoogleVertexMaasModelId,
+        GoogleVertexMaasProviderSettings, VERSION, chat, completion, create_vertex_maas, embedding,
+        model_sets, vertex_maas as vertex_maas_builder,
+    };
 
+    let _ = size_of::<GoogleVertexMaasClient>();
+    let _ = size_of::<GoogleVertexMaasConfig>();
+    let _ = size_of::<GoogleVertexMaasModelId>();
+    let _ = size_of::<GoogleVertexMaasProviderSettings>();
+    let _ = VERSION;
     let _ = chat::DEEPSEEK_V3_2_MAAS;
     let _ = completion::DEEPSEEK_V3_2_MAAS;
     let _ = embedding::DEEPSEEK_V3_2_MAAS;
     let _ = model_sets::ALL_CHAT;
     let _ = model_sets::ALL_COMPLETION;
     let _ = model_sets::ALL_EMBEDDING;
+    let _ = vertex_maas_builder();
+    let _ = create_vertex_maas();
+    let _ = GoogleVertexMaasProviderSettings::new()
+        .with_project("test-project")
+        .with_location("us-central1")
+        .with_header("Authorization", "Bearer test-token")
+        .into_builder_for_model(chat::DEEPSEEK_V3_2_MAAS);
+    let _ = GoogleVertexMaasProviderSettings::new()
+        .with_project("test-project")
+        .with_location("us-central1")
+        .with_header("Authorization", "Bearer test-token")
+        .into_config_for_model(chat::DEEPSEEK_V3_2_MAAS);
     let _ = Provider::vertex_maas();
     let _ = Siumai::builder().vertex_maas();
     let _ = Provider::vertex_maas().model(chat::DEEPSEEK_V3_2_MAAS);

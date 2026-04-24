@@ -300,7 +300,9 @@ impl GoogleVertexBuilder {
         // Vercel AI SDK alignment (`@ai-sdk/google-vertex` exports the node variant by default):
         // - If no API key is provided (enterprise mode) and the user didn't supply an explicit
         //   Authorization header or custom token provider, auto-enable ADC-based auth (when available).
-        let token_provider = {
+        let token_provider = if api_key.is_some() {
+            None
+        } else {
             #[cfg(feature = "gcp")]
             {
                 fn has_auth_header(headers: &std::collections::HashMap<String, String>) -> bool {
@@ -310,10 +312,7 @@ impl GoogleVertexBuilder {
                 }
 
                 let mut token_provider = self.token_provider;
-                if api_key.is_none()
-                    && token_provider.is_none()
-                    && !has_auth_header(&self.core.http_config.headers)
-                {
+                if token_provider.is_none() && !has_auth_header(&self.core.http_config.headers) {
                     token_provider = Some(std::sync::Arc::new(
                         crate::auth::adc::AdcTokenProvider::default_client(),
                     ));
@@ -367,9 +366,46 @@ impl GoogleVertexBuilder {
 
 #[cfg(test)]
 mod config_first_tests {
+    #![allow(unsafe_code)]
+
     use super::*;
     use crate::builder::BuilderBase;
     use crate::client::LlmClient;
+    use std::sync::{Mutex, MutexGuard};
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn lock_env() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => unsafe {
+                    std::env::set_var(self.key, value);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
 
     #[derive(Clone, Default)]
     struct NoopInterceptor;
@@ -419,6 +455,27 @@ mod config_first_tests {
             cfg.generate_id.as_ref().map(|generate_id| generate_id()),
             Some("vertex-builder-id".to_string())
         );
+    }
+
+    #[test]
+    fn env_api_key_keeps_express_mode_and_suppresses_token_provider() {
+        let _lock = lock_env();
+        let _api_key = EnvGuard::set("GOOGLE_VERTEX_API_KEY", "env-key");
+
+        let cfg = GoogleVertexBuilder::new(BuilderBase::default())
+            .project("enterprise-project")
+            .location("global")
+            .token_provider(Arc::new(crate::auth::StaticTokenProvider::new("token")))
+            .model("gemini-2.5-pro")
+            .into_config()
+            .expect("into_config");
+
+        assert_eq!(
+            cfg.base_url,
+            crate::auth::vertex::GOOGLE_VERTEX_EXPRESS_BASE_URL
+        );
+        assert_eq!(cfg.api_key.as_deref(), Some("env-key"));
+        assert!(cfg.token_provider.is_none());
     }
 
     #[test]

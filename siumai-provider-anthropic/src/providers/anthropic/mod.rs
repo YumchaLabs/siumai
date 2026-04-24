@@ -14,6 +14,7 @@ pub mod middleware;
 pub mod model_constants;
 pub mod models;
 pub mod prepare_step;
+pub mod settings;
 pub mod skills;
 pub mod spec;
 pub mod streaming;
@@ -66,6 +67,10 @@ pub use crate::provider_metadata::anthropic::{
 
 // Re-export capability implementations
 pub use models::AnthropicModels;
+pub use settings::AnthropicProviderSettings;
+
+/// Rust package version exposed on the Anthropic package-surface facade.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub(crate) fn specific_params_from_legacy_params(
     params: &crate::params::AnthropicParams,

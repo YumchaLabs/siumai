@@ -53,11 +53,11 @@ Status legend:
 - [x] Record the design in `docs/workstreams/vertex-maas-unified-provider-surface/`.
 - [x] Update the AI SDK structural-alignment workstream to mark Vertex MaaS as closed.
 - [x] Update unreleased changelog sections instead of writing release notes.
-- [-] Mirror TypeScript-only package exports such as `GoogleVertexMaasProviderSettings` or
-  `VERSION` one-for-one on the Rust side.
-  - deferred intentionally because the Rust public contract already uses unified builder/config
-    surfaces instead of TS-style settings wrapper aliases, and Vertex MaaS is still intentionally a
-    registry-layer hybrid wrapper rather than a provider-owned crate
+- [x] Mirror package exports such as `GoogleVertexMaasProviderSettings` and `VERSION` on the Rust
+  facade.
+  - `GoogleVertexMaasProviderSettings` now supports the audited `project`, `location`, `baseURL`,
+    `headers`, and `fetch` subset, plus a Rust token-provider analogue for the Node auth wrapper
+    instead of modeling Node's `googleAuthOptions` object directly.
 - [x] Revisit whether the broader `vertex` default-model story should become family-specific on the
   public facade instead of one provider-wide fallback.
   - `Siumai::builder().vertex()` and `Siumai::builder().anthropic_vertex()` now require an

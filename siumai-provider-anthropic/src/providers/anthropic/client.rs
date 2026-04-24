@@ -410,7 +410,11 @@ impl AnthropicClient {
         crate::core::ProviderContext::new(
             "anthropic",
             self.base_url.clone(),
-            Some(self.api_key.expose_secret().to_string()),
+            if self.api_key.expose_secret().is_empty() {
+                None
+            } else {
+                Some(self.api_key.expose_secret().to_string())
+            },
             headers,
         )
     }

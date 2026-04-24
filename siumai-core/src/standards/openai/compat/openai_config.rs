@@ -61,6 +61,8 @@ pub struct OpenAiCompatibleConfig {
     pub provider_defined_tool_warning_allowlist: BTreeSet<String>,
     /// Optional public request-body transformer, mirroring AI SDK's `transformRequestBody`.
     pub request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
+    /// Whether this config requires API-key style auth at client construction time.
+    pub auth_required: bool,
 }
 
 impl std::fmt::Debug for OpenAiCompatibleConfig {
@@ -94,6 +96,7 @@ impl std::fmt::Debug for OpenAiCompatibleConfig {
         if self.request_body_transformer.is_some() {
             ds.field("has_request_body_transformer", &true);
         }
+        ds.field("auth_required", &self.auth_required);
 
         ds.finish()
     }
@@ -134,6 +137,7 @@ impl OpenAiCompatibleConfig {
             supports_structured_outputs: Self::default_supports_structured_outputs(provider_id),
             provider_defined_tool_warning_allowlist: BTreeSet::new(),
             request_body_transformer: None,
+            auth_required: true,
         }
     }
 
@@ -395,6 +399,21 @@ impl OpenAiCompatibleConfig {
         self.with_request_body_transformer(transformer)
     }
 
+    /// Control whether client construction requires API-key style auth.
+    ///
+    /// Generic AI SDK-style OpenAI-compatible providers may be fronted by local or private
+    /// gateways that do not require authentication, while built-in hosted providers keep auth
+    /// required by default.
+    pub fn with_auth_required(mut self, required: bool) -> Self {
+        self.auth_required = required;
+        self
+    }
+
+    /// Alias for `with_auth_required(...)`.
+    pub fn auth_required(self, required: bool) -> Self {
+        self.with_auth_required(required)
+    }
+
     /// Enable provider-native thinking mode when supported.
     pub fn with_thinking(mut self, enable: bool) -> Self {
         match self.provider_id.as_str() {
@@ -507,7 +526,8 @@ impl OpenAiCompatibleConfig {
             ));
         }
 
-        if self.api_key.is_empty()
+        if self.auth_required
+            && self.api_key.is_empty()
             && self.token_provider.is_none()
             && !header_map_has_authorization(&self.custom_headers)
             && !string_map_has_authorization(&self.http_config.headers)

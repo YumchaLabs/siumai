@@ -428,17 +428,18 @@ pub mod provider_ext {
     #[cfg(feature = "openai")]
     pub mod openai_compatible {
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            ConfigurableAdapter, MetadataExtractor, OpenAICompatibleChatModelId,
-            OpenAICompatibleClient, OpenAICompatibleCompletionModelId, OpenAICompatibleConfig,
-            OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData,
-            OpenAICompatibleImageModelId, OpenAICompatibleRequestSettings,
-            OpenAiCompatibleChatModelId, OpenAiCompatibleClient, OpenAiCompatibleCompletionModelId,
-            OpenAiCompatibleConfig, OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
+            ConfigurableAdapter, MetadataExtractor, OPENAI_COMPATIBLE_VERSION as VERSION,
+            OpenAICompatibleChatModelId, OpenAICompatibleClient, OpenAICompatibleCompletionModelId,
+            OpenAICompatibleConfig, OpenAICompatibleEmbeddingModelId, OpenAICompatibleErrorData,
+            OpenAICompatibleImageModelId, OpenAICompatibleProviderSettings,
+            OpenAICompatibleRequestSettings, OpenAiCompatibleChatModelId, OpenAiCompatibleClient,
+            OpenAiCompatibleCompletionModelId, OpenAiCompatibleConfig,
+            OpenAiCompatibleEmbeddingModelId, OpenAiCompatibleErrorData,
             OpenAiCompatibleImageModelId, OpenAiCompatibleRequestSettings, ProviderAdapter,
             ProviderCompatibility, ProviderConfig, ProviderErrorStructure, RequestBodyTransformer,
-            ResponseMetadataExtractor, deepinfra, deepseek, fireworks, get_provider_config, groq,
-            list_provider_ids, moonshot, moonshotai, openrouter, provider_supports_capability,
-            siliconflow, vertex_maas, xai,
+            ResponseMetadataExtractor, deepinfra, deepseek, fireworks, generic_provider_config,
+            get_provider_config, groq, list_provider_ids, moonshot, moonshotai, openrouter,
+            provider_supports_capability, siliconflow, vertex_maas, xai,
         };
 
         /// Typed generic OpenAI-compatible provider options (`provider_options_map["openaiCompatible"]`).
@@ -763,11 +764,34 @@ pub mod provider_ext {
 
     #[cfg(feature = "google-vertex")]
     pub mod vertex_maas {
+        /// Lower-level Vertex MaaS text-family compat client/config aliases.
+        ///
+        /// These map to the shared OpenAI-compatible runtime used by the audited Vertex MaaS
+        /// chat, completion, and embedding lanes. For the unified AI SDK-style provider surface,
+        /// use [`vertex_maas()`], [`create_vertex_maas()`], [`crate::Provider::vertex_maas()`], or
+        /// [`crate::provider::SiumaiBuilder::vertex_maas()`].
+        pub use siumai_provider_openai_compatible::providers::openai_compatible::{
+            GOOGLE_VERTEX_MAAS_VERSION as VERSION, GoogleVertexMaasClient, GoogleVertexMaasConfig,
+            GoogleVertexMaasModelId, GoogleVertexMaasProviderSettings,
+        };
+
         /// Curated Vertex MaaS model constants aligned with the audited AI SDK package subset.
         pub mod models {
             pub use siumai_provider_openai_compatible::providers::openai_compatible::vertex_maas::{
                 self, chat, completion, embedding,
             };
+        }
+
+        /// Create the unified Google Vertex MaaS provider builder.
+        pub fn vertex_maas() -> crate::provider::SiumaiBuilder {
+            crate::Provider::vertex_maas()
+        }
+
+        /// Create the unified Google Vertex MaaS provider builder.
+        ///
+        /// This is the Rust package-surface analogue of AI SDK `createVertexMaas()`.
+        pub fn create_vertex_maas() -> crate::provider::SiumaiBuilder {
+            vertex_maas()
         }
 
         pub use models::{chat, completion, embedding, vertex_maas as model_sets};
@@ -1012,7 +1036,7 @@ pub mod provider_ext {
     #[cfg(feature = "anthropic")]
     pub mod anthropic {
         pub use siumai_provider_anthropic::providers::anthropic::{
-            AnthropicBuilder, AnthropicClient, AnthropicConfig,
+            AnthropicBuilder, AnthropicClient, AnthropicConfig, AnthropicProviderSettings, VERSION,
         };
 
         /// Create the Anthropic provider builder.

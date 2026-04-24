@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - OpenAI-compatible route selection now also understands `RequestType::Completion`, so compat
   providers can resolve `/completions` through the shared adapter path instead of hard-coding
   chat-only routes.
+- `OpenAiCompatibleConfig` now has an explicit `auth_required` flag so generic
+  OpenAI-compatible providers can honestly model AI SDK's optional `apiKey` setting for local or
+  private gateways without weakening built-in hosted-provider auth validation.
 
 ### Fixed
 

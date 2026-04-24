@@ -5,6 +5,7 @@ use crate::execution::http::transport::HttpTransport;
 use crate::execution::middleware::language_model::LanguageModelMiddleware;
 use crate::providers::openai_compatible::{RequestBodyTransformer, ResponseMetadataExtractor};
 use crate::retry_api::RetryOptions;
+use crate::standards::openai::compat::provider_registry::ProviderConfig;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -42,6 +43,8 @@ pub struct OpenAiCompatibleBuilder {
     base: BuilderBase,
     /// Provider identifier (siliconflow, deepseek, openrouter, etc.)
     provider_id: String,
+    /// Optional explicit provider config for generic OpenAI-compatible providers.
+    provider_config_override: Option<ProviderConfig>,
     /// API key for the provider
     api_key: Option<String>,
     /// Custom base URL (overrides provider default)
@@ -52,6 +55,8 @@ pub struct OpenAiCompatibleBuilder {
     http_config: crate::types::HttpConfig,
     /// Optional custom HTTP transport (Vercel-style "custom fetch" parity).
     http_transport: Option<Arc<dyn HttpTransport>>,
+    /// Optional async Bearer token provider for auth flows that do not use static API keys.
+    token_provider: Option<Arc<dyn crate::auth::TokenProvider>>,
     /// Provider-specific configuration
     provider_specific_config: std::collections::HashMap<String, serde_json::Value>,
     /// Unified retry options
@@ -71,6 +76,8 @@ pub struct OpenAiCompatibleBuilder {
     supports_structured_outputs: Option<bool>,
     /// Optional public request-body transformer, mirroring AI SDK's `transformRequestBody`.
     request_body_transformer: Option<Arc<dyn RequestBodyTransformer>>,
+    /// Explicit API-key auth requirement override.
+    auth_required: Option<bool>,
     /// Enable lightweight HTTP debug logging interceptor
     http_debug: bool,
 }
@@ -94,8 +101,10 @@ impl OpenAiCompatibleBuilder {
                 }
                 cp
             },
+            provider_config_override: None,
             http_config: crate::types::HttpConfig::default(),
             http_transport: None,
+            token_provider: None,
             provider_specific_config: std::collections::HashMap::new(),
             retry_options: None,
             // Inherit interceptors/debug from unified builder
@@ -106,6 +115,7 @@ impl OpenAiCompatibleBuilder {
             include_usage: None,
             supports_structured_outputs: None,
             request_body_transformer: None,
+            auth_required: None,
             http_debug: base.http_debug,
         }
     }
@@ -154,6 +164,28 @@ impl OpenAiCompatibleBuilder {
     pub fn base_url<S: Into<String>>(mut self, base_url: S) -> Self {
         self.base_url = Some(base_url.into());
         self
+    }
+
+    /// Install an explicit provider configuration.
+    ///
+    /// This is mainly used by the AI SDK-style generic `openai-compatible` package surface where
+    /// `name` and `baseURL` define a provider that is intentionally not one of Siumai's built-in
+    /// provider presets.
+    pub fn with_provider_config(mut self, provider_config: ProviderConfig) -> Self {
+        self.provider_id = provider_config.id.clone();
+        self.provider_config_override = Some(provider_config);
+        self
+    }
+
+    /// Control whether API-key style auth is required at client construction time.
+    pub fn with_auth_required(mut self, required: bool) -> Self {
+        self.auth_required = Some(required);
+        self
+    }
+
+    /// Alias for `with_auth_required(...)`.
+    pub fn auth_required(self, required: bool) -> Self {
+        self.with_auth_required(required)
     }
 
     /// Set the model
@@ -268,6 +300,20 @@ impl OpenAiCompatibleBuilder {
     pub fn with_http_transport(mut self, transport: Arc<dyn HttpTransport>) -> Self {
         self.http_transport = Some(transport);
         self
+    }
+
+    /// Set an async Bearer token provider.
+    pub fn with_token_provider(
+        mut self,
+        token_provider: Arc<dyn crate::auth::TokenProvider>,
+    ) -> Self {
+        self.token_provider = Some(token_provider);
+        self
+    }
+
+    /// Alias for `with_token_provider(...)`.
+    pub fn token_provider(self, token_provider: Arc<dyn crate::auth::TokenProvider>) -> Self {
+        self.with_token_provider(token_provider)
     }
 
     /// Append extra model middlewares after provider auto-middlewares.
@@ -601,21 +647,52 @@ impl OpenAiCompatibleBuilder {
     pub fn into_config(
         self,
     ) -> Result<crate::providers::openai_compatible::OpenAiCompatibleConfig, LlmError> {
-        let provider_config =
+        let (provider_config, is_synthetic_generic_provider) = if let Some(provider_config) =
+            self.provider_config_override
+        {
+            (provider_config, false)
+        } else if let Some(provider_config) =
             crate::providers::openai_compatible::config::get_provider_config(&self.provider_id)
-                .ok_or_else(|| {
-                    LlmError::ConfigurationError(format!(
-                        "Unknown OpenAI-compatible provider id: {}",
-                        self.provider_id
-                    ))
-                })?;
+        {
+            (provider_config, false)
+        } else if let Some(base_url) = self.base_url.clone() {
+            (
+                crate::providers::openai_compatible::config::generic_provider_config(
+                    &self.provider_id,
+                    &self.provider_id,
+                    &base_url,
+                ),
+                true,
+            )
+        } else {
+            return Err(LlmError::ConfigurationError(format!(
+                "Unknown OpenAI-compatible provider id: {}; provide `base_url` for a generic OpenAI-compatible provider",
+                self.provider_id
+            )));
+        };
+        let auth_required = self.auth_required.unwrap_or(!is_synthetic_generic_provider);
 
-        let api_key = crate::utils::builder_helpers::get_api_key_with_envs(
-            self.api_key,
-            &self.provider_id,
-            provider_config.api_key_env.as_deref(),
-            &provider_config.api_key_env_aliases,
-        )?;
+        fn headers_have_authorization(headers: &std::collections::HashMap<String, String>) -> bool {
+            headers
+                .keys()
+                .any(|key| key.eq_ignore_ascii_case("authorization"))
+        }
+
+        let has_external_auth = self.token_provider.is_some()
+            || headers_have_authorization(&self.http_config.headers)
+            || headers_have_authorization(&self.base.default_headers);
+        let allow_empty_api_key =
+            has_external_auth || provider_config.id == "vertex-maas" || !auth_required;
+        let api_key = if allow_empty_api_key {
+            self.api_key.unwrap_or_default()
+        } else {
+            crate::utils::builder_helpers::get_api_key_with_envs(
+                self.api_key,
+                &self.provider_id,
+                provider_config.api_key_env.as_deref(),
+                &provider_config.api_key_env_aliases,
+            )?
+        };
         let canonical_provider_id = provider_config.id.clone();
         let mut adapter: Box<dyn crate::providers::openai_compatible::ProviderAdapter> = Box::new(
             crate::standards::openai::compat::provider_registry::ConfigurableAdapter::new(
@@ -632,6 +709,12 @@ impl OpenAiCompatibleBuilder {
         }
         let adapter: Arc<dyn crate::providers::openai_compatible::ProviderAdapter> =
             Arc::from(adapter);
+
+        if canonical_provider_id == "vertex-maas" && self.base_url.is_none() {
+            return Err(LlmError::ConfigurationError(
+                "Google Vertex MaaS requires `base_url` on the OpenAI-compatible builder; use GoogleVertexMaasProviderSettings with project/location or the unified Provider::vertex_maas() builder for project/location construction".to_string(),
+            ));
+        }
 
         let base_url = crate::utils::builder_helpers::resolve_base_url(
             self.base_url.clone(),
@@ -674,6 +757,7 @@ impl OpenAiCompatibleBuilder {
         if let Some(transformer) = self.request_body_transformer.clone() {
             config = config.with_request_body_transformer(transformer);
         }
+        config = config.with_auth_required(auth_required);
 
         let mut final_http_config = self.http_config;
         if let Some(timeout) = self.base.timeout {
@@ -695,6 +779,9 @@ impl OpenAiCompatibleBuilder {
         config = config.with_http_config(final_http_config);
         if let Some(transport) = self.http_transport.clone() {
             config = config.with_http_transport(transport);
+        }
+        if let Some(token_provider) = self.token_provider.clone() {
+            config = config.with_token_provider(token_provider);
         }
 
         let model_id = config.model.clone();
@@ -823,6 +910,78 @@ mod tests {
             Some(&"2".to_string())
         );
         assert_eq!(config.http_interceptors.len(), 2);
+    }
+
+    #[test]
+    fn openai_compatible_builder_allows_external_authorization_without_api_key() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .model("deepseek-chat")
+            .header("Authorization", "Bearer external-token")
+            .into_config()
+            .expect("authorization header should satisfy compat auth");
+
+        assert_eq!(config.provider_id, "deepseek");
+        assert!(config.api_key.is_empty());
+        assert_eq!(
+            config
+                .http_config
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer external-token")
+        );
+    }
+
+    #[test]
+    fn openai_compatible_builder_carries_token_provider_without_api_key() {
+        let token_provider = Arc::new(crate::auth::StaticTokenProvider::new("test-token"));
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "deepseek")
+            .model("deepseek-chat")
+            .with_token_provider(token_provider)
+            .into_config()
+            .expect("token provider should satisfy compat auth");
+
+        assert_eq!(config.provider_id, "deepseek");
+        assert!(config.api_key.is_empty());
+        assert!(config.token_provider.is_some());
+    }
+
+    #[test]
+    fn openai_compatible_builder_generic_provider_defaults_to_optional_auth() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "local-gateway")
+            .base_url("http://localhost:11434/v1")
+            .model("llama3.2")
+            .into_config()
+            .expect("generic compat config");
+
+        assert_eq!(config.provider_id, "local-gateway");
+        assert!(config.api_key.is_empty());
+        assert!(!config.auth_required);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn openai_compatible_builder_generic_provider_honors_explicit_auth_requirement() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "private-gateway")
+            .base_url("https://gateway.example.com/v1")
+            .model("gateway-model")
+            .with_auth_required(true)
+            .header("Authorization", "Bearer external-token")
+            .into_config()
+            .expect("generic compat config with explicit auth");
+
+        assert_eq!(config.provider_id, "private-gateway");
+        assert!(config.api_key.is_empty());
+        assert!(config.auth_required);
+        assert_eq!(
+            config
+                .http_config
+                .headers
+                .get("Authorization")
+                .map(String::as_str),
+            Some("Bearer external-token")
+        );
+        assert!(config.validate().is_ok());
     }
 
     #[test]

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Native Anthropic now exposes an AI SDK-style package settings wrapper:
+  `AnthropicProviderSettings` covers the audited `apiKey` / `authToken` / `baseURL` / `headers` /
+  `fetch` subset, converts into the provider-owned builder/config surfaces, and keeps upstream
+  `generateId` / `name` explicitly deferred.
 - Native Anthropic provider now also exposes a provider-owned `skills()` resource aligned with the
   AI SDK `AnthropicSkills` surface: multipart/base64 helpers upload to `POST /v1/skills`, the
   skill client automatically enables `skills-2025-10-02`, and canonical `providerReference` /
@@ -27,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Native Anthropic auth-token construction now maps `authToken` to `Authorization: Bearer ...`
+  without forcing an empty `x-api-key`, matching the audited AI SDK alternate-auth path more
+  closely.
 - Native Anthropic provider metadata/spec wiring now advertises the Files API beta requirement for
   prompt-side provider-owned file references, keeping the public provider surface aligned with the
   audited request converter behavior.

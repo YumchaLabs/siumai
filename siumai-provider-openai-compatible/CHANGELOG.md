@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
 - Add compat-backed AI SDK-style `FireworksProviderSettings` for the audited package-level
   `apiKey` / `baseURL` / `headers` / `fetch` construction subset.
+- Add compat-backed AI SDK-style `GoogleVertexMaasProviderSettings` for the audited package-level
+  `project` / `location` / `baseURL` / `headers` / `fetch` construction subset, plus a Rust
+  token-provider analogue for the Node auth wrapper.
+- Add generic AI SDK-style `OpenAICompatibleProviderSettings` for the audited
+  `@ai-sdk/openai-compatible` package settings surface, including `name`, required `baseURL`,
+  optional `apiKey`, `headers`, `queryParams`, `fetch`, `includeUsage`,
+  `supportsStructuredOutputs`, `transformRequestBody`, and `metadataExtractor`.
 
 - Add AI SDK-aligned completion-family execution on the real OpenAI-compatible `/completions`
   route for both non-stream and SSE flows, including completion response usage/metadata/provider
@@ -42,6 +49,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared OpenAI-compatible auth/header validation now allows requests to proceed when an explicit
   `Authorization` header is already present, even if `api_key` is empty. This unblocks
   Google-style Bearer-token flows such as Vertex MaaS without requiring fake placeholder API keys.
+- Shared OpenAI-compatible builders can now carry an async token provider directly, so
+  Google-style Bearer-token flows can be configured through package settings instead of replacing
+  the shared compat runtime.
+- Generic OpenAI-compatible settings now use a plain synthetic provider config instead of reusing
+  built-in provider presets when `name` collides with ids such as `groq`, and that generic path can
+  build unauthenticated local/private gateway clients just like AI SDK's optional `apiKey` setting.
 - Shared OpenAI-compatible tool warnings now support an allowlist of provider-defined tool ids, so
   provider-owned runtimes can tunnel supported server-side tools through Chat Completions without
   emitting duplicate generic unsupported warnings.

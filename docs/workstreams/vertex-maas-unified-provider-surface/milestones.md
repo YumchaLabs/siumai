@@ -61,6 +61,9 @@ Current state:
 - public-path parity and import tests now cover the unified Vertex MaaS surface
 - public `provider_ext::vertex_maas` model constants plus provider-catalog curated model reuse now
   keep the facade and registry on the same audited MaaS subset
+- `provider_ext::vertex_maas::{GoogleVertexMaasProviderSettings, VERSION}` now mirrors the
+  package-level settings/version surface for the audited `project/location/baseURL/headers/fetch`
+  subset
 
 Status: completed
 

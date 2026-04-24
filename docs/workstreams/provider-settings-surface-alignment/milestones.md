@@ -6,7 +6,7 @@ Last updated: 2026-04-24
 
 Acceptance criteria:
 
-- The upstream OpenAI / Azure / Bedrock / Cohere / DeepSeek / TogetherAI / xAI / Groq / Mistral / Perplexity / Fireworks / MoonshotAI / DeepInfra provider settings
+- The upstream OpenAI Compatible / OpenAI / Anthropic / Azure / Bedrock / Cohere / DeepSeek / TogetherAI / xAI / Groq / Google / Google Vertex / Google Vertex Anthropic / Mistral / Perplexity / Fireworks / MoonshotAI / DeepInfra / Google Vertex MaaS provider settings
   references are recorded.
 - The supported/deferred matrix is explicit.
 - The workstream scope distinguishes package-shape parity from runtime parity.
@@ -17,7 +17,7 @@ Status: completed
 
 Acceptance criteria:
 
-- OpenAI, Azure, Bedrock, Cohere, DeepSeek, TogetherAI, xAI, Groq, Mistral, Perplexity, Fireworks, MoonshotAI, and DeepInfra each expose a dedicated package-level
+- OpenAI Compatible, OpenAI, Anthropic, Azure, Bedrock, Cohere, DeepSeek, TogetherAI, xAI, Groq, Google, Google Vertex, Google Vertex Anthropic, Mistral, Perplexity, Fireworks, MoonshotAI, DeepInfra, and Google Vertex MaaS each expose a dedicated package-level
   provider settings carrier.
 - Those settings carriers are model-agnostic.
 - They convert into the provider-owned builder/config surfaces without special-case backdoors.
@@ -26,6 +26,8 @@ Current state:
 
 - `OpenAIProviderSettings` is exposed on the provider-owned OpenAI module and the top-level
   `provider_ext::openai` facade.
+- `AnthropicProviderSettings` is exposed on the provider-owned Anthropic module and the top-level
+  `provider_ext::anthropic` facade.
 - `AzureOpenAIProviderSettings` is exposed on the provider-owned Azure module and the top-level
   `provider_ext::azure` facade.
 - `AmazonBedrockProviderSettings` is exposed on the provider-owned Bedrock module and the
@@ -40,6 +42,14 @@ Current state:
   `provider_ext::xai` facade.
 - `GroqProviderSettings` is exposed on the provider-owned Groq module and the top-level
   `provider_ext::groq` facade.
+- `GoogleProviderSettings` is exposed on the provider-owned Gemini/Google module and the
+  top-level `provider_ext::google` facade.
+- `GoogleVertexProviderSettings` is exposed on the provider-owned Vertex module and the top-level
+  `provider_ext::google_vertex` facade.
+- `GoogleVertexAnthropicProviderSettings` is exposed on the provider-owned Vertex Anthropic module
+  and the top-level `provider_ext::anthropic_vertex` facade.
+- `OpenAICompatibleProviderSettings` is exposed from the OpenAI-compatible module and the
+  top-level `provider_ext::openai_compatible` facade.
 - `MistralProviderSettings` is exposed from the OpenAI-compatible module and the top-level
   `provider_ext::mistral` facade.
 - `PerplexityProviderSettings` is exposed from the OpenAI-compatible module and the top-level
@@ -50,6 +60,8 @@ Current state:
   `provider_ext::moonshotai` facade.
 - `DeepInfraProviderSettings` is exposed from the OpenAI-compatible module and the top-level
   `provider_ext::deepinfra` facade.
+- `GoogleVertexMaasProviderSettings` is exposed from the OpenAI-compatible module and the
+  top-level `provider_ext::vertex_maas` facade.
 - Each carrier now exposes `new()`, fluent `with_*` setters, `into_builder()`,
   `into_builder_for_model(...)`, and `into_config_for_model(...)`.
 
@@ -66,9 +78,9 @@ Acceptance criteria:
 Current state:
 
 - `providers::{openai,azure_openai,bedrock}::VERSION` now exist.
-- `provider_ext::{openai,azure,bedrock}::VERSION` now exist.
+- `provider_ext::{openai,anthropic,azure,bedrock}::VERSION` now exist.
 - `provider_ext::cohere::VERSION` now exists.
-- `provider_ext::{deepseek,togetherai,xai,groq,mistral,perplexity,fireworks,moonshotai,deepinfra}::VERSION` now exist.
+- `provider_ext::{openai_compatible,deepseek,togetherai,xai,groq,google,google_vertex,anthropic_vertex,mistral,perplexity,fireworks,moonshotai,deepinfra,vertex_maas}::VERSION` now exist.
 - Public compile/path tests now lock the new settings carriers on the top-level facade.
 
 Status: completed

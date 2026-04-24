@@ -226,7 +226,8 @@ This workstream is locked by:
 ## Remaining follow-up
 
 - Re-check if other Anthropic package-index exports need stable facade mirrors after the next AI SDK
-  update.
+  update. `AnthropicProviderSettings` and package `VERSION` are now mirrored on the Rust facade;
+  the remaining known provider-settings deferrals are `generateId` and `name`.
 - Re-audit the next upstream Anthropic request changelog for additional `output_config` fields so
   Siumai keeps one merged native output-config lane instead of reintroducing parallel overlays.
 - Re-audit whether upstream Anthropic adds further adaptive-thinking or inference policy enums so

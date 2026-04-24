@@ -18,6 +18,8 @@ Status legend:
 ## Track B - Provider-owned/public alias parity
 
 - [x] Add `AnthropicLanguageModelOptions` on the Anthropic provider-owned/public Rust surface.
+- [x] Add `AnthropicProviderSettings` plus package `VERSION` on the Anthropic provider-owned/public
+  Rust surface.
 - [x] Add deprecated `AnthropicProviderOptions` migration coverage.
 - [x] Add `AnthropicMessageMetadata` on the typed Anthropic metadata surface as a dedicated narrow
   struct instead of a thin alias to the wider Rust helper metadata.

@@ -102,18 +102,38 @@ impl AnthropicConfig {
 
     /// Create config from `ANTHROPIC_API_KEY`, optionally honoring `ANTHROPIC_BASE_URL`.
     pub fn from_env() -> Result<Self, LlmError> {
-        let api_key = std::env::var("ANTHROPIC_API_KEY")
-            .map_err(|_| LlmError::MissingApiKey("Anthropic API key not provided".to_string()))?;
+        let api_key = std::env::var("ANTHROPIC_API_KEY").ok();
+        let auth_token = std::env::var("ANTHROPIC_AUTH_TOKEN").ok();
         let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
             None,
             Some("ANTHROPIC_BASE_URL"),
             "https://api.anthropic.com",
         );
-        Ok(Self::new(api_key).with_base_url(base_url))
+        match api_key.filter(|value| !value.is_empty()) {
+            Some(api_key) => Ok(Self::new(api_key).with_base_url(base_url)),
+            None => match auth_token.filter(|value| !value.is_empty()) {
+                Some(auth_token) => Ok(Self::new("")
+                    .with_auth_token(auth_token)
+                    .with_base_url(base_url)),
+                None => Err(LlmError::MissingApiKey(
+                    "Anthropic API key or auth token not provided".to_string(),
+                )),
+            },
+        }
     }
 
     pub fn with_base_url<S: Into<String>>(mut self, url: S) -> Self {
         self.base_url = url.into();
+        self
+    }
+
+    /// Configure `Authorization: Bearer ...` auth instead of `x-api-key`.
+    pub fn with_auth_token<S: Into<String>>(mut self, token: S) -> Self {
+        self.api_key = SecretString::from(String::new());
+        self.http_config.headers.insert(
+            "Authorization".to_string(),
+            format!("Bearer {}", token.into()),
+        );
         self
     }
 
@@ -169,6 +189,16 @@ impl AnthropicConfig {
 
     pub fn with_http_config(mut self, http: HttpConfig) -> Self {
         self.http_config = http;
+        self
+    }
+
+    pub fn with_headers(mut self, headers: std::collections::HashMap<String, String>) -> Self {
+        self.http_config.headers = headers;
+        self
+    }
+
+    pub fn with_header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.http_config.headers.insert(key.into(), value.into());
         self
     }
 

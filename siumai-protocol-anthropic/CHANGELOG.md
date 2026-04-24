@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Anthropic header construction now supports the audited alternate-auth path: when callers provide
+  an `Authorization` header and no API key, the protocol header builder no longer emits an empty
+  `x-api-key`.
 - Anthropic native structured output now follows the current AI SDK request contract more closely:
   native JSON Schema output lowers to `output_config.format` instead of deprecated
   `output_format`, request-option overlays merge `output_config.format`, `output_config.effort`,

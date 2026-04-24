@@ -20,6 +20,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   direct header/fetch/base-url support on the provider-owned builder/config surface. Upstream
   `generateId` remains explicitly deferred until the Cohere runtime owns a comparable stable ID
   hook.
+- Native Anthropic package-surface parity now follows the provider-settings rule too:
+  `provider_ext::anthropic::{AnthropicProviderSettings, VERSION}` exposes the audited
+  `apiKey` / `authToken` / `baseURL` / `headers` / `fetch` subset, with `authToken` mapped to
+  `Authorization: Bearer ...` without forcing an empty `x-api-key`. Upstream `generateId` and
+  `name` remain explicitly deferred.
 - DeepSeek and TogetherAI package surfaces now also expose AI SDK-style provider settings carriers:
   `provider_ext::deepseek::{DeepSeekProviderSettings, VERSION}` and
   `provider_ext::togetherai::{TogetherAIProviderSettings, VERSION}` mirror the supported
@@ -48,6 +53,18 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Fireworks now joins the provider-settings pass through the shared OpenAI-compatible runtime:
   `provider_ext::fireworks::{FireworksProviderSettings, VERSION}` exposes the audited
   `apiKey` / `baseURL` / `headers` / `fetch` subset.
+- Generic `@ai-sdk/openai-compatible` package-surface parity now has a dedicated carrier:
+  `provider_ext::openai_compatible::{OpenAICompatibleProviderSettings, VERSION}` exposes the
+  audited `name` / `baseURL` / `apiKey` / `headers` / `queryParams` / `fetch` / `includeUsage` /
+  `supportsStructuredOutputs` / `transformRequestBody` / `metadataExtractor` subset. Generic
+  settings intentionally use a plain compat adapter instead of reusing built-in provider presets,
+  and can target unauthenticated local/private gateways when no API key or authorization header is
+  configured.
+- Google Vertex MaaS now joins the provider-settings pass through the shared OpenAI-compatible
+  runtime: `provider_ext::vertex_maas::{GoogleVertexMaasProviderSettings, VERSION}` exposes the
+  audited `project` / `location` / `baseURL` / `headers` / `fetch` subset, derives the
+  `/endpoints/openapi` base URL from project/location with environment fallbacks, and uses a Rust
+  token-provider analogue instead of modeling Node's `googleAuthOptions` object directly.
 - `@ai-sdk/google-vertex` package-surface parity is now tighter on the Rust facade:
   `provider_ext::google_vertex` / `providers::vertex` now expose `VERSION` plus a dedicated
   `GoogleVertexProviderSettings` input struct with `into_builder()` /
@@ -659,6 +676,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Fixed
 
+- Google Vertex express-mode authentication now wins consistently when `GOOGLE_VERTEX_API_KEY`
+  supplies the API key, suppressing token-provider auth just like the audited AI SDK node wrapper
+  does when an effective API key is present.
 - Anthropic native structured-output alignment is now tighter against the audited
   `@ai-sdk/anthropic` contract: native JSON Schema output lowers to `output_config.format`
   instead of the deprecated `output_format` field, `output_config.{format,effort,task_budget}`

@@ -13,9 +13,12 @@ pub fn build_headers(
     custom_headers: &std::collections::HashMap<String, String>,
 ) -> Result<HeaderMap, LlmError> {
     let mut builder = HttpHeaderBuilder::new()
-        .with_custom_auth("x-api-key", api_key)?
         .with_json_content_type()
         .with_header("anthropic-version", "2023-06-01")?;
+
+    if !api_key.is_empty() {
+        builder = builder.with_custom_auth("x-api-key", api_key)?;
+    }
 
     if let Some(beta_features) = custom_headers.get("anthropic-beta") {
         builder = builder.with_header("anthropic-beta", beta_features)?;
@@ -63,6 +66,20 @@ mod header_tests {
             headers.get("anthropic-beta").and_then(|v| v.to_str().ok()),
             Some("feature-a,feature-b")
         );
+    }
+
+    #[test]
+    fn build_headers_allows_authorization_without_x_api_key() {
+        let mut custom = std::collections::HashMap::new();
+        custom.insert("Authorization".to_string(), "Bearer auth-token".to_string());
+
+        let headers = build_headers("", &custom).unwrap();
+        assert_eq!(
+            headers.get("Authorization").and_then(|v| v.to_str().ok()),
+            Some("Bearer auth-token")
+        );
+        assert!(headers.get("x-api-key").is_none());
+        assert!(headers.contains_key("anthropic-version"));
     }
 
     #[test]

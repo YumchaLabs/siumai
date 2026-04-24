@@ -98,7 +98,8 @@ pub use adapter::{
 };
 pub use builder::OpenAiCompatibleBuilder;
 pub use config::{
-    get_builtin_providers, get_provider_config, list_provider_ids, provider_supports_capability,
+    generic_provider_config, get_builtin_providers, get_provider_config, list_provider_ids,
+    provider_supports_capability,
 };
 pub use ext::{
     FireworksChatRequestExt, MistralChatRequestExt, MoonshotAIChatRequestExt,
@@ -113,8 +114,9 @@ pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{
-    DeepInfraProviderSettings, FireworksProviderSettings, MistralProviderSettings,
-    MoonshotAIProviderSettings, PerplexityProviderSettings,
+    DeepInfraProviderSettings, FireworksProviderSettings, GoogleVertexMaasProviderSettings,
+    MistralProviderSettings, MoonshotAIProviderSettings, OpenAICompatibleProviderSettings,
+    PerplexityProviderSettings,
 };
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
@@ -261,6 +263,9 @@ pub type OpenAICompatibleClient = OpenAiCompatibleClient;
 /// AI SDK-exact-case alias for OpenAI-compatible configs.
 pub type OpenAICompatibleConfig = OpenAiCompatibleConfig;
 
+/// Rust package version exposed on the generic OpenAI-compatible package-surface facade.
+pub const OPENAI_COMPATIBLE_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// AI SDK-style provider-scoped alias for Mistral compat clients.
 pub type MistralClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for Mistral compat configs.
@@ -330,6 +335,17 @@ pub const MOONSHOTAI_VERSION: &str = env!("CARGO_PKG_VERSION");
 ///
 /// Rust keeps model ids as plain strings on the stable provider surface.
 pub type MoonshotAIChatModelId = String;
+
+/// AI SDK-style provider-scoped alias for Google Vertex MaaS compat text-family clients.
+pub type GoogleVertexMaasClient = openai_client::OpenAiCompatibleClient;
+/// AI SDK-style provider-scoped alias for Google Vertex MaaS compat text-family configs.
+pub type GoogleVertexMaasConfig = openai_config::OpenAiCompatibleConfig;
+/// Rust package version exposed on the Google Vertex MaaS package-surface facade.
+pub const GOOGLE_VERTEX_MAAS_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// AI SDK-style Google Vertex MaaS model id alias.
+///
+/// Rust keeps model ids as plain strings on the stable provider surface.
+pub type GoogleVertexMaasModelId = String;
 
 // Test modules
 #[cfg(test)]

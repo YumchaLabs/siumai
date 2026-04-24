@@ -27,6 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Vertex express-mode authentication now wins consistently when `GOOGLE_VERTEX_API_KEY` supplies
+  the API key, suppressing token-provider auth just like the audited AI SDK node wrapper does when
+  an effective API key is present.
 - Anthropic-on-Vertex structured-output and reasoning streams now preserve the expected public
   client semantics again: indexed Anthropic textual/thinking blocks replay compatible
   `ContentDelta` / `ThinkingDelta` shadows on the public stream, and metadata-only redacted

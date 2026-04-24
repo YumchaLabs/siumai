@@ -304,10 +304,16 @@ impl ProviderSpec for AnthropicSpec {
     }
 
     fn build_headers(&self, ctx: &ProviderContext) -> Result<HeaderMap, LlmError> {
-        let api_key = ctx
-            .api_key
-            .as_ref()
-            .ok_or_else(|| LlmError::MissingApiKey("Anthropic API key not provided".into()))?;
+        let api_key = ctx.api_key.as_deref().unwrap_or_default();
+        let has_authorization = ctx
+            .http_extra_headers
+            .keys()
+            .any(|key| key.eq_ignore_ascii_case("authorization"));
+        if api_key.is_empty() && !has_authorization {
+            return Err(LlmError::MissingApiKey(
+                "Anthropic API key or auth token not provided".into(),
+            ));
+        }
         crate::standards::anthropic::utils::build_headers(api_key, &ctx.http_extra_headers)
     }
 

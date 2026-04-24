@@ -20,6 +20,7 @@ pub struct AnthropicBuilder {
     /// Core provider configuration (composition)
     pub(crate) core: ProviderCore,
     api_key: Option<String>,
+    auth_token: Option<String>,
     base_url: Option<String>,
     common_params: CommonParams,
     anthropic_params: AnthropicParams,
@@ -31,6 +32,7 @@ impl AnthropicBuilder {
         Self {
             core: ProviderCore::new(base),
             api_key: None,
+            auth_token: None,
             base_url: None,
             common_params: CommonParams::default(),
             anthropic_params: AnthropicParams::default(),
@@ -42,6 +44,17 @@ impl AnthropicBuilder {
     pub fn api_key<S: Into<String>>(mut self, key: S) -> Self {
         self.api_key = Some(key.into());
         self
+    }
+
+    /// Sets an Anthropic auth token for `Authorization: Bearer ...` authentication.
+    pub fn auth_token<S: Into<String>>(mut self, token: S) -> Self {
+        self.auth_token = Some(token.into());
+        self
+    }
+
+    /// Alias for `auth_token(...)`.
+    pub fn with_auth_token<S: Into<String>>(self, token: S) -> Self {
+        self.auth_token(token)
     }
 
     /// Sets the base URL
@@ -111,6 +124,26 @@ impl AnthropicBuilder {
         transport: Arc<dyn crate::execution::http::transport::HttpTransport>,
     ) -> Self {
         self.with_http_transport(transport)
+    }
+
+    /// Replace default HTTP headers for this provider builder.
+    pub fn headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.core.http_config.headers = headers;
+        self
+    }
+
+    /// Alias for `headers(...)`.
+    pub fn custom_headers(self, headers: HashMap<String, String>) -> Self {
+        self.headers(headers)
+    }
+
+    /// Add one default HTTP header for this provider builder.
+    pub fn header<K: Into<String>, V: Into<String>>(mut self, key: K, value: V) -> Self {
+        self.core
+            .http_config
+            .headers
+            .insert(key.into(), value.into());
+        self
     }
 
     // === HTTP Advanced Configuration ===
@@ -345,12 +378,30 @@ impl AnthropicBuilder {
 
     /// Builds the Anthropic client
     pub fn into_config(self) -> Result<crate::providers::anthropic::AnthropicConfig, LlmError> {
-        let api_key = self
-            .api_key
-            .or_else(|| std::env::var("ANTHROPIC_API_KEY").ok())
-            .ok_or(LlmError::MissingApiKey(
-                "Anthropic API key not provided".to_string(),
-            ))?;
+        let explicit_api_key = self.api_key;
+        let explicit_auth_token = self.auth_token;
+        if explicit_api_key.is_some() && explicit_auth_token.is_some() {
+            return Err(LlmError::ConfigurationError(
+                "Anthropic requires only one of `api_key` or `auth_token`".to_string(),
+            ));
+        }
+
+        let (api_key, auth_token) = match (explicit_api_key, explicit_auth_token) {
+            (Some(api_key), None) => (api_key, None),
+            (None, Some(auth_token)) => (String::new(), Some(auth_token)),
+            (None, None) => match std::env::var("ANTHROPIC_API_KEY").ok() {
+                Some(api_key) if !api_key.is_empty() => (api_key, None),
+                _ => match std::env::var("ANTHROPIC_AUTH_TOKEN").ok() {
+                    Some(auth_token) if !auth_token.is_empty() => (String::new(), Some(auth_token)),
+                    _ => {
+                        return Err(LlmError::MissingApiKey(
+                            "Anthropic API key or auth token not provided".to_string(),
+                        ));
+                    }
+                },
+            },
+            (Some(_), Some(_)) => unreachable!("explicit auth conflict handled above"),
+        };
 
         let base_url = crate::utils::builder_helpers::resolve_base_url_with_env(
             self.base_url,
@@ -362,13 +413,24 @@ impl AnthropicBuilder {
         let http_interceptors = self.core.get_http_interceptors();
         let mut model_middlewares = self.core.get_auto_middlewares("anthropic", &model_id);
         model_middlewares.extend(self.model_middlewares);
+        let mut http_config = self.core.http_config.clone();
+        if let Some(auth_token) = auth_token
+            && !http_config
+                .headers
+                .keys()
+                .any(|key| key.eq_ignore_ascii_case("authorization"))
+        {
+            http_config
+                .headers
+                .insert("Authorization".to_string(), format!("Bearer {auth_token}"));
+        }
 
         Ok(crate::providers::anthropic::AnthropicConfig {
             api_key: secrecy::SecretString::from(api_key),
             base_url,
             common_params: self.common_params,
             anthropic_params: self.anthropic_params,
-            http_config: self.core.http_config.clone(),
+            http_config,
             http_transport: self.core.http_transport.clone(),
             http_interceptors,
             model_middlewares,

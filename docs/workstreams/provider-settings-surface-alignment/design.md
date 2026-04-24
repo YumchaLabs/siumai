@@ -1,26 +1,34 @@
 # Provider Settings Surface Alignment - Design
 
-Last updated: 2026-04-23
+Last updated: 2026-04-24
 
 ## Problem
 
 Compared with the audited AI SDK package roots:
 
+- `repo-ref/ai/packages/openai-compatible/src/openai-compatible-provider.ts`
 - `repo-ref/ai/packages/openai/src/openai-provider.ts`
+- `repo-ref/ai/packages/anthropic/src/anthropic-provider.ts`
 - `repo-ref/ai/packages/azure/src/azure-openai-provider.ts`
 - `repo-ref/ai/packages/amazon-bedrock/src/bedrock-provider.ts`
 - `repo-ref/ai/packages/cohere/src/cohere-provider.ts`
 - `repo-ref/ai/packages/deepseek/src/deepseek-provider.ts`
 - `repo-ref/ai/packages/togetherai/src/togetherai-provider.ts`
+- `repo-ref/ai/packages/google/src/google-provider.ts`
+- `repo-ref/ai/packages/google-vertex/src/google-vertex-provider.ts`
+- `repo-ref/ai/packages/google-vertex/src/anthropic/google-vertex-anthropic-provider.ts`
+- `repo-ref/ai/packages/google-vertex/src/maas/google-vertex-maas-provider-node.ts`
 
 Siumai already had most runtime/build/config capabilities for provider-level construction, but the
 package boundary still drifted in one important way:
 
-- `openai`, `azure`, `bedrock`, `cohere`, `deepseek`, and `togetherai` did not expose dedicated
+- `openai-compatible`, `openai`, `azure`, `bedrock`, `cohere`, `deepseek`, and `togetherai` did not expose dedicated
   package-level `*ProviderSettings`
   carriers comparable to the upstream settings inputs
 - `provider_ext::{openai,azure,bedrock}` therefore lagged the newer Google / Google Vertex
-  package-surface story, where construction settings and `VERSION` were already exposed explicitly
+  package-surface story, where construction settings and `VERSION` were already exposed explicitly,
+  and the Google / Vertex carriers needed to be recorded in the same matrix instead of living only
+  in older structural-alignment notes
 - some provider-level fields were supported by the real Rust runtime but only indirectly through
   builder/config methods, which made side-by-side structural diffing against `repo-ref/ai` noisy
 - other upstream fields were not yet honestly supported by the Rust runtime, but that gap was not
@@ -35,8 +43,12 @@ This was not a single runtime bug. It was a package-shape and data-structure gap
 ## Goals
 
 - Expose provider-level settings carriers for the honest, currently supported subset of:
-  `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, `AmazonBedrockProviderSettings`,
-  `CohereProviderSettings`, `DeepSeekProviderSettings`, and `TogetherAIProviderSettings`.
+  `OpenAICompatibleProviderSettings`, `OpenAIProviderSettings`, `AnthropicProviderSettings`,
+  `AzureOpenAIProviderSettings`,
+  `AmazonBedrockProviderSettings`, `CohereProviderSettings`, `DeepSeekProviderSettings`,
+  `TogetherAIProviderSettings`, `GoogleProviderSettings`, `GoogleVertexProviderSettings`,
+  `GoogleVertexAnthropicProviderSettings`, and the audited compat-backed provider settings carriers
+  tracked in the matrix, including `GoogleVertexMaasProviderSettings`.
 - Keep those settings carriers model-agnostic and require model selection later through
   `into_builder_for_model(...)` / `into_config_for_model(...)`.
 - Re-export the settings carriers and `VERSION` from the provider-owned modules and the top-level
@@ -59,11 +71,18 @@ This was not a single runtime bug. It was a package-shape and data-structure gap
 The provider-owned modules now expose:
 
 - `providers::openai::OpenAIProviderSettings`
+- `providers::anthropic::AnthropicProviderSettings`
 - `providers::azure_openai::AzureOpenAIProviderSettings`
 - `providers::bedrock::AmazonBedrockProviderSettings`
 - `providers::cohere::CohereProviderSettings`
 - `providers::deepseek::DeepSeekProviderSettings`
 - `providers::togetherai::TogetherAIProviderSettings`
+- `providers::gemini::GoogleProviderSettings`
+- `providers::vertex::GoogleVertexProviderSettings`
+- `providers::anthropic_vertex::GoogleVertexAnthropicProviderSettings`
+- `providers::openai_compatible::{OpenAICompatibleProviderSettings, MistralProviderSettings,
+  PerplexityProviderSettings, FireworksProviderSettings, MoonshotAIProviderSettings,
+  DeepInfraProviderSettings, GoogleVertexMaasProviderSettings}`
 
 Each carrier:
 
@@ -110,11 +129,17 @@ APIs instead of bypassing them.
 The provider-owned modules now expose:
 
 - `providers::openai::VERSION`
+- `providers::anthropic::VERSION`
 - `providers::azure_openai::VERSION`
 - `providers::bedrock::VERSION`
 - `providers::cohere::VERSION`
 - `providers::deepseek::VERSION`
 - `providers::togetherai::VERSION`
+- `providers::gemini::VERSION`
+- `providers::vertex::VERSION`
+- `providers::anthropic_vertex::VERSION`
+- `providers::openai_compatible::OPENAI_COMPATIBLE_VERSION`
+- provider-scoped OpenAI-compatible package facades, including `provider_ext::vertex_maas::VERSION`
 
 The top-level facade mirrors these on:
 
@@ -124,6 +149,10 @@ The top-level facade mirrors these on:
 - `provider_ext::cohere::VERSION`
 - `provider_ext::deepseek::VERSION`
 - `provider_ext::togetherai::VERSION`
+- `provider_ext::google::VERSION`
+- `provider_ext::google_vertex::VERSION`
+- `provider_ext::anthropic_vertex::VERSION`
+- `provider_ext::openai_compatible::VERSION`
 
 This matches the audited package-root review story more closely and keeps package-surface checks
 consistent with the Google / Google Vertex slices.
@@ -141,6 +170,8 @@ Current deferred examples:
 - Bedrock `credentialProvider`
 - Bedrock `generateId`
 - Cohere `generateId`
+- Google Vertex / Vertex Anthropic credential object shapes (`googleAuthOptions`,
+  `googleCredentials`) beyond the Rust token-provider analogue
 
 These are recorded in `data-structure-matrix.md` so future follow-up can target the real runtime
 gaps instead of rediscovering them.

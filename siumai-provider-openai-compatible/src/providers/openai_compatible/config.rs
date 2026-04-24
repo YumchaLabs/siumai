@@ -939,6 +939,30 @@ pub fn get_builtin_providers() -> HashMap<String, ProviderConfig> {
     get_builtin_provider_map().clone()
 }
 
+/// Build a generic OpenAI-compatible provider configuration.
+///
+/// This mirrors AI SDK's `createOpenAICompatible({ name, baseURL, ... })` path: callers provide a
+/// provider name and endpoint, and Siumai uses the plain OpenAI-compatible adapter without applying
+/// any built-in provider-specific transforms.
+pub fn generic_provider_config(provider_id: &str, name: &str, base_url: &str) -> ProviderConfig {
+    ProviderConfig {
+        id: provider_id.to_string(),
+        name: name.to_string(),
+        base_url: base_url.to_string(),
+        field_mappings: ProviderFieldMappings::default(),
+        capabilities: vec![
+            "tools".to_string(),
+            "vision".to_string(),
+            "embedding".to_string(),
+            "image_generation".to_string(),
+        ],
+        default_model: None,
+        supports_reasoning: false,
+        api_key_env: None,
+        api_key_env_aliases: Vec::new(),
+    }
+}
+
 /// Get provider configuration by ID
 pub fn get_provider_config(provider_id: &str) -> Option<ProviderConfig> {
     get_provider_config_ref(provider_id).cloned()
