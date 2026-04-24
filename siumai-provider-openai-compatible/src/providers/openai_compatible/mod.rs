@@ -113,8 +113,8 @@ pub use middleware::OpenAiCompatibleToolWarningsMiddleware;
 pub use openai_client::OpenAiCompatibleClient;
 pub use openai_config::OpenAiCompatibleConfig;
 pub use settings::{
-    FireworksProviderSettings, MistralProviderSettings, MoonshotAIProviderSettings,
-    PerplexityProviderSettings,
+    DeepInfraProviderSettings, FireworksProviderSettings, MistralProviderSettings,
+    MoonshotAIProviderSettings, PerplexityProviderSettings,
 };
 pub use types::{FieldMappings, ModelConfig, RequestType};
 
@@ -315,6 +315,8 @@ pub type DeepInfraImageModelId = String;
 /// AI SDK-style provider-scoped alias for DeepInfra compat text-family clients.
 pub type DeepInfraClient = openai_client::OpenAiCompatibleClient;
 /// AI SDK-style provider-scoped alias for DeepInfra compat text-family configs.
+/// Rust package version exposed on the DeepInfra package-surface facade.
+pub const DEEPINFRA_VERSION: &str = env!("CARGO_PKG_VERSION");
 pub type DeepInfraConfig = openai_config::OpenAiCompatibleConfig;
 
 /// AI SDK-style provider-scoped alias for MoonshotAI compat language-model clients.

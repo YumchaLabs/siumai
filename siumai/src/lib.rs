@@ -731,8 +731,9 @@ pub mod provider_ext {
         /// [`create_deepinfra()`], [`crate::Provider::deepinfra()`], or
         /// [`crate::provider::SiumaiBuilder::deepinfra()`].
         pub use siumai_provider_openai_compatible::providers::openai_compatible::{
-            DeepInfraChatModelId, DeepInfraClient, DeepInfraCompletionModelId, DeepInfraConfig,
-            DeepInfraEmbeddingModelId, DeepInfraErrorData, DeepInfraImageModelId,
+            DEEPINFRA_VERSION as VERSION, DeepInfraChatModelId, DeepInfraClient,
+            DeepInfraCompletionModelId, DeepInfraConfig, DeepInfraEmbeddingModelId,
+            DeepInfraErrorData, DeepInfraImageModelId, DeepInfraProviderSettings,
         };
 
         /// Curated DeepInfra model constants aligned with the audited AI SDK package subset.

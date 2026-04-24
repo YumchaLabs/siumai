@@ -1,4 +1,4 @@
-use std::mem::size_of;
+﻿use std::mem::size_of;
 
 #[test]
 #[allow(deprecated)]
@@ -1768,14 +1768,17 @@ fn public_surface_deepinfra_unified_builder_compiles() {
     use siumai::prelude::compat::{Provider, Siumai};
     use siumai::provider_ext::deepinfra::{
         DeepInfraChatModelId, DeepInfraClient, DeepInfraCompletionModelId, DeepInfraConfig,
-        DeepInfraEmbeddingModelId, DeepInfraErrorData, DeepInfraImageModelId, chat, completion,
-        create_deepinfra, deepinfra, embedding, image, model_sets,
+        DeepInfraEmbeddingModelId, DeepInfraErrorData, DeepInfraImageModelId,
+        DeepInfraProviderSettings, VERSION, chat, completion, create_deepinfra, deepinfra,
+        embedding, image, model_sets,
     };
 
     let _ = size_of::<DeepInfraChatModelId>();
     let _ = size_of::<DeepInfraClient>();
     let _ = size_of::<DeepInfraCompletionModelId>();
     let _ = size_of::<DeepInfraConfig>();
+    let _ = size_of::<DeepInfraProviderSettings>();
+    let _ = VERSION;
     let _ = size_of::<DeepInfraEmbeddingModelId>();
     let _ = size_of::<DeepInfraErrorData>();
     let _ = size_of::<DeepInfraImageModelId>();
@@ -1783,6 +1786,14 @@ fn public_surface_deepinfra_unified_builder_compiles() {
     let _ = Siumai::builder().deepinfra();
     let _ = deepinfra();
     let _ = create_deepinfra();
+    let _ = DeepInfraProviderSettings::new()
+        .with_api_key("test-key")
+        .with_base_url("https://example.com/deepinfra")
+        .with_header("x-test", "1")
+        .into_builder_for_model(chat::LLAMA_V3P3_70B_INSTRUCT);
+    let _ = DeepInfraProviderSettings::new()
+        .with_api_key("test-key")
+        .into_config_for_model(chat::LLAMA_V3P3_70B_INSTRUCT);
     let _ = chat::LLAMA_V3P3_70B_INSTRUCT;
     let _ = completion::LLAMA_V3P3_70B_INSTRUCT;
     let _ = embedding::BGE_BASE_EN_V1_5;

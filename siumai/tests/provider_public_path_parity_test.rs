@@ -10653,6 +10653,26 @@ mod deepinfra_public_path {
         String::from_utf8_lossy(&req.body).replace(boundary, "<boundary>")
     }
 
+    #[test]
+    fn deepinfra_package_settings_preserve_supported_provider_inputs() {
+        let config = siumai::provider_ext::deepinfra::DeepInfraProviderSettings::new()
+            .with_api_key("test-key")
+            .with_base_url("https://example.com/deepinfra")
+            .with_header("x-test", "1")
+            .into_config_for_model("meta-llama/Llama-3.3-70B-Instruct")
+            .expect("settings into config");
+
+        assert_eq!(config.provider_id, "deepinfra");
+        assert_eq!(config.base_url, "https://example.com/deepinfra/openai");
+        assert_eq!(
+            config.common_params.model,
+            "meta-llama/Llama-3.3-70B-Instruct"
+        );
+        assert_eq!(
+            config.http_config.headers.get("x-test").map(String::as_str),
+            Some("1")
+        );
+    }
     #[tokio::test]
     async fn deepinfra_public_builder_exposes_unified_capabilities() {
         let transport = CaptureTransport::default();

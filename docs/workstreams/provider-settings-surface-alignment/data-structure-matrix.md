@@ -86,6 +86,16 @@ Reference: `repo-ref/ai/packages/togetherai/src/togetherai-provider.ts`
 | `headers` | supported | `TogetherAIProviderSettings.headers` |
 | `fetch` | supported | `TogetherAIProviderSettings.fetch` |
 
+## DeepInfra
+
+Reference: `repo-ref/ai/packages/deepinfra/src/deepinfra-provider.ts`
+
+| Upstream field | Rust status | Rust analogue / note |
+| --- | --- | --- |
+| `apiKey` | supported | `DeepInfraProviderSettings.api_key` |
+| `baseURL` | supported | `DeepInfraProviderSettings.base_url` -> text-family runtime base URL normalized with `/openai` |
+| `headers` | supported | `DeepInfraProviderSettings.headers` |
+| `fetch` | supported | `DeepInfraProviderSettings.fetch` |
 ## MoonshotAI
 
 Reference: `repo-ref/ai/packages/moonshotai/src/moonshotai-provider.ts`
@@ -171,3 +181,4 @@ The audited package-surface alignment now also exposes:
 | Perplexity | `provider_ext::perplexity::{PerplexityProviderSettings, VERSION}` |
 | Fireworks | `provider_ext::fireworks::{FireworksProviderSettings, VERSION}` |
 | MoonshotAI | `provider_ext::moonshotai::{MoonshotAIProviderSettings, VERSION}` |
+| DeepInfra | `provider_ext::deepinfra::{DeepInfraProviderSettings, VERSION}` |

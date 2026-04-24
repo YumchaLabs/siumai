@@ -39,6 +39,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - Perplexity now joins the provider-settings pass through the shared OpenAI-compatible runtime:
   `provider_ext::perplexity::{PerplexityProviderSettings, VERSION}` exposes the audited
   `apiKey` / `baseURL` / `headers` / `fetch` subset.
+- DeepInfra now joins the provider-settings pass through the shared OpenAI-compatible runtime:
+  `provider_ext::deepinfra::{DeepInfraProviderSettings, VERSION}` exposes the audited
+  `apiKey` / `baseURL` / `headers` / `fetch` subset.
 - MoonshotAI now joins the provider-settings pass through the shared OpenAI-compatible runtime:
   `provider_ext::moonshotai::{MoonshotAIProviderSettings, VERSION}` exposes the audited
   `apiKey` / `baseURL` / `headers` / `fetch` subset.
