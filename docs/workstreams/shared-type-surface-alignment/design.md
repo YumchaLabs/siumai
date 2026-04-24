@@ -36,6 +36,8 @@ This was not a single runtime bug. It was a shared contract gap:
 - Expose the stable shared names that already have honest Rust equivalents.
 - Add missing shared metadata carriers where the runtime can provide them without pretending that
   all wiring is already complete.
+- Keep AI SDK model-family names directly importable from the stable facade when a real Rust trait
+  already exists.
 - Keep provider-owned typed options and typed provider metadata in provider crates.
 - Make future audits against `repo-ref/ai/packages/ai/src/types/*` cheaper and more mechanical.
 
@@ -141,6 +143,11 @@ The stable Rust facade now re-exports the shared names through:
 
 That keeps the shared surface visible in the same public places where users already import the
 stable family/request/response contracts.
+
+The existing Rust-first `EmbeddingModel` trait is also re-exported directly from
+`siumai::prelude::unified::*` so the facade matches the audited AI SDK direct model-family export
+shape alongside `LanguageModel`, `ImageModel`, `RerankingModel`, `SpeechModel`, and
+`TranscriptionModel`.
 
 ## Validation
 

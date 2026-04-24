@@ -2037,6 +2037,7 @@ pub mod prelude {
         };
         pub use siumai_core::transcription::TranscriptionModel;
 
+        pub use siumai_core::embedding::EmbeddingModel;
         // Core request/response types for the six stable model families.
         #[allow(deprecated)]
         pub use siumai_core::types::{

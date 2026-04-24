@@ -129,6 +129,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   are exported through the stable facade alongside `LanguageModelUsage` and `ImageModelUsage`.
 - The shared `Embedding` vector alias from the AI SDK `types/embedding-model.ts` surface is now
   available through `siumai::types::*` and `siumai::prelude::unified::*`.
+- The existing stable `EmbeddingModel` trait is now directly exported from
+  `siumai::prelude::unified::*`, matching the AI SDK `types/index.ts` model-family export shape.
 - The shared language-model `Source` citation shape from the AI SDK `types/language-model.ts`
   surface is now available through `siumai::types::*` and `siumai::prelude::unified::*`, with a
   strict fixed `type: "source"` marker and URL/document `sourceType` payload.

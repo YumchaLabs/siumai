@@ -36,6 +36,8 @@ Status legend:
 ## Track C - Facade and tests
 
 - [x] Re-export the new shared names from `siumai::prelude::unified::*`.
+- [x] Re-export the existing stable `EmbeddingModel` trait from `siumai::prelude::unified::*` so
+  the direct model-family names match the audited AI SDK `types/index.ts` surface.
 - [x] Add public compile-guard coverage in `siumai/tests/public_surface_imports_test.rs`.
 - [x] Add local unit coverage for warning/metadata/usage conversion behavior.
 - [x] Expose Rust-style equivalents of the AI SDK usage helpers:
