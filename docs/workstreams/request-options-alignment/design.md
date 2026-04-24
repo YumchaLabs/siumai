@@ -1,6 +1,6 @@
 # Request Options Alignment - Design
 
-Last updated: 2026-04-21
+Last updated: 2026-04-24
 
 ## Problem
 
@@ -28,7 +28,8 @@ This meant the runtime could often do the right thing, but the stable shared sha
 - Do not pretend that all `RequestOptions` fields are already consumed uniformly by every helper.
 - Do not force `chunkMs`, `stepMs`, or per-tool timeout semantics into runtimes that do not yet
   have matching execution lanes.
-- Do not redesign all helper option structs in one patch.
+- Do not remove the Rust-first `retry` / `timeout` / `headers` fields until downstream callers
+  have a clear migration window.
 
 ## Chosen design
 
@@ -77,17 +78,52 @@ does not derive serde and includes convenience helpers such as:
 - `chunk_timeout()`
 - `tool_timeout_ms(...)`
 
-### 4. Keep runtime wiring status explicit
+### 4. Adopt `RequestOptions` at the facade helper layer
+
+All stable family helper option structs now accept `request_options: Option<RequestOptions>`:
+
+- text: `GenerateOptions`, `StreamOptions`
+- completion: `CompleteOptions`, `StreamOptions`
+- embedding: `EmbedOptions`
+- image: `GenerateOptions`
+- video: `CreateTaskOptions`, `QueryTaskOptions`, `WaitForTaskOptions`, `GenerateOptions`
+- speech: `SynthesizeOptions`
+- transcription: `TranscribeOptions`
+- rerank: `RerankOptions`
+
+The mapping is intentionally centralized in the `siumai` facade crate:
+
+- `max_retries` maps to policy `RetryOptions` attempts as `maxRetries + 1`
+- when `request_options` is present and `max_retries` is omitted, the AI SDK default of 2 retries
+  is used
+- existing Rust-first `retry` fields override `request_options.max_retries`
+- `headers` are materialized by filtering out `None` values and then merged into request
+  `HttpConfig.headers`
+- existing Rust-first `headers` fields override same-name `request_options.headers`
+- `timeout.totalMs` maps to request `HttpConfig.timeout` where the helper owns a request object
+- existing Rust-first `timeout` fields override `request_options.timeout.totalMs`
+- `abort_signal` cancels non-streaming helper calls, stream handshakes, ordinary stream
+  consumption, `stream_with_cancel` handles, and video polling loops
+
+### 5. Keep runtime wiring status explicit
 
 Current status after this slice:
 
 - shared request-facing data structures now exist on the stable facade
 - `CancelHandle` is no longer trapped inside `siumai-core`
 - stream/runtime internals already reuse the shared cancel handle type
-- helper-family-wide consumption of `RequestOptions` is still a follow-up task
+- helper-family-wide consumption of the transport subset is implemented through facade adapters
 
-That means this workstream closes the shared contract gap first, without claiming that every
-facade/helper path already uses the full contract.
+The remaining limits are explicit:
+
+- `stepMs` is exposed as data and helper accessors, but the Rust helper runtime does not yet own an
+  AI SDK-style multi-step generation loop where it can enforce the value
+- `chunkMs` is exposed as data and helper accessors, but stream idle-timeout enforcement is still a
+  follow-up because it should live in the shared stream lane instead of per-helper wrappers
+- `toolMs` and per-tool `{toolName}Ms` overrides are exposed as data and helper accessors, but the
+  generic facade does not yet own a stable cross-provider tool execution scheduler
+- `video::query_task` has no generic request object, so `headers` and request `HttpConfig.timeout`
+  are only honored on task submission; query retry and abort are still honored
 
 ## Validation
 
@@ -95,12 +131,14 @@ This slice is currently locked by:
 
 - `cargo check -p siumai-spec --tests`
 - `cargo nextest run -p siumai --test public_surface_imports_test`
+- `cargo nextest run -p siumai --lib`
 - unit coverage in `siumai-spec/src/types/ai_sdk.rs`
+- facade adapter coverage in `siumai/src/request_options.rs`
 - workspace compilation after moving `CancelHandle` ownership
 
 ## Deferred follow-up
 
-- decide which stable helper option structs should accept or derive from `RequestOptions`
 - decide where `chunkMs` and `stepMs` should land in runtime stream/execution lanes
+- decide where generic tool timeout scheduling should live
 - revisit whether `headers: Record<string, string | undefined>` needs a stronger Rust delete/merge
   story than the current filtered optional-map carrier

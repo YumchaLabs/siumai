@@ -6,11 +6,12 @@
 //! - `variation` for direct variation requests
 //! - `generate_image` for the AI SDK-style unified request surface
 
+use crate::request_options::{EffectiveRequestOptions, run_with_abort};
 use crate::retry_api::{RetryOptions, retry_with};
 use futures_util::future::try_join_all;
 use siumai_core::error::LlmError;
 use siumai_core::traits::ImageExtras;
-use siumai_core::types::{HttpConfig, HttpResponseInfo, Warning};
+use siumai_core::types::{HttpConfig, HttpResponseInfo, RequestOptions, Warning};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -38,6 +39,11 @@ pub struct GenerateOptions {
     ///
     /// These are merged into `ImageGenerationRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -510,18 +516,26 @@ pub async fn generate<M: ImageModelV3 + ?Sized>(
         max_images_per_call,
         timeout,
         headers,
+        request_options,
     } = options;
-    let mut request = apply_generation_call_options(request, timeout, headers);
+    let effective = EffectiveRequestOptions::from_parts(request_options, retry, timeout, headers);
+    let mut request =
+        apply_generation_call_options(request, effective.timeout(), effective.headers());
     request.count = normalize_generation_count(request.count);
 
     let max_images_per_call =
         resolve_effective_max_images_per_call(max_images_per_call, model.max_images_per_call())?;
     let call_image_counts = split_call_image_counts(request.count, max_images_per_call);
-    let results = try_join_all(call_image_counts.iter().copied().map(|count| {
-        let mut req = request.clone();
-        req.count = count;
-        generate_single(model, req, retry.clone())
-    }))
+    let retry = effective.retry();
+    let abort_signal = effective.abort_signal();
+    let results = run_with_abort(
+        abort_signal,
+        try_join_all(call_image_counts.iter().copied().map(|count| {
+            let mut req = request.clone();
+            req.count = count;
+            generate_single(model, req, retry.clone())
+        })),
+    )
     .await?;
 
     ensure_images_generated(results, call_image_counts)
@@ -538,19 +552,26 @@ pub async fn edit<M: ImageModelV3 + ImageExtras + ?Sized>(
         max_images_per_call,
         timeout,
         headers,
+        request_options,
     } = options;
-    let mut request = apply_edit_call_options(request, timeout, headers);
+    let effective = EffectiveRequestOptions::from_parts(request_options, retry, timeout, headers);
+    let mut request = apply_edit_call_options(request, effective.timeout(), effective.headers());
     let total_images = normalize_optional_generation_count(request.count);
     request.count = Some(total_images);
 
     let max_images_per_call =
         resolve_effective_max_images_per_call(max_images_per_call, model.max_images_per_call())?;
     let call_image_counts = split_call_image_counts(total_images, max_images_per_call);
-    let results = try_join_all(call_image_counts.iter().copied().map(|count| {
-        let mut req = request.clone();
-        req.count = Some(count);
-        edit_single(model, req, retry.clone())
-    }))
+    let retry = effective.retry();
+    let abort_signal = effective.abort_signal();
+    let results = run_with_abort(
+        abort_signal,
+        try_join_all(call_image_counts.iter().copied().map(|count| {
+            let mut req = request.clone();
+            req.count = Some(count);
+            edit_single(model, req, retry.clone())
+        })),
+    )
     .await?;
 
     ensure_images_generated(results, call_image_counts)
@@ -567,19 +588,27 @@ pub async fn variation<M: ImageModelV3 + ImageExtras + ?Sized>(
         max_images_per_call,
         timeout,
         headers,
+        request_options,
     } = options;
-    let mut request = apply_variation_call_options(request, timeout, headers);
+    let effective = EffectiveRequestOptions::from_parts(request_options, retry, timeout, headers);
+    let mut request =
+        apply_variation_call_options(request, effective.timeout(), effective.headers());
     let total_images = normalize_optional_generation_count(request.count);
     request.count = Some(total_images);
 
     let max_images_per_call =
         resolve_effective_max_images_per_call(max_images_per_call, model.max_images_per_call())?;
     let call_image_counts = split_call_image_counts(total_images, max_images_per_call);
-    let results = try_join_all(call_image_counts.iter().copied().map(|count| {
-        let mut req = request.clone();
-        req.count = Some(count);
-        variation_single(model, req, retry.clone())
-    }))
+    let retry = effective.retry();
+    let abort_signal = effective.abort_signal();
+    let results = run_with_abort(
+        abort_signal,
+        try_join_all(call_image_counts.iter().copied().map(|count| {
+            let mut req = request.clone();
+            req.count = Some(count);
+            variation_single(model, req, retry.clone())
+        })),
+    )
     .await?;
 
     ensure_images_generated(results, call_image_counts)
@@ -600,32 +629,39 @@ pub async fn generate_image<M: ImageModelV4 + ImageExtras + ?Sized>(
         max_images_per_call,
         timeout,
         headers,
+        request_options,
     } = options;
-    let mut request = apply_unified_call_options(request, timeout, headers);
+    let effective = EffectiveRequestOptions::from_parts(request_options, retry, timeout, headers);
+    let mut request = apply_unified_call_options(request, effective.timeout(), effective.headers());
     request.count = normalize_generation_count(request.count);
 
     let max_images_per_call =
         resolve_effective_max_images_per_call(max_images_per_call, model.max_images_per_call())?;
     let call_image_counts = split_call_image_counts(request.count, max_images_per_call);
-    let results = try_join_all(call_image_counts.iter().copied().map(|count| {
-        let mut req = request.clone();
-        req.count = count;
-        let retry = retry.clone();
-        async move {
-            if let Some(retry) = retry {
-                retry_with(
-                    || {
-                        let retried_request = req.clone();
-                        async move { dispatch_generate_image(model, retried_request).await }
-                    },
-                    retry,
-                )
-                .await
-            } else {
-                dispatch_generate_image(model, req).await
+    let retry = effective.retry();
+    let abort_signal = effective.abort_signal();
+    let results = run_with_abort(
+        abort_signal,
+        try_join_all(call_image_counts.iter().copied().map(|count| {
+            let mut req = request.clone();
+            req.count = count;
+            let retry = retry.clone();
+            async move {
+                if let Some(retry) = retry {
+                    retry_with(
+                        || {
+                            let retried_request = req.clone();
+                            async move { dispatch_generate_image(model, retried_request).await }
+                        },
+                        retry,
+                    )
+                    .await
+                } else {
+                    dispatch_generate_image(model, req).await
+                }
             }
-        }
-    }))
+        })),
+    )
     .await?;
 
     ensure_images_generated(results, call_image_counts)

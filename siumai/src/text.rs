@@ -5,7 +5,11 @@
 //! - `stream` for streaming
 //! - `stream_with_cancel` for streaming with cancellation
 
-use crate::retry_api::{RetryOptions, retry_with};
+use crate::request_options::{
+    EffectiveRequestOptions, link_stream_handle_abort, retry_or_call_with_abort,
+    wrap_stream_with_abort,
+};
+use crate::retry_api::RetryOptions;
 use siumai_core::error::LlmError;
 use std::collections::HashMap;
 use std::time::Duration;
@@ -14,7 +18,7 @@ pub use siumai_core::text::{
     LanguageModel, TextModelV3, TextRequest, TextResponse, TextStream, TextStreamHandle,
 };
 pub use siumai_core::types::StreamRequestOptions;
-use siumai_core::types::{HttpConfig, Tool, ToolChoice};
+use siumai_core::types::{HttpConfig, RequestOptions, Tool, ToolChoice};
 
 /// Options for `text::generate`.
 #[derive(Debug, Clone, Default)]
@@ -29,6 +33,11 @@ pub struct GenerateOptions {
     ///
     /// These are merged into `ChatRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
     /// Optional tools to add to the request for this call.
     ///
     /// When the request already has tools, these are appended.
@@ -52,6 +61,11 @@ pub struct StreamOptions {
     pub timeout: Option<Duration>,
     /// Optional per-call extra headers.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
     /// Optional tools to add to the request for this call.
     pub tools: Option<Vec<Tool>>,
     /// Optional tool choice override for this call.
@@ -105,27 +119,26 @@ pub async fn generate<M: TextModelV3 + ?Sized>(
     request: TextRequest,
     options: GenerateOptions,
 ) -> Result<TextResponse, LlmError> {
-    let request = apply_text_call_options(
-        request,
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
         options.timeout,
         options.headers,
+    );
+    let request = apply_text_call_options(
+        request,
+        effective.timeout(),
+        effective.headers(),
         options.tools,
         options.tool_choice,
         options.telemetry,
     );
 
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = request.clone();
-                async move { model.generate(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.generate(request).await
-    }
+    retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let req = request.clone();
+        async move { model.generate(req).await }
+    })
+    .await
 }
 
 /// Generate a streaming text response.
@@ -134,10 +147,16 @@ pub async fn stream<M: TextModelV3 + ?Sized>(
     request: TextRequest,
     options: StreamOptions,
 ) -> Result<TextStream, LlmError> {
-    let mut request = apply_text_call_options(
-        request,
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
         options.timeout,
         options.headers,
+    );
+    let mut request = apply_text_call_options(
+        request,
+        effective.timeout(),
+        effective.headers(),
         options.tools,
         options.tool_choice,
         options.telemetry,
@@ -146,18 +165,13 @@ pub async fn stream<M: TextModelV3 + ?Sized>(
         request = request.with_include_raw_chunks(true);
     }
 
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = request.clone();
-                async move { model.stream(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.stream(request).await
-    }
+    let abort_signal = effective.abort_signal();
+    let stream = retry_or_call_with_abort(effective.retry(), abort_signal.clone(), || {
+        let req = request.clone();
+        async move { model.stream(req).await }
+    })
+    .await?;
+    Ok(wrap_stream_with_abort(stream, abort_signal))
 }
 
 /// Generate a streaming text response with cancellation support.
@@ -166,10 +180,16 @@ pub async fn stream_with_cancel<M: TextModelV3 + ?Sized>(
     request: TextRequest,
     options: StreamOptions,
 ) -> Result<TextStreamHandle, LlmError> {
-    let mut request = apply_text_call_options(
-        request,
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
         options.timeout,
         options.headers,
+    );
+    let mut request = apply_text_call_options(
+        request,
+        effective.timeout(),
+        effective.headers(),
         options.tools,
         options.tool_choice,
         options.telemetry,
@@ -178,16 +198,11 @@ pub async fn stream_with_cancel<M: TextModelV3 + ?Sized>(
         request = request.with_include_raw_chunks(true);
     }
 
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = request.clone();
-                async move { model.stream_with_cancel(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.stream_with_cancel(request).await
-    }
+    let abort_signal = effective.abort_signal();
+    let handle = retry_or_call_with_abort(effective.retry(), abort_signal.clone(), || {
+        let req = request.clone();
+        async move { model.stream_with_cancel(req).await }
+    })
+    .await?;
+    Ok(link_stream_handle_abort(handle, abort_signal))
 }

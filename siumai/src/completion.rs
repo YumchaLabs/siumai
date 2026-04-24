@@ -5,9 +5,13 @@
 //! - `stream`
 //! - `stream_with_cancel`
 
-use crate::retry_api::{RetryOptions, retry_with};
+use crate::request_options::{
+    EffectiveRequestOptions, link_stream_handle_abort, retry_or_call_with_abort,
+    wrap_stream_with_abort,
+};
+use crate::retry_api::RetryOptions;
 use siumai_core::error::LlmError;
-use siumai_core::types::HttpConfig;
+use siumai_core::types::{HttpConfig, RequestOptions};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -25,6 +29,11 @@ pub struct CompleteOptions {
     pub timeout: Option<Duration>,
     /// Optional per-call extra headers.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
 }
 
 /// Options for `completion::stream`.
@@ -36,6 +45,11 @@ pub struct StreamOptions {
     pub timeout: Option<Duration>,
     /// Optional per-call extra headers.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
     /// Include provider raw chunks on the stream part lane.
     pub include_raw_chunks: bool,
 }
@@ -65,19 +79,18 @@ pub async fn complete<M: CompletionModel + ?Sized>(
     request: CompletionRequest,
     options: CompleteOptions,
 ) -> Result<CompletionResponse, LlmError> {
-    let request = apply_completion_call_options(request, options.timeout, options.headers);
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let request = request.clone();
-                async move { model.complete(request).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.complete(request).await
-    }
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let request = apply_completion_call_options(request, effective.timeout(), effective.headers());
+    retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let request = request.clone();
+        async move { model.complete(request).await }
+    })
+    .await
 }
 
 /// Execute a streaming completion request.
@@ -86,22 +99,24 @@ pub async fn stream<M: CompletionModel + ?Sized>(
     request: CompletionRequest,
     options: StreamOptions,
 ) -> Result<CompletionStream, LlmError> {
-    let mut request = apply_completion_call_options(request, options.timeout, options.headers);
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let mut request =
+        apply_completion_call_options(request, effective.timeout(), effective.headers());
     if options.include_raw_chunks {
         request = request.with_include_raw_chunks(true);
     }
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let request = request.clone();
-                async move { model.stream(request).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.stream(request).await
-    }
+    let abort_signal = effective.abort_signal();
+    let stream = retry_or_call_with_abort(effective.retry(), abort_signal.clone(), || {
+        let request = request.clone();
+        async move { model.stream(request).await }
+    })
+    .await?;
+    Ok(wrap_stream_with_abort(stream, abort_signal))
 }
 
 /// Execute a streaming completion request with cancellation support.
@@ -110,20 +125,22 @@ pub async fn stream_with_cancel<M: CompletionModel + ?Sized>(
     request: CompletionRequest,
     options: StreamOptions,
 ) -> Result<CompletionStreamHandle, LlmError> {
-    let mut request = apply_completion_call_options(request, options.timeout, options.headers);
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let mut request =
+        apply_completion_call_options(request, effective.timeout(), effective.headers());
     if options.include_raw_chunks {
         request = request.with_include_raw_chunks(true);
     }
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let request = request.clone();
-                async move { model.stream_with_cancel(request).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.stream_with_cancel(request).await
-    }
+    let abort_signal = effective.abort_signal();
+    let handle = retry_or_call_with_abort(effective.retry(), abort_signal.clone(), || {
+        let request = request.clone();
+        async move { model.stream_with_cancel(request).await }
+    })
+    .await?;
+    Ok(link_stream_handle_abort(handle, abort_signal))
 }

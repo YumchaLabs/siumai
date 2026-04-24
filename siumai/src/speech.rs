@@ -7,11 +7,12 @@
 //! the legacy `SpeechModelV3` compatibility layer, and returns a high-level helper
 //! result closer in role to AI SDK `generateSpeech()`.
 
-use crate::retry_api::{RetryOptions, retry_with};
+use crate::request_options::{EffectiveRequestOptions, retry_or_call_with_abort};
+use crate::retry_api::RetryOptions;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use siumai_core::error::LlmError;
 use siumai_core::types::{
-    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, Warning,
+    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, RequestOptions, Warning,
     merge_provider_metadata, provider_metadata_from_object,
 };
 use siumai_core::utils::mime::guess_mime_from_bytes;
@@ -34,6 +35,11 @@ pub struct SynthesizeOptions {
     ///
     /// These are merged into `TtsRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
 }
 
 /// Generated audio file, closer in role to AI SDK `GeneratedAudioFile`.
@@ -213,19 +219,18 @@ pub async fn synthesize<M: SpeechModel + ?Sized>(
     request: TtsRequest,
     options: SynthesizeOptions,
 ) -> Result<SpeechResult, LlmError> {
-    let request = apply_tts_call_options(request, options.timeout, options.headers);
-    let response = if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = request.clone();
-                async move { model.synthesize(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.synthesize(request).await
-    }?;
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let request = apply_tts_call_options(request, effective.timeout(), effective.headers());
+    let response = retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let req = request.clone();
+        async move { model.synthesize(req).await }
+    })
+    .await?;
 
     if response.audio_data.is_empty() {
         return Err(LlmError::NoSpeechGenerated {

@@ -7,11 +7,12 @@
 //! than the legacy `TranscriptionModelV3` compatibility layer, and returns a high-level
 //! helper result closer in role to AI SDK `transcribe()`.
 
-use crate::retry_api::{RetryOptions, retry_with};
+use crate::request_options::{EffectiveRequestOptions, retry_or_call_with_abort};
+use crate::retry_api::RetryOptions;
 use siumai_core::error::LlmError;
 use siumai_core::types::{
-    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, Warning, WordTimestamp,
-    merge_provider_metadata, provider_metadata_from_object,
+    HttpConfig, HttpRequestInfo, HttpResponseInfo, ProviderMetadataMap, RequestOptions, Warning,
+    WordTimestamp, merge_provider_metadata, provider_metadata_from_object,
 };
 use std::collections::HashMap;
 use std::time::Duration;
@@ -32,6 +33,11 @@ pub struct TranscribeOptions {
     ///
     /// These are merged into `SttRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
 }
 
 /// Transcript segment aligned with AI SDK `TranscriptionResult.segments`.
@@ -224,19 +230,18 @@ pub async fn transcribe<M: TranscriptionModel + ?Sized>(
     request: SttRequest,
     options: TranscribeOptions,
 ) -> Result<TranscriptionResult, LlmError> {
-    let request = apply_stt_call_options(request, options.timeout, options.headers);
-    let response = if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = request.clone();
-                async move { model.transcribe(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.transcribe(request).await
-    }?;
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let request = apply_stt_call_options(request, effective.timeout(), effective.headers());
+    let response = retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let req = request.clone();
+        async move { model.transcribe(req).await }
+    })
+    .await?;
 
     if response.text.trim().is_empty() {
         return Err(LlmError::NoTranscriptGenerated {

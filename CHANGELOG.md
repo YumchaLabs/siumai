@@ -112,6 +112,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   live on `siumai::types::*` / `siumai::prelude::unified::*`; runtime stream internals now also
   reuse the shared `CancelHandle` type owned by `siumai-spec`, and this slice is tracked under
   `docs/workstreams/request-options-alignment/`.
+- AI SDK-style `RequestOptions` are now consumed by the stable facade helper option structs across
+  text, completion, embedding, image, video, speech, transcription, and rerank families. The shared
+  adapter maps `maxRetries` to retry attempts with the AI SDK default of 2 when `request_options`
+  is present, merges materialized headers and `timeout.totalMs` into helper request HTTP config
+  where available, honors `abortSignal` for helper calls and stream handles, and documents the
+  remaining `stepMs` / `chunkMs` / tool-timeout runtime gaps in
+  `docs/workstreams/request-options-alignment/`.
 - Stable shared `LanguageModelCallOptions` / `LanguageModelReasoning` are now exposed on the Rust
   facade as AI SDK-style model-facing generation-control projections from `CommonParams`;
   `CommonParamsBuilder` now also supports `max_completion_tokens`, `CommonParams::cache_hash()`

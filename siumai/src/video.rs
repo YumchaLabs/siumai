@@ -10,12 +10,15 @@
 //! Unlike the AI SDK's current auto-polling helper story, the Rust family keeps explicit
 //! task submission and task-status querying as the stable contract.
 
-use crate::retry_api::{RetryOptions, retry_with};
+use crate::request_options::{EffectiveRequestOptions, retry_or_call_with_abort, run_with_abort};
+use crate::retry_api::RetryOptions;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::header::CONTENT_TYPE;
 use siumai_core::error::LlmError;
 use siumai_core::execution::http::build_http_client_from_config;
-use siumai_core::types::{HttpConfig, HttpResponseInfo, ProviderReference, Warning};
+use siumai_core::types::{
+    HttpConfig, HttpResponseInfo, ProviderReference, RequestOptions, Warning,
+};
 use siumai_core::utils::mime::{guess_mime_from_bytes, guess_mime_from_path_or_url};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -45,6 +48,11 @@ pub struct CreateTaskOptions {
     ///
     /// These are merged into `VideoGenerationRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls for task submission.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
 }
 
 /// Options for `video::query_task`.
@@ -52,6 +60,11 @@ pub struct CreateTaskOptions {
 pub struct QueryTaskOptions {
     /// Optional retry policy applied around the task-status query.
     pub retry: Option<RetryOptions>,
+    /// AI SDK-style request controls for task-status queries.
+    ///
+    /// The generic task query trait has no request object, so `headers` and
+    /// `timeout.totalMs` are currently only honored by task submission.
+    pub request_options: Option<RequestOptions>,
 }
 
 /// Options for `video::wait_for_task`.
@@ -59,6 +72,10 @@ pub struct QueryTaskOptions {
 pub struct WaitForTaskOptions {
     /// Optional retry policy applied around each task-status query.
     pub retry: Option<RetryOptions>,
+    /// AI SDK-style request controls for the polling loop.
+    ///
+    /// `abort_signal` cancels the loop; `max_retries` applies to each status query.
+    pub request_options: Option<RequestOptions>,
     /// Delay between polling attempts.
     pub poll_interval: Duration,
     /// Optional maximum total polling duration.
@@ -69,6 +86,7 @@ impl Default for WaitForTaskOptions {
     fn default() -> Self {
         Self {
             retry: None,
+            request_options: None,
             poll_interval: DEFAULT_VIDEO_POLL_INTERVAL,
             poll_timeout: Some(DEFAULT_VIDEO_POLL_TIMEOUT),
         }
@@ -95,6 +113,11 @@ pub struct GenerateOptions {
     ///
     /// These are merged into `VideoGenerationRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls for the high-level generate helper.
+    ///
+    /// This applies to task creation and polling. Legacy `create_retry`,
+    /// `query_retry`, `timeout`, and `headers` override equivalent values.
+    pub request_options: Option<RequestOptions>,
     /// Delay between polling attempts.
     pub poll_interval: Duration,
     /// Optional maximum total polling duration per task.
@@ -119,6 +142,7 @@ impl Default for GenerateOptions {
             max_videos_per_call: None,
             timeout: None,
             headers: HashMap::new(),
+            request_options: None,
             poll_interval: DEFAULT_VIDEO_POLL_INTERVAL,
             poll_timeout: Some(DEFAULT_VIDEO_POLL_TIMEOUT),
             materialize_urls: true,
@@ -508,19 +532,18 @@ pub async fn create_task<M: VideoModelV3 + ?Sized>(
     request: VideoGenerationRequest,
     options: CreateTaskOptions,
 ) -> Result<VideoGenerationResponse, LlmError> {
-    let request = apply_video_call_options(request, options.timeout, options.headers);
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let request = request.clone();
-                async move { model.create_task(request).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.create_task(request).await
-    }
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let request = apply_video_call_options(request, effective.timeout(), effective.headers());
+    retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let request = request.clone();
+        async move { model.create_task(request).await }
+    })
+    .await
 }
 
 /// Query a video-generation task.
@@ -529,18 +552,17 @@ pub async fn query_task<M: VideoModelV3 + ?Sized>(
     task_id: &str,
     options: QueryTaskOptions,
 ) -> Result<VideoTaskStatusResponse, LlmError> {
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let task_id = task_id.to_string();
-                async move { model.query_task(&task_id).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.query_task(task_id).await
-    }
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        None,
+        HashMap::new(),
+    );
+    retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let task_id = task_id.to_string();
+        async move { model.query_task(&task_id).await }
+    })
+    .await
 }
 
 fn validate_poll_interval(poll_interval: Duration) -> Result<(), LlmError> {
@@ -1167,36 +1189,47 @@ pub async fn wait_for_task<M: VideoModelV3 + ?Sized>(
 ) -> Result<VideoTaskStatusResponse, LlmError> {
     validate_poll_interval(options.poll_interval)?;
 
-    let deadline = options.poll_timeout.map(|timeout| Instant::now() + timeout);
-    loop {
-        let response = query_task(
-            model,
-            task_id,
-            QueryTaskOptions {
-                retry: options.retry.clone(),
-            },
-        )
-        .await?;
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        None,
+        HashMap::new(),
+    );
+    let retry = effective.retry();
+    run_with_abort(effective.abort_signal(), async move {
+        let deadline = options.poll_timeout.map(|timeout| Instant::now() + timeout);
+        loop {
+            let response = query_task(
+                model,
+                task_id,
+                QueryTaskOptions {
+                    retry: retry.clone(),
+                    request_options: None,
+                },
+            )
+            .await?;
 
-        if response.is_success() {
-            return Ok(response);
+            if response.is_success() {
+                return Ok(response);
+            }
+
+            if response.is_failed() {
+                return Err(build_failed_task_error(task_id, &response));
+            }
+
+            if let Some(deadline) = deadline
+                && Instant::now() >= deadline
+            {
+                return Err(LlmError::TimeoutError(format!(
+                    "Timed out waiting for video task '{task_id}' after {} ms",
+                    options.poll_timeout.unwrap_or_default().as_millis()
+                )));
+            }
+
+            sleep(options.poll_interval).await;
         }
-
-        if response.is_failed() {
-            return Err(build_failed_task_error(task_id, &response));
-        }
-
-        if let Some(deadline) = deadline
-            && Instant::now() >= deadline
-        {
-            return Err(LlmError::TimeoutError(format!(
-                "Timed out waiting for video task '{task_id}' after {} ms",
-                options.poll_timeout.unwrap_or_default().as_millis()
-            )));
-        }
-
-        sleep(options.poll_interval).await;
-    }
+    })
+    .await
 }
 
 /// Submit one or more video-generation tasks and poll them to completion.
@@ -1237,6 +1270,7 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
                 retry: options.create_retry.clone(),
                 timeout: options.timeout,
                 headers: options.headers.clone(),
+                request_options: options.request_options.clone(),
             },
         )
         .await?;
@@ -1251,6 +1285,7 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
             &task_id,
             WaitForTaskOptions {
                 retry: options.query_retry.clone(),
+                request_options: options.request_options.clone(),
                 poll_interval: options.poll_interval,
                 poll_timeout: options.poll_timeout,
             },

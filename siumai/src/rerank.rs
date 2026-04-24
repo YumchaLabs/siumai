@@ -3,9 +3,10 @@
 //! This is the recommended Rust-first surface for reranking:
 //! - `rerank`
 
-use crate::retry_api::{RetryOptions, retry_with};
+use crate::request_options::{EffectiveRequestOptions, retry_or_call_with_abort};
+use crate::retry_api::RetryOptions;
 use siumai_core::error::LlmError;
-use siumai_core::types::HttpConfig;
+use siumai_core::types::{HttpConfig, RequestOptions};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -25,6 +26,11 @@ pub struct RerankOptions {
     ///
     /// These are merged into `RerankRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
 }
 
 fn apply_rerank_call_options(
@@ -51,17 +57,16 @@ pub async fn rerank<M: RerankModelV3 + ?Sized>(
     request: RerankRequest,
     options: RerankOptions,
 ) -> Result<RerankResponse, LlmError> {
-    let request = apply_rerank_call_options(request, options.timeout, options.headers);
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = request.clone();
-                async move { model.rerank(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.rerank(request).await
-    }
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let request = apply_rerank_call_options(request, effective.timeout(), effective.headers());
+    retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let req = request.clone();
+        async move { model.rerank(req).await }
+    })
+    .await
 }

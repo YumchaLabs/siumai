@@ -1,6 +1,6 @@
 # Request Options Alignment - TODO
 
-Last updated: 2026-04-21
+Last updated: 2026-04-24
 
 Status legend:
 
@@ -24,10 +24,10 @@ Status legend:
 
 ## Track C - Runtime/helper adoption
 
-- [ ] Decide which facade helper option structs should accept `RequestOptions`.
-- [ ] Decide how much of `max_retries` should map onto simple `RetryOptions` defaults.
-- [ ] Add explicit runtime handling or explicit documented deferral for `abort_signal`.
-- [ ] Add explicit runtime handling or explicit documented deferral for `stepMs` / `chunkMs` /
+- [x] Decide which facade helper option structs should accept `RequestOptions`.
+- [x] Decide how much of `max_retries` should map onto simple `RetryOptions` defaults.
+- [x] Add explicit runtime handling or explicit documented deferral for `abort_signal`.
+- [x] Add explicit runtime handling or explicit documented deferral for `stepMs` / `chunkMs` /
   per-tool timeout semantics.
 
 ## Track D - Intentional limitations

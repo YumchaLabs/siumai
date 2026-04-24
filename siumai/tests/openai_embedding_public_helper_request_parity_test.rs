@@ -8,7 +8,7 @@ use siumai::experimental::execution::http::transport::{
     HttpTransport, HttpTransportRequest, HttpTransportResponse,
 };
 use siumai::prelude::unified::registry::{RegistryOptions, create_provider_registry};
-use siumai::prelude::unified::{EmbeddingRequest, LlmError};
+use siumai::prelude::unified::{EmbeddingRequest, LlmError, RequestOptions, TimeoutConfiguration};
 use siumai::registry::ProviderBuildOverrides;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -122,6 +122,12 @@ async fn openai_embedding_public_helper_preserves_request_config_on_registry_han
 
     let mut headers = HashMap::new();
     headers.insert("x-helper-header".to_string(), "from-helper".to_string());
+    headers.insert("x-overridden-header".to_string(), "from-helper".to_string());
+
+    let request_options = RequestOptions::new()
+        .with_header("x-request-options-header", "from-request-options")
+        .with_header("x-overridden-header", "from-request-options")
+        .with_timeout(TimeoutConfiguration::from_millis(5_000));
 
     let response = embedding::embed(
         &model,
@@ -130,6 +136,7 @@ async fn openai_embedding_public_helper_preserves_request_config_on_registry_han
             retry: None,
             timeout: None,
             headers,
+            request_options: Some(request_options),
         },
     )
     .await
@@ -153,6 +160,18 @@ async fn openai_embedding_public_helper_preserves_request_config_on_registry_han
     assert_eq!(
         sent.headers
             .get("x-helper-header")
+            .and_then(|value| value.to_str().ok()),
+        Some("from-helper")
+    );
+    assert_eq!(
+        sent.headers
+            .get("x-request-options-header")
+            .and_then(|value| value.to_str().ok()),
+        Some("from-request-options")
+    );
+    assert_eq!(
+        sent.headers
+            .get("x-overridden-header")
             .and_then(|value| value.to_str().ok()),
         Some("from-helper")
     );

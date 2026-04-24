@@ -1,4 +1,4 @@
-﻿//! # Siumai - A Unified LLM Interface Library
+//! # Siumai - A Unified LLM Interface Library
 //!
 //! Siumai is a unified LLM interface library for Rust, supporting multiple AI providers.
 //! It adopts a trait-separated architectural pattern and provides a type-safe API.
@@ -134,6 +134,7 @@ pub mod protocol {
 pub mod tools;
 
 // Unified retry facade (siumai-core re-export + provider-aware defaults)
+mod request_options;
 pub mod retry_api;
 
 /// Model families (recommended Rust-first surface).

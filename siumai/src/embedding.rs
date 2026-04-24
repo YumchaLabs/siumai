@@ -4,9 +4,10 @@
 //! - `embed` for a single request
 //! - `embed_many` for batch requests
 
-use crate::retry_api::{RetryOptions, retry_with};
+use crate::request_options::{EffectiveRequestOptions, retry_or_call_with_abort};
+use crate::retry_api::RetryOptions;
 use siumai_core::error::LlmError;
-use siumai_core::types::HttpConfig;
+use siumai_core::types::{HttpConfig, RequestOptions};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -28,6 +29,11 @@ pub struct EmbedOptions {
     ///
     /// These are merged into `EmbeddingRequest.http_config.headers`.
     pub headers: HashMap<String, String>,
+    /// AI SDK-style request controls.
+    ///
+    /// When present, `max_retries` defaults to 2 to match AI SDK. Legacy
+    /// `retry`, `timeout`, and `headers` fields override equivalent values here.
+    pub request_options: Option<RequestOptions>,
 }
 
 fn apply_embedding_call_options(
@@ -54,19 +60,19 @@ pub async fn embed<M: EmbeddingModelV3 + ?Sized>(
     request: EmbeddingRequest,
     options: EmbedOptions,
 ) -> Result<EmbeddingResponse, LlmError> {
-    let request = apply_embedding_call_options(request, options.timeout, &options.headers);
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = request.clone();
-                async move { model.embed(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.embed(request).await
-    }
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
+    let headers = effective.headers();
+    let request = apply_embedding_call_options(request, effective.timeout(), &headers);
+    retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let req = request.clone();
+        async move { model.embed(req).await }
+    })
+    .await
 }
 
 /// Generate embeddings for a batch of requests.
@@ -75,26 +81,25 @@ pub async fn embed_many<M: EmbeddingModelV3 + ?Sized>(
     requests: BatchEmbeddingRequest,
     options: EmbedOptions,
 ) -> Result<BatchEmbeddingResponse, LlmError> {
+    let effective = EffectiveRequestOptions::from_parts(
+        options.request_options,
+        options.retry,
+        options.timeout,
+        options.headers,
+    );
     let mut requests = requests;
-    if options.timeout.is_some() || !options.headers.is_empty() {
-        let timeout = options.timeout;
-        let headers = options.headers;
+    if effective.timeout().is_some() || !effective.headers.is_empty() {
+        let timeout = effective.timeout();
+        let headers = effective.headers();
         requests.requests = requests
             .requests
             .into_iter()
             .map(|r| apply_embedding_call_options(r, timeout, &headers))
             .collect();
     }
-    if let Some(retry) = options.retry {
-        retry_with(
-            || {
-                let req = requests.clone();
-                async move { model.embed_many(req).await }
-            },
-            retry,
-        )
-        .await
-    } else {
-        model.embed_many(requests).await
-    }
+    retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
+        let req = requests.clone();
+        async move { model.embed_many(req).await }
+    })
+    .await
 }
