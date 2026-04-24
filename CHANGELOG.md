@@ -41,6 +41,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `TextStream*Part` structures matching `generate-text/stream-text-result.ts`, including the
   higher-level `text` reasoning/text deltas, `start-step` / `finish-step`, `finish.totalUsage`,
   `abort`, `raw.rawValue`, and aliases over the existing tool output parts.
+- AI SDK `generateText` / `streamText` callback event payloads now have passive Rust structures:
+  `CallbackModelInfo`, `GenerateTextStartEvent`, `GenerateTextStepStartEvent`,
+  `GenerateTextStepEndEvent`, `GenerateTextEndEvent`, `StreamTextChunkEvent`,
+  `StreamTextLifecycleChunk`, `ToolOutput`, `ToolExecutionStartEvent`, and
+  `ToolExecutionEndEvent`, plus deprecated upstream alias names such as `OnStartEvent` and
+  `OnToolCallFinishEvent`. These mirror `core-events.ts` / `tool-execution-events.ts` as data
+  carriers without claiming runtime callback wiring.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:

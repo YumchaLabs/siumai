@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - Data Structure Matrix
 
-Last updated: 2026-04-22
+Last updated: 2026-04-24
 
 This note compares the most important stable/runtime data structures against the current AI SDK
 provider contracts in `repo-ref/ai`.
@@ -48,6 +48,10 @@ References:
 - `repo-ref/ai/packages/provider/src/video-model/v4/video-model-v4-result.ts`
 - `repo-ref/ai/packages/ai/src/registry/provider-registry.ts`
 - `repo-ref/ai/packages/ai/src/generate-video/generate-video.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/generate-text-result.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/stream-text-result.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/core-events.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-execution-events.ts`
 
 Status legend:
 
@@ -155,6 +159,15 @@ serializes as a plain string again instead of Rust's default externally tagged e
 matters because AI SDK stream parts always carry `finishReason.unified` as a string union,
 including failed-response cases such as `"other"`. Siumai now matches that shape while still
 accepting the older object form on deserialization for compatibility.
+
+The high-level generate-text data-shape gap is also narrower now: Siumai exposes passive
+`GenerateTextResult` / `GenerateTextStepResult` envelopes, the `TextStreamPart` output union, and
+the AI SDK callback/event payload views from `core-events.ts` and `tool-execution-events.ts`
+(`GenerateTextStartEvent`, `GenerateTextStepStartEvent`, `GenerateTextEndEvent`,
+`StreamTextChunkEvent`, `ToolExecutionStartEvent`, `ToolExecutionEndEvent`, and `ToolOutput`).
+These remain intentionally separate from runtime `ChatStreamPart` and current text helper returns,
+so the structure is importable and serde-aligned without falsely claiming full AI SDK
+`StreamTextResult` multi-lane runtime behavior.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

@@ -48,6 +48,9 @@ Status legend:
   between step-side `providerOptions` reasoning and final result-side `providerMetadata` reasoning.
 - [x] Add passive AI SDK `TextStreamPart` output structures without replacing runtime
   `ChatStreamPart` provider V4 semantics.
+- [x] Add passive AI SDK callback/event payload structures for `GenerateTextStartEvent`,
+  `GenerateTextStepStartEvent`, `GenerateTextEndEvent`, `StreamTextChunkEvent`,
+  `ToolExecutionStartEvent`, `ToolExecutionEndEvent`, and `ToolOutput`.
 - [x] Add passive AI SDK output-part shapes for `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`.
 - [x] Add passive AI SDK output-part shapes for `ToolError` and `ToolOutputDenied`.

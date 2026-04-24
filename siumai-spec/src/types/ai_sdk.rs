@@ -7,8 +7,8 @@
 use super::chat::{ContentPart, SourcePart};
 use super::{
     AssistantModelMessage, DataContent, EmbeddingUsage, FinishReason, HttpRequestInfo,
-    HttpResponseInfo, ProviderMetadataMap, ProviderOptionsMap, ResponseMetadata, ToolModelMessage,
-    ToolResultOutput, Usage, Warning,
+    HttpResponseInfo, ModelMessage, ProviderMetadataMap, ProviderOptionsMap, ResponseMetadata,
+    StandardizedPrompt, Tool, ToolChoice, ToolModelMessage, ToolResultOutput, Usage, Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -1003,6 +1003,43 @@ impl<NAME, INPUT> ToolError<NAME, INPUT> {
     /// Return the AI SDK output part discriminator.
     pub const fn r#type(&self) -> &'static str {
         "tool-error"
+    }
+}
+
+/// AI SDK-style tool execution output union.
+///
+/// This mirrors `generate-text/tool-output.ts`: successful tool executions carry
+/// `tool-result`, while failed executions carry `tool-error`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ToolOutput<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// Successful tool output.
+    Result(ToolResult<NAME, INPUT, OUTPUT>),
+    /// Failed tool output.
+    Error(ToolError<NAME, INPUT>),
+}
+
+impl<NAME, INPUT, OUTPUT> ToolOutput<NAME, INPUT, OUTPUT> {
+    /// Return the AI SDK output discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::Result(output) => output.r#type(),
+            Self::Error(output) => output.r#type(),
+        }
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolResult<NAME, INPUT, OUTPUT>>
+    for ToolOutput<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolResult<NAME, INPUT, OUTPUT>) -> Self {
+        Self::Result(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolError<NAME, INPUT>> for ToolOutput<NAME, INPUT, OUTPUT> {
+    fn from(value: ToolError<NAME, INPUT>) -> Self {
+        Self::Error(value)
     }
 }
 
@@ -2611,6 +2648,329 @@ impl<NAME, INPUT, OUTPUT> From<TextStreamRawPart> for TextStreamPart<NAME, INPUT
         Self::Raw(value)
     }
 }
+
+/// Passive representation of AI SDK `StopCondition`.
+///
+/// The TypeScript surface accepts predicates/functions. Rust keeps this as JSON so
+/// callers can record symbolic stop-condition configuration without pretending those
+/// callbacks are executable across the spec boundary.
+pub type StopCondition = JSONValue;
+
+/// Common model information used across AI SDK callback events.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CallbackModelInfo {
+    /// Provider identifier.
+    pub provider: String,
+    /// Model identifier.
+    pub model_id: String,
+}
+
+impl CallbackModelInfo {
+    /// Create callback model information.
+    pub fn new(provider: impl Into<String>, model_id: impl Into<String>) -> Self {
+        Self {
+            provider: provider.into(),
+            model_id: model_id.into(),
+        }
+    }
+}
+
+/// Event passed to AI SDK `generateText` / `streamText` `onStart` callbacks.
+///
+/// This is a passive data view of `generate-text/core-events.ts`; no runtime callback
+/// execution is implied by this type.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateTextStartEvent<OUTPUT = JSONValue> {
+    /// Unique generation call identifier.
+    pub call_id: String,
+    /// Operation identifier such as `ai.generateText` or `ai.streamText`.
+    pub operation_id: String,
+    /// Provider and model identity flattened like AI SDK callback payloads.
+    #[serde(flatten)]
+    pub model: CallbackModelInfo,
+    /// Tools available for this generation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Tool>>,
+    /// Tool choice strategy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+    /// Tool names enabled for this generation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_tools: Option<Vec<String>>,
+    /// Maximum retry count.
+    pub max_retries: u32,
+    /// Timeout configuration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<TimeoutConfiguration>,
+    /// Additional request headers. `None` values serialize as JSON null.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, Option<String>>>,
+    /// Provider-specific options.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<ProviderOptions>,
+    /// Symbolic stop-condition configuration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub stop_when: Vec<StopCondition>,
+    /// Structured output specification or metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<OUTPUT>,
+    /// Tool context snapshot.
+    pub tools_context: Context,
+    /// Runtime context snapshot.
+    pub runtime_context: Context,
+    /// Model call options flattened into the callback payload.
+    #[serde(flatten)]
+    pub call_options: LanguageModelCallOptions,
+    /// Standardized prompt flattened into the callback payload.
+    #[serde(flatten)]
+    pub prompt: StandardizedPrompt,
+}
+
+/// Event passed to AI SDK `generateText` / `streamText` `onStepStart` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateTextStepStartEvent<
+    OUTPUT = JSONValue,
+    NAME = String,
+    INPUT = JSONValue,
+    ToolOutputValue = ToolResultOutput,
+> {
+    /// Unique generation call identifier.
+    pub call_id: String,
+    /// Provider and model identity flattened like AI SDK callback payloads.
+    #[serde(flatten)]
+    pub model: CallbackModelInfo,
+    /// Zero-based step index.
+    pub step_number: u32,
+    /// Tools available for this step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Tool>>,
+    /// Tool choice strategy for this step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<ToolChoice>,
+    /// Tool names enabled for this step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_tools: Option<Vec<String>>,
+    /// Previous step results.
+    pub steps: Vec<GenerateTextStepResult<NAME, INPUT, ToolOutputValue>>,
+    /// Provider-specific options for this step.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<ProviderOptions>,
+    /// Structured output specification or metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<OUTPUT>,
+    /// Runtime context snapshot.
+    pub runtime_context: Context,
+    /// Tool context snapshot.
+    pub tools_context: Context,
+    /// Standardized prompt flattened into the callback payload.
+    #[serde(flatten)]
+    pub prompt: StandardizedPrompt,
+}
+
+/// Event passed to AI SDK `onStepFinish` callbacks.
+pub type GenerateTextStepEndEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    GenerateTextStepResult<NAME, INPUT, OUTPUT>;
+
+/// Event passed to AI SDK `onFinish` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateTextEndEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// Final step result flattened into the callback payload.
+    #[serde(flatten)]
+    pub step: GenerateTextStepResult<NAME, INPUT, OUTPUT>,
+    /// All step results.
+    pub steps: Vec<GenerateTextStepResult<NAME, INPUT, OUTPUT>>,
+    /// Aggregated token usage across all steps.
+    pub total_usage: LanguageModelUsage,
+}
+
+/// Stream lifecycle marker type used by `StreamTextChunkEvent`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum StreamTextLifecycleChunkType {
+    /// First streamed chunk marker.
+    #[serde(rename = "ai.stream.firstChunk")]
+    FirstChunk,
+    /// Stream finish marker.
+    #[serde(rename = "ai.stream.finish")]
+    Finish,
+}
+
+/// Stream lifecycle marker emitted through AI SDK `onChunk`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StreamTextLifecycleChunk {
+    /// Lifecycle marker discriminator.
+    #[serde(rename = "type")]
+    pub kind: StreamTextLifecycleChunkType,
+    /// Unique generation call identifier.
+    pub call_id: String,
+    /// Zero-based step index.
+    pub step_number: u32,
+    /// Optional telemetry attributes.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub attributes: HashMap<String, JSONValue>,
+}
+
+impl StreamTextLifecycleChunk {
+    /// Create an `ai.stream.firstChunk` lifecycle marker.
+    pub fn first_chunk(call_id: impl Into<String>, step_number: u32) -> Self {
+        Self {
+            kind: StreamTextLifecycleChunkType::FirstChunk,
+            call_id: call_id.into(),
+            step_number,
+            attributes: HashMap::new(),
+        }
+    }
+
+    /// Create an `ai.stream.finish` lifecycle marker.
+    pub fn finish(call_id: impl Into<String>, step_number: u32) -> Self {
+        Self {
+            kind: StreamTextLifecycleChunkType::Finish,
+            call_id: call_id.into(),
+            step_number,
+            attributes: HashMap::new(),
+        }
+    }
+
+    /// Attach one lifecycle attribute.
+    pub fn with_attribute(mut self, key: impl Into<String>, value: impl Into<JSONValue>) -> Self {
+        self.attributes.insert(key.into(), value.into());
+        self
+    }
+
+    /// Return the lifecycle discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        match self.kind {
+            StreamTextLifecycleChunkType::FirstChunk => "ai.stream.firstChunk",
+            StreamTextLifecycleChunkType::Finish => "ai.stream.finish",
+        }
+    }
+}
+
+/// Chunk payload passed to AI SDK `streamText` `onChunk` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum StreamTextChunk<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// Regular `TextStreamPart`.
+    Part(TextStreamPart<NAME, INPUT, OUTPUT>),
+    /// Stream lifecycle marker.
+    Lifecycle(StreamTextLifecycleChunk),
+}
+
+impl<NAME, INPUT, OUTPUT> StreamTextChunk<NAME, INPUT, OUTPUT> {
+    /// Return the chunk discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::Part(part) => part.r#type(),
+            Self::Lifecycle(part) => part.r#type(),
+        }
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamPart<NAME, INPUT, OUTPUT>>
+    for StreamTextChunk<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamPart<NAME, INPUT, OUTPUT>) -> Self {
+        Self::Part(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<StreamTextLifecycleChunk> for StreamTextChunk<NAME, INPUT, OUTPUT> {
+    fn from(value: StreamTextLifecycleChunk) -> Self {
+        Self::Lifecycle(value)
+    }
+}
+
+/// Event passed to AI SDK `streamText` `onChunk` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct StreamTextChunkEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// Stream chunk or lifecycle marker.
+    pub chunk: StreamTextChunk<NAME, INPUT, OUTPUT>,
+}
+
+impl<NAME, INPUT, OUTPUT> StreamTextChunkEvent<NAME, INPUT, OUTPUT> {
+    /// Create a stream chunk event.
+    pub fn new(chunk: impl Into<StreamTextChunk<NAME, INPUT, OUTPUT>>) -> Self {
+        Self {
+            chunk: chunk.into(),
+        }
+    }
+}
+
+/// Event passed to AI SDK tool execution start callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolExecutionStartEvent<NAME = String, INPUT = JSONValue> {
+    /// Unique generation call identifier.
+    pub call_id: String,
+    /// Messages sent to the model before the assistant tool-call response.
+    pub messages: Vec<ModelMessage>,
+    /// Tool call that is about to execute.
+    pub tool_call: ToolCall<NAME, INPUT>,
+    /// Validated tool context when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_context: Option<JSONValue>,
+}
+
+/// Event passed to AI SDK tool execution end callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolExecutionEndEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// Unique generation call identifier.
+    pub call_id: String,
+    /// Execution duration in milliseconds.
+    pub duration_ms: u64,
+    /// Messages sent to the model before the assistant tool-call response.
+    pub messages: Vec<ModelMessage>,
+    /// Tool call that finished executing.
+    pub tool_call: ToolCall<NAME, INPUT>,
+    /// Validated tool context when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_context: Option<JSONValue>,
+    /// Successful or failed tool output.
+    pub tool_output: ToolOutput<NAME, INPUT, OUTPUT>,
+}
+
+/// Deprecated AI SDK callback event aliases kept for source compatibility.
+#[deprecated(note = "Use GenerateTextStartEvent instead.")]
+pub type OnStartEvent<OUTPUT = JSONValue> = GenerateTextStartEvent<OUTPUT>;
+
+/// Deprecated AI SDK callback event aliases kept for source compatibility.
+#[deprecated(note = "Use GenerateTextStepStartEvent instead.")]
+pub type OnStepStartEvent<
+    OUTPUT = JSONValue,
+    NAME = String,
+    INPUT = JSONValue,
+    ToolOutputValue = ToolResultOutput,
+> = GenerateTextStepStartEvent<OUTPUT, NAME, INPUT, ToolOutputValue>;
+
+/// Deprecated AI SDK callback event aliases kept for source compatibility.
+#[deprecated(note = "Use StreamTextChunkEvent instead.")]
+pub type OnChunkEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    StreamTextChunkEvent<NAME, INPUT, OUTPUT>;
+
+/// Deprecated AI SDK callback event aliases kept for source compatibility.
+#[deprecated(note = "Use GenerateTextStepEndEvent instead.")]
+pub type OnStepFinishEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    GenerateTextStepEndEvent<NAME, INPUT, OUTPUT>;
+
+/// Deprecated AI SDK callback event aliases kept for source compatibility.
+#[deprecated(note = "Use GenerateTextEndEvent instead.")]
+pub type OnFinishEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    GenerateTextEndEvent<NAME, INPUT, OUTPUT>;
+
+/// Deprecated AI SDK callback event aliases kept for source compatibility.
+#[deprecated(note = "Use ToolExecutionStartEvent instead.")]
+pub type OnToolCallStartEvent<NAME = String, INPUT = JSONValue> =
+    ToolExecutionStartEvent<NAME, INPUT>;
+
+/// Deprecated AI SDK callback event aliases kept for source compatibility.
+#[deprecated(note = "Use ToolExecutionEndEvent instead.")]
+pub type OnToolCallFinishEvent<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    ToolExecutionEndEvent<NAME, INPUT, OUTPUT>;
 
 /// A cloneable cancellation handle for request-scoped abort semantics.
 #[derive(Clone, Debug, Default)]
@@ -4428,6 +4788,140 @@ mod tests {
     }
 
     #[test]
+    fn generate_text_callback_start_events_match_ai_sdk_shape() {
+        let mut provider_options = ProviderOptionsMap::new();
+        provider_options.insert("openai", serde_json::json!({ "reasoningEffort": "low" }));
+        let mut tools_context = Context::new();
+        tools_context.insert("tenant".to_string(), serde_json::json!("docs"));
+        let mut runtime_context = Context::new();
+        runtime_context.insert("traceId".to_string(), serde_json::json!("trace_1"));
+        let prompt = StandardizedPrompt {
+            system: None,
+            messages: vec![ModelMessage::Assistant(AssistantModelMessage::new(
+                AssistantContent::text("ready"),
+            ))],
+        };
+
+        let start_event = GenerateTextStartEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.generateText".to_string(),
+            model: CallbackModelInfo::new("openai", "gpt-test"),
+            tools: Some(vec![Tool::function(
+                "search",
+                "Search docs",
+                serde_json::json!({
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string" }
+                    }
+                }),
+            )]),
+            tool_choice: Some(ToolChoice::tool("search")),
+            active_tools: Some(vec!["search".to_string()]),
+            max_retries: 2,
+            timeout: Some(TimeoutConfiguration::settings(
+                TimeoutConfigurationSettings::new().with_total_ms(30_000),
+            )),
+            headers: Some(HashMap::from([
+                ("x-test".to_string(), Some("1".to_string())),
+                ("x-drop".to_string(), None),
+            ])),
+            provider_options: Some(provider_options.clone()),
+            stop_when: vec![serde_json::json!({ "type": "step-count", "maxSteps": 2 })],
+            output: Some(serde_json::json!({ "type": "object" })),
+            tools_context: tools_context.clone(),
+            runtime_context: runtime_context.clone(),
+            call_options: LanguageModelCallOptions {
+                temperature: Some(0.2),
+                ..LanguageModelCallOptions::default()
+            },
+            prompt: prompt.clone(),
+        };
+
+        let json = serde_json::to_value(&start_event).expect("serialize start event");
+
+        assert_eq!(json["callId"], serde_json::json!("call_1"));
+        assert_eq!(json["operationId"], serde_json::json!("ai.generateText"));
+        assert_eq!(json["provider"], serde_json::json!("openai"));
+        assert_eq!(json["modelId"], serde_json::json!("gpt-test"));
+        assert_eq!(json["toolChoice"]["toolName"], serde_json::json!("search"));
+        assert_eq!(json["activeTools"][0], serde_json::json!("search"));
+        assert_eq!(
+            json["providerOptions"]["openai"]["reasoningEffort"],
+            serde_json::json!("low")
+        );
+        assert_eq!(json["toolsContext"]["tenant"], serde_json::json!("docs"));
+        assert_eq!(
+            json["runtimeContext"]["traceId"],
+            serde_json::json!("trace_1")
+        );
+        assert_eq!(json["maxRetries"], serde_json::json!(2));
+        assert_eq!(json["timeout"]["totalMs"], serde_json::json!(30_000));
+        assert_eq!(json["headers"]["x-test"], serde_json::json!("1"));
+        assert!(json["headers"]["x-drop"].is_null());
+        assert_eq!(json["messages"][0]["role"], serde_json::json!("assistant"));
+        assert_eq!(json["temperature"], serde_json::json!(0.2));
+
+        let step_event = GenerateTextStepStartEvent {
+            call_id: "call_1".to_string(),
+            model: CallbackModelInfo::new("openai", "gpt-test"),
+            step_number: 1,
+            tools: None,
+            tool_choice: Some(ToolChoice::Auto),
+            active_tools: Some(vec!["search".to_string()]),
+            steps: Vec::<GenerateTextStepResult>::new(),
+            provider_options: Some(provider_options),
+            output: Some(serde_json::json!({ "type": "object" })),
+            runtime_context,
+            tools_context,
+            prompt,
+        };
+        let step_json = serde_json::to_value(&step_event).expect("serialize step start event");
+
+        assert_eq!(step_json["callId"], serde_json::json!("call_1"));
+        assert_eq!(step_json["stepNumber"], serde_json::json!(1));
+        assert_eq!(step_json["toolChoice"], serde_json::json!("auto"));
+        assert_eq!(step_json["activeTools"][0], serde_json::json!("search"));
+        assert!(step_json["steps"].as_array().is_some_and(Vec::is_empty));
+    }
+
+    #[test]
+    fn stream_text_chunk_event_accepts_parts_and_lifecycle_markers() {
+        let part_event: StreamTextChunkEvent = StreamTextChunkEvent::new(TextStreamPart::from(
+            TextStreamTextDeltaPart::new("text_1", "hello"),
+        ));
+        let part_json = serde_json::to_value(&part_event).expect("serialize part chunk event");
+
+        assert_eq!(part_json["chunk"]["type"], serde_json::json!("text-delta"));
+        assert_eq!(part_json["chunk"]["text"], serde_json::json!("hello"));
+
+        let lifecycle_event: StreamTextChunkEvent = StreamTextChunkEvent::new(
+            StreamTextLifecycleChunk::first_chunk("call_1", 0)
+                .with_attribute("phase", serde_json::json!("first")),
+        );
+        let lifecycle_json =
+            serde_json::to_value(&lifecycle_event).expect("serialize lifecycle chunk event");
+
+        assert_eq!(
+            lifecycle_json["chunk"]["type"],
+            serde_json::json!("ai.stream.firstChunk")
+        );
+        assert_eq!(
+            lifecycle_json["chunk"]["callId"],
+            serde_json::json!("call_1")
+        );
+        assert_eq!(lifecycle_json["chunk"]["stepNumber"], serde_json::json!(0));
+        assert_eq!(
+            lifecycle_json["chunk"]["attributes"]["phase"],
+            serde_json::json!("first")
+        );
+
+        let roundtrip: StreamTextChunkEvent =
+            serde_json::from_value(lifecycle_json).expect("deserialize lifecycle chunk event");
+        assert_eq!(roundtrip.chunk.r#type(), "ai.stream.firstChunk");
+    }
+
+    #[test]
     fn generated_file_and_reasoning_outputs_match_ai_sdk_shape() {
         let file = GeneratedFile::from_bytes(b"hello", "text/plain");
         assert_eq!(file.base64(), "aGVsbG8=");
@@ -4548,6 +5042,85 @@ mod tests {
             "toolName": "delete"
         });
         assert!(serde_json::from_value::<ToolOutputDenied>(wrong_type).is_err());
+    }
+
+    #[test]
+    fn tool_execution_events_and_tool_output_match_ai_sdk_shape() {
+        let messages = vec![ModelMessage::Assistant(AssistantModelMessage::new(
+            AssistantContent::text("calling search"),
+        ))];
+        let tool_call = ToolCall::new(
+            "call_1",
+            "search".to_string(),
+            serde_json::json!({ "query": "rust" }),
+        );
+        let start_event = ToolExecutionStartEvent {
+            call_id: "call_1".to_string(),
+            messages: messages.clone(),
+            tool_call: tool_call.clone(),
+            tool_context: Some(serde_json::json!({ "tenant": "docs" })),
+        };
+        let start_json =
+            serde_json::to_value(&start_event).expect("serialize tool execution start event");
+
+        assert_eq!(start_json["callId"], serde_json::json!("call_1"));
+        assert_eq!(
+            start_json["toolCall"]["toolCallId"],
+            serde_json::json!("call_1")
+        );
+        assert_eq!(
+            start_json["toolContext"]["tenant"],
+            serde_json::json!("docs")
+        );
+        assert_eq!(
+            start_json["messages"][0]["role"],
+            serde_json::json!("assistant")
+        );
+
+        let tool_output = ToolOutput::from(ToolResult::new(
+            "call_1",
+            "search".to_string(),
+            serde_json::json!({ "query": "rust" }),
+            ToolResultOutput::json(serde_json::json!({ "answer": "ok" })),
+        ));
+        let end_event = ToolExecutionEndEvent {
+            call_id: "call_1".to_string(),
+            duration_ms: 42,
+            messages,
+            tool_call,
+            tool_context: Some(serde_json::json!({ "tenant": "docs" })),
+            tool_output,
+        };
+        let end_json =
+            serde_json::to_value(&end_event).expect("serialize tool execution end event");
+
+        assert_eq!(end_json["durationMs"], serde_json::json!(42));
+        assert_eq!(
+            end_json["toolCall"]["toolName"],
+            serde_json::json!("search")
+        );
+        assert_eq!(end_json["toolContext"]["tenant"], serde_json::json!("docs"));
+        assert_eq!(
+            end_json["toolOutput"]["type"],
+            serde_json::json!("tool-result")
+        );
+        assert_eq!(
+            end_json["toolOutput"]["output"]["value"]["answer"],
+            serde_json::json!("ok")
+        );
+
+        let roundtrip: ToolExecutionEndEvent =
+            serde_json::from_value(end_json).expect("deserialize tool execution end event");
+        assert_eq!(roundtrip.tool_output.r#type(), "tool-result");
+
+        let error_output: ToolOutput = ToolError::new(
+            "call_2",
+            "search".to_string(),
+            serde_json::json!({ "query": "rust" }),
+            serde_json::json!({ "message": "timeout" }),
+        )
+        .into();
+        assert_eq!(error_output.r#type(), "tool-error");
     }
 
     #[test]

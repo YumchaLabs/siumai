@@ -11,7 +11,10 @@ Reference files:
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-request-output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-response-output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-error.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-output.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-output-denied.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/core-events.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/tool-execution-events.ts`
 - `repo-ref/ai/packages/ai/src/util/fix-json.ts`
 - `repo-ref/ai/packages/ai/src/util/parse-partial-json.ts`
 - `repo-ref/ai/packages/openai/src/chat/openai-chat-language-model.ts`
@@ -48,6 +51,7 @@ because request-side file/provider-option carriers use different wire shapes.
 | `reasoning` | Supported as passive output shape | `ReasoningOutput` carries `type: "reasoning"`, text, and provider metadata. |
 | `reasoning-file` | Supported as passive output shape | `ReasoningFileOutput` carries `type: "reasoning-file"`, a nested `GeneratedFile`, and provider metadata. |
 | `tool-error` | Supported as passive output shape | `ToolError` carries the full AI SDK output-side error part shape with input, error payload, provider metadata, dynamic flag, and title. |
+| `ToolOutput` | Supported as passive output shape | `ToolOutput` is the AI SDK `tool-result | tool-error` union used by tool execution end events. |
 | `tool-output-denied` | Supported as passive output shape | `ToolOutputDenied` plus `StaticToolOutputDenied` / `TypedToolOutputDenied` aliases model the AI SDK denial part. |
 | `tool-approval-request` | Supported as passive output shape | `ToolApprovalRequestOutput` carries the full nested `toolCall` plus optional `isAutomatic`. Runtime prompt continuity still keeps ID-oriented approval parts until the tool-loop projection is refactored. |
 | `tool-approval-response` | Supported as passive output shape | `ToolApprovalResponseOutput` carries the full nested `toolCall`, `approved`, optional `reason`, and `providerExecuted`. |
@@ -68,6 +72,24 @@ because request-side file/provider-option carriers use different wire shapes.
 | `text-delta` / `reasoning-delta` | Supported as passive output shape | The passive stream output shape uses the AI SDK `text` field, not provider V4's `delta` field. |
 | `start-step` / `finish-step` / `finish` | Supported as passive output shape | The passive output shape preserves `request`, `response`, `usage`, `finishReason`, `rawFinishReason`, `providerMetadata`, and final `totalUsage` without changing the current runtime stream event contract. |
 | `StreamTextResult` object | Deferred | The full result object still needs a tee/backpressure design before Rust can honestly expose all promise-like and stream lanes together. |
+
+## Callback Event Payloads
+
+Siumai now exposes passive callback/event payload structures matching AI SDK
+`generate-text/core-events.ts` and `generate-text/tool-execution-events.ts`. These are data
+carriers for serde/public-surface parity only; they do not imply that the current Rust text helper
+runtime invokes those callbacks.
+
+| AI SDK event structure | Siumai status | Notes |
+| --- | --- | --- |
+| `CallbackModelInfo` | Supported as passive event shape | Flattened by start/step events so `provider` and `modelId` serialize like upstream payloads. |
+| `GenerateTextStartEvent` | Supported as passive event shape | Preserves `callId`, `operationId`, model identity, tools, `toolChoice`, `activeTools`, retry/timeout/header/provider options, symbolic `stopWhen`, output metadata, contexts, call options, and standardized prompt. |
+| `GenerateTextStepStartEvent` | Supported as passive event shape | Preserves step number, previous steps, provider/output options, prompt, and context snapshots. |
+| `GenerateTextStepEndEvent` | Supported as passive event shape | Alias over `GenerateTextStepResult`, matching upstream `StepResult` callback payload. |
+| `GenerateTextEndEvent` | Supported as passive event shape | Flattens the final step result and adds `steps` plus `totalUsage`, matching the upstream intersection type. |
+| `StreamTextChunkEvent` | Supported as passive event shape | Accepts either the passive `TextStreamPart` union or lifecycle markers `ai.stream.firstChunk` / `ai.stream.finish`. |
+| `ToolExecutionStartEvent` | Supported as passive event shape | Preserves `callId`, model messages, full `toolCall`, and optional `toolContext`. |
+| `ToolExecutionEndEvent` | Supported as passive event shape | Preserves `durationMs`, model messages, full `toolCall`, optional `toolContext`, and `ToolOutput`. |
 
 ## Streaming Partial Output
 
