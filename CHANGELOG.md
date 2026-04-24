@@ -23,6 +23,14 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::parse_json_event_stream` and `prelude::unified::parse_json_event_stream` parse SSE
   `data:` JSON payloads while ignoring `[DONE]`, using Rust stream item errors instead of a
   TypeScript-style `ParseResult` union.
+- AI SDK `generateObject` parity now has a non-streaming Rust helper:
+  `siumai::structured_output::generate_object` plus root/prelude re-exports for
+  `generate_object`, `GenerateObjectOptions`, `GenerateObjectSchema`, and `GenerateObjectResult`
+  set JSON Schema response format on the language-model call, parse the returned JSON, run typed
+  Rust schema validators when provided, and project finish reason, usage, warnings,
+  request/response metadata, and provider metadata onto the AI SDK-style result shape. Streaming
+  `streamObject` partial object streams, array/enum output strategies, and repair callbacks remain
+  explicitly deferred.
 - Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
   `provider_ext::{openai,azure,bedrock}` now expose package-level
   `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and

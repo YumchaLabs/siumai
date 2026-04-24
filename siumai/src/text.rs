@@ -113,12 +113,10 @@ fn apply_text_call_options(
     request
 }
 
-/// Generate a non-streaming text response.
-pub async fn generate<M: TextModelV3 + ?Sized>(
-    model: &M,
+pub(crate) fn prepare_generate_request(
     request: TextRequest,
     options: GenerateOptions,
-) -> Result<TextResponse, LlmError> {
+) -> (TextRequest, EffectiveRequestOptions) {
     let effective = EffectiveRequestOptions::from_parts(
         options.request_options,
         options.retry,
@@ -133,12 +131,29 @@ pub async fn generate<M: TextModelV3 + ?Sized>(
         options.tool_choice,
         options.telemetry,
     );
+    (request, effective)
+}
 
+pub(crate) async fn generate_prepared<M: TextModelV3 + ?Sized>(
+    model: &M,
+    request: TextRequest,
+    effective: EffectiveRequestOptions,
+) -> Result<TextResponse, LlmError> {
     retry_or_call_with_abort(effective.retry(), effective.abort_signal(), || {
         let req = request.clone();
         async move { model.generate(req).await }
     })
     .await
+}
+
+/// Generate a non-streaming text response.
+pub async fn generate<M: TextModelV3 + ?Sized>(
+    model: &M,
+    request: TextRequest,
+    options: GenerateOptions,
+) -> Result<TextResponse, LlmError> {
+    let (request, effective) = prepare_generate_request(request, options);
+    generate_prepared(model, request, effective).await
 }
 
 /// Generate a streaming text response.

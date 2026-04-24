@@ -14,6 +14,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LazySchema>();
     let _ = size_of::<FlexibleSchema>();
     let _ = size_of::<ValidationResult>();
+    let _ = size_of::<GenerateObjectOptions>();
+    let _ = size_of::<GenerateObjectResult<JSONValue>>();
+    let _ = size_of::<GenerateObjectSchema<JSONValue>>();
     let _ = size_of::<IdGenerator>();
     let _ = size_of::<IdGeneratorOptions>();
     let _ = size_of::<ExecutableTool>();
@@ -116,6 +119,19 @@ fn public_surface_unified_imports_compile() {
 
     let schema = json_schema(serde_json::json!({ "type": "object" }));
     assert_eq!(schema.json_schema()["type"], serde_json::json!("object"));
+    let object_options = GenerateObjectOptions::new()
+        .with_schema_name("answer")
+        .with_schema_description("Answer payload")
+        .with_strict(true);
+    assert_eq!(object_options.schema_name.as_deref(), Some("answer"));
+    assert_eq!(
+        object_options.schema_description.as_deref(),
+        Some("Answer payload")
+    );
+    assert_eq!(object_options.strict, Some(true));
+    let object_schema: GenerateObjectSchema<JSONValue> =
+        serde_json::json!({ "type": "object" }).into();
+    assert!(format!("{object_schema:?}").contains("Json"));
 
     let typed_schema = json_schema_with_validator(
         serde_json::json!({
@@ -564,9 +580,10 @@ fn public_family_helpers_compile_against_stable_family_models() {
             self, GenerateImageRequest, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
             ImageModel, ImageVariationRequest,
         },
-        prelude::unified::{ChatMessage, registry::*},
+        prelude::unified::{ChatMessage, JSONValue, registry::*},
         rerank::{self, RerankRequest, RerankingModel},
         speech::{self, SpeechModel, TtsRequest},
+        structured_output::{self, GenerateObjectSchema},
         text::{self, LanguageModel, TextRequest},
         transcription::{self, SttRequest, TranscriptionModel},
         video::{self, VideoGenerationRequest, VideoModel},
@@ -595,7 +612,19 @@ fn public_family_helpers_compile_against_stable_family_models() {
         let request = TextRequest::new(vec![ChatMessage::user("hi").build()]);
         std::mem::drop(text::generate(model, request.clone(), Default::default()));
         std::mem::drop(text::stream(model, request.clone(), Default::default()));
-        std::mem::drop(text::stream_with_cancel(model, request, Default::default()));
+        std::mem::drop(text::stream_with_cancel(
+            model,
+            request.clone(),
+            Default::default(),
+        ));
+        let schema: GenerateObjectSchema<JSONValue> =
+            serde_json::json!({ "type": "object" }).into();
+        std::mem::drop(structured_output::generate_object(
+            model,
+            request,
+            schema,
+            Default::default(),
+        ));
     }
 
     fn _assert_embedding_surface<M: EmbeddingModel + ?Sized>(model: &M) {

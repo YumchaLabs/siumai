@@ -155,6 +155,9 @@ pub mod skills;
 pub mod speech;
 /// Structured output helpers (JSON extraction + parsing).
 pub mod structured_output;
+pub use structured_output::{
+    GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, generate_object,
+};
 pub mod text;
 pub mod transcription;
 /// AI SDK-style `UIMessage` validation and conversion helpers.
@@ -2034,6 +2037,9 @@ pub mod prelude {
             UploadSkillApi, UploadSkillFile, UploadSkillFileContent, UploadSkillOptions,
             UploadSkillProviderMetadata, UploadSkillResult,
         };
+        pub use crate::structured_output::{
+            GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, generate_object,
+        };
         pub use crate::tooling;
         pub use crate::tools;
         pub use crate::{
@@ -2047,7 +2053,8 @@ pub mod prelude {
         };
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};
         pub use crate::{
-            completion, embedding, files, image, rerank, skills, speech, text, transcription, video,
+            completion, embedding, files, image, rerank, skills, speech, structured_output, text,
+            transcription, video,
         };
         pub use crate::{system, tool, user, user_with_image};
         pub use siumai_core::completion::CompletionModel;
