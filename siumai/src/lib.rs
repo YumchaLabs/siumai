@@ -157,7 +157,8 @@ pub mod speech;
 pub mod structured_output;
 pub use structured_output::{
     GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, RepairTextContext,
-    RepairTextFunction, RepairTextFuture, generate_array, generate_enum, generate_object,
+    RepairTextFunction, RepairTextFuture, generate_array, generate_choice, generate_enum,
+    generate_json, generate_object,
 };
 pub mod text;
 pub mod transcription;
@@ -2040,7 +2041,8 @@ pub mod prelude {
         };
         pub use crate::structured_output::{
             GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema, RepairTextContext,
-            RepairTextFunction, RepairTextFuture, generate_array, generate_enum, generate_object,
+            RepairTextFunction, RepairTextFuture, generate_array, generate_choice, generate_enum,
+            generate_json, generate_object,
         };
         pub use crate::tooling;
         pub use crate::tools;

@@ -566,11 +566,15 @@ pub fn convert_tool_choice(choice: &crate::types::ToolChoice) -> serde_json::Val
 ///
 /// Vercel AI SDK parity:
 /// - `responseFormat: { type: "json", schema }` => `{ type: "json_schema", json_schema: { name, schema, strict } }`
+/// - `responseFormat: { type: "json" }` => `{ type: "json_object" }`
 pub fn convert_chat_completions_response_format(
     fmt: &crate::types::chat::ResponseFormat,
     strict_json_schema: bool,
 ) -> serde_json::Value {
     match fmt {
+        crate::types::chat::ResponseFormat::JsonObject { .. } => {
+            serde_json::json!({ "type": "json_object" })
+        }
         crate::types::chat::ResponseFormat::Json {
             schema,
             name,
@@ -605,6 +609,9 @@ pub fn convert_responses_response_format(
     fmt: &crate::types::chat::ResponseFormat,
 ) -> serde_json::Value {
     match fmt {
+        crate::types::chat::ResponseFormat::JsonObject { .. } => {
+            serde_json::json!({ "type": "json_object" })
+        }
         crate::types::chat::ResponseFormat::Json {
             schema,
             name,

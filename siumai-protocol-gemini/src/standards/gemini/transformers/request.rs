@@ -409,6 +409,12 @@ impl RequestTransformer for GeminiRequestTransformer {
                         .and_then(|v| v.as_object_mut())
                     {
                         match fmt {
+                            crate::types::ResponseFormat::JsonObject { .. } => {
+                                obj.insert(
+                                    "responseMimeType".to_string(),
+                                    serde_json::json!("application/json"),
+                                );
+                            }
                             crate::types::ResponseFormat::Json { schema, .. } => {
                                 obj.insert(
                                     "responseMimeType".to_string(),
@@ -1494,6 +1500,25 @@ mod tests_gemini_rules {
             serde_json::json!("application/json")
         );
         assert!(body["generationConfig"].get("responseSchema").is_some());
+    }
+
+    #[test]
+    fn response_format_json_object_sets_response_mime_type_without_schema() {
+        let cfg = GeminiConfig::default()
+            .with_model("gemini-2.5-flash".into())
+            .with_base_url("https://example".into());
+        let tx = GeminiRequestTransformer { config: cfg };
+
+        let mut req = ChatRequest::new(vec![ChatMessage::user("hi").build()]);
+        req.common_params.model = "gemini-2.5-flash".to_string();
+        req.response_format = Some(crate::types::ResponseFormat::json_object());
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body["generationConfig"]["responseMimeType"],
+            serde_json::json!("application/json")
+        );
+        assert!(body["generationConfig"].get("responseSchema").is_none());
     }
 
     #[test]

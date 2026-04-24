@@ -230,6 +230,48 @@ where
     .await
 }
 
+/// Generate an arbitrary JSON value without a provider-facing JSON Schema.
+///
+/// This is the Rust equivalent of AI SDK `generateText({ output: json() })` for the
+/// non-streaming path. Providers receive a schema-less JSON response format when they support it.
+pub async fn generate_json<M>(
+    model: &M,
+    request: TextRequest,
+    options: GenerateObjectOptions,
+) -> Result<GenerateObjectResult<serde_json::Value>, LlmError>
+where
+    M: LanguageModel + ?Sized,
+{
+    let response_format = response_format_from_json_object(&options)?;
+
+    generate_with_response_format(model, request, response_format, options, Ok).await
+}
+
+/// Generate one string from a fixed choice set using AI SDK's wrapped choice output strategy.
+///
+/// This mirrors AI SDK `generateText({ output: choice(...) })`. Unlike `generate_enum`, this
+/// helper accepts `schema_name` and `schema_description` because the newer `Output.choice()`
+/// surface forwards those labels on the JSON response format.
+pub async fn generate_choice<M, I, V>(
+    model: &M,
+    request: TextRequest,
+    choices: I,
+    options: GenerateObjectOptions,
+) -> Result<GenerateObjectResult<String>, LlmError>
+where
+    M: LanguageModel + ?Sized,
+    I: IntoIterator<Item = V>,
+    V: Into<String>,
+{
+    let choices = choices.into_iter().map(Into::into).collect::<Vec<_>>();
+    let response_schema = enum_output_json_schema(&choices);
+
+    generate_with_response_schema(model, request, response_schema, options, move |value| {
+        parse_generated_enum(&choices, value)
+    })
+    .await
+}
+
 /// Generate one string from a fixed enum set using AI SDK's wrapped enum output strategy.
 ///
 /// Providers receive a JSON Schema for `{ "result": "..." }`, matching AI SDK's `output:
@@ -268,6 +310,20 @@ where
     P: Fn(serde_json::Value) -> Result<T, LlmError>,
 {
     let response_format = response_format_from_schema(response_schema, &options);
+    generate_with_response_format(model, request, response_format, options, parse).await
+}
+
+async fn generate_with_response_format<M, T, P>(
+    model: &M,
+    request: TextRequest,
+    response_format: ResponseFormat,
+    options: GenerateObjectOptions,
+    parse: P,
+) -> Result<GenerateObjectResult<T>, LlmError>
+where
+    M: LanguageModel + ?Sized,
+    P: Fn(serde_json::Value) -> Result<T, LlmError>,
+{
     let repair_text = options.repair_text.clone();
     let request = request.with_response_format(response_format);
     let (request, effective_options) =
@@ -377,6 +433,27 @@ fn response_format_from_schema(
     }
 
     response_format
+}
+
+fn response_format_from_json_object(
+    options: &GenerateObjectOptions,
+) -> Result<ResponseFormat, LlmError> {
+    if options.strict.is_some() {
+        return Err(LlmError::InvalidParameter(
+            "strict is not supported for schema-less JSON output".to_string(),
+        ));
+    }
+
+    let mut response_format = ResponseFormat::json_object();
+
+    if let Some(name) = options.schema_name.clone() {
+        response_format = response_format.with_name(name);
+    }
+    if let Some(description) = options.schema_description.clone() {
+        response_format = response_format.with_description(description);
+    }
+
+    Ok(response_format)
 }
 
 fn array_output_json_schema(mut item_schema: JSONSchema7) -> JSONSchema7 {
@@ -710,6 +787,9 @@ mod tests {
                 assert_eq!(description.as_deref(), Some("Person payload"));
                 assert_eq!(*strict, Some(true));
             }
+            ResponseFormat::JsonObject { .. } => {
+                panic!("expected schema-backed JSON response format");
+            }
         }
     }
 
@@ -909,7 +989,10 @@ mod tests {
         let ResponseFormat::Json { schema, .. } = request
             .response_format
             .as_ref()
-            .expect("response format should be set");
+            .expect("response format should be set")
+        else {
+            panic!("expected schema-backed JSON response format");
+        };
         assert_eq!(schema["properties"]["elements"]["type"], "array");
         assert!(
             schema["properties"]["elements"]["items"]
@@ -948,7 +1031,59 @@ mod tests {
         let ResponseFormat::Json { schema, .. } = request
             .response_format
             .as_ref()
-            .expect("response format should be set");
+            .expect("response format should be set")
+        else {
+            panic!("expected schema-backed JSON response format");
+        };
+        assert_eq!(
+            schema["properties"]["result"]["enum"],
+            serde_json::json!(["red", "green", "blue"])
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_choice_allows_schema_labels_and_extracts_result() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"result\":\"green\"}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request: seen_request.clone(),
+        };
+
+        let result = generate_choice(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            ["red", "green", "blue"],
+            GenerateObjectOptions::new()
+                .with_schema_name("color")
+                .with_schema_description("Color choice"),
+        )
+        .await
+        .expect("generate choice");
+
+        assert_eq!(result.object, "green");
+
+        let request = seen_request
+            .lock()
+            .expect("request lock")
+            .clone()
+            .expect("request should be captured");
+        let ResponseFormat::Json {
+            schema,
+            name,
+            description,
+            ..
+        } = request
+            .response_format
+            .as_ref()
+            .expect("response format should be set")
+        else {
+            panic!("expected schema-backed JSON response format");
+        };
+        assert_eq!(name.as_deref(), Some("color"));
+        assert_eq!(description.as_deref(), Some("Color choice"));
         assert_eq!(
             schema["properties"]["result"]["enum"],
             serde_json::json!(["red", "green", "blue"])
@@ -974,6 +1109,80 @@ mod tests {
         )
         .await
         .expect_err("schema name should be rejected for enum output");
+
+        assert!(matches!(error, LlmError::InvalidParameter(_)));
+    }
+
+    #[tokio::test]
+    async fn generate_json_sets_schema_less_response_format_and_parses_value() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"answer\":42}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request: seen_request.clone(),
+        };
+
+        let result = generate_json(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            GenerateObjectOptions::new()
+                .with_schema_name("payload")
+                .with_schema_description("Any JSON payload"),
+        )
+        .await
+        .expect("generate json");
+
+        assert_eq!(result.object, serde_json::json!({ "answer": 42 }));
+
+        let request = seen_request
+            .lock()
+            .expect("request lock")
+            .clone()
+            .expect("request should be captured");
+        let response_format = request
+            .response_format
+            .as_ref()
+            .expect("response format should be set");
+        assert_eq!(
+            response_format,
+            &ResponseFormat::json_object()
+                .with_name("payload")
+                .with_description("Any JSON payload")
+        );
+        assert_eq!(
+            result
+                .request
+                .body
+                .as_ref()
+                .and_then(|body| body.get("responseFormat")),
+            Some(&serde_json::json!({
+                "type": "json",
+                "name": "payload",
+                "description": "Any JSON payload"
+            }))
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_json_rejects_strict_schema_option() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"answer\":42}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request,
+        };
+
+        let error = generate_json(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            GenerateObjectOptions::new().with_strict(true),
+        )
+        .await
+        .expect_err("strict is schema-only");
 
         assert!(matches!(error, LlmError::InvalidParameter(_)));
     }

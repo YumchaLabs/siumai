@@ -30,9 +30,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   language-model call, parse the returned JSON, run typed Rust schema validators when provided, and
   project finish reason, usage, warnings, request/response metadata, and provider metadata onto the
   AI SDK-style result shape. Array and enum helpers use the same wrapped output strategies as
-  upstream, and `GenerateObjectOptions::with_repair_text_fn(...)` mirrors the non-streaming repair
-  callback path after parse or validation failure. Streaming `streamObject` partial object streams
-  and no-schema output remain explicitly deferred.
+  upstream, `generate_choice` mirrors AI SDK `generateText` `output.choice(...)`, `generate_json`
+  mirrors `output.json(...)` with first-class schema-less `ResponseFormat::json_object()`, and
+  `GenerateObjectOptions::with_repair_text_fn(...)` mirrors the non-streaming repair callback path
+  after parse or validation failure. Streaming `streamObject` partial object streams remain
+  explicitly deferred.
 - Structured object generation failures now use an AI SDK-style `LlmError::NoObjectGenerated`
   variant that preserves generated text, response metadata, usage, finish reason, and the
   underlying parse/validation cause.

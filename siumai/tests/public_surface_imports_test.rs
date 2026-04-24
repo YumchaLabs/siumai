@@ -7,6 +7,7 @@ fn public_surface_unified_imports_compile() {
 
     let _ = size_of::<ChatRequest>();
     let _ = size_of::<ChatResponse>();
+    let _ = size_of::<ResponseFormat>();
     let _ = size_of::<CallSettings>();
     let _ = size_of::<JSONSchema7>();
     let _ = size_of::<JSONValue>();
@@ -122,6 +123,11 @@ fn public_surface_unified_imports_compile() {
 
     let schema = json_schema(serde_json::json!({ "type": "object" }));
     assert_eq!(schema.json_schema()["type"], serde_json::json!("object"));
+    assert_eq!(
+        serde_json::to_value(ResponseFormat::json_object().with_name("payload"))
+            .expect("serialize response format"),
+        serde_json::json!({ "type": "json", "name": "payload" })
+    );
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")
@@ -587,7 +593,8 @@ fn public_family_helpers_compile_against_stable_family_models() {
             ImageModel, ImageVariationRequest,
         },
         prelude::unified::{
-            ChatMessage, JSONValue, generate_array, generate_enum, generate_object, registry::*,
+            ChatMessage, JSONValue, generate_array, generate_choice, generate_enum, generate_json,
+            generate_object, registry::*,
         },
         rerank::{self, RerankRequest, RerankingModel},
         speech::{self, SpeechModel, TtsRequest},
@@ -641,10 +648,17 @@ fn public_family_helpers_compile_against_stable_family_models() {
         ));
         std::mem::drop(generate_enum(
             model,
-            request,
+            request.clone(),
             ["red", "green"],
             Default::default(),
         ));
+        std::mem::drop(generate_choice(
+            model,
+            request.clone(),
+            ["red", "green"],
+            Default::default(),
+        ));
+        std::mem::drop(generate_json(model, request, Default::default()));
     }
 
     fn _assert_embedding_surface<M: EmbeddingModel + ?Sized>(model: &M) {

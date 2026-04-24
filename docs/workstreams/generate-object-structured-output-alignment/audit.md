@@ -35,7 +35,7 @@ Reference files:
 | `object` | Supported | Directly maps to provider JSON Schema response format and Rust typed validation/deserialization. |
 | `array` | Supported as `generate_array(...)` | Uses the upstream `{ elements: [...] }` wrapper schema and returns the extracted `Vec<T>`. |
 | `enum` | Supported as `generate_enum(...)` | Uses the upstream `{ result: "..." }` wrapper schema and returns the extracted string after allowed-value validation. |
-| `no-schema` | Deferred | Requires a separate contract because it intentionally has no provider-facing schema. |
+| `no-schema` | Supported as `generate_json(...)` | Uses first-class schema-less `ResponseFormat::json_object()` instead of a permissive schema. |
 | `experimental_repairText` | Supported as `with_repair_text_fn(...)` | Invoked once after parse or final validation failure with `RepairTextContext { text, error }`. |
 | `NoObjectGeneratedError` | Supported as `LlmError::NoObjectGenerated` | Preserves text, response metadata, usage, finish reason, and underlying cause. |
 

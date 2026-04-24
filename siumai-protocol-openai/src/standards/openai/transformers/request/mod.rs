@@ -570,6 +570,25 @@ mod tests_openai_rules {
             }))
         );
     }
+
+    #[test]
+    fn response_format_json_object_is_mapped_like_vercel() {
+        use crate::types::ChatMessage;
+        use crate::types::chat::ResponseFormat;
+
+        let tx = OpenAiRequestTransformer;
+        let req = ChatRequest::builder()
+            .model("gpt-4o-mini")
+            .messages(vec![ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_object())
+            .build();
+
+        let body = tx.transform_chat(&req).expect("transform");
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({ "type": "json_object" }))
+        );
+    }
 }
 
 // Tests for structured_output via provider_params have been removed

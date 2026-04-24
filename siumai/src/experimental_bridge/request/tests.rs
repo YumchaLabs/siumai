@@ -10,7 +10,9 @@ use siumai_core::bridge::{
     BridgeWarningKind, RequestBridgeContext, RequestBridgeHook, RequestBridgePhase,
     ResponseBridgeContext, StreamBridgeContext,
 };
-use siumai_core::types::{ChatMessage, ChatRequest, ContentPart, ProviderOptionsMap};
+use siumai_core::types::{
+    ChatMessage, ChatRequest, ContentPart, ProviderOptionsMap, ResponseFormat,
+};
 
 #[cfg(any(feature = "openai", feature = "anthropic"))]
 use siumai_core::types::Tool;
@@ -1508,6 +1510,31 @@ fn openai_responses_request_normalization_restores_instructions_and_options() {
     assert_eq!(normalized.messages[3].tool_results().len(), 1);
     assert_eq!(normalized.messages[4].metadata.id.as_deref(), Some("msg_1"));
     assert!(normalized.response_format.is_some());
+}
+
+#[cfg(feature = "openai")]
+#[test]
+fn openai_responses_request_normalization_preserves_json_object_response_format() {
+    let value = json!({
+        "model": "gpt-5-mini",
+        "input": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "input_text", "text": "return json" }
+                ]
+            }
+        ],
+        "text": {
+            "format": { "type": "json_object" }
+        }
+    });
+
+    let normalized = bridge_openai_responses_json_to_chat_request(&value).expect("parse");
+    assert_eq!(
+        normalized.response_format,
+        Some(ResponseFormat::json_object())
+    );
 }
 
 #[cfg(feature = "openai")]

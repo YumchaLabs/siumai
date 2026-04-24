@@ -113,8 +113,9 @@ Repair callbacks are supported through `GenerateObjectOptions::with_repair_text_
 callback receives the raw model text plus the parse or validation error and can return repaired
 text for one retry.
 
-`no-schema` remains deferred. It needs a first-class `ResponseFormat` representation for "JSON
-output without JSON Schema"; using a permissive schema would be a different contract.
+Schema-less JSON output is exposed as `generate_json(...)` after adding a first-class
+`ResponseFormat::json_object()` representation for "JSON output without JSON Schema". It does not
+use a permissive schema fallback.
 
 ## Validation
 

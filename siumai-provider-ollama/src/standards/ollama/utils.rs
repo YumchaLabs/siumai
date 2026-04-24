@@ -98,6 +98,21 @@ mod message_tests {
     }
 
     #[test]
+    fn build_chat_request_maps_response_format_json_object_to_ollama_json_mode() {
+        let req = ChatRequest::builder()
+            .messages(vec![ChatMessage::user("Hello").build()])
+            .common_params(CommonParams {
+                model: "llama3.2".to_string(),
+                ..Default::default()
+            })
+            .response_format(crate::types::chat::ResponseFormat::json_object())
+            .build();
+
+        let body = build_chat_request(&req, &OllamaParams::default()).unwrap();
+        assert_eq!(body.format, Some(serde_json::json!("json")));
+    }
+
+    #[test]
     fn response_format_overrides_ollama_provider_option_format() {
         let schema = serde_json::json!({
             "type": "object",
@@ -764,10 +779,10 @@ pub fn build_chat_request(
         extra_params.remove("think");
     }
 
-    let response_format_value = request
-        .response_format
-        .as_ref()
-        .map(|crate::types::chat::ResponseFormat::Json { schema, .. }| schema.clone());
+    let response_format_value = request.response_format.as_ref().map(|format| match format {
+        crate::types::chat::ResponseFormat::JsonObject { .. } => serde_json::json!("json"),
+        crate::types::chat::ResponseFormat::Json { schema, .. } => schema.clone(),
+    });
 
     // Build options: common params + runtime options + custom maps
     let mut options = build_model_options(

@@ -2839,14 +2839,26 @@ fn parse_embedded_json(value: &Value) -> Result<Value, LlmError> {
 
 fn parse_json_schema_response_format(value: &Value) -> Option<ResponseFormat> {
     let obj = value.as_object()?;
+    let type_name = obj.get("type").and_then(Value::as_str);
     let owner = obj
         .get("json_schema")
         .and_then(Value::as_object)
         .unwrap_or(obj);
 
-    if obj.get("type").and_then(Value::as_str) != Some("json_schema")
-        && !owner.contains_key("schema")
+    if type_name == Some("json_object")
+        || (type_name == Some("json") && !owner.contains_key("schema"))
     {
+        let mut format = ResponseFormat::json_object();
+        if let Some(name) = owner.get("name").and_then(Value::as_str) {
+            format = format.with_name(name.to_string());
+        }
+        if let Some(description) = owner.get("description").and_then(Value::as_str) {
+            format = format.with_description(description.to_string());
+        }
+        return Some(format);
+    }
+
+    if type_name != Some("json_schema") && !owner.contains_key("schema") {
         return None;
     }
 

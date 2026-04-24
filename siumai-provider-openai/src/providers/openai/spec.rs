@@ -734,6 +734,24 @@ impl ProviderSpec for OpenAiSpec {
             // or Chat Completions `response_format`.
             if let Some(fmt) = &request_response_format {
                 match fmt {
+                    crate::types::chat::ResponseFormat::JsonObject { .. } => {
+                        if use_responses_api {
+                            if let Some(text_obj) = out.get_mut("text") {
+                                if let Some(text_map) = text_obj.as_object_mut() {
+                                    text_map.insert(
+                                        "format".to_string(),
+                                        serde_json::json!({ "type": "json_object" }),
+                                    );
+                                }
+                            } else {
+                                out["text"] = serde_json::json!({
+                                    "format": { "type": "json_object" }
+                                });
+                            }
+                        } else {
+                            out["response_format"] = serde_json::json!({ "type": "json_object" });
+                        }
+                    }
                     crate::types::chat::ResponseFormat::Json {
                         schema,
                         name,
@@ -1478,6 +1496,51 @@ mod tests {
         let out = hook(&serde_json::json!({})).expect("hook ok");
         assert!(out["text"]["format"].is_object());
         assert_eq!(out["text"]["format"]["type"], "json_schema");
+    }
+
+    #[test]
+    fn openai_spec_maps_request_json_object_to_chat_completions_response_format() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_response_format(crate::types::chat::ResponseFormat::json_object())
+            .with_provider_option("openai", serde_json::json!({ "strictJsonSchema": true }));
+
+        let hook = spec.chat_before_send(&req, &ctx).expect("hook");
+        let out = hook(&serde_json::json!({})).expect("hook ok");
+        assert_eq!(
+            out["response_format"],
+            serde_json::json!({ "type": "json_object" })
+        );
+    }
+
+    #[test]
+    fn openai_spec_maps_request_json_object_to_responses_text_format() {
+        let spec = OpenAiSpec::new();
+        let ctx = ProviderContext::new(
+            "openai",
+            "https://api.openai.com/v1",
+            Some("KEY".to_string()),
+            std::collections::HashMap::new(),
+        );
+        let req = ChatRequest::new(vec![crate::types::ChatMessage::user("hi").build()])
+            .with_response_format(crate::types::chat::ResponseFormat::json_object())
+            .with_provider_option(
+                "openai",
+                serde_json::json!({ "responsesApi": { "enabled": true } }),
+            );
+
+        let hook = spec.chat_before_send(&req, &ctx).expect("hook");
+        let out = hook(&serde_json::json!({})).expect("hook ok");
+        assert_eq!(
+            out["text"]["format"],
+            serde_json::json!({ "type": "json_object" })
+        );
     }
 
     #[test]
