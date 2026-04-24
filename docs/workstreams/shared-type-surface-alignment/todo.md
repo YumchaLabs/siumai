@@ -21,6 +21,8 @@ Status legend:
 - [x] Expose the shared `Embedding` vector alias from `types/embedding-model.ts`.
 - [x] Expose the shared language-model `Source` citation shape from `types/language-model.ts`.
 - [x] Expose provider-utils-style `ToolCall` and `ToolResult`.
+- [x] Align shared `ToolChoice` serde with the AI SDK forced-tool object shape while preserving
+  legacy Rust enum object deserialization.
 - [x] Expose `EmbeddingModelUsage`, `ImageModelUsage`, and `LanguageModelUsage`.
 - [x] Expose `LanguageModelRequestMetadata`, `LanguageModelResponseMetadata`,
   `ImageModelResponseMetadata`, `SpeechModelResponseMetadata`, and

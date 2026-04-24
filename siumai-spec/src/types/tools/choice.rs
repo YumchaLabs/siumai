@@ -1,6 +1,7 @@
 //! Tool choice and tool type utilities.
 
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Tool type enumeration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,8 +48,7 @@ pub enum ToolType {
 /// - **Gemini**: `"AUTO"`, `"ANY"`, `"NONE"`, or function calling mode with specific function
 ///
 /// The provider transformers handle these conversions automatically.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ToolChoice {
     /// Let the model decide whether to call tools (default)
     ///
@@ -72,11 +72,39 @@ pub enum ToolChoice {
     ///
     /// The model must call the specified tool. The tool name must match one of the
     /// tools provided in the request.
-    #[serde(rename = "tool")]
     Tool {
         /// Name of the tool to call
         name: String,
     },
+}
+
+impl Serialize for ToolChoice {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Auto => serializer.serialize_str("auto"),
+            Self::Required => serializer.serialize_str("required"),
+            Self::None => serializer.serialize_str("none"),
+            Self::Tool { name } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", "tool")?;
+                map.serialize_entry("toolName", name)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolChoice {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Self::from_json_value(value).map_err(serde::de::Error::custom)
+    }
 }
 
 impl ToolChoice {
@@ -119,5 +147,96 @@ impl ToolChoice {
             Self::Tool { name } => Some(name),
             _ => None,
         }
+    }
+
+    fn from_json_value(value: serde_json::Value) -> Result<Self, String> {
+        match value {
+            serde_json::Value::String(value) => match value.as_str() {
+                "auto" => Ok(Self::Auto),
+                "required" => Ok(Self::Required),
+                "none" => Ok(Self::None),
+                other => Err(format!("unsupported tool choice string `{other}`")),
+            },
+            serde_json::Value::Object(mut object) => {
+                if object.get("type").and_then(serde_json::Value::as_str) == Some("tool") {
+                    let tool_name = object
+                        .remove("toolName")
+                        .or_else(|| object.remove("tool_name"))
+                        .and_then(|value| value.as_str().map(str::to_string))
+                        .ok_or("tool choice object is missing `toolName`")?;
+                    return Ok(Self::tool(tool_name));
+                }
+
+                if let Some(serde_json::Value::Object(mut legacy_tool)) = object.remove("tool") {
+                    let name = legacy_tool
+                        .remove("name")
+                        .and_then(|value| value.as_str().map(str::to_string))
+                        .ok_or("legacy tool choice object is missing `tool.name`")?;
+                    return Ok(Self::tool(name));
+                }
+
+                Err("unsupported tool choice object shape".to_string())
+            }
+            _ => Err("tool choice must be a string or object".to_string()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ToolChoice;
+
+    #[test]
+    fn tool_choice_tool_serializes_ai_sdk_shape() {
+        let value = serde_json::to_value(ToolChoice::tool("weather")).expect("serialize");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "type": "tool",
+                "toolName": "weather"
+            })
+        );
+    }
+
+    #[test]
+    fn tool_choice_roundtrips_ai_sdk_shapes() {
+        assert_eq!(
+            serde_json::from_value::<ToolChoice>(serde_json::json!("auto"))
+                .expect("auto deserializes"),
+            ToolChoice::Auto
+        );
+        assert_eq!(
+            serde_json::from_value::<ToolChoice>(serde_json::json!("required"))
+                .expect("required deserializes"),
+            ToolChoice::Required
+        );
+        assert_eq!(
+            serde_json::from_value::<ToolChoice>(serde_json::json!("none"))
+                .expect("none deserializes"),
+            ToolChoice::None
+        );
+        assert_eq!(
+            serde_json::from_value::<ToolChoice>(serde_json::json!({
+                "type": "tool",
+                "toolName": "weather"
+            }))
+            .expect("tool deserializes"),
+            ToolChoice::tool("weather")
+        );
+    }
+
+    #[test]
+    fn tool_choice_still_accepts_legacy_enum_shape() {
+        let value = serde_json::json!({
+            "tool": {
+                "name": "weather"
+            }
+        });
+
+        assert_eq!(
+            serde_json::from_value::<ToolChoice>(value).expect("legacy tool deserializes"),
+            ToolChoice::tool("weather")
+        );
     }
 }

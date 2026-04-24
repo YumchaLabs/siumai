@@ -101,6 +101,8 @@ important shared carriers need explicit Rust structs:
 - `ImageModelUsage` mirrors the AI package `ImageModelV4Usage` token totals
 - `Source` mirrors the AI package language-model source union with a fixed `type: "source"` marker
   and a strict `sourceType: "url" | "document"` payload
+- `ToolChoice` remains the stable Rust enum but now serializes the forced-tool case as the AI SDK
+  `{ type: "tool", toolName: "..." }` object instead of serde's externally tagged enum shape
 - request/response metadata structs expose the AI package fields directly and convert from the
   existing runtime carriers
 

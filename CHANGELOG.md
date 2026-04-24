@@ -134,6 +134,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - The existing runtime `LanguageModelMiddleware` trait is now directly exported from
   `siumai::prelude::unified::*`; embedding/image middleware remain intentionally deferred until
   those model families have real middleware execution hooks.
+- Shared `ToolChoice` serialization now matches the AI SDK `types/language-model.ts` contract:
+  forced tool choices serialize as `{ "type": "tool", "toolName": "..." }` while still accepting
+  the previous Rust enum object shape on input for compatibility.
 - The shared language-model `Source` citation shape from the AI SDK `types/language-model.ts`
   surface is now available through `siumai::types::*` and `siumai::prelude::unified::*`, with a
   strict fixed `type: "source"` marker and URL/document `sourceType` payload.
