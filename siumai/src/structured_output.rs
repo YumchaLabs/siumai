@@ -13,8 +13,26 @@ use siumai_core::types::{
     ProviderMetadata, ResponseFormat, Schema, ValidationResult,
 };
 use siumai_core::utils::generate_id;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 
 use crate::text::{GenerateOptions, LanguageModel, TextRequest};
+
+/// Context passed to a structured-output repair callback.
+#[derive(Debug, Clone)]
+pub struct RepairTextContext {
+    /// Raw text extracted from the model response.
+    pub text: String,
+    /// Parse or validation error that triggered repair.
+    pub error: LlmError,
+}
+
+/// Future returned by a structured-output repair callback.
+pub type RepairTextFuture = Pin<Box<dyn Future<Output = Result<Option<String>, LlmError>> + Send>>;
+
+/// Async callback that can repair malformed or schema-invalid model output text.
+pub type RepairTextFunction = Arc<dyn Fn(RepairTextContext) -> RepairTextFuture + Send + Sync>;
 
 /// Schema input accepted by `generate_object`.
 #[derive(Clone)]
@@ -68,7 +86,7 @@ impl<T> From<JSONSchema7> for GenerateObjectSchema<T> {
 }
 
 /// Options for `structured_output::generate_object`.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct GenerateObjectOptions {
     /// Text generation options used for the underlying model call.
     pub generate_options: GenerateOptions,
@@ -78,6 +96,20 @@ pub struct GenerateObjectOptions {
     pub schema_description: Option<String>,
     /// Optional strictness hint.
     pub strict: Option<bool>,
+    /// Optional repair callback invoked after initial JSON parsing or validation fails.
+    pub repair_text: Option<RepairTextFunction>,
+}
+
+impl std::fmt::Debug for GenerateObjectOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GenerateObjectOptions")
+            .field("generate_options", &self.generate_options)
+            .field("schema_name", &self.schema_name)
+            .field("schema_description", &self.schema_description)
+            .field("strict", &self.strict)
+            .field("has_repair_text", &self.repair_text.is_some())
+            .finish()
+    }
 }
 
 impl GenerateObjectOptions {
@@ -107,6 +139,22 @@ impl GenerateObjectOptions {
     /// Set strictness hint.
     pub const fn with_strict(mut self, strict: bool) -> Self {
         self.strict = Some(strict);
+        self
+    }
+
+    /// Set an async repair callback.
+    pub fn with_repair_text(mut self, repair_text: RepairTextFunction) -> Self {
+        self.repair_text = Some(repair_text);
+        self
+    }
+
+    /// Set an async repair callback from a Rust closure.
+    pub fn with_repair_text_fn<F, Fut>(mut self, repair_text: F) -> Self
+    where
+        F: Fn(RepairTextContext) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Option<String>, LlmError>> + Send + 'static,
+    {
+        self.repair_text = Some(Arc::new(move |context| Box::pin(repair_text(context))));
         self
     }
 }
@@ -217,9 +265,10 @@ async fn generate_with_response_schema<M, T, P>(
 ) -> Result<GenerateObjectResult<T>, LlmError>
 where
     M: LanguageModel + ?Sized,
-    P: FnOnce(serde_json::Value) -> Result<T, LlmError>,
+    P: Fn(serde_json::Value) -> Result<T, LlmError>,
 {
     let response_format = response_format_from_schema(response_schema, &options);
+    let repair_text = options.repair_text.clone();
     let request = request.with_response_format(response_format);
     let (request, effective_options) =
         crate::text::prepare_generate_request(request, options.generate_options);
@@ -230,8 +279,7 @@ where
     let model_id = model.model_id().to_string();
 
     let response = crate::text::generate_prepared(model, request, effective_options).await?;
-    let value = extract_json_value_from_response(&response)?;
-    let object = parse(value)?;
+    let object = parse_generated_value_with_optional_repair(&response, parse, repair_text).await?;
 
     Ok(GenerateObjectResult::from_response(
         object,
@@ -240,6 +288,35 @@ where
         model_id,
         response,
     ))
+}
+
+async fn parse_generated_value_with_optional_repair<T, P>(
+    response: &ChatResponse,
+    parse: P,
+    repair_text: Option<RepairTextFunction>,
+) -> Result<T, LlmError>
+where
+    P: Fn(serde_json::Value) -> Result<T, LlmError>,
+{
+    let initial = extract_json_value_from_response(response).and_then(&parse);
+
+    match initial {
+        Ok(object) => Ok(object),
+        Err(error) => {
+            let Some(repair_text) = repair_text else {
+                return Err(error);
+            };
+            let context = RepairTextContext {
+                text: response.text().unwrap_or_default(),
+                error: error.clone(),
+            };
+            let Some(repaired_text) = repair_text(context).await? else {
+                return Err(error);
+            };
+            let repaired_value = extract_json_value(&repaired_text)?;
+            parse(repaired_value)
+        }
+    }
 }
 
 fn response_format_from_schema(
@@ -642,6 +719,53 @@ mod tests {
             Person {
                 name: "ADA".to_string()
             }
+        );
+    }
+
+    #[tokio::test]
+    async fn generate_object_repairs_validation_failure_when_callback_returns_text() {
+        let seen_request = Arc::new(Mutex::new(None));
+        let response = ChatResponse::new(siumai_core::types::MessageContent::Text(
+            "{\"title\":\"Ada\"}".to_string(),
+        ));
+        let model = FakeObjectModel {
+            response,
+            seen_request,
+        };
+        let seen_repair_text = Arc::new(Mutex::new(None));
+        let seen_repair_text_for_callback = seen_repair_text.clone();
+
+        let result: GenerateObjectResult<Person> = generate_object(
+            &model,
+            TextRequest::new(vec![siumai_core::types::ChatMessage::user("json").build()]),
+            serde_json::json!({
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"]
+            }),
+            GenerateObjectOptions::new().with_repair_text_fn(move |context| {
+                let seen_repair_text = seen_repair_text_for_callback.clone();
+                async move {
+                    *seen_repair_text.lock().expect("repair text lock") = Some(context.text);
+                    Ok(Some("{\"name\":\"Ada\"}".to_string()))
+                }
+            }),
+        )
+        .await
+        .expect("generate object with repair");
+
+        assert_eq!(
+            result.object,
+            Person {
+                name: "Ada".to_string()
+            }
+        );
+        assert_eq!(
+            seen_repair_text
+                .lock()
+                .expect("repair text lock")
+                .as_deref(),
+            Some("{\"title\":\"Ada\"}")
         );
     }
 

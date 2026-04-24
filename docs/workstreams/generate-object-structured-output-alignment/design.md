@@ -105,9 +105,12 @@ of overloading one TypeScript-style option union:
   the provider, validates that the result is one of the allowed strings, and returns the extracted
   `String`
 
-`no-schema` and repair callbacks remain deferred. `no-schema` needs a first-class `ResponseFormat`
-representation for "JSON output without JSON Schema"; using a permissive schema would be a
-different contract.
+Repair callbacks are supported through `GenerateObjectOptions::with_repair_text_fn(...)`. The
+callback receives the raw model text plus the parse or validation error and can return repaired
+text for one retry.
+
+`no-schema` remains deferred. It needs a first-class `ResponseFormat` representation for "JSON
+output without JSON Schema"; using a permissive schema would be a different contract.
 
 ## Validation
 

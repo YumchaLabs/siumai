@@ -47,6 +47,7 @@ Status legend:
 - [x] Support `output: "enum"` as `structured_output::generate_enum(...)` with the upstream
   `{ result: "..." }` wrapper strategy.
 - [-] Add a Rust output-strategy API before supporting `output: "no-schema"`.
-- [-] Add repair callback support only with an explicit Rust error/context contract.
+- [x] Add repair callback support with `RepairTextContext` and
+  `GenerateObjectOptions::with_repair_text_fn(...)`.
 - [-] Add `streamObject` only after the runtime owns incremental structured JSON parsing and can
   expose `partialObjectStream`, `elementStream`, `textStream`, and `fullStream` honestly.

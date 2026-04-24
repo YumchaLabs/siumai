@@ -36,7 +36,7 @@ Reference files:
 | `array` | Supported as `generate_array(...)` | Uses the upstream `{ elements: [...] }` wrapper schema and returns the extracted `Vec<T>`. |
 | `enum` | Supported as `generate_enum(...)` | Uses the upstream `{ result: "..." }` wrapper schema and returns the extracted string after allowed-value validation. |
 | `no-schema` | Deferred | Requires a separate contract because it intentionally has no provider-facing schema. |
-| `experimental_repairText` | Deferred | Needs an explicit Rust repair callback context and error type before exposing a stable helper. |
+| `experimental_repairText` | Supported as `with_repair_text_fn(...)` | Invoked once after parse or final validation failure with `RepairTextContext { text, error }`. |
 
 ## Streaming `streamObject`
 

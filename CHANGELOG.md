@@ -30,8 +30,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   language-model call, parse the returned JSON, run typed Rust schema validators when provided, and
   project finish reason, usage, warnings, request/response metadata, and provider metadata onto the
   AI SDK-style result shape. Array and enum helpers use the same wrapped output strategies as
-  upstream; streaming `streamObject` partial object streams, no-schema output, and repair callbacks
-  remain explicitly deferred.
+  upstream, and `GenerateObjectOptions::with_repair_text_fn(...)` mirrors the non-streaming repair
+  callback path after parse or validation failure. Streaming `streamObject` partial object streams
+  and no-schema output remain explicitly deferred.
 - Native OpenAI / Azure / Bedrock package-surface parity is now tighter on the Rust facade:
   `provider_ext::{openai,azure,bedrock}` now expose package-level
   `OpenAIProviderSettings`, `AzureOpenAIProviderSettings`, and

@@ -17,6 +17,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<GenerateObjectOptions>();
     let _ = size_of::<GenerateObjectResult<JSONValue>>();
     let _ = size_of::<GenerateObjectSchema<JSONValue>>();
+    let _ = size_of::<RepairTextContext>();
+    let _ = size_of::<RepairTextFunction>();
+    let _ = size_of::<RepairTextFuture>();
     let _ = size_of::<IdGenerator>();
     let _ = size_of::<IdGeneratorOptions>();
     let _ = size_of::<ExecutableTool>();
@@ -132,6 +135,9 @@ fn public_surface_unified_imports_compile() {
     let object_schema: GenerateObjectSchema<JSONValue> =
         serde_json::json!({ "type": "object" }).into();
     assert!(format!("{object_schema:?}").contains("Json"));
+    let repaired_options = GenerateObjectOptions::new()
+        .with_repair_text_fn(|context| async move { Ok(Some(context.text)) });
+    assert!(format!("{repaired_options:?}").contains("has_repair_text"));
 
     let typed_schema = json_schema_with_validator(
         serde_json::json!({
