@@ -174,10 +174,11 @@ Siumai now also has a public AI SDK-style UI-message structural layer:
 `siumai::ui::{validate_ui_messages, safe_validate_ui_messages, convert_to_model_messages,
 convert_to_chat_request}` cover the static message shape, the `safeValidateUIMessages` result-union
 path, and the `convertToModelMessages`-style conversion path. The same passive UI layer now also
-exposes `CreateUIMessage`, `ChatRequestOptions`, `ChatStatus`, `CompletionRequestOptions`,
-`UseCompletionOptions`, `RequestCredentials`, `CompletionStreamProtocol`, and the UI data schema
-map aliases so callers can import the stable non-runtime UI helper types without pulling in a
-frontend hook stack.
+exposes `CreateUIMessage`, `ChatRequestOptions`, `ChatStatus`, `ChatState`, `ChatInit`,
+passive chat-transport send/reconnect option carriers, `HttpChatTransportInitOptions`, passive
+prepare-request input/result carriers, `CompletionRequestOptions`, `UseCompletionOptions`,
+`RequestCredentials`, `CompletionStreamProtocol`, and the UI data schema map aliases so callers can
+import the stable non-runtime UI helper types without pulling in a frontend hook stack.
 
 That same UI-message layer now covers passive stream event and options data too:
 `UiMessageChunk`, the named `UiMessage*Chunk` variants, `UI_MESSAGE_STREAM_HEADERS`, and

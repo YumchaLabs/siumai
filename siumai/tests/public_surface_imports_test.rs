@@ -8,9 +8,14 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<AISDKError>();
     let _ = size_of::<APICallError>();
     let _ = size_of::<ChatRequest>();
+    let _ = size_of::<ChatInit>();
     let _ = size_of::<ChatRequestOptions>();
     let _ = size_of::<ChatResponse>();
+    let _ = size_of::<ChatState>();
     let _ = size_of::<ChatStatus>();
+    let _ = size_of::<ChatTransportReconnectToStreamOptions>();
+    let _ = size_of::<ChatTransportSendMessagesOptions>();
+    let _ = size_of::<ChatTransportTrigger>();
     let _ = size_of::<ResponseFormat>();
     let _ = size_of::<CallSettings>();
     let _ = size_of::<JSONSchema7>();
@@ -156,6 +161,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
     let _ = size_of::<ImageModelUsage>();
+    let _ = size_of::<HttpChatTransportInitOptions>();
     let _ = size_of::<InferUIDataParts>();
     let _ = size_of::<InvalidArgumentError>();
     let _ = size_of::<InvalidMessageRoleError>();
@@ -182,8 +188,12 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ProviderMetadata>();
     let _ = size_of::<ProviderOptions>();
     let _ = size_of::<ProviderReference>();
+    let _ = size_of::<PrepareReconnectToStreamRequestOptions>();
+    let _ = size_of::<PrepareSendMessagesRequestOptions>();
     let _ = size_of::<PrepareStepOptions>();
     let _ = size_of::<PrepareStepResult>();
+    let _ = size_of::<PreparedReconnectToStreamRequest>();
+    let _ = size_of::<PreparedSendMessagesRequest>();
     let _ = size_of::<ReasoningFileOutput>();
     let _ = size_of::<ReasoningOutput>();
     let _ = size_of::<RequestCredentials>();

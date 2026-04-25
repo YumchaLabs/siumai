@@ -3216,6 +3216,238 @@ pub enum ChatStatus {
     Error,
 }
 
+/// Passive snapshot of AI SDK `ChatState`.
+///
+/// Upstream also includes mutation/snapshot functions. Rust keeps only the serializable state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatState<Message = UiMessage> {
+    /// Current chat status.
+    pub status: ChatStatus,
+    /// Error payload when the chat is in an error state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JSONValue>,
+    /// Current UI messages.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<Message>,
+}
+
+impl<Message> ChatState<Message> {
+    /// Create a ready chat-state snapshot.
+    pub fn ready(messages: Vec<Message>) -> Self {
+        Self {
+            status: ChatStatus::Ready,
+            error: None,
+            messages,
+        }
+    }
+
+    /// Attach an error payload and mark the chat as errored.
+    pub fn with_error(mut self, error: impl Into<JSONValue>) -> Self {
+        self.status = ChatStatus::Error;
+        self.error = Some(error.into());
+        self
+    }
+}
+
+/// Serializable subset of AI SDK `ChatInit`.
+///
+/// Function-valued callbacks, `generateId`, schema validators, and transport objects are
+/// intentionally deferred.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatInit<Message = UiMessage> {
+    /// Optional chat id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Initial messages.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<Message>,
+}
+
+impl<Message> ChatInit<Message> {
+    /// Create empty chat initialization options.
+    pub fn new() -> Self {
+        Self {
+            id: None,
+            messages: Vec::new(),
+        }
+    }
+
+    /// Set the chat id.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Set initial messages.
+    pub fn with_messages(mut self, messages: Vec<Message>) -> Self {
+        self.messages = messages;
+        self
+    }
+}
+
+/// AI SDK chat transport send trigger.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChatTransportTrigger {
+    SubmitMessage,
+    RegenerateMessage,
+}
+
+/// Passive options passed to AI SDK `ChatTransport.sendMessages`.
+///
+/// `AbortSignal` is runtime-only and intentionally omitted.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTransportSendMessagesOptions<Message = UiMessage> {
+    /// New submission or regeneration.
+    pub trigger: ChatTransportTrigger,
+    /// Chat session id.
+    pub chat_id: String,
+    /// Message id for regeneration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    /// Conversation history.
+    pub messages: Vec<Message>,
+    /// Additional request options.
+    #[serde(flatten)]
+    pub request_options: ChatRequestOptions,
+}
+
+/// Passive options passed to AI SDK `ChatTransport.reconnectToStream`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTransportReconnectToStreamOptions {
+    /// Chat session id.
+    pub chat_id: String,
+    /// Additional request options.
+    #[serde(flatten)]
+    pub request_options: ChatRequestOptions,
+}
+
+/// Serializable subset of AI SDK `HttpChatTransportInitOptions`.
+///
+/// Custom `fetch` and request-preparation callbacks are intentionally deferred.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HttpChatTransportInitOptions {
+    /// Chat API URL. Upstream defaults to `/api/chat` when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api: Option<String>,
+    /// Browser credentials mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<RequestCredentials>,
+    /// HTTP headers sent with requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Extra body object sent with requests.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+}
+
+impl HttpChatTransportInitOptions {
+    /// Create empty HTTP chat transport options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the chat API URL.
+    pub fn with_api(mut self, api: impl Into<String>) -> Self {
+        self.api = Some(api.into());
+        self
+    }
+
+    /// Set the credentials mode.
+    pub fn with_credentials(mut self, credentials: RequestCredentials) -> Self {
+        self.credentials = Some(credentials);
+        self
+    }
+}
+
+/// Passive input payload supplied to AI SDK `PrepareSendMessagesRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareSendMessagesRequestOptions<Message = UiMessage> {
+    /// Chat id.
+    pub id: String,
+    /// Conversation history.
+    pub messages: Vec<Message>,
+    /// Request metadata from `ChatRequestOptions`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_metadata: Option<JSONValue>,
+    /// Merged body before final preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+    /// Credentials mode before final preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<RequestCredentials>,
+    /// Headers before final preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// API URL before final preparation.
+    pub api: String,
+    /// New submission or regeneration.
+    pub trigger: ChatTransportTrigger,
+    /// Message id for regeneration.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+}
+
+/// Passive return payload from AI SDK `PrepareSendMessagesRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedSendMessagesRequest {
+    /// Final request body.
+    pub body: JSONValue,
+    /// Final request headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Final request credentials.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<RequestCredentials>,
+    /// Final API URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api: Option<String>,
+}
+
+/// Passive input payload supplied to AI SDK `PrepareReconnectToStreamRequest`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PrepareReconnectToStreamRequestOptions {
+    /// Chat id.
+    pub id: String,
+    /// Request metadata from `ChatRequestOptions`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_metadata: Option<JSONValue>,
+    /// Merged body before final preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+    /// Credentials mode before final preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<RequestCredentials>,
+    /// Headers before final preparation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// API URL before final preparation.
+    pub api: String,
+}
+
+/// Passive return payload from AI SDK `PrepareReconnectToStreamRequest`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreparedReconnectToStreamRequest {
+    /// Final request headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Final request credentials.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<RequestCredentials>,
+    /// Final API URL.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api: Option<String>,
+}
+
 /// Serializable subset of AI SDK `CompletionRequestOptions`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -9071,6 +9303,152 @@ mod tests {
         assert_eq!(
             serde_json::to_value(ChatStatus::Streaming).expect("serialize chat status"),
             serde_json::json!("streaming")
+        );
+
+        let chat_state = ChatState::ready(vec![UiMessage::user(
+            "msg_user",
+            vec![UiMessagePart::text("hello")],
+        )])
+        .with_error(serde_json::json!({ "message": "network" }));
+        let chat_state_json = serde_json::to_value(&chat_state).expect("serialize chat state");
+        assert_eq!(chat_state_json["status"], serde_json::json!("error"));
+        assert_eq!(
+            chat_state_json["error"]["message"],
+            serde_json::json!("network")
+        );
+        assert!(chat_state_json.get("pushMessage").is_none());
+
+        let chat_init =
+            ChatInit::new()
+                .with_id("chat_1")
+                .with_messages(vec![UiMessage::assistant(
+                    "msg_assistant",
+                    vec![UiMessagePart::text("ready")],
+                )]);
+        let chat_init_json = serde_json::to_value(&chat_init).expect("serialize chat init");
+        assert_eq!(chat_init_json["id"], serde_json::json!("chat_1"));
+        assert_eq!(
+            chat_init_json["messages"][0]["role"],
+            serde_json::json!("assistant")
+        );
+        assert!(chat_init_json.get("transport").is_none());
+        assert!(chat_init_json.get("onFinish").is_none());
+
+        let send_options = ChatTransportSendMessagesOptions {
+            trigger: ChatTransportTrigger::SubmitMessage,
+            chat_id: "chat_1".to_string(),
+            message_id: None,
+            messages: vec![UiMessage::user(
+                "msg_user",
+                vec![UiMessagePart::text("hello")],
+            )],
+            request_options: chat_request_options.clone(),
+        };
+        let send_options_json =
+            serde_json::to_value(&send_options).expect("serialize send messages options");
+        assert_eq!(
+            send_options_json["trigger"],
+            serde_json::json!("submit-message")
+        );
+        assert_eq!(send_options_json["chatId"], serde_json::json!("chat_1"));
+        assert_eq!(
+            send_options_json["headers"]["x-trace-id"],
+            serde_json::json!("trace_1")
+        );
+
+        let http_transport_options = HttpChatTransportInitOptions::new()
+            .with_api("/api/chat")
+            .with_credentials(RequestCredentials::Include);
+        let http_transport_json = serde_json::to_value(&http_transport_options)
+            .expect("serialize HTTP chat transport options");
+        assert_eq!(http_transport_json["api"], serde_json::json!("/api/chat"));
+        assert_eq!(
+            http_transport_json["credentials"],
+            serde_json::json!("include")
+        );
+        assert!(http_transport_json.get("fetch").is_none());
+        assert!(
+            http_transport_json
+                .get("prepareSendMessagesRequest")
+                .is_none()
+        );
+
+        let prepare_send = PrepareSendMessagesRequestOptions {
+            id: "chat_1".to_string(),
+            messages: vec![UiMessage::user(
+                "msg_user",
+                vec![UiMessagePart::text("hello")],
+            )],
+            request_metadata: Some(serde_json::json!({ "source": "ui" })),
+            body: Some(serde_json::json!({ "sessionId": "sess_1" })),
+            credentials: Some(RequestCredentials::SameOrigin),
+            headers: Some(HashMap::from([(
+                "x-trace-id".to_string(),
+                "trace_1".to_string(),
+            )])),
+            api: "/api/chat".to_string(),
+            trigger: ChatTransportTrigger::RegenerateMessage,
+            message_id: Some("msg_assistant".to_string()),
+        };
+        let prepare_send_json =
+            serde_json::to_value(&prepare_send).expect("serialize prepare send options");
+        assert_eq!(
+            prepare_send_json["requestMetadata"]["source"],
+            serde_json::json!("ui")
+        );
+        assert_eq!(
+            prepare_send_json["trigger"],
+            serde_json::json!("regenerate-message")
+        );
+
+        let prepared_send = PreparedSendMessagesRequest {
+            body: serde_json::json!({ "id": "chat_1" }),
+            headers: Some(HashMap::from([("x-prepared".to_string(), "1".to_string())])),
+            credentials: Some(RequestCredentials::Omit),
+            api: Some("/api/custom-chat".to_string()),
+        };
+        let prepared_send_json =
+            serde_json::to_value(&prepared_send).expect("serialize prepared send request");
+        assert_eq!(prepared_send_json["credentials"], serde_json::json!("omit"));
+        assert_eq!(
+            prepared_send_json["api"],
+            serde_json::json!("/api/custom-chat")
+        );
+
+        let reconnect_options = ChatTransportReconnectToStreamOptions {
+            chat_id: "chat_1".to_string(),
+            request_options: ChatRequestOptions::new().with_metadata(serde_json::json!({
+                "resume": true
+            })),
+        };
+        let reconnect_json =
+            serde_json::to_value(&reconnect_options).expect("serialize reconnect options");
+        assert_eq!(
+            reconnect_json["metadata"]["resume"],
+            serde_json::json!(true)
+        );
+
+        let prepare_reconnect = PrepareReconnectToStreamRequestOptions {
+            id: "chat_1".to_string(),
+            request_metadata: Some(serde_json::json!({ "resume": true })),
+            body: None,
+            credentials: Some(RequestCredentials::SameOrigin),
+            headers: None,
+            api: "/api/chat".to_string(),
+        };
+        let prepare_reconnect_json =
+            serde_json::to_value(&prepare_reconnect).expect("serialize prepare reconnect options");
+        assert_eq!(
+            prepare_reconnect_json["credentials"],
+            serde_json::json!("same-origin")
+        );
+        assert_eq!(
+            serde_json::to_value(PreparedReconnectToStreamRequest {
+                api: Some("/api/chat/chat_1/stream".to_string()),
+                ..PreparedReconnectToStreamRequest::default()
+            })
+            .expect("serialize prepared reconnect request")["api"],
+            serde_json::json!("/api/chat/chat_1/stream")
         );
 
         let completion_request_options = CompletionRequestOptions::new()
