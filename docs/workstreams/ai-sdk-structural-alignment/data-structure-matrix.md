@@ -257,7 +257,9 @@ part/tool approval errors, no-output/no-object/no-image/no-audio/no-video genera
 unsupported model-version and UI-message-stream errors, message-conversion errors, and the retry
 error reason union. The provider-level error classes re-exported from `@ai-sdk/provider` are now
 covered too (`APICallError`, `InvalidPromptError`, `TypeValidationError`, model/reference
-resolution errors, and the simple load/content/unsupported-functionality errors). These
+resolution errors, and the simple load/content/unsupported-functionality errors). The registry
+package's `NoSuchProviderError` is now covered as the matching provider-aware extension of
+`NoSuchModelError` with `providerId` and `availableProviders`. These
 intentionally mirror public error data fields and default messages without replacing Siumai's
 runtime `LlmError` hierarchy or pretending that TypeScript `AISDKError.isInstance(...)` markers
 exist in Rust.

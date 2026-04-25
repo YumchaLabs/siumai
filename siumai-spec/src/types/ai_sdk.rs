@@ -387,6 +387,43 @@ impl NoSuchModelError {
     }
 }
 
+/// AI SDK registry `NoSuchProviderError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoSuchProviderError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Missing model/provider id.
+    pub model_id: String,
+    /// Requested model family.
+    pub model_type: NoSuchModelType,
+    /// Missing provider id.
+    pub provider_id: String,
+    /// Provider ids available in the registry.
+    pub available_providers: Vec<String>,
+}
+
+impl NoSuchProviderError {
+    /// Create a `NoSuchProviderError` with the upstream default message.
+    pub fn new(
+        model_id: impl Into<String>,
+        model_type: NoSuchModelType,
+        provider_id: impl Into<String>,
+        available_providers: Vec<String>,
+    ) -> Self {
+        let model_id = model_id.into();
+        let provider_id = provider_id.into();
+        let available = available_providers.join(",");
+        Self {
+            message: format!("No such provider: {provider_id} (available providers: {available})"),
+            model_id,
+            model_type,
+            provider_id,
+            available_providers,
+        }
+    }
+}
+
 /// AI SDK provider `NoSuchProviderReferenceError` passive error data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -10855,6 +10892,27 @@ mod tests {
         assert_eq!(
             no_such_model_json["message"],
             serde_json::json!("No such languageModel: gpt-test")
+        );
+
+        let no_such_provider = NoSuchProviderError::new(
+            "missing:gpt-test",
+            NoSuchModelType::LanguageModel,
+            "missing",
+            vec!["openai".to_string(), "anthropic".to_string()],
+        );
+        let no_such_provider_json =
+            serde_json::to_value(&no_such_provider).expect("serialize no such provider error");
+        assert_eq!(
+            no_such_provider_json["providerId"],
+            serde_json::json!("missing")
+        );
+        assert_eq!(
+            no_such_provider_json["availableProviders"],
+            serde_json::json!(["openai", "anthropic"])
+        );
+        assert_eq!(
+            no_such_provider_json["message"],
+            serde_json::json!("No such provider: missing (available providers: openai,anthropic)")
         );
 
         let no_provider_reference = NoSuchProviderReferenceError::new(

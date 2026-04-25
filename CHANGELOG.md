@@ -73,6 +73,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `NoSuchModelError`, `NoSuchProviderReferenceError`, `TooManyEmbeddingValuesForCallError`,
   `TypeValidationContext`, `TypeValidationError`, and `UnsupportedFunctionalityError`. These are
   data-shape exports and do not replace Siumai's runtime error hierarchy.
+- AI SDK registry `NoSuchProviderError` is now represented as a passive error carrier with
+  `modelId`, `modelType`, `providerId`, and `availableProviders`, matching the public registry
+  package's data shape without replacing Siumai's native registry handles.
 - AI SDK generate-text step-control payloads now have passive Rust structures and helpers:
   symbolic `StopCondition` plus `is_step_count`, `is_loop_finished`, `has_tool_call`, and
   `is_stop_condition_met`; `filter_active_tools` plus the upstream experimental/deprecated helper

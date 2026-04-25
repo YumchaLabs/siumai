@@ -279,6 +279,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<NoSpeechGeneratedError>();
     let _ = size_of::<NoSuchModelError>();
     let _ = size_of::<NoSuchModelType>();
+    let _ = size_of::<NoSuchProviderError>();
     let _ = size_of::<NoSuchProviderReferenceError>();
     let _ = size_of::<NoSuchToolError>();
     let _ = size_of::<NoTranscriptGeneratedError>();
