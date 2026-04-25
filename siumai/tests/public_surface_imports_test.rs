@@ -173,6 +173,13 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ImageModelUsage>();
     let _ = size_of::<HttpChatTransportInitOptions>();
     let _ = size_of::<InferUIDataParts>();
+    let _ = size_of::<InferUIMessageChunk>();
+    let _ = size_of::<InferUIMessageData>();
+    let _ = size_of::<InferUIMessageMetadata>();
+    let _ = size_of::<InferUIMessagePart>();
+    let _ = size_of::<InferUIMessageToolCall>();
+    let _ = size_of::<InferUIMessageToolOutputs>();
+    let _ = size_of::<InferUIMessageTools>();
     let _ = size_of::<InvalidArgumentError>();
     let _ = size_of::<InvalidMessageRoleError>();
     let _ = size_of::<InvalidPromptError>();
@@ -297,7 +304,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<UIDataPartSchemas>();
     let _ = size_of::<UIDataTypes>();
     let _ = size_of::<UIDataTypesToSchemas>();
+    let _ = size_of::<DataUIMessageChunk>();
     let _ = size_of::<UIMessage>();
+    let _ = size_of::<UIMessageChunk>();
     let _ = size_of::<UIMessagePart>();
     let _ = size_of::<UIMessageStreamError>();
     let _ = size_of::<UIMessageStreamOptions>();
@@ -409,6 +418,7 @@ fn public_surface_unified_imports_compile() {
     let _ = is_reasoning_file_ui_part as fn(&UiMessagePart) -> bool;
     let _ = is_reasoning_ui_part as fn(&UiMessagePart) -> bool;
     let _ = is_data_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_data_ui_message_chunk as fn(&UiMessageChunk) -> bool;
     let _ = is_static_tool_ui_part as fn(&UiMessagePart) -> bool;
     let _ = is_dynamic_tool_ui_part as fn(&UiMessagePart) -> bool;
     let _ = is_tool_ui_part as fn(&UiMessagePart) -> bool;

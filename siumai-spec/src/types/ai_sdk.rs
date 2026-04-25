@@ -3105,6 +3105,24 @@ pub type InferUIDataParts = HashMap<String, JSONValue>;
 /// AI SDK `UIDataTypes` map.
 pub type UIDataTypes = HashMap<String, JSONValue>;
 
+/// AI SDK inferred UI message metadata. Rust resolves the generic helper to JSON values.
+pub type InferUIMessageMetadata = JSONValue;
+
+/// AI SDK inferred UI message data map. Rust resolves the generic helper to `UIDataTypes`.
+pub type InferUIMessageData = UIDataTypes;
+
+/// AI SDK inferred UI message tools map. Rust resolves the generic helper to `UITools`.
+pub type InferUIMessageTools = UITools;
+
+/// AI SDK inferred UI message tool outputs. Rust resolves the generic helper to JSON values.
+pub type InferUIMessageToolOutputs = JSONValue;
+
+/// AI SDK inferred UI message tool call.
+pub type InferUIMessageToolCall = ToolCall<String, JSONValue>;
+
+/// AI SDK inferred UI message part.
+pub type InferUIMessagePart = UiMessagePart;
+
 /// AI SDK `UITool` passive input/output carrier.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UITool {
@@ -4935,6 +4953,21 @@ pub enum UiMessageChunk<METADATA = JSONValue, DATA = JSONValue> {
     Finish(UiMessageFinishChunk<METADATA>),
     Abort(UiMessageAbortChunk),
     MessageMetadata(UiMessageMetadataChunk<METADATA>),
+}
+
+/// AI SDK export spelling for `UIMessageChunk`.
+pub type UIMessageChunk<METADATA = JSONValue, DATA = JSONValue> = UiMessageChunk<METADATA, DATA>;
+
+/// AI SDK export spelling for data UI message chunks.
+pub type DataUIMessageChunk<DATA = JSONValue> = UiMessageDataChunk<DATA>;
+
+/// AI SDK inferred UI message chunk. Rust exposes the resolved chunk union directly.
+pub type InferUIMessageChunk<METADATA = JSONValue, DATA = JSONValue> =
+    UiMessageChunk<METADATA, DATA>;
+
+/// Check whether a UI message stream chunk is a `data-*` chunk.
+pub fn is_data_ui_message_chunk<METADATA, DATA>(chunk: &UiMessageChunk<METADATA, DATA>) -> bool {
+    matches!(chunk, UiMessageChunk::Data(_))
 }
 
 impl<METADATA, DATA> UiMessageChunk<METADATA, DATA> {
@@ -9504,6 +9537,14 @@ mod tests {
 
         let _: UIMessage = UiMessage::assistant("msg_alias", vec![UiMessagePart::text("hello")]);
         let _: UIMessagePart = UiMessagePart::StepStart;
+        let _: InferUIMessageMetadata = serde_json::json!({ "thread": "t1" });
+        let _: InferUIMessageData =
+            HashMap::from([("status".to_string(), serde_json::json!({ "ok": true }))]);
+        let _: InferUIMessageTools = HashMap::new();
+        let _: InferUIMessageToolOutputs = serde_json::json!({ "results": [] });
+        let _: InferUIMessageToolCall =
+            ToolCall::new("call_inferred", "search".to_string(), serde_json::json!({}));
+        let _: InferUIMessagePart = UiMessagePart::text("inferred");
         let text_part: TextUIPart = TextUIPart::new("hello");
         let data_part: DataUIPart = DataUIPart::new("status", serde_json::json!({ "ok": true }));
         let tool_part: ToolUIPart = ToolUIPart::named(
@@ -9846,6 +9887,15 @@ mod tests {
         assert_eq!(roundtrip[2].r#type(), "text-delta");
         assert_eq!(roundtrip[4].r#type(), "data-weather");
         assert_eq!(roundtrip[6].r#type(), "finish");
+
+        let data_chunk: DataUIMessageChunk =
+            UiMessageDataChunk::new("status", serde_json::json!({ "ok": true }));
+        let data_chunk_union: UIMessageChunk = data_chunk.into();
+        let _: InferUIMessageChunk = data_chunk_union.clone();
+        assert!(is_data_ui_message_chunk(&data_chunk_union));
+        let text_delta_chunk: UIMessageChunk =
+            UiMessageTextDeltaChunk::new("text_1", "hello").into();
+        assert!(!is_data_ui_message_chunk(&text_delta_chunk));
 
         let invalid_data_chunk = serde_json::json!({
             "type": "invalid-data",

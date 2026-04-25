@@ -420,8 +420,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `UITool`, and `UITools` now also resolve to the existing Rust UI carriers. The pure
   `ui-messages.ts` helper surface is also importable as Rust functions, including `is_text_ui_part`,
   `is_tool_ui_part`, `get_tool_name`, and the last-assistant-message completion checks for tool
-  calls and approval responses. Runtime callbacks, transport classes, custom `fetch`, and hook
-  state machines remain intentionally deferred.
+  calls and approval responses. The remaining non-runtime inference/export aliases from
+  `ui-messages.ts` and `ui-message-stream/index.ts` are now available too:
+  `InferUIMessage*`, `UIMessageChunk`, `InferUIMessageChunk`, `DataUIMessageChunk`, and
+  `is_data_ui_message_chunk`. Runtime callbacks, transport classes, custom `fetch`, and hook state
+  machines remain intentionally deferred.
 - Public AI SDK package facades now also expose package-level provider entry helpers directly on
   their own namespaces: compat-promoted wrappers
   `provider_ext::{mistral,perplexity,fireworks,moonshotai,deepinfra}` plus the audited
