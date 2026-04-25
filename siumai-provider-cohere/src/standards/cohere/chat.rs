@@ -1056,6 +1056,9 @@ fn prepare_tools(
 
 fn map_response_format(format: &ResponseFormat) -> Option<Value> {
     match format {
+        ResponseFormat::JsonObject { .. } => Some(json!({
+            "type": "json_object",
+        })),
         ResponseFormat::Json { schema, .. } => Some(json!({
             "type": "json_object",
             "json_schema": schema,
@@ -1119,6 +1122,43 @@ mod tests {
             id: String::new(),
             retry: None,
         }
+    }
+
+    #[test]
+    fn cohere_maps_schema_less_json_response_format() {
+        let mapped = map_response_format(&ResponseFormat::json_object())
+            .expect("schema-less JSON response format");
+
+        assert_eq!(
+            mapped,
+            json!({
+                "type": "json_object",
+            })
+        );
+    }
+
+    #[test]
+    fn cohere_maps_json_schema_response_format() {
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                }
+            },
+            "required": ["text"],
+        });
+
+        let mapped = map_response_format(&ResponseFormat::json_schema(schema.clone()))
+            .expect("JSON schema response format");
+
+        assert_eq!(
+            mapped,
+            json!({
+                "type": "json_object",
+                "json_schema": schema,
+            })
+        );
     }
 
     #[test]
