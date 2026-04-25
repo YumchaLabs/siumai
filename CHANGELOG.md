@@ -56,6 +56,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `ToolExecutionEndEvent`, plus deprecated upstream alias names such as `OnStartEvent` and
   `OnToolCallFinishEvent`. These mirror `core-events.ts` / `tool-execution-events.ts` as data
   carriers without claiming runtime callback wiring.
+- AI SDK telemetry options now have an importable passive shape:
+  `TelemetryOptions` preserves the upstream `isEnabled`, `recordInputs`, `recordOutputs`, and
+  `functionId` fields while leaving callback-style telemetry integrations to the real runtime
+  dispatcher layer.
 - AI SDK `error/index.ts` parity now has passive Rust carriers for the high-value serializable
   error data that was still missing from the import surface: `InvalidArgumentError`,
   `InvalidStreamPartError`, `InvalidToolApprovalError`, `ToolCallNotFoundForApprovalError`,

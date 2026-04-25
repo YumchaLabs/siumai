@@ -236,6 +236,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<StreamTextLifecycleChunkType>();
     let _ = size_of::<SpeechModelResponseMetadata>();
     let _ = size_of::<SpeechResult>();
+    let _ = size_of::<TelemetryOptions>();
     let _ = size_of::<StaticToolCall>();
     let _ = size_of::<StaticToolError>();
     let _ = size_of::<StaticToolResult>();

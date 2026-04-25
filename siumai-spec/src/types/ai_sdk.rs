@@ -36,6 +36,62 @@ pub type ProviderOptions = ProviderOptionsMap;
 /// AI SDK-style shared execution context object.
 pub type Context = HashMap<String, JSONValue>;
 
+/// Passive AI SDK `TelemetryOptions` configuration.
+///
+/// Function-valued telemetry integrations remain runtime-only and are intentionally not modeled here.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TelemetryOptions {
+    /// Enable or disable telemetry for this call.
+    #[serde(alias = "is_enabled", skip_serializing_if = "Option::is_none")]
+    pub is_enabled: Option<bool>,
+    /// Enable or disable input recording.
+    #[serde(alias = "record_inputs", skip_serializing_if = "Option::is_none")]
+    pub record_inputs: Option<bool>,
+    /// Enable or disable output recording.
+    #[serde(alias = "record_outputs", skip_serializing_if = "Option::is_none")]
+    pub record_outputs: Option<bool>,
+    /// Identifier used to group telemetry data by function.
+    #[serde(alias = "function_id", skip_serializing_if = "Option::is_none")]
+    pub function_id: Option<String>,
+}
+
+impl TelemetryOptions {
+    /// Create empty telemetry options.
+    pub const fn new() -> Self {
+        Self {
+            is_enabled: None,
+            record_inputs: None,
+            record_outputs: None,
+            function_id: None,
+        }
+    }
+
+    /// Set whether telemetry is enabled.
+    pub const fn with_is_enabled(mut self, is_enabled: bool) -> Self {
+        self.is_enabled = Some(is_enabled);
+        self
+    }
+
+    /// Set whether inputs should be recorded.
+    pub const fn with_record_inputs(mut self, record_inputs: bool) -> Self {
+        self.record_inputs = Some(record_inputs);
+        self
+    }
+
+    /// Set whether outputs should be recorded.
+    pub const fn with_record_outputs(mut self, record_outputs: bool) -> Self {
+        self.record_outputs = Some(record_outputs);
+        self
+    }
+
+    /// Set the telemetry function id.
+    pub fn with_function_id(mut self, function_id: impl Into<String>) -> Self {
+        self.function_id = Some(function_id.into());
+        self
+    }
+}
+
 /// AI SDK-style single embedding vector.
 pub type Embedding = Vec<f32>;
 
@@ -9320,6 +9376,35 @@ mod tests {
 
         assert_eq!(json.body, Some(serde_json::json!({ "ok": true })));
         assert_eq!(text.body, Some(JSONValue::String("plain-text".to_string())));
+    }
+
+    #[test]
+    fn telemetry_options_match_ai_sdk_shape() {
+        let options = TelemetryOptions::new()
+            .with_is_enabled(true)
+            .with_record_inputs(false)
+            .with_record_outputs(true)
+            .with_function_id("ai.generateText");
+
+        let json = serde_json::to_value(&options).expect("serialize telemetry options");
+        assert_eq!(json["isEnabled"], serde_json::json!(true));
+        assert_eq!(json["recordInputs"], serde_json::json!(false));
+        assert_eq!(json["recordOutputs"], serde_json::json!(true));
+        assert_eq!(json["functionId"], serde_json::json!("ai.generateText"));
+        assert!(json.get("integrations").is_none());
+
+        let roundtrip: TelemetryOptions = serde_json::from_value(serde_json::json!({
+            "is_enabled": false,
+            "record_inputs": true,
+            "record_outputs": false,
+            "function_id": "ai.streamText",
+            "integrations": [{ "ignored": true }]
+        }))
+        .expect("deserialize telemetry options");
+        assert_eq!(roundtrip.is_enabled, Some(false));
+        assert_eq!(roundtrip.record_inputs, Some(true));
+        assert_eq!(roundtrip.record_outputs, Some(false));
+        assert_eq!(roundtrip.function_id.as_deref(), Some("ai.streamText"));
     }
 
     #[test]
