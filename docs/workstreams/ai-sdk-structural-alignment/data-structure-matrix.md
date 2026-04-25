@@ -57,6 +57,9 @@ References:
 - `repo-ref/ai/packages/ai/src/transcribe/transcribe-result.ts`
 - `repo-ref/ai/packages/ai/src/registry/provider-registry.ts`
 - `repo-ref/ai/packages/ai/src/generate-video/generate-video.ts`
+- `repo-ref/ai/packages/ai/src/generate-object/generate-object-result.ts`
+- `repo-ref/ai/packages/ai/src/generate-object/stream-object-result.ts`
+- `repo-ref/ai/packages/ai/src/generate-object/structured-output-events.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/generate-text-result.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/stream-text-result.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/stream-language-model-call.ts`
@@ -210,6 +213,14 @@ for upstream's `experimental_filterActiveTools` and deprecated `stepCountIs` exp
 `ModelMessage` values. Runtime/function/type-level exports such as `smoothStream`,
 `StreamTextTransform`, callback aliases, `OutputInterface`, and infer helpers remain intentionally
 deferred until backed by real Rust behavior.
+
+The same passive-structure rule now covers the remaining high-value `generateObject` event data:
+`GenerateObjectStartEvent`, `GenerateObjectStepStartEvent`, `GenerateObjectStepEndEvent`,
+`GenerateObjectEndEvent`, `GenerateObjectResponseMetadata`, and
+`GenerateObjectOutputStrategy` mirror `structured-output-events.ts`, while `ObjectStreamPart`
+plus its named variants mirror the event union from `stream-object-result.ts`. This improves
+import/serde parity for callback and stream-event data without claiming the full AI SDK
+`StreamObjectResult` runtime object exists on the Rust facade yet.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

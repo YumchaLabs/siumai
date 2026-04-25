@@ -19,6 +19,17 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<GenerateObjectOptions>();
     let _ = size_of::<GenerateObjectResult<JSONValue>>();
     let _ = size_of::<GenerateObjectSchema<JSONValue>>();
+    let _ = size_of::<GenerateObjectEndEvent<JSONValue>>();
+    let _ = size_of::<GenerateObjectOutputStrategy>();
+    let _ = size_of::<GenerateObjectResponseMetadata>();
+    let _ = size_of::<GenerateObjectStartEvent>();
+    let _ = size_of::<GenerateObjectStepEndEvent>();
+    let _ = size_of::<GenerateObjectStepStartEvent>();
+    let _ = size_of::<ObjectStreamErrorPart>();
+    let _ = size_of::<ObjectStreamFinishPart>();
+    let _ = size_of::<ObjectStreamObjectPart<JSONValue>>();
+    let _ = size_of::<ObjectStreamPart<JSONValue>>();
+    let _ = size_of::<ObjectStreamTextDeltaPart>();
     let _ = size_of::<PartialJsonParseResult>();
     let _ = size_of::<PartialJsonParseState>();
     let _ = size_of::<PartialJsonValueStream>();

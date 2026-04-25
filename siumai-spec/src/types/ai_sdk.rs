@@ -7,9 +7,9 @@
 use super::chat::{ContentPart, SourcePart};
 use super::{
     AssistantContent, AssistantContentPart, AssistantModelMessage, DataContent, EmbeddingUsage,
-    FinishReason, HttpRequestInfo, HttpResponseInfo, ModelMessage, ProviderMetadataMap,
-    ProviderOptionsMap, ResponseMetadata, StandardizedPrompt, SystemPrompt, Tool, ToolChoice,
-    ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, Warning,
+    FinishReason, HttpRequestInfo, HttpResponseInfo, ModelMessage, PromptInput,
+    ProviderMetadataMap, ProviderOptionsMap, ResponseMetadata, StandardizedPrompt, SystemPrompt,
+    Tool, ToolChoice, ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -1877,6 +1877,201 @@ pub struct GenerateTextResult<
     pub output: OUTPUT,
 }
 
+/// Output strategy marker used by AI SDK `generateObject` and `streamObject` callbacks.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum GenerateObjectOutputStrategy {
+    /// Object output strategy.
+    Object,
+    /// Array output strategy.
+    Array,
+    /// Enum output strategy.
+    Enum,
+    /// Schema-less JSON output strategy.
+    NoSchema,
+}
+
+/// AI SDK-style response metadata envelope for structured object generation.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateObjectResponseMetadata {
+    /// Shared language-model response metadata.
+    #[serde(flatten)]
+    pub metadata: LanguageModelResponseMetadata,
+    /// Raw response body when the provider exposes it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+}
+
+impl GenerateObjectResponseMetadata {
+    /// Create a structured-output response metadata envelope.
+    pub fn new(metadata: LanguageModelResponseMetadata) -> Self {
+        Self {
+            metadata,
+            body: None,
+        }
+    }
+
+    /// Attach a raw response body.
+    pub fn with_body(mut self, body: impl Into<JSONValue>) -> Self {
+        self.body = Some(body.into());
+        self
+    }
+}
+
+/// Event payload for AI SDK `generateObject` / `streamObject` start callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateObjectStartEvent {
+    /// Unique generation call id.
+    pub call_id: String,
+    /// Operation id, normally `ai.generateObject` or `ai.streamObject`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// System prompt input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system: Option<SystemPrompt>,
+    /// Prompt input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<PromptInput>,
+    /// Message input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub messages: Option<Vec<ModelMessage>>,
+    /// Maximum output tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    /// Sampling temperature.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temperature: Option<f64>,
+    /// Nucleus sampling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_p: Option<f64>,
+    /// Top-k sampling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<f64>,
+    /// Presence penalty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub presence_penalty: Option<f64>,
+    /// Frequency penalty.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub frequency_penalty: Option<f64>,
+    /// Deterministic seed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<u64>,
+    /// Maximum number of retries.
+    pub max_retries: u32,
+    /// Additional HTTP headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, Option<String>>>,
+    /// Provider-specific options.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<ProviderOptions>,
+    /// Output strategy.
+    pub output: GenerateObjectOutputStrategy,
+    /// JSON Schema used for object generation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema: Option<JSONSchema7>,
+    /// Optional schema name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_name: Option<String>,
+    /// Optional schema description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema_description: Option<String>,
+}
+
+/// Event payload for AI SDK structured-output step start callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateObjectStepStartEvent {
+    /// Unique generation call id.
+    pub call_id: String,
+    /// Zero-based step index. Upstream object generation currently uses step `0`.
+    pub step_number: u32,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Provider-specific options.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<ProviderOptions>,
+    /// Additional HTTP headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, Option<String>>>,
+    /// Prompt messages in provider format, approximated by Siumai's shared model-message carrier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_messages: Option<Vec<ModelMessage>>,
+}
+
+/// Event payload for AI SDK structured-output step finish callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateObjectStepEndEvent {
+    /// Unique generation call id.
+    pub call_id: String,
+    /// Zero-based step index. Upstream object generation currently uses step `0`.
+    pub step_number: u32,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Unified finish reason.
+    pub finish_reason: FinishReason,
+    /// Token usage.
+    pub usage: LanguageModelUsage,
+    /// Raw object text before parsing/validation.
+    pub object_text: String,
+    /// Reasoning text when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    /// Provider warnings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<CallWarning>>,
+    /// Request metadata.
+    pub request: LanguageModelRequestMetadata,
+    /// Response metadata.
+    pub response: GenerateObjectResponseMetadata,
+    /// Provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Milliseconds from stream start to first chunk on streaming paths.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ms_to_first_chunk: Option<u64>,
+}
+
+/// Event payload for AI SDK structured-output finish callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateObjectEndEvent<RESULT = JSONValue> {
+    /// Unique generation call id.
+    pub call_id: String,
+    /// Generated object when parsing and validation succeeded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub object: Option<RESULT>,
+    /// Parse or validation error when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<JSONValue>,
+    /// Reasoning text when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<String>,
+    /// Unified finish reason.
+    pub finish_reason: FinishReason,
+    /// Token usage.
+    pub usage: LanguageModelUsage,
+    /// Provider warnings.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warnings: Option<Vec<CallWarning>>,
+    /// Request metadata.
+    pub request: LanguageModelRequestMetadata,
+    /// Response metadata.
+    pub response: GenerateObjectResponseMetadata,
+    /// Provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
 macro_rules! fixed_text_stream_type_marker {
     ($name:ident, $value:literal) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1909,7 +2104,7 @@ macro_rules! fixed_text_stream_type_marker {
                     Ok(Self::Marker)
                 } else {
                     Err(serde::de::Error::custom(format!(
-                        "expected text stream type marker `{}`, got `{value}`",
+                        "expected stream type marker `{}`, got `{value}`",
                         $value
                     )))
                 }
@@ -1946,6 +2141,178 @@ fixed_text_stream_type_marker!(
     LanguageModelStreamModelCallResponseMetadataPartMarker,
     "model-call-response-metadata"
 );
+fixed_text_stream_type_marker!(ObjectStreamObjectPartMarker, "object");
+fixed_text_stream_type_marker!(ObjectStreamTextDeltaPartMarker, "text-delta");
+fixed_text_stream_type_marker!(ObjectStreamErrorPartMarker, "error");
+fixed_text_stream_type_marker!(ObjectStreamFinishPartMarker, "finish");
+
+/// Partial object event from AI SDK `ObjectStreamPart`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ObjectStreamObjectPart<PARTIAL = JSONValue> {
+    #[serde(rename = "type", default)]
+    marker: ObjectStreamObjectPartMarker,
+    /// Current partial object snapshot.
+    pub object: PARTIAL,
+}
+
+impl<PARTIAL> ObjectStreamObjectPart<PARTIAL> {
+    /// Create a partial-object stream part.
+    pub fn new(object: PARTIAL) -> Self {
+        Self {
+            marker: ObjectStreamObjectPartMarker::Marker,
+            object,
+        }
+    }
+
+    /// Return the AI SDK `ObjectStreamPart` discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "object"
+    }
+}
+
+/// Text-delta event from AI SDK `ObjectStreamPart`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectStreamTextDeltaPart {
+    #[serde(rename = "type", default)]
+    marker: ObjectStreamTextDeltaPartMarker,
+    /// JSON text delta.
+    pub text_delta: String,
+}
+
+impl ObjectStreamTextDeltaPart {
+    /// Create an object-stream text delta.
+    pub fn new(text_delta: impl Into<String>) -> Self {
+        Self {
+            marker: ObjectStreamTextDeltaPartMarker::Marker,
+            text_delta: text_delta.into(),
+        }
+    }
+
+    /// Return the AI SDK `ObjectStreamPart` discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "text-delta"
+    }
+}
+
+/// Error event from AI SDK `ObjectStreamPart`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ObjectStreamErrorPart {
+    #[serde(rename = "type", default)]
+    marker: ObjectStreamErrorPartMarker,
+    /// Error payload.
+    pub error: JSONValue,
+}
+
+impl ObjectStreamErrorPart {
+    /// Create an object-stream error part.
+    pub fn new(error: impl Into<JSONValue>) -> Self {
+        Self {
+            marker: ObjectStreamErrorPartMarker::Marker,
+            error: error.into(),
+        }
+    }
+
+    /// Return the AI SDK `ObjectStreamPart` discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "error"
+    }
+}
+
+/// Finish event from AI SDK `ObjectStreamPart`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectStreamFinishPart {
+    #[serde(rename = "type", default)]
+    marker: ObjectStreamFinishPartMarker,
+    /// Unified finish reason.
+    pub finish_reason: FinishReason,
+    /// Token usage.
+    pub usage: LanguageModelUsage,
+    /// Response metadata.
+    pub response: LanguageModelResponseMetadata,
+    /// Provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl ObjectStreamFinishPart {
+    /// Create an object-stream finish part.
+    pub fn new(
+        finish_reason: FinishReason,
+        usage: LanguageModelUsage,
+        response: LanguageModelResponseMetadata,
+    ) -> Self {
+        Self {
+            marker: ObjectStreamFinishPartMarker::Marker,
+            finish_reason,
+            usage,
+            response,
+            provider_metadata: None,
+        }
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK `ObjectStreamPart` discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "finish"
+    }
+}
+
+/// AI SDK `ObjectStreamPart` union from `generate-object/stream-object-result.ts`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum ObjectStreamPart<PARTIAL = JSONValue> {
+    /// Partial object snapshot.
+    Object(ObjectStreamObjectPart<PARTIAL>),
+    /// JSON text delta.
+    TextDelta(ObjectStreamTextDeltaPart),
+    /// Stream error payload.
+    Error(ObjectStreamErrorPart),
+    /// Terminal stream metadata.
+    Finish(ObjectStreamFinishPart),
+}
+
+impl<PARTIAL> ObjectStreamPart<PARTIAL> {
+    /// Return the AI SDK `ObjectStreamPart` discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::Object(part) => part.r#type(),
+            Self::TextDelta(part) => part.r#type(),
+            Self::Error(part) => part.r#type(),
+            Self::Finish(part) => part.r#type(),
+        }
+    }
+}
+
+impl<PARTIAL> From<ObjectStreamObjectPart<PARTIAL>> for ObjectStreamPart<PARTIAL> {
+    fn from(value: ObjectStreamObjectPart<PARTIAL>) -> Self {
+        Self::Object(value)
+    }
+}
+
+impl<PARTIAL> From<ObjectStreamTextDeltaPart> for ObjectStreamPart<PARTIAL> {
+    fn from(value: ObjectStreamTextDeltaPart) -> Self {
+        Self::TextDelta(value)
+    }
+}
+
+impl<PARTIAL> From<ObjectStreamErrorPart> for ObjectStreamPart<PARTIAL> {
+    fn from(value: ObjectStreamErrorPart) -> Self {
+        Self::Error(value)
+    }
+}
+
+impl<PARTIAL> From<ObjectStreamFinishPart> for ObjectStreamPart<PARTIAL> {
+    fn from(value: ObjectStreamFinishPart) -> Self {
+        Self::Finish(value)
+    }
+}
 
 /// Text block start event from AI SDK `TextStreamPart`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -4874,6 +5241,20 @@ pub struct LanguageModelUsage {
 }
 
 impl LanguageModelUsage {
+    /// Create a normalized usage payload from input and output token counts.
+    pub fn new(input_tokens: u32, output_tokens: u32) -> Self {
+        Self {
+            input_tokens: Some(input_tokens),
+            input_token_details: LanguageModelInputTokenDetails::default(),
+            output_tokens: Some(output_tokens),
+            output_token_details: LanguageModelOutputTokenDetails::default(),
+            total_tokens: Some(input_tokens.saturating_add(output_tokens)),
+            reasoning_tokens: None,
+            cached_input_tokens: None,
+            raw: None,
+        }
+    }
+
     /// Merge another language-model usage payload into this one.
     pub fn merge(&mut self, other: &Self) {
         self.input_tokens = add_optional_u32(self.input_tokens, other.input_tokens);
@@ -6120,6 +6501,139 @@ mod tests {
 
         assert_eq!(image.model_id, "model-1");
         assert_eq!(transcription.model_id, "model-1");
+    }
+
+    #[test]
+    fn generate_object_events_and_stream_parts_match_ai_sdk_shape() {
+        let response_metadata = LanguageModelResponseMetadata {
+            id: "resp_1".to_string(),
+            timestamp: DateTime::parse_from_rfc3339("2026-04-21T09:00:00Z")
+                .expect("valid timestamp")
+                .with_timezone(&Utc),
+            model_id: "gpt-4o-mini".to_string(),
+            headers: None,
+        };
+        let response = GenerateObjectResponseMetadata::new(response_metadata.clone())
+            .with_body(serde_json::json!({ "raw": true }));
+        let request = LanguageModelRequestMetadata {
+            body: Some(serde_json::json!({ "messages": [] })),
+        };
+
+        let mut provider_options = ProviderOptionsMap::new();
+        provider_options.insert("openai", serde_json::json!({ "strictJsonSchema": true }));
+
+        let start = GenerateObjectStartEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.generateObject".to_string(),
+            provider: "openai".to_string(),
+            model_id: "gpt-4o-mini".to_string(),
+            system: Some(SystemPrompt::Text("return JSON".to_string())),
+            prompt: Some(PromptInput::Text("extract".to_string())),
+            messages: None,
+            max_output_tokens: Some(128),
+            temperature: None,
+            top_p: None,
+            top_k: None,
+            presence_penalty: None,
+            frequency_penalty: None,
+            seed: Some(7),
+            max_retries: 2,
+            headers: Some(HashMap::from([(
+                "x-test".to_string(),
+                Some("1".to_string()),
+            )])),
+            provider_options: Some(provider_options),
+            output: GenerateObjectOutputStrategy::NoSchema,
+            schema: None,
+            schema_name: None,
+            schema_description: None,
+        };
+        let start_json = serde_json::to_value(&start).expect("serialize start event");
+        assert_eq!(start_json["callId"], serde_json::json!("call_1"));
+        assert_eq!(start_json["output"], serde_json::json!("no-schema"));
+        assert_eq!(
+            start_json["providerOptions"]["openai"]["strictJsonSchema"],
+            serde_json::json!(true)
+        );
+
+        let step_end = GenerateObjectStepEndEvent {
+            call_id: "call_1".to_string(),
+            step_number: 0,
+            provider: "openai".to_string(),
+            model_id: "gpt-4o-mini".to_string(),
+            finish_reason: FinishReason::Stop,
+            usage: LanguageModelUsage::new(5, 7),
+            object_text: "{\"answer\":42}".to_string(),
+            reasoning: Some("parsed as JSON".to_string()),
+            warnings: None,
+            request: request.clone(),
+            response: response.clone(),
+            provider_metadata: None,
+            ms_to_first_chunk: Some(12),
+        };
+        let step_end_json = serde_json::to_value(&step_end).expect("serialize step end event");
+        assert_eq!(
+            step_end_json["objectText"],
+            serde_json::json!("{\"answer\":42}")
+        );
+        assert_eq!(
+            step_end_json["response"]["body"]["raw"],
+            serde_json::json!(true)
+        );
+        assert_eq!(step_end_json["msToFirstChunk"], serde_json::json!(12));
+
+        let end: GenerateObjectEndEvent = GenerateObjectEndEvent {
+            call_id: "call_1".to_string(),
+            object: Some(serde_json::json!({ "answer": 42 })),
+            error: None,
+            reasoning: Some("parsed as JSON".to_string()),
+            finish_reason: FinishReason::Stop,
+            usage: LanguageModelUsage::new(5, 7),
+            warnings: None,
+            request,
+            response,
+            provider_metadata: Some(HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({ "responseId": "resp_1" }),
+            )])),
+        };
+        let end_json = serde_json::to_value(&end).expect("serialize end event");
+        assert_eq!(end_json["object"]["answer"], serde_json::json!(42));
+        assert_eq!(
+            end_json["providerMetadata"]["openai"]["responseId"],
+            serde_json::json!("resp_1")
+        );
+
+        let stream_parts: Vec<ObjectStreamPart> = vec![
+            ObjectStreamObjectPart::new(serde_json::json!({ "answer": 4 })).into(),
+            ObjectStreamTextDeltaPart::new("{\"answer\"").into(),
+            ObjectStreamErrorPart::new(serde_json::json!({ "message": "transient" })).into(),
+            ObjectStreamFinishPart::new(
+                FinishReason::Stop,
+                LanguageModelUsage::new(5, 7),
+                response_metadata,
+            )
+            .into(),
+        ];
+        let stream_json = serde_json::to_value(&stream_parts).expect("serialize object parts");
+        assert_eq!(stream_json[0]["type"], serde_json::json!("object"));
+        assert_eq!(stream_json[0]["object"]["answer"], serde_json::json!(4));
+        assert_eq!(
+            stream_json[1]["textDelta"],
+            serde_json::json!("{\"answer\"")
+        );
+        assert_eq!(
+            stream_json[2]["error"]["message"],
+            serde_json::json!("transient")
+        );
+        assert_eq!(stream_json[3]["finishReason"], serde_json::json!("stop"));
+
+        let roundtrip: Vec<ObjectStreamPart> =
+            serde_json::from_value(stream_json).expect("deserialize object parts");
+        assert_eq!(roundtrip[0].r#type(), "object");
+        assert_eq!(roundtrip[1].r#type(), "text-delta");
+        assert_eq!(roundtrip[2].r#type(), "error");
+        assert_eq!(roundtrip[3].r#type(), "finish");
     }
 
     #[test]
