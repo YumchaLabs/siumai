@@ -384,7 +384,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   shared `UiMessage` / `UiMessagePart` / `UiToolPart` types live under `siumai::types::*`,
   `siumai::ui::{validate_ui_messages, convert_to_model_messages, convert_to_chat_request}`
   exposes the conversion helper lane, the top-level `siumai::types` module is restored, and
-  stable `tool-approval-response` parts now preserve optional `providerExecuted`.
+  stable `tool-approval-response` parts now preserve optional `providerExecuted`. The unified
+  prelude now also exports these UI message structures plus passive `UiMessageChunk` stream-event
+  carriers and `UI_MESSAGE_STREAM_HEADERS`, mirroring the AI SDK `ui-message-stream` data shapes
+  without claiming the frontend stream runtime helpers.
 - Public AI SDK package facades now also expose package-level provider entry helpers directly on
   their own namespaces: compat-promoted wrappers
   `provider_ext::{mistral,perplexity,fireworks,moonshotai,deepinfra}` plus the audited

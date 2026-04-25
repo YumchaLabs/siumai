@@ -231,6 +231,58 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<TypedToolCall>();
     let _ = size_of::<TypedToolError>();
     let _ = size_of::<TypedToolResult>();
+    let _ = size_of::<UiCustomPart>();
+    let _ = size_of::<UiDataPart>();
+    let _ = size_of::<UiFilePart>();
+    let _ = size_of::<UiMessage>();
+    let _ = size_of::<UiMessageAbortChunk>();
+    let _ = size_of::<UiMessageChunk<JSONValue, JSONValue>>();
+    let _ = size_of::<UiMessageCustomChunk>();
+    let _ = size_of::<UiMessageDataChunk<JSONValue>>();
+    let _ = size_of::<UiMessageErrorChunk>();
+    let _ = size_of::<UiMessageFileChunk>();
+    let _ = size_of::<UiMessageFinishChunk<JSONValue>>();
+    let _ = size_of::<UiMessageFinishStepChunk>();
+    let _ = size_of::<UiMessageMetadataChunk<JSONValue>>();
+    let _ = size_of::<UiMessagePart>();
+    let _ = size_of::<UiMessageReasoningDeltaChunk>();
+    let _ = size_of::<UiMessageReasoningEndChunk>();
+    let _ = size_of::<UiMessageReasoningFileChunk>();
+    let _ = size_of::<UiMessageReasoningStartChunk>();
+    let _ = size_of::<UiMessageRole>();
+    let _ = size_of::<UiMessageSourceDocumentChunk>();
+    let _ = size_of::<UiMessageSourceUrlChunk>();
+    let _ = size_of::<UiMessageStartChunk<JSONValue>>();
+    let _ = size_of::<UiMessageStartStepChunk>();
+    let _ = size_of::<UiMessageTextDeltaChunk>();
+    let _ = size_of::<UiMessageTextEndChunk>();
+    let _ = size_of::<UiMessageTextStartChunk>();
+    let _ = size_of::<UiMessageToolApprovalRequestChunk>();
+    let _ = size_of::<UiMessageToolApprovalResponseChunk>();
+    let _ = size_of::<UiMessageToolInputAvailableChunk<JSONValue>>();
+    let _ = size_of::<UiMessageToolInputDeltaChunk>();
+    let _ = size_of::<UiMessageToolInputErrorChunk<JSONValue>>();
+    let _ = size_of::<UiMessageToolInputStartChunk>();
+    let _ = size_of::<UiMessageToolOutputAvailableChunk<JSONValue>>();
+    let _ = size_of::<UiMessageToolOutputDeniedChunk>();
+    let _ = size_of::<UiMessageToolOutputErrorChunk>();
+    let _ = size_of::<UiPartState>();
+    let _ = size_of::<UiProviderMetadata>();
+    let _ = size_of::<UiReasoningFilePart>();
+    let _ = size_of::<UiReasoningPart>();
+    let _ = size_of::<UiSourceDocumentPart>();
+    let _ = size_of::<UiSourceUrlPart>();
+    let _ = size_of::<UiTextPart>();
+    let _ = size_of::<UiToolApproval>();
+    let _ = size_of::<UiToolApprovalDecision>();
+    let _ = size_of::<UiToolApprovalRequest>();
+    let _ = size_of::<UiToolApprovedApproval>();
+    let _ = size_of::<UiToolDeniedApproval>();
+    let _ = size_of::<UiToolInvocation>();
+    let _ = size_of::<UiToolInvocationState>();
+    let _ = size_of::<UiToolKind>();
+    let _ = size_of::<UiToolPart>();
+    let _ = size_of::<UiToolPartState>();
     let _ = size_of::<OnStartEvent>();
     let _ = size_of::<OnStepStartEvent>();
     let _ = size_of::<OnChunkEvent>();
@@ -276,6 +328,11 @@ fn public_surface_unified_imports_compile() {
     let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
     let _ = is_deep_equal_data as fn(&JSONValue, &JSONValue) -> bool;
+    assert!(
+        UI_MESSAGE_STREAM_HEADERS
+            .iter()
+            .any(|(name, value)| *name == "x-vercel-ai-ui-message-stream" && *value == "v1")
+    );
 
     let schema = json_schema(serde_json::json!({ "type": "object" }));
     assert_eq!(schema.json_schema()["type"], serde_json::json!("object"));
