@@ -62,8 +62,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `NoImageGeneratedError`, `NoObjectGeneratedError`, `NoOutputGeneratedError`,
   `NoSpeechGeneratedError`, `NoTranscriptGeneratedError`, `NoVideoGeneratedError`,
   `UnsupportedModelVersionError`, `UIMessageStreamError`, `InvalidMessageRoleError`,
-  `MessageConversionError`, `RetryError`, and `RetryErrorReason`. These are data-shape exports
-  and do not replace Siumai's runtime error hierarchy.
+  `MessageConversionError`, `RetryError`, and `RetryErrorReason`. The same pass now also covers
+  the provider-level errors re-exported from `@ai-sdk/provider` such as `AISDKError`,
+  `APICallError`, `EmptyResponseBodyError`, `InvalidPromptError`, `InvalidResponseDataError`,
+  `JSONParseError`, `LoadAPIKeyError`, `LoadSettingError`, `NoContentGeneratedError`,
+  `NoSuchModelError`, `NoSuchProviderReferenceError`, `TooManyEmbeddingValuesForCallError`,
+  `TypeValidationContext`, `TypeValidationError`, and `UnsupportedFunctionalityError`. These are
+  data-shape exports and do not replace Siumai's runtime error hierarchy.
 - AI SDK generate-text step-control payloads now have passive Rust structures and helpers:
   symbolic `StopCondition` plus `is_step_count`, `is_loop_finished`, `has_tool_call`, and
   `is_stop_condition_met`; `filter_active_tools` plus the upstream experimental/deprecated helper

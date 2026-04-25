@@ -5,6 +5,8 @@ use std::mem::size_of;
 fn public_surface_unified_imports_compile() {
     use siumai::prelude::unified::*;
 
+    let _ = size_of::<AISDKError>();
+    let _ = size_of::<APICallError>();
     let _ = size_of::<ChatRequest>();
     let _ = size_of::<ChatRequestOptions>();
     let _ = size_of::<ChatResponse>();
@@ -74,6 +76,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<EmbeddingModelCallEndEvent>();
     let _ = size_of::<EmbeddingModelCallStartEvent>();
     let _ = size_of::<EmbeddingModelUsage>();
+    let _ = size_of::<EmptyResponseBodyError>();
     let _ = size_of::<Experimental_GenerateImageResult>();
     let _ = size_of::<Experimental_GeneratedImage>();
     let _ = size_of::<Experimental_SpeechResult>();
@@ -156,8 +159,11 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<InferUIDataParts>();
     let _ = size_of::<InvalidArgumentError>();
     let _ = size_of::<InvalidMessageRoleError>();
+    let _ = size_of::<InvalidPromptError>();
+    let _ = size_of::<InvalidResponseDataError>();
     let _ = size_of::<InvalidStreamPartError>();
     let _ = size_of::<InvalidToolApprovalError>();
+    let _ = size_of::<JSONParseError>();
     let _ = size_of::<LanguageModelCallOptions>();
     let _ = size_of::<LanguageModelInputTokenDetails>();
     let _ = size_of::<LanguageModelOutputTokenDetails>();
@@ -171,6 +177,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ExperimentalLanguageModelStreamPart>();
     let _ = size_of::<Experimental_LanguageModelStreamPart>();
     let _ = size_of::<LanguageModelUsage>();
+    let _ = size_of::<LoadAPIKeyError>();
+    let _ = size_of::<LoadSettingError>();
     let _ = size_of::<ProviderMetadata>();
     let _ = size_of::<ProviderOptions>();
     let _ = size_of::<ProviderReference>();
@@ -219,9 +227,12 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<PruneToolCallRule>();
     let _ = size_of::<TimeoutConfiguration>();
     let _ = size_of::<TimeoutConfigurationSettings>();
+    let _ = size_of::<TooManyEmbeddingValuesForCallError>();
     let _ = size_of::<TranscriptionModelResponseMetadata>();
     let _ = size_of::<TranscriptionResult>();
     let _ = size_of::<TranscriptionSegment>();
+    let _ = size_of::<TypeValidationContext>();
+    let _ = size_of::<TypeValidationError>();
     let _ = size_of::<VideoModelProviderMetadata>();
     let _ = size_of::<VideoModelResponseMetadata>();
     let _ = size_of::<ProviderOptionsMap>();
@@ -230,10 +241,14 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<MissingToolResultsError>();
     let _ = size_of::<MessageConversionError>();
     let _ = size_of::<ModelMessageConversionError>();
+    let _ = size_of::<NoContentGeneratedError>();
     let _ = size_of::<NoImageGeneratedError>();
     let _ = size_of::<NoObjectGeneratedError>();
     let _ = size_of::<NoOutputGeneratedError>();
     let _ = size_of::<NoSpeechGeneratedError>();
+    let _ = size_of::<NoSuchModelError>();
+    let _ = size_of::<NoSuchModelType>();
+    let _ = size_of::<NoSuchProviderReferenceError>();
     let _ = size_of::<NoSuchToolError>();
     let _ = size_of::<NoTranscriptGeneratedError>();
     let _ = size_of::<NoVideoGeneratedError>();
@@ -314,6 +329,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<UiToolKind>();
     let _ = size_of::<UiToolPart>();
     let _ = size_of::<UiToolPartState>();
+    let _ = size_of::<UnsupportedFunctionalityError>();
     let _ = size_of::<UnsupportedModelVersionError>();
     let _ = size_of::<UseCompletionOptions>();
     let _ = size_of::<OnStartEvent>();

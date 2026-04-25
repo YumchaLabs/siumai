@@ -39,6 +39,466 @@ pub type Context = HashMap<String, JSONValue>;
 /// AI SDK-style single embedding vector.
 pub type Embedding = Vec<f32>;
 
+/// AI SDK provider `AISDKError` passive base error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AISDKError {
+    /// Error name such as `AI_APICallError`.
+    pub name: String,
+    /// Human-readable error message.
+    pub message: String,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+}
+
+impl AISDKError {
+    /// Create an AI SDK base error carrier.
+    pub fn new(
+        name: impl Into<String>,
+        message: impl Into<String>,
+        cause: Option<JSONValue>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            message: message.into(),
+            cause,
+        }
+    }
+}
+
+/// AI SDK provider `APICallError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct APICallError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Request URL.
+    pub url: String,
+    /// Request body values when serializable.
+    pub request_body_values: JSONValue,
+    /// HTTP status code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    /// HTTP response headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_headers: Option<HashMap<String, String>>,
+    /// Raw response body.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_body: Option<String>,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+    /// Whether the API call can be retried.
+    pub is_retryable: bool,
+    /// Parsed provider error payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<JSONValue>,
+}
+
+impl APICallError {
+    /// Create an `APICallError` and apply AI SDK's default retryability rule.
+    pub fn new(
+        message: impl Into<String>,
+        url: impl Into<String>,
+        request_body_values: JSONValue,
+        status_code: Option<u16>,
+    ) -> Self {
+        let is_retryable = matches!(status_code, Some(408 | 409 | 429))
+            || status_code.is_some_and(|status_code| status_code >= 500);
+
+        Self {
+            message: message.into(),
+            url: url.into(),
+            request_body_values,
+            status_code,
+            response_headers: None,
+            response_body: None,
+            cause: None,
+            is_retryable,
+            data: None,
+        }
+    }
+}
+
+/// AI SDK provider `EmptyResponseBodyError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmptyResponseBodyError {
+    /// Human-readable error message.
+    pub message: String,
+}
+
+impl EmptyResponseBodyError {
+    /// Create an `EmptyResponseBodyError` with the upstream default message.
+    pub fn new() -> Self {
+        Self {
+            message: "Empty response body".to_string(),
+        }
+    }
+}
+
+impl Default for EmptyResponseBodyError {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// AI SDK provider `InvalidPromptError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidPromptError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Invalid prompt payload.
+    pub prompt: JSONValue,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+}
+
+impl InvalidPromptError {
+    /// Create an `InvalidPromptError` with the upstream default message prefix.
+    pub fn new(prompt: JSONValue, message: impl Into<String>, cause: Option<JSONValue>) -> Self {
+        Self {
+            message: format!("Invalid prompt: {}", message.into()),
+            prompt,
+            cause,
+        }
+    }
+}
+
+/// AI SDK provider `InvalidResponseDataError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidResponseDataError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Invalid response data payload.
+    pub data: JSONValue,
+}
+
+impl InvalidResponseDataError {
+    /// Create an `InvalidResponseDataError` with the upstream default message.
+    pub fn new(data: JSONValue) -> Self {
+        Self {
+            message: format!("Invalid response data: {data}."),
+            data,
+        }
+    }
+}
+
+/// AI SDK provider `JSONParseError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JSONParseError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Original text that failed JSON parsing.
+    pub text: String,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+}
+
+impl JSONParseError {
+    /// Create a `JSONParseError` with the upstream default message.
+    pub fn new(text: impl Into<String>, cause: Option<JSONValue>) -> Self {
+        let text = text.into();
+        Self {
+            message: format!(
+                "JSON parsing failed: Text: {text}.\nError message: {}",
+                ai_sdk_error_message(cause.as_ref())
+            ),
+            text,
+            cause,
+        }
+    }
+}
+
+/// AI SDK provider `LoadAPIKeyError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadAPIKeyError {
+    /// Human-readable error message.
+    pub message: String,
+}
+
+impl LoadAPIKeyError {
+    /// Create a `LoadAPIKeyError`.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+/// AI SDK provider `LoadSettingError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadSettingError {
+    /// Human-readable error message.
+    pub message: String,
+}
+
+impl LoadSettingError {
+    /// Create a `LoadSettingError`.
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+/// AI SDK provider `NoContentGeneratedError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoContentGeneratedError {
+    /// Human-readable error message.
+    pub message: String,
+}
+
+impl NoContentGeneratedError {
+    /// Create a `NoContentGeneratedError` with the upstream default message.
+    pub fn new() -> Self {
+        Self {
+            message: "No content generated.".to_string(),
+        }
+    }
+}
+
+impl Default for NoContentGeneratedError {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// AI SDK provider model-family discriminator used by `NoSuchModelError`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NoSuchModelType {
+    #[serde(rename = "languageModel")]
+    LanguageModel,
+    #[serde(rename = "embeddingModel")]
+    EmbeddingModel,
+    #[serde(rename = "imageModel")]
+    ImageModel,
+    #[serde(rename = "transcriptionModel")]
+    TranscriptionModel,
+    #[serde(rename = "speechModel")]
+    SpeechModel,
+    #[serde(rename = "rerankingModel")]
+    RerankingModel,
+    #[serde(rename = "videoModel")]
+    VideoModel,
+}
+
+impl NoSuchModelType {
+    /// Return the AI SDK string value.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::LanguageModel => "languageModel",
+            Self::EmbeddingModel => "embeddingModel",
+            Self::ImageModel => "imageModel",
+            Self::TranscriptionModel => "transcriptionModel",
+            Self::SpeechModel => "speechModel",
+            Self::RerankingModel => "rerankingModel",
+            Self::VideoModel => "videoModel",
+        }
+    }
+}
+
+/// AI SDK provider `NoSuchModelError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoSuchModelError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Missing model id.
+    pub model_id: String,
+    /// Model family.
+    pub model_type: NoSuchModelType,
+}
+
+impl NoSuchModelError {
+    /// Create a `NoSuchModelError` with the upstream default message.
+    pub fn new(model_id: impl Into<String>, model_type: NoSuchModelType) -> Self {
+        let model_id = model_id.into();
+        Self {
+            message: format!("No such {}: {model_id}", model_type.as_str()),
+            model_id,
+            model_type,
+        }
+    }
+}
+
+/// AI SDK provider `NoSuchProviderReferenceError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoSuchProviderReferenceError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Missing provider id.
+    pub provider: String,
+    /// Available provider references.
+    pub reference: HashMap<String, String>,
+}
+
+impl NoSuchProviderReferenceError {
+    /// Create a `NoSuchProviderReferenceError` with the upstream default message.
+    pub fn new(provider: impl Into<String>, reference: HashMap<String, String>) -> Self {
+        let provider = provider.into();
+        let available = reference.keys().cloned().collect::<Vec<_>>().join(", ");
+        Self {
+            message: format!(
+                "No provider reference found for provider '{provider}'. Available providers: {available}"
+            ),
+            provider,
+            reference,
+        }
+    }
+}
+
+/// AI SDK provider `TooManyEmbeddingValuesForCallError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TooManyEmbeddingValuesForCallError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Maximum values accepted by one provider call.
+    pub max_embeddings_per_call: usize,
+    /// Provided embedding input values.
+    pub values: Vec<JSONValue>,
+}
+
+impl TooManyEmbeddingValuesForCallError {
+    /// Create a `TooManyEmbeddingValuesForCallError` with the upstream default message.
+    pub fn new(
+        provider: impl Into<String>,
+        model_id: impl Into<String>,
+        max_embeddings_per_call: usize,
+        values: Vec<JSONValue>,
+    ) -> Self {
+        let provider = provider.into();
+        let model_id = model_id.into();
+        Self {
+            message: format!(
+                "Too many values for a single embedding call. The {provider} model \
+                 \"{model_id}\" can only embed up to {max_embeddings_per_call} values per call, \
+                 but {} values were provided.",
+                values.len()
+            ),
+            provider,
+            model_id,
+            max_embeddings_per_call,
+            values,
+        }
+    }
+}
+
+/// AI SDK provider `TypeValidationContext` passive data.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeValidationContext {
+    /// Field path in dot notation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    /// Entity name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_name: Option<String>,
+    /// Entity identifier.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<String>,
+}
+
+/// AI SDK provider `TypeValidationError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeValidationError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Value that failed validation.
+    pub value: JSONValue,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+    /// Validation context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<TypeValidationContext>,
+}
+
+impl TypeValidationError {
+    /// Create a `TypeValidationError` with the upstream default message.
+    pub fn new(
+        value: JSONValue,
+        cause: Option<JSONValue>,
+        context: Option<TypeValidationContext>,
+    ) -> Self {
+        let mut context_prefix = "Type validation failed".to_string();
+
+        if let Some(field) = context.as_ref().and_then(|context| context.field.as_ref()) {
+            context_prefix.push_str(" for ");
+            context_prefix.push_str(field);
+        }
+
+        if context
+            .as_ref()
+            .is_some_and(|context| context.entity_name.is_some() || context.entity_id.is_some())
+        {
+            let mut parts = Vec::new();
+            if let Some(entity_name) = context
+                .as_ref()
+                .and_then(|context| context.entity_name.as_ref())
+            {
+                parts.push(entity_name.clone());
+            }
+            if let Some(entity_id) = context
+                .as_ref()
+                .and_then(|context| context.entity_id.as_ref())
+            {
+                parts.push(format!("id: \"{entity_id}\""));
+            }
+            context_prefix.push_str(" (");
+            context_prefix.push_str(&parts.join(", "));
+            context_prefix.push(')');
+        }
+
+        Self {
+            message: format!(
+                "{context_prefix}: Value: {value}.\nError message: {}",
+                ai_sdk_error_message(cause.as_ref())
+            ),
+            value,
+            cause,
+            context,
+        }
+    }
+}
+
+/// AI SDK provider `UnsupportedFunctionalityError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsupportedFunctionalityError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Unsupported functionality name.
+    pub functionality: String,
+}
+
+impl UnsupportedFunctionalityError {
+    /// Create an `UnsupportedFunctionalityError` with the upstream default message.
+    pub fn new(functionality: impl Into<String>) -> Self {
+        let functionality = functionality.into();
+        Self {
+            message: format!("'{functionality}' functionality not supported."),
+            functionality,
+        }
+    }
+}
+
 /// AI SDK `InvalidArgumentError` passive error data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -9390,6 +9850,135 @@ mod tests {
 
     #[test]
     fn ai_sdk_error_index_passive_shapes_match_exported_errors() {
+        let base_error = AISDKError::new("AI_TestError", "boom", Some(serde_json::json!("cause")));
+        assert_eq!(
+            serde_json::to_value(&base_error).expect("serialize base error"),
+            serde_json::json!({
+                "name": "AI_TestError",
+                "message": "boom",
+                "cause": "cause"
+            })
+        );
+
+        let api_error = APICallError::new(
+            "rate limited",
+            "https://api.example.test",
+            serde_json::json!({ "model": "test" }),
+            Some(429),
+        );
+        let api_error_json = serde_json::to_value(&api_error).expect("serialize api error");
+        assert_eq!(api_error_json["statusCode"], serde_json::json!(429));
+        assert_eq!(api_error_json["isRetryable"], serde_json::json!(true));
+
+        assert_eq!(
+            serde_json::to_value(EmptyResponseBodyError::new())
+                .expect("serialize empty body error"),
+            serde_json::json!({ "message": "Empty response body" })
+        );
+
+        assert_eq!(
+            serde_json::to_value(InvalidPromptError::new(
+                serde_json::json!({ "role": "bad" }),
+                "unsupported role",
+                None,
+            ))
+            .expect("serialize invalid prompt")["message"],
+            serde_json::json!("Invalid prompt: unsupported role")
+        );
+
+        assert_eq!(
+            serde_json::to_value(InvalidResponseDataError::new(
+                serde_json::json!({ "ok": false }),
+            ))
+            .expect("serialize invalid response data")["message"],
+            serde_json::json!(r#"Invalid response data: {"ok":false}."#)
+        );
+
+        assert_eq!(
+            serde_json::to_value(JSONParseError::new(
+                "not json",
+                Some(serde_json::json!("SyntaxError")),
+            ))
+            .expect("serialize json parse error")["message"],
+            serde_json::json!("JSON parsing failed: Text: not json.\nError message: SyntaxError")
+        );
+
+        assert_eq!(
+            serde_json::to_value(LoadAPIKeyError::new("missing key"))
+                .expect("serialize load api key error")["message"],
+            serde_json::json!("missing key")
+        );
+        assert_eq!(
+            serde_json::to_value(LoadSettingError::new("missing setting"))
+                .expect("serialize load setting error")["message"],
+            serde_json::json!("missing setting")
+        );
+        assert_eq!(
+            serde_json::to_value(NoContentGeneratedError::new())
+                .expect("serialize no content error")["message"],
+            serde_json::json!("No content generated.")
+        );
+
+        let no_such_model = NoSuchModelError::new("gpt-test", NoSuchModelType::LanguageModel);
+        let no_such_model_json =
+            serde_json::to_value(&no_such_model).expect("serialize no such model error");
+        assert_eq!(
+            no_such_model_json["modelType"],
+            serde_json::json!("languageModel")
+        );
+        assert_eq!(
+            no_such_model_json["message"],
+            serde_json::json!("No such languageModel: gpt-test")
+        );
+
+        let no_provider_reference = NoSuchProviderReferenceError::new(
+            "anthropic",
+            HashMap::from([("openai".to_string(), "file_1".to_string())]),
+        );
+        assert_eq!(
+            serde_json::to_value(&no_provider_reference)
+                .expect("serialize no provider reference error")["message"],
+            serde_json::json!(
+                "No provider reference found for provider 'anthropic'. Available providers: openai"
+            )
+        );
+
+        let too_many_embeddings = TooManyEmbeddingValuesForCallError::new(
+            "openai",
+            "text-embedding-test",
+            1,
+            vec![serde_json::json!("a"), serde_json::json!("b")],
+        );
+        assert_eq!(
+            serde_json::to_value(&too_many_embeddings)
+                .expect("serialize too many embeddings error")["message"],
+            serde_json::json!(
+                "Too many values for a single embedding call. The openai model \"text-embedding-test\" can only embed up to 1 values per call, but 2 values were provided."
+            )
+        );
+
+        let type_validation = TypeValidationError::new(
+            serde_json::json!({ "x": 1 }),
+            Some(serde_json::json!("bad type")),
+            Some(TypeValidationContext {
+                field: Some("message.parts[0]".to_string()),
+                entity_name: Some("tool".to_string()),
+                entity_id: Some("call_1".to_string()),
+            }),
+        );
+        assert_eq!(
+            serde_json::to_value(&type_validation).expect("serialize type validation error")["message"],
+            serde_json::json!(
+                "Type validation failed for message.parts[0] (tool, id: \"call_1\"): Value: {\"x\":1}.\nError message: bad type"
+            )
+        );
+
+        assert_eq!(
+            serde_json::to_value(UnsupportedFunctionalityError::new("vision"))
+                .expect("serialize unsupported functionality")["message"],
+            serde_json::json!("'vision' functionality not supported.")
+        );
+
         let invalid_argument =
             InvalidArgumentError::new("temperature", serde_json::json!(2), "must be <= 1");
         assert_eq!(
