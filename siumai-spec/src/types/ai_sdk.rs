@@ -3102,6 +3102,72 @@ pub type UIDataTypesToSchemas = UIDataPartSchemas;
 /// AI SDK inferred UI data parts. Rust exposes the resolved JSON-value map directly.
 pub type InferUIDataParts = HashMap<String, JSONValue>;
 
+/// AI SDK `UIDataTypes` map.
+pub type UIDataTypes = HashMap<String, JSONValue>;
+
+/// AI SDK `UITool` passive input/output carrier.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UITool {
+    /// Tool input value.
+    pub input: JSONValue,
+    /// Tool output value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<JSONValue>,
+}
+
+/// AI SDK inferred UI tool carrier. Rust exposes the resolved JSON-value tool shape directly.
+pub type InferUITool = UITool;
+
+/// AI SDK `UITools` map.
+pub type UITools = HashMap<String, UITool>;
+
+/// AI SDK inferred UI tools map. Rust exposes the resolved JSON-value tool map directly.
+pub type InferUITools = UITools;
+
+/// AI SDK-compatible alias for `UIMessage`.
+pub type UIMessage = UiMessage;
+
+/// AI SDK-compatible alias for `UIMessagePart`.
+pub type UIMessagePart = UiMessagePart;
+
+/// AI SDK-compatible alias for `TextUIPart`.
+pub type TextUIPart = super::chat::UiTextPart;
+
+/// AI SDK-compatible alias for `CustomContentUIPart`.
+pub type CustomContentUIPart = super::chat::UiCustomPart;
+
+/// AI SDK-compatible alias for `ReasoningUIPart`.
+pub type ReasoningUIPart = super::chat::UiReasoningPart;
+
+/// AI SDK-compatible alias for `FileUIPart`.
+pub type FileUIPart = super::chat::UiFilePart;
+
+/// AI SDK-compatible alias for `ReasoningFileUIPart`.
+pub type ReasoningFileUIPart = super::chat::UiReasoningFilePart;
+
+/// AI SDK-compatible alias for `SourceUrlUIPart`.
+pub type SourceUrlUIPart = super::chat::UiSourceUrlPart;
+
+/// AI SDK-compatible alias for `SourceDocumentUIPart`.
+pub type SourceDocumentUIPart = super::chat::UiSourceDocumentPart;
+
+/// AI SDK-compatible alias for `DataUIPart`.
+pub type DataUIPart = super::chat::UiDataPart;
+
+/// AI SDK-compatible alias for `ToolUIPart`.
+pub type ToolUIPart = super::chat::UiToolPart;
+
+/// AI SDK-compatible alias for `DynamicToolUIPart`.
+pub type DynamicToolUIPart = super::chat::UiToolPart;
+
+/// AI SDK-compatible alias for `UIToolInvocation`.
+pub type UIToolInvocation = super::chat::UiToolInvocation;
+
+/// AI SDK-compatible alias for `StepStartUIPart`.
+///
+/// Siumai represents this as the `UiMessagePart::StepStart` unit variant.
+pub type StepStartUIPart = UiMessagePart;
+
 /// Passive message input accepted by AI SDK `CreateUIMessage`.
 ///
 /// Upstream models this as `Omit<UIMessage, "id" | "role"> & { id?: ...; role?: ... }`.
@@ -9277,6 +9343,48 @@ mod tests {
         assert_eq!(
             create_message_json["parts"][0]["type"],
             serde_json::json!("text")
+        );
+
+        let _: UIMessage = UiMessage::assistant("msg_alias", vec![UiMessagePart::text("hello")]);
+        let _: UIMessagePart = UiMessagePart::StepStart;
+        let text_part: TextUIPart = TextUIPart::new("hello");
+        let data_part: DataUIPart = DataUIPart::new("status", serde_json::json!({ "ok": true }));
+        let tool_part: ToolUIPart = ToolUIPart::named(
+            "search",
+            "call_1",
+            crate::types::chat::UiToolPartState::InputStreaming,
+        );
+        let _: DynamicToolUIPart = DynamicToolUIPart::dynamic(
+            "dynamic-search",
+            "call_2",
+            crate::types::chat::UiToolPartState::InputStreaming,
+        );
+        let _: StepStartUIPart = UiMessagePart::StepStart;
+        assert_eq!(
+            serde_json::to_value(UiMessagePart::Text(text_part)).expect("serialize TextUIPart")["type"],
+            serde_json::json!("text")
+        );
+        assert_eq!(
+            serde_json::to_value(UiMessagePart::Data(data_part)).expect("serialize DataUIPart")["type"],
+            serde_json::json!("data-status")
+        );
+        assert_eq!(
+            serde_json::to_value(UiMessagePart::Tool(tool_part)).expect("serialize ToolUIPart")["type"],
+            serde_json::json!("tool-search")
+        );
+
+        let ui_tool = UITool {
+            input: serde_json::json!({ "query": "rust" }),
+            output: Some(serde_json::json!({ "results": [] })),
+        };
+        let mut ui_tools = UITools::new();
+        ui_tools.insert("search".to_string(), ui_tool.clone());
+        let _: InferUITool = ui_tool;
+        let _: InferUITools = ui_tools.clone();
+        let ui_tools_json = serde_json::to_value(&ui_tools).expect("serialize UITools");
+        assert_eq!(
+            ui_tools_json["search"]["input"]["query"],
+            serde_json::json!("rust")
         );
 
         let chat_request_options = ChatRequestOptions::new()

@@ -178,7 +178,10 @@ exposes `CreateUIMessage`, `ChatRequestOptions`, `ChatStatus`, `ChatState`, `Cha
 passive chat-transport send/reconnect option carriers, `HttpChatTransportInitOptions`, passive
 prepare-request input/result carriers, `CompletionRequestOptions`, `UseCompletionOptions`,
 `RequestCredentials`, `CompletionStreamProtocol`, and the UI data schema map aliases so callers can
-import the stable non-runtime UI helper types without pulling in a frontend hook stack.
+import the stable non-runtime UI helper types without pulling in a frontend hook stack. The
+upstream `ui-messages.ts` alias names (`UIMessage`, `UIMessagePart`, `TextUIPart`, `DataUIPart`,
+`ToolUIPart`, `DynamicToolUIPart`, `UITool`, and related source/file/reasoning aliases) now also
+resolve to the existing Rust UI carriers.
 
 That same UI-message layer now covers passive stream event and options data too:
 `UiMessageChunk`, the named `UiMessage*Chunk` variants, `UI_MESSAGE_STREAM_HEADERS`, and
