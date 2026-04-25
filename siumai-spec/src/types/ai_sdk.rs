@@ -260,6 +260,73 @@ pub type DefaultGeneratedFile = GeneratedFile;
 #[allow(non_camel_case_types)]
 pub type Experimental_GeneratedImage = GeneratedFile;
 
+fn audio_format_from_media_type(media_type: &str) -> String {
+    let normalized = media_type.trim().to_ascii_lowercase();
+    if normalized == "audio/mpeg" {
+        return "mp3".to_string();
+    }
+
+    normalized
+        .split_once('/')
+        .map(|(_, subtype)| subtype.to_string())
+        .filter(|subtype| !subtype.is_empty())
+        .unwrap_or_else(|| "mp3".to_string())
+}
+
+/// AI SDK-style generated audio file returned by `generateSpeech`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct GeneratedAudioFile {
+    /// File content and media type.
+    #[serde(flatten)]
+    pub file: GeneratedFile,
+    /// Audio format such as `mp3` or `wav`.
+    pub format: String,
+}
+
+impl GeneratedAudioFile {
+    /// Create generated audio from a generated file and explicit format.
+    pub fn new(file: GeneratedFile, format: impl Into<String>) -> Self {
+        Self {
+            file,
+            format: format.into(),
+        }
+    }
+
+    /// Create generated audio from base64 content, deriving the format from the media type.
+    pub fn from_base64(base64: impl Into<String>, media_type: impl Into<String>) -> Self {
+        let media_type = media_type.into();
+        Self::new(
+            GeneratedFile::from_base64(base64, media_type.as_str()),
+            audio_format_from_media_type(&media_type),
+        )
+    }
+
+    /// Create generated audio from bytes, deriving the format from the media type.
+    pub fn from_bytes(data: impl AsRef<[u8]>, media_type: impl Into<String>) -> Self {
+        let media_type = media_type.into();
+        Self::new(
+            GeneratedFile::from_bytes(data, media_type.as_str()),
+            audio_format_from_media_type(&media_type),
+        )
+    }
+
+    /// Return base64 content.
+    pub fn base64(&self) -> &str {
+        self.file.base64()
+    }
+
+    /// Return the generated audio media type.
+    pub fn media_type(&self) -> &str {
+        self.file.media_type.as_str()
+    }
+
+    /// Decode the generated audio into bytes.
+    pub fn uint8_array(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        self.file.uint8_array()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TextOutputMarker {
     Text,
@@ -4918,6 +4985,309 @@ impl From<&EmbeddingUsage> for EmbeddingModelUsage {
     }
 }
 
+/// Optional raw response data returned by embedding and reranking helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ModelCallResponseData {
+    /// Response headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Raw response body when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+}
+
+impl ModelCallResponseData {
+    /// Create an empty response data envelope.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Attach response headers.
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+
+    /// Attach a raw response body.
+    pub fn with_body(mut self, body: JSONValue) -> Self {
+        self.body = Some(body);
+        self
+    }
+}
+
+/// Value input accepted by AI SDK embed callback payloads.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum EmbedValue {
+    /// Single embedded value.
+    Single(String),
+    /// Multiple embedded values.
+    Many(Vec<String>),
+}
+
+impl From<String> for EmbedValue {
+    fn from(value: String) -> Self {
+        Self::Single(value)
+    }
+}
+
+impl From<&str> for EmbedValue {
+    fn from(value: &str) -> Self {
+        Self::Single(value.to_string())
+    }
+}
+
+impl From<Vec<String>> for EmbedValue {
+    fn from(value: Vec<String>) -> Self {
+        Self::Many(value)
+    }
+}
+
+/// Embedding output accepted by AI SDK embed callback payloads.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum EmbedOutput {
+    /// Single embedding vector.
+    Single(Embedding),
+    /// Multiple embedding vectors.
+    Many(Vec<Embedding>),
+}
+
+impl From<Embedding> for EmbedOutput {
+    fn from(value: Embedding) -> Self {
+        Self::Single(value)
+    }
+}
+
+impl From<Vec<Embedding>> for EmbedOutput {
+    fn from(value: Vec<Embedding>) -> Self {
+        Self::Many(value)
+    }
+}
+
+/// Response data accepted by AI SDK embed callback payloads.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum EmbedResponseData {
+    /// Single model-call response envelope.
+    Single(ModelCallResponseData),
+    /// Multiple model-call response envelopes.
+    Many(Vec<Option<ModelCallResponseData>>),
+}
+
+impl From<ModelCallResponseData> for EmbedResponseData {
+    fn from(value: ModelCallResponseData) -> Self {
+        Self::Single(value)
+    }
+}
+
+impl From<Vec<Option<ModelCallResponseData>>> for EmbedResponseData {
+    fn from(value: Vec<Option<ModelCallResponseData>>) -> Self {
+        Self::Many(value)
+    }
+}
+
+/// Passive AI SDK-style result envelope for an `embed` call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedResult {
+    /// Value that was embedded.
+    pub value: String,
+    /// Embedding vector for the value.
+    pub embedding: Embedding,
+    /// Embedding token usage.
+    pub usage: EmbeddingModelUsage,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Optional provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Optional raw response data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<ModelCallResponseData>,
+}
+
+impl EmbedResult {
+    /// Create an embedding result.
+    pub fn new(value: impl Into<String>, embedding: Embedding, usage: EmbeddingModelUsage) -> Self {
+        Self {
+            value: value.into(),
+            embedding,
+            usage,
+            warnings: Vec::new(),
+            provider_metadata: None,
+            response: None,
+        }
+    }
+
+    /// Attach non-fatal provider warnings.
+    pub fn with_warnings(mut self, warnings: Vec<Warning>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Attach raw response data.
+    pub fn with_response(mut self, response: ModelCallResponseData) -> Self {
+        self.response = Some(response);
+        self
+    }
+}
+
+/// Passive AI SDK-style result envelope for an `embedMany` call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedManyResult {
+    /// Values that were embedded.
+    pub values: Vec<String>,
+    /// Embeddings in the same order as `values`.
+    pub embeddings: Vec<Embedding>,
+    /// Embedding token usage.
+    pub usage: EmbeddingModelUsage,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Optional provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Optional raw response data for each underlying model call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub responses: Option<Vec<Option<ModelCallResponseData>>>,
+}
+
+impl EmbedManyResult {
+    /// Create an embed-many result.
+    pub fn new(
+        values: Vec<String>,
+        embeddings: Vec<Embedding>,
+        usage: EmbeddingModelUsage,
+    ) -> Self {
+        Self {
+            values,
+            embeddings,
+            usage,
+            warnings: Vec::new(),
+            provider_metadata: None,
+            responses: None,
+        }
+    }
+
+    /// Attach non-fatal provider warnings.
+    pub fn with_warnings(mut self, warnings: Vec<Warning>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Attach raw response data for underlying model calls.
+    pub fn with_responses(mut self, responses: Vec<Option<ModelCallResponseData>>) -> Self {
+        self.responses = Some(responses);
+        self
+    }
+}
+
+/// Event payload for AI SDK embed/embedMany `onStart` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedStartEvent {
+    /// Unique call id.
+    pub call_id: String,
+    /// Operation id, e.g. `ai.embed` or `ai.embedMany`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Value or values being embedded.
+    pub value: EmbedValue,
+    /// Maximum number of retries.
+    pub max_retries: u32,
+    /// Additional HTTP headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, Option<String>>>,
+    /// Provider-specific options.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<ProviderOptions>,
+}
+
+/// Event payload for AI SDK embed/embedMany `onFinish` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbedEndEvent {
+    /// Unique call id.
+    pub call_id: String,
+    /// Operation id, e.g. `ai.embed` or `ai.embedMany`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Value or values that were embedded.
+    pub value: EmbedValue,
+    /// Resulting embedding or embeddings.
+    pub embedding: EmbedOutput,
+    /// Embedding token usage.
+    pub usage: EmbeddingModelUsage,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Optional provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Optional raw response data.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<EmbedResponseData>,
+}
+
+/// Event payload for the start of an underlying embedding-model call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingModelCallStartEvent {
+    /// Unique outer embed call id.
+    pub call_id: String,
+    /// Unique id for this underlying model invocation.
+    pub embed_call_id: String,
+    /// Operation id, e.g. `ai.embed.doEmbed`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Values being embedded in this model call.
+    pub values: Vec<String>,
+}
+
+/// Event payload for the end of an underlying embedding-model call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingModelCallEndEvent {
+    /// Unique outer embed call id.
+    pub call_id: String,
+    /// Unique id for this underlying model invocation.
+    pub embed_call_id: String,
+    /// Operation id, e.g. `ai.embed.doEmbed`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Values embedded in this model call.
+    pub values: Vec<String>,
+    /// Resulting embeddings from this model call.
+    pub embeddings: Vec<Embedding>,
+    /// Token usage for this model call.
+    pub usage: EmbeddingModelUsage,
+}
+
 /// AI SDK-style image-model usage shape.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct ImageModelUsage {
@@ -5174,6 +5544,224 @@ impl TryFrom<&HttpResponseInfo> for TranscriptionModelResponseMetadata {
     }
 }
 
+/// Passive AI SDK-style result envelope for a `generateImage` call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateImageResult {
+    /// First generated image.
+    pub image: GeneratedFile,
+    /// Generated images.
+    pub images: Vec<GeneratedFile>,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Response metadata from each underlying provider call.
+    pub responses: Vec<ImageModelResponseMetadata>,
+    /// Provider-specific metadata keyed by provider id.
+    pub provider_metadata: ImageModelProviderMetadata,
+    /// Combined image-model usage across all underlying provider calls.
+    pub usage: ImageModelUsage,
+}
+
+impl GenerateImageResult {
+    /// Create a result from a required first image and the full image list.
+    pub fn new(image: GeneratedFile, mut images: Vec<GeneratedFile>) -> Self {
+        if images.is_empty() {
+            images.push(image.clone());
+        }
+
+        Self {
+            image,
+            images,
+            warnings: Vec::new(),
+            responses: Vec::new(),
+            provider_metadata: ImageModelProviderMetadata::default(),
+            usage: ImageModelUsage::default(),
+        }
+    }
+
+    /// Try to create a result from the full image list.
+    pub fn from_images(images: Vec<GeneratedFile>) -> Option<Self> {
+        let image = images.first()?.clone();
+        Some(Self::new(image, images))
+    }
+
+    /// Attach non-fatal provider warnings.
+    pub fn with_warnings(mut self, warnings: Vec<Warning>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    /// Attach response metadata envelopes.
+    pub fn with_responses(mut self, responses: Vec<ImageModelResponseMetadata>) -> Self {
+        self.responses = responses;
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ImageModelProviderMetadata) -> Self {
+        self.provider_metadata = provider_metadata;
+        self
+    }
+
+    /// Attach image-model usage.
+    pub fn with_usage(mut self, usage: ImageModelUsage) -> Self {
+        self.usage = usage;
+        self
+    }
+}
+
+/// Backwards-compatible AI SDK `Experimental_GenerateImageResult` export.
+#[allow(non_camel_case_types)]
+pub type Experimental_GenerateImageResult = GenerateImageResult;
+
+/// Passive AI SDK-style result envelope for a `generateSpeech` call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeechResult {
+    /// Generated audio file.
+    pub audio: GeneratedAudioFile,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Response metadata from each underlying provider call.
+    pub responses: Vec<SpeechModelResponseMetadata>,
+    /// Provider-specific metadata keyed by provider id.
+    pub provider_metadata: ProviderMetadata,
+}
+
+impl SpeechResult {
+    /// Create a speech result from generated audio.
+    pub fn new(audio: GeneratedAudioFile) -> Self {
+        Self {
+            audio,
+            warnings: Vec::new(),
+            responses: Vec::new(),
+            provider_metadata: ProviderMetadata::default(),
+        }
+    }
+
+    /// Attach non-fatal provider warnings.
+    pub fn with_warnings(mut self, warnings: Vec<Warning>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    /// Attach response metadata envelopes.
+    pub fn with_responses(mut self, responses: Vec<SpeechModelResponseMetadata>) -> Self {
+        self.responses = responses;
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = provider_metadata;
+        self
+    }
+}
+
+/// Backwards-compatible AI SDK `Experimental_SpeechResult` export.
+#[allow(non_camel_case_types)]
+pub type Experimental_SpeechResult = SpeechResult;
+
+/// Transcript segment used by AI SDK-style `TranscriptionResult`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptionSegment {
+    /// Segment text.
+    pub text: String,
+    /// Segment start time in seconds.
+    pub start_second: f64,
+    /// Segment end time in seconds.
+    pub end_second: f64,
+}
+
+impl TranscriptionSegment {
+    /// Create a transcript segment.
+    pub fn new(text: impl Into<String>, start_second: f64, end_second: f64) -> Self {
+        Self {
+            text: text.into(),
+            start_second,
+            end_second,
+        }
+    }
+}
+
+/// Passive AI SDK-style result envelope for a `transcribe` call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct TranscriptionResult {
+    /// Complete transcript text.
+    pub text: String,
+    /// Segment-level transcript timing information.
+    pub segments: Vec<TranscriptionSegment>,
+    /// Detected language, usually as an ISO-639-1 code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// Total audio duration in seconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_in_seconds: Option<f64>,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Response metadata from each underlying provider call.
+    pub responses: Vec<TranscriptionModelResponseMetadata>,
+    /// Provider-specific metadata keyed by provider id.
+    pub provider_metadata: ProviderMetadata,
+}
+
+impl TranscriptionResult {
+    /// Create a transcription result from final text.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            segments: Vec::new(),
+            language: None,
+            duration_in_seconds: None,
+            warnings: Vec::new(),
+            responses: Vec::new(),
+            provider_metadata: ProviderMetadata::default(),
+        }
+    }
+
+    /// Attach transcript segments.
+    pub fn with_segments(mut self, segments: Vec<TranscriptionSegment>) -> Self {
+        self.segments = segments;
+        self
+    }
+
+    /// Attach detected language.
+    pub fn with_language(mut self, language: impl Into<String>) -> Self {
+        self.language = Some(language.into());
+        self
+    }
+
+    /// Attach total audio duration in seconds.
+    pub fn with_duration_in_seconds(mut self, duration_in_seconds: f64) -> Self {
+        self.duration_in_seconds = Some(duration_in_seconds);
+        self
+    }
+
+    /// Attach non-fatal provider warnings.
+    pub fn with_warnings(mut self, warnings: Vec<Warning>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    /// Attach response metadata envelopes.
+    pub fn with_responses(mut self, responses: Vec<TranscriptionModelResponseMetadata>) -> Self {
+        self.responses = responses;
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = provider_metadata;
+        self
+    }
+}
+
+/// Backwards-compatible AI SDK `Experimental_TranscriptionResult` export.
+#[allow(non_camel_case_types)]
+pub type Experimental_TranscriptionResult = TranscriptionResult;
+
 fn add_optional_u32(left: Option<u32>, right: Option<u32>) -> Option<u32> {
     match (left, right) {
         (None, None) => None,
@@ -5303,6 +5891,108 @@ mod tests {
     }
 
     #[test]
+    fn image_speech_and_transcription_results_match_ai_sdk_shape() {
+        let image_file = GeneratedFile::from_bytes(b"image", "image/png");
+        let image_response = ImageModelResponseMetadata {
+            timestamp: DateTime::parse_from_rfc3339("2026-04-21T09:00:00Z")
+                .expect("valid timestamp")
+                .with_timezone(&Utc),
+            model_id: "image-model".to_string(),
+            headers: None,
+        };
+        let image_result = GenerateImageResult::new(image_file.clone(), vec![image_file])
+            .with_responses(vec![image_response])
+            .with_provider_metadata(HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({ "images": [{ "id": "img_1" }] }),
+            )]))
+            .with_usage(ImageModelUsage::new(Some(1), Some(2), Some(3)));
+        let image_json = serde_json::to_value(&image_result).expect("serialize image result");
+
+        assert_eq!(
+            image_json["image"]["mediaType"],
+            serde_json::json!("image/png")
+        );
+        assert_eq!(
+            image_json["images"][0]["base64"],
+            serde_json::json!("aW1hZ2U=")
+        );
+        assert_eq!(image_json["usage"]["totalTokens"], serde_json::json!(3));
+        assert_eq!(
+            image_json["providerMetadata"]["openai"]["images"][0]["id"],
+            serde_json::json!("img_1")
+        );
+        let _: Experimental_GenerateImageResult =
+            serde_json::from_value(image_json).expect("deserialize image result");
+
+        let audio = GeneratedAudioFile::from_bytes(b"audio", "audio/mpeg");
+        assert_eq!(audio.format, "mp3");
+        assert_eq!(audio.base64(), "YXVkaW8=");
+        let speech_response = SpeechModelResponseMetadata {
+            timestamp: DateTime::parse_from_rfc3339("2026-04-21T09:01:00Z")
+                .expect("valid timestamp")
+                .with_timezone(&Utc),
+            model_id: "speech-model".to_string(),
+            headers: None,
+            body: Some(serde_json::json!({ "ok": true })),
+        };
+        let speech_result = SpeechResult::new(audio)
+            .with_responses(vec![speech_response])
+            .with_provider_metadata(HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({ "voice": "alloy" }),
+            )]));
+        let speech_json = serde_json::to_value(&speech_result).expect("serialize speech result");
+
+        assert_eq!(speech_json["audio"]["format"], serde_json::json!("mp3"));
+        assert_eq!(
+            speech_json["audio"]["mediaType"],
+            serde_json::json!("audio/mpeg")
+        );
+        assert_eq!(
+            speech_json["providerMetadata"]["openai"]["voice"],
+            serde_json::json!("alloy")
+        );
+        let _: Experimental_SpeechResult =
+            serde_json::from_value(speech_json).expect("deserialize speech result");
+
+        let transcription_response = TranscriptionModelResponseMetadata {
+            timestamp: DateTime::parse_from_rfc3339("2026-04-21T09:02:00Z")
+                .expect("valid timestamp")
+                .with_timezone(&Utc),
+            model_id: "stt-model".to_string(),
+            headers: None,
+        };
+        let transcription_result = TranscriptionResult::new("hello")
+            .with_segments(vec![TranscriptionSegment::new("hello", 0.0, 0.5)])
+            .with_language("en")
+            .with_duration_in_seconds(0.5)
+            .with_responses(vec![transcription_response])
+            .with_provider_metadata(HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!({ "transcriptId": "tr_1" }),
+            )]));
+        let transcription_json =
+            serde_json::to_value(&transcription_result).expect("serialize transcription result");
+
+        assert_eq!(transcription_json["text"], serde_json::json!("hello"));
+        assert_eq!(
+            transcription_json["segments"][0]["startSecond"],
+            serde_json::json!(0.0)
+        );
+        assert_eq!(
+            transcription_json["durationInSeconds"],
+            serde_json::json!(0.5)
+        );
+        assert_eq!(
+            transcription_json["providerMetadata"]["openai"]["transcriptId"],
+            serde_json::json!("tr_1")
+        );
+        let _: Experimental_TranscriptionResult =
+            serde_json::from_value(transcription_json).expect("deserialize transcription result");
+    }
+
+    #[test]
     fn cancel_handle_and_request_timeout_helpers_work() {
         let cancel = CancelHandle::new();
         assert!(!cancel.is_cancelled());
@@ -5345,6 +6035,114 @@ mod tests {
                 .as_ref()
                 .is_some_and(CancelHandle::is_cancelled)
         );
+    }
+
+    #[test]
+    fn embedding_result_and_event_payloads_match_ai_sdk_shape() {
+        let response_data = ModelCallResponseData::new()
+            .with_headers(HashMap::from([(
+                "x-request-id".to_string(),
+                "req_1".to_string(),
+            )]))
+            .with_body(serde_json::json!({ "ok": true }));
+        let provider_metadata = HashMap::from([(
+            "openai".to_string(),
+            serde_json::json!({ "embeddingId": "emb_1" }),
+        )]);
+
+        let result = EmbedResult::new("hello", vec![1.0, 2.0], EmbeddingModelUsage::new(2))
+            .with_provider_metadata(provider_metadata.clone())
+            .with_response(response_data.clone());
+        let result_json = serde_json::to_value(&result).expect("serialize embed result");
+
+        assert_eq!(result_json["value"], serde_json::json!("hello"));
+        assert_eq!(result_json["embedding"][0], serde_json::json!(1.0));
+        assert_eq!(result_json["usage"]["tokens"], serde_json::json!(2));
+        assert_eq!(
+            result_json["providerMetadata"]["openai"]["embeddingId"],
+            serde_json::json!("emb_1")
+        );
+        assert_eq!(
+            result_json["response"]["headers"]["x-request-id"],
+            serde_json::json!("req_1")
+        );
+        let _: EmbedResult = serde_json::from_value(result_json).expect("deserialize embed result");
+
+        let many = EmbedManyResult::new(
+            vec!["a".to_string(), "b".to_string()],
+            vec![vec![1.0], vec![2.0]],
+            EmbeddingModelUsage::new(4),
+        )
+        .with_provider_metadata(provider_metadata.clone())
+        .with_responses(vec![Some(response_data.clone()), None]);
+        let many_json = serde_json::to_value(&many).expect("serialize embedMany result");
+
+        assert_eq!(many_json["values"][1], serde_json::json!("b"));
+        assert_eq!(many_json["embeddings"][1][0], serde_json::json!(2.0));
+        assert!(many_json["responses"][1].is_null());
+        let _: EmbedManyResult =
+            serde_json::from_value(many_json).expect("deserialize embedMany result");
+
+        let start = EmbedStartEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.embedMany".to_string(),
+            provider: "openai".to_string(),
+            model_id: "text-embedding-3-small".to_string(),
+            value: EmbedValue::from(vec!["a".to_string(), "b".to_string()]),
+            max_retries: 2,
+            headers: Some(HashMap::from([(
+                "x-test".to_string(),
+                Some("1".to_string()),
+            )])),
+            provider_options: None,
+        };
+        let start_json = serde_json::to_value(&start).expect("serialize embed start event");
+        assert_eq!(start_json["callId"], serde_json::json!("call_1"));
+        assert_eq!(start_json["value"][0], serde_json::json!("a"));
+
+        let end = EmbedEndEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.embedMany".to_string(),
+            provider: "openai".to_string(),
+            model_id: "text-embedding-3-small".to_string(),
+            value: EmbedValue::from(vec!["a".to_string(), "b".to_string()]),
+            embedding: EmbedOutput::from(vec![vec![1.0], vec![2.0]]),
+            usage: EmbeddingModelUsage::new(4),
+            warnings: Vec::new(),
+            provider_metadata: Some(provider_metadata),
+            response: Some(EmbedResponseData::from(vec![Some(response_data), None])),
+        };
+        let end_json = serde_json::to_value(&end).expect("serialize embed end event");
+        assert_eq!(end_json["embedding"][1][0], serde_json::json!(2.0));
+        assert!(end_json["response"][1].is_null());
+
+        let model_call_start = EmbeddingModelCallStartEvent {
+            call_id: "call_1".to_string(),
+            embed_call_id: "embed_1".to_string(),
+            operation_id: "ai.embedMany.doEmbed".to_string(),
+            provider: "openai".to_string(),
+            model_id: "text-embedding-3-small".to_string(),
+            values: vec!["a".to_string()],
+        };
+        let model_call_end = EmbeddingModelCallEndEvent {
+            call_id: "call_1".to_string(),
+            embed_call_id: "embed_1".to_string(),
+            operation_id: "ai.embedMany.doEmbed".to_string(),
+            provider: "openai".to_string(),
+            model_id: "text-embedding-3-small".to_string(),
+            values: vec!["a".to_string()],
+            embeddings: vec![vec![1.0]],
+            usage: EmbeddingModelUsage::new(1),
+        };
+        let model_start_json =
+            serde_json::to_value(&model_call_start).expect("serialize embedding model start");
+        let model_end_json =
+            serde_json::to_value(&model_call_end).expect("serialize embedding model end");
+        assert_eq!(
+            model_start_json["embedCallId"],
+            serde_json::json!("embed_1")
+        );
+        assert_eq!(model_end_json["embeddings"][0][0], serde_json::json!(1.0));
     }
 
     #[test]

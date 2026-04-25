@@ -49,6 +49,12 @@ Upstream reference:
   - `speech::synthesize(...)` now returns `speech::SpeechResult` /
     `speech::GenerateSpeechResult`.
   - `transcription::transcribe(...)` now returns `transcription::TranscriptionResult`.
+- `siumai::types` and `prelude::unified` now also expose passive AI SDK result-envelope carriers
+  for import/serde parity: `GeneratedAudioFile`, `SpeechResult`,
+  `Experimental_SpeechResult`, `TranscriptionResult`, `Experimental_TranscriptionResult`, and
+  `TranscriptionSegment`. These mirror the upstream `generate-speech` and `transcribe` result
+  object shapes without replacing the existing Rust runtime helper result structs in the
+  `speech` / `transcription` modules.
 - Those helper results are intentionally dual-purpose:
   - they expose AI SDK-style `audio | segments | warnings | responses | provider_metadata`
   - they also keep compatibility mirrors such as `audio_data`, `format`, `duration`,

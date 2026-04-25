@@ -15,6 +15,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LazySchema>();
     let _ = size_of::<FlexibleSchema>();
     let _ = size_of::<ValidationResult>();
+    let _ = size_of::<ModelCallResponseData>();
     let _ = size_of::<GenerateObjectOptions>();
     let _ = size_of::<GenerateObjectResult<JSONValue>>();
     let _ = size_of::<GenerateObjectSchema<JSONValue>>();
@@ -46,9 +47,21 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<DynamicToolCall>();
     let _ = size_of::<DynamicToolError>();
     let _ = size_of::<DynamicToolResult>();
+    let _ = size_of::<EmbedEndEvent>();
+    let _ = size_of::<EmbedManyResult>();
+    let _ = size_of::<EmbedOutput>();
+    let _ = size_of::<EmbedResponseData>();
+    let _ = size_of::<EmbedResult>();
+    let _ = size_of::<EmbedStartEvent>();
+    let _ = size_of::<EmbedValue>();
     let _ = size_of::<Embedding>();
+    let _ = size_of::<EmbeddingModelCallEndEvent>();
+    let _ = size_of::<EmbeddingModelCallStartEvent>();
     let _ = size_of::<EmbeddingModelUsage>();
+    let _ = size_of::<Experimental_GenerateImageResult>();
     let _ = size_of::<Experimental_GeneratedImage>();
+    let _ = size_of::<Experimental_SpeechResult>();
+    let _ = size_of::<Experimental_TranscriptionResult>();
     let _ = size_of::<TextPart>();
     let _ = size_of::<ImagePart>();
     let _ = size_of::<FilePart>();
@@ -73,6 +86,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<AssistantContent>();
     let _ = size_of::<ToolContent>();
     let _ = size_of::<GenerateImageRequest>();
+    let _ = size_of::<GenerateImageResult>();
     let _ = size_of::<GenerateTextContentPart>();
     let _ = size_of::<GenerateTextEndEvent>();
     let _ = size_of::<GenerateTextModelInfo>();
@@ -115,6 +129,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<TextOutput>();
     let _ = size_of::<CustomOutput>();
     let _ = size_of::<FileOutput>();
+    let _ = size_of::<GeneratedAudioFile>();
     let _ = size_of::<GeneratedFile>();
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
@@ -148,6 +163,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<StreamTextLifecycleChunk>();
     let _ = size_of::<StreamTextLifecycleChunkType>();
     let _ = size_of::<SpeechModelResponseMetadata>();
+    let _ = size_of::<SpeechResult>();
     let _ = size_of::<StaticToolCall>();
     let _ = size_of::<StaticToolError>();
     let _ = size_of::<StaticToolResult>();
@@ -170,6 +186,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<TimeoutConfiguration>();
     let _ = size_of::<TimeoutConfigurationSettings>();
     let _ = size_of::<TranscriptionModelResponseMetadata>();
+    let _ = size_of::<TranscriptionResult>();
+    let _ = size_of::<TranscriptionSegment>();
     let _ = size_of::<VideoModelProviderMetadata>();
     let _ = size_of::<VideoModelResponseMetadata>();
     let _ = size_of::<ProviderOptionsMap>();

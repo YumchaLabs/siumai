@@ -32,6 +32,10 @@ Upstream reference:
   - explicit `GenerateOptions.max_images_per_call`
   - otherwise the model/provider default
   - otherwise the final fallback `1`
+- `siumai::types` and `prelude::unified` now also expose the passive AI SDK result envelope
+  `GenerateImageResult` plus the deprecated alias `Experimental_GenerateImageResult`, using the
+  same shared `GeneratedFile`, `ImageModelResponseMetadata`, `ImageModelProviderMetadata`, and
+  `ImageModelUsage` carriers already used by the audited helper surface.
 
 ## Dispatch Model
 

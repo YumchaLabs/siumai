@@ -46,6 +46,13 @@ References:
 - `repo-ref/ai/packages/provider/src/video-model/v4/video-model-v4.ts`
 - `repo-ref/ai/packages/provider/src/video-model/v4/video-model-v4-call-options.ts`
 - `repo-ref/ai/packages/provider/src/video-model/v4/video-model-v4-result.ts`
+- `repo-ref/ai/packages/ai/src/embed/embed-result.ts`
+- `repo-ref/ai/packages/ai/src/embed/embed-many-result.ts`
+- `repo-ref/ai/packages/ai/src/embed/embed-events.ts`
+- `repo-ref/ai/packages/ai/src/generate-image/generate-image-result.ts`
+- `repo-ref/ai/packages/ai/src/generate-speech/generated-audio-file.ts`
+- `repo-ref/ai/packages/ai/src/generate-speech/generate-speech-result.ts`
+- `repo-ref/ai/packages/ai/src/transcribe/transcribe-result.ts`
 - `repo-ref/ai/packages/ai/src/registry/provider-registry.ts`
 - `repo-ref/ai/packages/ai/src/generate-video/generate-video.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/generate-text-result.ts`
@@ -87,12 +94,21 @@ Anthropic's provider-owned `files()` resource is now on that same shared contrac
 delete reuse the shared file-management structs directly, the high-level helper no longer needs an
 Anthropic-only upload bridge, and the provider-local file wrapper layer is gone.
 
+Embedding helper parity is also cleaner at the data-structure layer: the passive AI SDK import
+surface now exposes `EmbedResult`, `EmbedManyResult`, `EmbedStartEvent`, `EmbedEndEvent`,
+`EmbeddingModelCallStartEvent`, `EmbeddingModelCallEndEvent`, and shared response-data carriers
+over the existing `Embedding`, `EmbeddingModelUsage`, `Warning`, and provider-metadata shapes.
+These remain result/callback payload views rather than a second embedding runtime.
+
 The higher-level speech/transcription helper story is now materially closer too: stable
 `TtsResponse` / `SttResponse` responses now preserve final `response` metadata and also expose
 optional `warnings` plus `provider_metadata`, the shared audio executor carries that envelope
 across the audited provider paths, and the public facades now return richer helper result objects
 (`speech::SpeechResult`, `transcription::TranscriptionResult`) instead of exposing only the raw
-provider responses. Successful-but-empty helper calls now also surface
+provider responses. The passive AI SDK import surface now also exposes `GeneratedAudioFile`,
+`SpeechResult`, `Experimental_SpeechResult`, `TranscriptionResult`, and
+`Experimental_TranscriptionResult` as serde-aligned result envelope carriers without replacing the
+Rust runtime helper structs. Successful-but-empty helper calls now also surface
 `LlmError::NoSpeechGenerated` / `LlmError::NoTranscriptGenerated` instead of silently returning
 empty audio/text payloads.
 
@@ -398,7 +414,10 @@ so Siumai should absolutely preserve one stable image request/result surface. Bu
 does not imply a single generic runtime implementation. The audited upstream provider packages keep
 hybrid/provider-specific image execution for Fireworks, DeepInfra, TogetherAI, Google Vertex,
 OpenAI, and others, so Siumai should treat "shared interface, provider-owned runtime" as the
-default image architecture unless upstream actually consolidates those execution paths.
+default image architecture unless upstream actually consolidates those execution paths. The passive
+AI SDK import surface now also exposes `GenerateImageResult` plus
+`Experimental_GenerateImageResult` over the existing `GeneratedFile`, image response metadata,
+provider metadata, and usage carriers.
 
 The remaining structural risk is concentrated in streaming:
 
