@@ -387,8 +387,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   exposes the conversion helper lane, the top-level `siumai::types` module is restored, and
   stable `tool-approval-response` parts now preserve optional `providerExecuted`. The unified
   prelude now also exports these UI message structures plus passive `UiMessageChunk` stream-event
-  carriers and `UI_MESSAGE_STREAM_HEADERS`, mirroring the AI SDK `ui-message-stream` data shapes
-  without claiming the frontend stream runtime helpers.
+  carriers, `UI_MESSAGE_STREAM_HEADERS`, and `UiMessageStreamOptions` /
+  `UIMessageStreamOptions`, mirroring the AI SDK `ui-message-stream` data shapes and the
+  serializable `stream-text-result.ts` UI stream options without claiming frontend stream runtime
+  helpers or function-valued callbacks. `siumai::ui::safe_validate_ui_messages(...)` and
+  `SafeValidateUiMessagesResult` / `SafeValidateUIMessagesResult` now mirror the upstream
+  `safeValidateUIMessages` result-union path for callers that prefer non-throwing validation.
 - Public AI SDK package facades now also expose package-level provider entry helpers directly on
   their own namespaces: compat-promoted wrappers
   `provider_ext::{mistral,perplexity,fireworks,moonshotai,deepinfra}` plus the audited

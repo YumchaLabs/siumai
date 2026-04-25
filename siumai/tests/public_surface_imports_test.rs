@@ -232,6 +232,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<TypedToolCall>();
     let _ = size_of::<TypedToolError>();
     let _ = size_of::<TypedToolResult>();
+    let _ = size_of::<UIMessageStreamOptions>();
     let _ = size_of::<UiCustomPart>();
     let _ = size_of::<UiDataPart>();
     let _ = size_of::<UiFilePart>();
@@ -267,6 +268,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<UiMessageToolOutputAvailableChunk<JSONValue>>();
     let _ = size_of::<UiMessageToolOutputDeniedChunk>();
     let _ = size_of::<UiMessageToolOutputErrorChunk>();
+    let _ = size_of::<UiMessageStreamOptions>();
     let _ = size_of::<UiPartState>();
     let _ = size_of::<UiProviderMetadata>();
     let _ = size_of::<UiReasoningFilePart>();
@@ -738,6 +740,32 @@ fn public_surface_unified_imports_compile() {
     )
     .with_filename("report.pdf");
     assert_eq!(file_part.filename.as_deref(), Some("report.pdf"));
+}
+
+#[test]
+fn public_surface_ui_helpers_imports_compile() {
+    use siumai::prelude::unified::{ExecutableTools, UiMessage, UiMessagePart};
+    use siumai::ui::{
+        SafeValidateUIMessagesResult, SafeValidateUiMessagesResult,
+        ValidateUiMessagesSchemaOptions, safe_validate_ui_messages,
+        safe_validate_ui_messages_with_schemas,
+    };
+
+    let _ = size_of::<SafeValidateUiMessagesResult>();
+    let _ = size_of::<SafeValidateUIMessagesResult>();
+    let _ = size_of::<ValidateUiMessagesSchemaOptions<'static>>();
+    let _ = safe_validate_ui_messages as fn(&[UiMessage]) -> SafeValidateUiMessagesResult;
+    let _ = safe_validate_ui_messages_with_schemas
+        as for<'a> fn(
+            &[UiMessage],
+            ValidateUiMessagesSchemaOptions<'a>,
+            Option<&ExecutableTools>,
+            &dyn siumai::ui::UiSchemaValidator,
+        ) -> SafeValidateUiMessagesResult;
+
+    let result =
+        safe_validate_ui_messages(&[UiMessage::user("user", vec![UiMessagePart::text("hello")])]);
+    assert!(result.success());
 }
 
 #[tokio::test]

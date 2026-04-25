@@ -4,7 +4,7 @@
 //! Siumai already has a stable equivalent or can expose a passive data structure honestly
 //! without pretending the runtime wiring is more complete than it is today.
 
-use super::chat::{ContentPart, SourcePart};
+use super::chat::{ContentPart, SourcePart, UiMessage};
 use super::{
     AssistantContent, AssistantContentPart, AssistantModelMessage, DataContent, EmbeddingUsage,
     FinishReason, HttpRequestInfo, HttpResponseInfo, ModelMessage, PromptInput,
@@ -2193,6 +2193,85 @@ pub const UI_MESSAGE_STREAM_HEADERS: &[(&str, &str)] = &[
     ("x-vercel-ai-ui-message-stream", "v1"),
     ("x-accel-buffering", "no"),
 ];
+
+/// Passive serializable subset of AI SDK `UIMessageStreamOptions`.
+///
+/// Function-valued options such as `generateMessageId`, `onFinish`, `messageMetadata`, and
+/// `onError` are intentionally not represented here because they are runtime callbacks, not data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UiMessageStreamOptions<Message = UiMessage> {
+    /// Original messages. When present, AI SDK assumes persistence mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_messages: Option<Vec<Message>>,
+    /// Whether reasoning parts should be sent to the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_reasoning: Option<bool>,
+    /// Whether source parts should be sent to the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_sources: Option<bool>,
+    /// Whether the finish event should be sent to the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_finish: Option<bool>,
+    /// Whether the message start event should be sent to the client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub send_start: Option<bool>,
+}
+
+impl<Message> Default for UiMessageStreamOptions<Message> {
+    fn default() -> Self {
+        Self {
+            original_messages: None,
+            send_reasoning: None,
+            send_sources: None,
+            send_finish: None,
+            send_start: None,
+        }
+    }
+}
+
+impl<Message> UiMessageStreamOptions<Message> {
+    /// Create empty UI message stream options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the original messages.
+    pub fn with_original_messages(
+        mut self,
+        original_messages: impl IntoIterator<Item = Message>,
+    ) -> Self {
+        self.original_messages = Some(original_messages.into_iter().collect());
+        self
+    }
+
+    /// Set whether reasoning parts should be sent.
+    pub fn with_send_reasoning(mut self, send_reasoning: bool) -> Self {
+        self.send_reasoning = Some(send_reasoning);
+        self
+    }
+
+    /// Set whether source parts should be sent.
+    pub fn with_send_sources(mut self, send_sources: bool) -> Self {
+        self.send_sources = Some(send_sources);
+        self
+    }
+
+    /// Set whether finish events should be sent.
+    pub fn with_send_finish(mut self, send_finish: bool) -> Self {
+        self.send_finish = Some(send_finish);
+        self
+    }
+
+    /// Set whether start events should be sent.
+    pub fn with_send_start(mut self, send_start: bool) -> Self {
+        self.send_start = Some(send_start);
+        self
+    }
+}
+
+/// AI SDK export spelling for `UIMessageStreamOptions`.
+pub type UIMessageStreamOptions<Message = UiMessage> = UiMessageStreamOptions<Message>;
 
 /// Partial object event from AI SDK `ObjectStreamPart`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -7441,7 +7520,7 @@ fn string_body_to_json_value(body: String) -> JSONValue {
 mod tests {
     use super::super::{
         AssistantContent, ReasoningPart, TextPart, ToolApprovalRequest, ToolApprovalResponse,
-        ToolCallPart, ToolResultPart,
+        ToolCallPart, ToolResultPart, UiMessagePart,
     };
     use super::*;
 
@@ -7694,6 +7773,44 @@ mod tests {
                 .map(|(_, value)| *value),
             Some("v1")
         );
+
+        let options = UiMessageStreamOptions::new()
+            .with_original_messages(vec![UiMessage::user(
+                "msg_user",
+                vec![UiMessagePart::text("hello")],
+            )])
+            .with_send_reasoning(false)
+            .with_send_sources(true)
+            .with_send_finish(false)
+            .with_send_start(true);
+        let options_json =
+            serde_json::to_value(&options).expect("serialize UI message stream options");
+        assert_eq!(
+            options_json["originalMessages"][0]["id"],
+            serde_json::json!("msg_user")
+        );
+        assert_eq!(options_json["sendReasoning"], serde_json::json!(false));
+        assert_eq!(options_json["sendSources"], serde_json::json!(true));
+        assert_eq!(options_json["sendFinish"], serde_json::json!(false));
+        assert_eq!(options_json["sendStart"], serde_json::json!(true));
+        assert!(options_json.get("generateMessageId").is_none());
+        assert!(options_json.get("onFinish").is_none());
+        assert!(options_json.get("messageMetadata").is_none());
+        assert!(options_json.get("onError").is_none());
+
+        let options_roundtrip: UIMessageStreamOptions =
+            serde_json::from_value(options_json).expect("deserialize UI message stream options");
+        assert_eq!(
+            options_roundtrip
+                .original_messages
+                .as_ref()
+                .expect("original messages")[0]
+                .id,
+            "msg_user"
+        );
+        let empty_options_json = serde_json::to_value(UiMessageStreamOptions::<UiMessage>::new())
+            .expect("serialize empty UI message stream options");
+        assert_eq!(empty_options_json, serde_json::json!({}));
 
         let mut start = UiMessageStartChunk::new();
         start.message_id = Some("msg_1".to_string());

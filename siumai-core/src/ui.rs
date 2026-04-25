@@ -56,6 +56,49 @@ pub struct ValidateUiMessagesSchemaOptions<'a> {
     pub data_schemas: Option<&'a HashMap<String, Value>>,
 }
 
+/// Rust result union for AI SDK `SafeValidateUIMessagesResult`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SafeValidateUiMessagesResult {
+    /// Validation succeeded and returns the validated message list.
+    Success { data: Vec<UiMessage> },
+    /// Validation failed without throwing.
+    Failure { error: UiMessageError },
+}
+
+impl SafeValidateUiMessagesResult {
+    /// Return whether validation succeeded.
+    pub const fn success(&self) -> bool {
+        matches!(self, Self::Success { .. })
+    }
+
+    /// Borrow the validated message list when validation succeeded.
+    pub fn data(&self) -> Option<&[UiMessage]> {
+        match self {
+            Self::Success { data } => Some(data),
+            Self::Failure { .. } => None,
+        }
+    }
+
+    /// Borrow the validation error when validation failed.
+    pub fn error(&self) -> Option<&UiMessageError> {
+        match self {
+            Self::Success { .. } => None,
+            Self::Failure { error } => Some(error),
+        }
+    }
+
+    /// Convert the safe result into a standard Rust `Result`.
+    pub fn into_result(self) -> Result<Vec<UiMessage>, UiMessageError> {
+        match self {
+            Self::Success { data } => Ok(data),
+            Self::Failure { error } => Err(error),
+        }
+    }
+}
+
+/// AI SDK export spelling for `SafeValidateUIMessagesResult`.
+pub type SafeValidateUIMessagesResult = SafeValidateUiMessagesResult;
+
 /// Abstract schema validator used by UI-message schema-aware validation.
 pub trait UiSchemaValidator: Send + Sync {
     /// Validate `instance` against `schema`.
@@ -92,6 +135,16 @@ pub fn validate_ui_messages(messages: &[UiMessage]) -> Result<(), UiMessageError
     }
 
     Ok(())
+}
+
+/// Validate UI messages and return a data-carrying success/failure union instead of an error.
+pub fn safe_validate_ui_messages(messages: &[UiMessage]) -> SafeValidateUiMessagesResult {
+    match validate_ui_messages(messages) {
+        Ok(()) => SafeValidateUiMessagesResult::Success {
+            data: messages.to_vec(),
+        },
+        Err(error) => SafeValidateUiMessagesResult::Failure { error },
+    }
 }
 
 /// Validate UI messages structurally and, optionally, against metadata/data/tool schemas.
@@ -208,6 +261,21 @@ pub fn validate_ui_messages_with_schemas(
     }
 
     Ok(())
+}
+
+/// Validate UI messages with schemas and return a success/failure union instead of an error.
+pub fn safe_validate_ui_messages_with_schemas(
+    messages: &[UiMessage],
+    options: ValidateUiMessagesSchemaOptions<'_>,
+    tools: Option<&ExecutableTools>,
+    validator: &dyn UiSchemaValidator,
+) -> SafeValidateUiMessagesResult {
+    match validate_ui_messages_with_schemas(messages, options, tools, validator) {
+        Ok(()) => SafeValidateUiMessagesResult::Success {
+            data: messages.to_vec(),
+        },
+        Err(error) => SafeValidateUiMessagesResult::Failure { error },
+    }
 }
 
 /// Convert UI messages into stable model messages (`ChatMessage`).
@@ -733,9 +801,11 @@ mod tests {
     use std::collections::HashMap;
 
     use super::{
-        ConvertUiMessagesOptions, ValidateUiMessagesSchemaOptions, convert_to_model_messages,
-        convert_to_model_messages_with, convert_to_model_messages_with_tooling,
-        validate_ui_messages, validate_ui_messages_with_schemas,
+        ConvertUiMessagesOptions, SafeValidateUiMessagesResult, ValidateUiMessagesSchemaOptions,
+        convert_to_model_messages, convert_to_model_messages_with,
+        convert_to_model_messages_with_tooling, safe_validate_ui_messages,
+        safe_validate_ui_messages_with_schemas, validate_ui_messages,
+        validate_ui_messages_with_schemas,
     };
     use crate::tooling::{ExecutableTool, ExecutableTools};
     use crate::types::{
@@ -756,6 +826,57 @@ mod tests {
 
         let err = validate_ui_messages(&[message]).expect_err("validation should fail");
         assert!(format!("{err}").contains("errorText is required"));
+    }
+
+    #[test]
+    fn safe_validate_returns_ai_sdk_style_result_union() {
+        let ok = safe_validate_ui_messages(&[UiMessage::user(
+            "user",
+            vec![UiMessagePart::text("hello")],
+        )]);
+        assert!(ok.success());
+        assert_eq!(ok.data().expect("validated messages")[0].id, "user");
+        assert!(ok.clone().into_result().is_ok());
+
+        let failed = safe_validate_ui_messages(&[UiMessage::user("empty", Vec::new())]);
+        assert!(!failed.success());
+        assert!(matches!(
+            failed.error(),
+            Some(crate::ui::UiMessageError::EmptyMessageParts { message_id })
+                if message_id == "empty"
+        ));
+        assert!(matches!(
+            failed.into_result(),
+            Err(crate::ui::UiMessageError::EmptyMessageParts { message_id })
+                if message_id == "empty"
+        ));
+    }
+
+    #[test]
+    fn safe_schema_validate_preserves_schema_errors() {
+        let mut data_schemas = HashMap::new();
+        data_schemas.insert("other".to_string(), serde_json::json!({ "kind": "other" }));
+
+        let result = safe_validate_ui_messages_with_schemas(
+            &[UiMessage::user(
+                "user",
+                vec![UiMessagePart::data(
+                    "weather",
+                    serde_json::json!({ "city": "Tokyo" }),
+                )],
+            )],
+            ValidateUiMessagesSchemaOptions {
+                metadata_schema: None,
+                data_schemas: Some(&data_schemas),
+            },
+            None,
+            &|_schema: &serde_json::Value, _instance: &serde_json::Value| Ok(()),
+        );
+
+        let SafeValidateUiMessagesResult::Failure { error } = result else {
+            panic!("schema validation should fail");
+        };
+        assert!(format!("{error}").contains("no schema found for data part `weather`"));
     }
 
     #[test]
