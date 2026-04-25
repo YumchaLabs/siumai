@@ -22,25 +22,33 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK provider-utils `ToolCall` / `ToolResult` passive data structures now preserve the
   current output-side metadata fields: `providerMetadata`, `title`, invalid-tool `error`,
   `invalid`, and preliminary tool results. Their serialized output now also preserves the
-  upstream `type: "tool-call"` / `type: "tool-result"` discriminators.
+  upstream `type: "tool-call"` / `type: "tool-result"` discriminators. The upstream
+  `Static*` / `Dynamic*` / `Typed*` tool call, result, and error exports are now available as
+  Rust aliases over the same carriers, with the `dynamic` flag kept as data.
 - AI SDK `generateText` tool approval output parts are now represented directly by
   `ToolApprovalRequestOutput` / `ToolApprovalResponseOutput`, including the nested full `toolCall`
   payload and `isAutomatic` / `providerExecuted` flags.
 - AI SDK text-output basic content, file, and reasoning parts now have direct Rust data structures:
   `TextOutput`, `CustomOutput`, `FileOutput`, `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`, preserving the upstream nested generated-file `base64` / `mediaType`
-  shape plus provider metadata. `GenerateTextContentPart` now also provides the passive
-  output-side content union without reusing prompt/runtime `ContentPart`.
+  shape plus provider metadata. `DefaultGeneratedFile` and the backwards-compatible
+  `Experimental_GeneratedImage` export are aliases over `GeneratedFile`. `GenerateTextContentPart`
+  now also provides the passive output-side content union without reusing prompt/runtime
+  `ContentPart`.
 - AI SDK `generateText` result envelopes now have passive Rust data structures:
   `ResponseMessage`, `GenerateTextResponseMetadata`, `GenerateTextModelInfo`,
   `GenerateTextReasoningPart`, `GenerateTextStepReasoningPart`, `GenerateTextStepResult`,
-  and `GenerateTextResult`. Step reasoning intentionally uses the provider-utils
+  `StepResult`, and `GenerateTextResult`. Step reasoning intentionally uses the provider-utils
   `data` / `mediaType` / `providerOptions` shape, while final result reasoning keeps the
   output-side `file` / `providerMetadata` shape.
 - AI SDK `streamText` output events now have a passive `TextStreamPart` union and named
   `TextStream*Part` structures matching `generate-text/stream-text-result.ts`, including the
   higher-level `text` reasoning/text deltas, `start-step` / `finish-step`, `finish.totalUsage`,
   `abort`, `raw.rawValue`, and aliases over the existing tool output parts.
+- AI SDK single model-call streaming events now have a passive `LanguageModelStreamPart` union
+  matching `generate-text/stream-language-model-call.ts`, including `model-call-start`,
+  `model-call-response-metadata`, and `model-call-end`, plus the upstream experimental type alias
+  names without claiming the runtime `experimental_streamLanguageModelCall` helper is implemented.
 - AI SDK `generateText` / `streamText` callback event payloads now have passive Rust structures:
   `CallbackModelInfo`, `GenerateTextStartEvent`, `GenerateTextStepStartEvent`,
   `GenerateTextStepEndEvent`, `GenerateTextEndEvent`, `StreamTextChunkEvent`,
@@ -50,10 +58,16 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   carriers without claiming runtime callback wiring.
 - AI SDK generate-text step-control payloads now have passive Rust structures and helpers:
   symbolic `StopCondition` plus `is_step_count`, `is_loop_finished`, `has_tool_call`, and
-  `is_stop_condition_met`; `filter_active_tools`; `PrepareStepOptions` / `PrepareStepResult`;
-  `ToolApprovalStatus` / `ToolApprovalConfiguration` / `ToolApprovalDecisionContext`; and
-  `ToolCallRepairContext` / `ToolCallRepairError` / `ToolCallRepairResult`. Function-valued
-  upstream callbacks remain represented as data carriers or Rust helper functions only.
+  `is_stop_condition_met`; `filter_active_tools` plus the upstream experimental/deprecated helper
+  aliases `experimental_filter_active_tools` and `step_count_is`; `PrepareStepOptions` /
+  `PrepareStepResult`; `ToolApprovalStatus` / `ToolApprovalConfiguration` /
+  `ToolApprovalDecisionContext`; and `ToolCallRepairContext` / `ToolCallRepairError` /
+  `ToolCallRepairResult`. Function-valued upstream callbacks remain represented as data carriers
+  or Rust helper functions only.
+- AI SDK `pruneMessages` parity is now available as `prune_messages(...)` with
+  `PruneMessagesOptions`, `PruneReasoningMode`, `PruneToolCallRule`, `PruneToolCallMode`, and
+  `PruneEmptyMessagesMode`, covering reasoning pruning, tool-call/result/approval pruning, and
+  empty-message removal over the shared `ModelMessage` carrier.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:

@@ -6,10 +6,10 @@
 
 use super::chat::{ContentPart, SourcePart};
 use super::{
-    AssistantModelMessage, DataContent, EmbeddingUsage, FinishReason, HttpRequestInfo,
-    HttpResponseInfo, ModelMessage, ProviderMetadataMap, ProviderOptionsMap, ResponseMetadata,
-    StandardizedPrompt, SystemPrompt, Tool, ToolChoice, ToolModelMessage, ToolResultOutput, Usage,
-    Warning,
+    AssistantContent, AssistantContentPart, AssistantModelMessage, DataContent, EmbeddingUsage,
+    FinishReason, HttpRequestInfo, HttpResponseInfo, ModelMessage, ProviderMetadataMap,
+    ProviderOptionsMap, ResponseMetadata, StandardizedPrompt, SystemPrompt, Tool, ToolChoice,
+    ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -252,6 +252,13 @@ impl GeneratedFile {
         STANDARD.decode(&self.base64)
     }
 }
+
+/// AI SDK `DefaultGeneratedFile` export. Rust keeps the same value carrier as `GeneratedFile`.
+pub type DefaultGeneratedFile = GeneratedFile;
+
+/// Backwards-compatible AI SDK `Experimental_GeneratedImage` export.
+#[allow(non_camel_case_types)]
+pub type Experimental_GeneratedImage = GeneratedFile;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TextOutputMarker {
@@ -751,6 +758,15 @@ impl<NAME, INPUT> ToolCall<NAME, INPUT> {
     }
 }
 
+/// Static AI SDK tool-call view. Rust keeps the same carrier and uses `dynamic` as data.
+pub type StaticToolCall<NAME = String, INPUT = JSONValue> = ToolCall<NAME, INPUT>;
+
+/// Dynamic AI SDK tool-call view. Rust keeps the same carrier and uses `dynamic` as data.
+pub type DynamicToolCall<INPUT = JSONValue> = ToolCall<String, INPUT>;
+
+/// Typed AI SDK tool-call view (`StaticToolCall | DynamicToolCall`).
+pub type TypedToolCall<NAME = String, INPUT = JSONValue> = ToolCall<NAME, INPUT>;
+
 /// AI SDK-style typed tool result view returned by higher-level text helpers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolResultMarker {
@@ -883,6 +899,18 @@ impl<NAME, INPUT, OUTPUT> ToolResult<NAME, INPUT, OUTPUT> {
     }
 }
 
+/// Static AI SDK tool-result view. Rust keeps the same carrier and uses `dynamic` as data.
+pub type StaticToolResult<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    ToolResult<NAME, INPUT, OUTPUT>;
+
+/// Dynamic AI SDK tool-result view. Rust keeps the same carrier and uses `dynamic` as data.
+pub type DynamicToolResult<INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    ToolResult<String, INPUT, OUTPUT>;
+
+/// Typed AI SDK tool-result view (`StaticToolResult | DynamicToolResult`).
+pub type TypedToolResult<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> =
+    ToolResult<NAME, INPUT, OUTPUT>;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolErrorMarker {
     ToolError,
@@ -1006,6 +1034,15 @@ impl<NAME, INPUT> ToolError<NAME, INPUT> {
         "tool-error"
     }
 }
+
+/// Static AI SDK tool-error view. Rust keeps the same carrier and uses `dynamic` as data.
+pub type StaticToolError<NAME = String, INPUT = JSONValue> = ToolError<NAME, INPUT>;
+
+/// Dynamic AI SDK tool-error view. Rust keeps the same carrier and uses `dynamic` as data.
+pub type DynamicToolError<INPUT = JSONValue> = ToolError<String, INPUT>;
+
+/// Typed AI SDK tool-error view (`StaticToolError | DynamicToolError`).
+pub type TypedToolError<NAME = String, INPUT = JSONValue> = ToolError<NAME, INPUT>;
 
 /// AI SDK-style tool execution output union.
 ///
@@ -1710,6 +1747,10 @@ pub struct GenerateTextStepResult<NAME = String, INPUT = JSONValue, ToolOutput =
     pub provider_metadata: Option<ProviderMetadata>,
 }
 
+/// AI SDK `StepResult` export. Rust keeps the same passive carrier as `GenerateTextStepResult`.
+pub type StepResult<NAME = String, INPUT = JSONValue, ToolOutput = ToolResultOutput> =
+    GenerateTextStepResult<NAME, INPUT, ToolOutput>;
+
 /// Passive AI SDK-style result envelope for a non-streaming `generateText` call.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -1829,6 +1870,15 @@ fixed_text_stream_type_marker!(TextStreamFinishPartMarker, "finish");
 fixed_text_stream_type_marker!(TextStreamAbortPartMarker, "abort");
 fixed_text_stream_type_marker!(TextStreamErrorPartMarker, "error");
 fixed_text_stream_type_marker!(TextStreamRawPartMarker, "raw");
+fixed_text_stream_type_marker!(
+    LanguageModelStreamModelCallStartPartMarker,
+    "model-call-start"
+);
+fixed_text_stream_type_marker!(LanguageModelStreamModelCallEndPartMarker, "model-call-end");
+fixed_text_stream_type_marker!(
+    LanguageModelStreamModelCallResponseMetadataPartMarker,
+    "model-call-response-metadata"
+);
 
 /// Text block start event from AI SDK `TextStreamPart`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -2650,6 +2700,367 @@ impl<NAME, INPUT, OUTPUT> From<TextStreamRawPart> for TextStreamPart<NAME, INPUT
     }
 }
 
+/// Model-call start event from AI SDK `LanguageModelStreamPart`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelStreamModelCallStartPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelStreamModelCallStartPartMarker,
+    pub warnings: Vec<CallWarning>,
+}
+
+impl LanguageModelStreamModelCallStartPart {
+    pub fn new(warnings: Vec<CallWarning>) -> Self {
+        Self {
+            marker: LanguageModelStreamModelCallStartPartMarker::Marker,
+            warnings,
+        }
+    }
+
+    pub const fn r#type(&self) -> &'static str {
+        "model-call-start"
+    }
+}
+
+/// Model-call finish event from AI SDK `LanguageModelStreamPart`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModelStreamModelCallEndPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelStreamModelCallEndPartMarker,
+    pub finish_reason: FinishReason,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_finish_reason: Option<String>,
+    pub usage: LanguageModelUsage,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelStreamModelCallEndPart {
+    pub fn new(finish_reason: FinishReason, usage: LanguageModelUsage) -> Self {
+        Self {
+            marker: LanguageModelStreamModelCallEndPartMarker::Marker,
+            finish_reason,
+            raw_finish_reason: None,
+            usage,
+            provider_metadata: None,
+        }
+    }
+
+    pub const fn r#type(&self) -> &'static str {
+        "model-call-end"
+    }
+}
+
+/// Response metadata event from AI SDK `LanguageModelStreamPart`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModelStreamModelCallResponseMetadataPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelStreamModelCallResponseMetadataPartMarker,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_id: Option<String>,
+}
+
+impl LanguageModelStreamModelCallResponseMetadataPart {
+    pub fn new() -> Self {
+        Self {
+            marker: LanguageModelStreamModelCallResponseMetadataPartMarker::Marker,
+            id: None,
+            timestamp: None,
+            model_id: None,
+        }
+    }
+
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    pub fn with_timestamp(mut self, timestamp: DateTime<Utc>) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+
+    pub fn with_model_id(mut self, model_id: impl Into<String>) -> Self {
+        self.model_id = Some(model_id.into());
+        self
+    }
+
+    pub const fn r#type(&self) -> &'static str {
+        "model-call-response-metadata"
+    }
+}
+
+impl Default for LanguageModelStreamModelCallResponseMetadataPart {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// AI SDK `LanguageModelStreamPart` union from `generate-text/stream-language-model-call.ts`.
+///
+/// This is the single-model-call stream lane used before `streamText` enriches the stream with
+/// step lifecycle and final result events. It intentionally excludes `TextStreamPart` variants
+/// that upstream removes (`finish`, `tool-output-denied`, `start-step`, `finish-step`, `start`,
+/// and `abort`) while adding the `model-call-*` metadata events.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum LanguageModelStreamPart<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    ModelCallStart(LanguageModelStreamModelCallStartPart),
+    ModelCallResponseMetadata(LanguageModelStreamModelCallResponseMetadataPart),
+    ModelCallEnd(LanguageModelStreamModelCallEndPart),
+    TextStart(TextStreamTextStartPart),
+    TextEnd(TextStreamTextEndPart),
+    TextDelta(TextStreamTextDeltaPart),
+    ReasoningStart(TextStreamReasoningStartPart),
+    ReasoningEnd(TextStreamReasoningEndPart),
+    ReasoningDelta(TextStreamReasoningDeltaPart),
+    Custom(TextStreamCustomPart),
+    ToolInputStart(TextStreamToolInputStartPart),
+    ToolInputEnd(TextStreamToolInputEndPart),
+    ToolInputDelta(TextStreamToolInputDeltaPart),
+    Source(Source),
+    File(TextStreamFilePart),
+    ReasoningFile(TextStreamReasoningFilePart),
+    ToolCall(ToolCall<NAME, INPUT>),
+    ToolResult(ToolResult<NAME, INPUT, OUTPUT>),
+    ToolError(ToolError<NAME, INPUT>),
+    ToolApprovalRequest(ToolApprovalRequestOutput<NAME, INPUT>),
+    ToolApprovalResponse(ToolApprovalResponseOutput<NAME, INPUT>),
+    Error(TextStreamErrorPart),
+    Raw(TextStreamRawPart),
+}
+
+/// Rust-cased alias for AI SDK's experimental language-model stream part export.
+pub type ExperimentalLanguageModelStreamPart<
+    NAME = String,
+    INPUT = JSONValue,
+    OUTPUT = ToolResultOutput,
+> = LanguageModelStreamPart<NAME, INPUT, OUTPUT>;
+
+/// AI SDK-compatible alias for `Experimental_LanguageModelStreamPart`.
+#[allow(non_camel_case_types)]
+pub type Experimental_LanguageModelStreamPart<
+    NAME = String,
+    INPUT = JSONValue,
+    OUTPUT = ToolResultOutput,
+> = LanguageModelStreamPart<NAME, INPUT, OUTPUT>;
+
+impl<NAME, INPUT, OUTPUT> LanguageModelStreamPart<NAME, INPUT, OUTPUT> {
+    /// Return the AI SDK `LanguageModelStreamPart` discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::ModelCallStart(part) => part.r#type(),
+            Self::ModelCallResponseMetadata(part) => part.r#type(),
+            Self::ModelCallEnd(part) => part.r#type(),
+            Self::TextStart(part) => part.r#type(),
+            Self::TextEnd(part) => part.r#type(),
+            Self::TextDelta(part) => part.r#type(),
+            Self::ReasoningStart(part) => part.r#type(),
+            Self::ReasoningEnd(part) => part.r#type(),
+            Self::ReasoningDelta(part) => part.r#type(),
+            Self::Custom(part) => part.r#type(),
+            Self::ToolInputStart(part) => part.r#type(),
+            Self::ToolInputEnd(part) => part.r#type(),
+            Self::ToolInputDelta(part) => part.r#type(),
+            Self::Source(part) => part.r#type(),
+            Self::File(part) => part.r#type(),
+            Self::ReasoningFile(part) => part.r#type(),
+            Self::ToolCall(part) => part.r#type(),
+            Self::ToolResult(part) => part.r#type(),
+            Self::ToolError(part) => part.r#type(),
+            Self::ToolApprovalRequest(part) => part.r#type(),
+            Self::ToolApprovalResponse(part) => part.r#type(),
+            Self::Error(part) => part.r#type(),
+            Self::Raw(part) => part.r#type(),
+        }
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<LanguageModelStreamModelCallStartPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: LanguageModelStreamModelCallStartPart) -> Self {
+        Self::ModelCallStart(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<LanguageModelStreamModelCallResponseMetadataPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: LanguageModelStreamModelCallResponseMetadataPart) -> Self {
+        Self::ModelCallResponseMetadata(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<LanguageModelStreamModelCallEndPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: LanguageModelStreamModelCallEndPart) -> Self {
+        Self::ModelCallEnd(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamTextStartPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamTextStartPart) -> Self {
+        Self::TextStart(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamTextDeltaPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamTextDeltaPart) -> Self {
+        Self::TextDelta(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamTextEndPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamTextEndPart) -> Self {
+        Self::TextEnd(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamReasoningStartPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamReasoningStartPart) -> Self {
+        Self::ReasoningStart(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamReasoningDeltaPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamReasoningDeltaPart) -> Self {
+        Self::ReasoningDelta(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamReasoningEndPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamReasoningEndPart) -> Self {
+        Self::ReasoningEnd(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamCustomPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamCustomPart) -> Self {
+        Self::Custom(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamToolInputStartPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamToolInputStartPart) -> Self {
+        Self::ToolInputStart(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamToolInputDeltaPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamToolInputDeltaPart) -> Self {
+        Self::ToolInputDelta(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamToolInputEndPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamToolInputEndPart) -> Self {
+        Self::ToolInputEnd(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<Source> for LanguageModelStreamPart<NAME, INPUT, OUTPUT> {
+    fn from(value: Source) -> Self {
+        Self::Source(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamFilePart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamFilePart) -> Self {
+        Self::File(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamReasoningFilePart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamReasoningFilePart) -> Self {
+        Self::ReasoningFile(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolCall<NAME, INPUT>>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolCall<NAME, INPUT>) -> Self {
+        Self::ToolCall(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolResult<NAME, INPUT, OUTPUT>>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolResult<NAME, INPUT, OUTPUT>) -> Self {
+        Self::ToolResult(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolError<NAME, INPUT>>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolError<NAME, INPUT>) -> Self {
+        Self::ToolError(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolApprovalRequestOutput<NAME, INPUT>>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolApprovalRequestOutput<NAME, INPUT>) -> Self {
+        Self::ToolApprovalRequest(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<ToolApprovalResponseOutput<NAME, INPUT>>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: ToolApprovalResponseOutput<NAME, INPUT>) -> Self {
+        Self::ToolApprovalResponse(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamErrorPart>
+    for LanguageModelStreamPart<NAME, INPUT, OUTPUT>
+{
+    fn from(value: TextStreamErrorPart) -> Self {
+        Self::Error(value)
+    }
+}
+
+impl<NAME, INPUT, OUTPUT> From<TextStreamRawPart> for LanguageModelStreamPart<NAME, INPUT, OUTPUT> {
+    fn from(value: TextStreamRawPart) -> Self {
+        Self::Raw(value)
+    }
+}
+
 /// Passive representation of AI SDK `StopCondition`.
 ///
 /// The TypeScript surface accepts predicates/functions. Rust exposes the built-in
@@ -2734,6 +3145,12 @@ pub const fn is_step_count(step_count: usize) -> StopCondition {
     StopCondition::is_step_count(step_count)
 }
 
+/// Deprecated AI SDK `stepCountIs` helper alias.
+#[deprecated(note = "Use is_step_count instead.")]
+pub const fn step_count_is(step_count: usize) -> StopCondition {
+    is_step_count(step_count)
+}
+
 /// Create a condition that never stops the loop by itself.
 pub const fn is_loop_finished() -> StopCondition {
     StopCondition::is_loop_finished()
@@ -2788,6 +3205,393 @@ where
             .cloned()
             .collect(),
     )
+}
+
+/// AI SDK `experimental_filterActiveTools` helper alias using Rust naming.
+pub fn experimental_filter_active_tools<N>(
+    tools: Option<&[Tool]>,
+    active_tools: Option<&[N]>,
+) -> Option<Vec<Tool>>
+where
+    N: AsRef<str>,
+{
+    filter_active_tools(tools, active_tools)
+}
+
+/// Reasoning pruning strategy for AI SDK `pruneMessages`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PruneReasoningMode {
+    /// Remove reasoning from all assistant messages.
+    All,
+    /// Remove reasoning from all assistant messages except the last message.
+    BeforeLastMessage,
+    /// Keep reasoning parts.
+    #[default]
+    None,
+}
+
+/// Empty-message handling for AI SDK `pruneMessages`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PruneEmptyMessagesMode {
+    /// Keep messages even when their content is empty after pruning.
+    Keep,
+    /// Remove messages whose content is empty after pruning.
+    #[default]
+    Remove,
+}
+
+/// Tool pruning scope for AI SDK `pruneMessages`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum PruneToolCallMode {
+    /// Prune matching tool parts from all messages.
+    All,
+    /// Prune matching tool parts from all messages except the last message.
+    BeforeLastMessage,
+    /// Prune matching tool parts before the last `count` messages.
+    BeforeLastMessages {
+        /// Number of trailing messages to keep.
+        count: usize,
+    },
+}
+
+/// One tool-call pruning rule for AI SDK `pruneMessages`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PruneToolCallRule {
+    /// Scope that decides which messages are eligible for pruning.
+    pub mode: PruneToolCallMode,
+    /// Optional tool-name allowlist. Parts for tools outside this list are kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<String>>,
+}
+
+impl PruneToolCallRule {
+    /// Prune matching tool parts from all messages.
+    pub const fn all() -> Self {
+        Self {
+            mode: PruneToolCallMode::All,
+            tools: None,
+        }
+    }
+
+    /// Prune matching tool parts before the last message.
+    pub const fn before_last_message() -> Self {
+        Self {
+            mode: PruneToolCallMode::BeforeLastMessage,
+            tools: None,
+        }
+    }
+
+    /// Prune matching tool parts before the last `count` messages.
+    pub const fn before_last_messages(count: usize) -> Self {
+        Self {
+            mode: PruneToolCallMode::BeforeLastMessages { count },
+            tools: None,
+        }
+    }
+
+    /// Limit pruning to specific tool names.
+    pub fn with_tools(mut self, tools: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.tools = Some(tools.into_iter().map(Into::into).collect());
+        self
+    }
+
+    fn keep_last_messages_count(&self) -> Option<usize> {
+        match self.mode {
+            PruneToolCallMode::All => None,
+            PruneToolCallMode::BeforeLastMessage => Some(1),
+            PruneToolCallMode::BeforeLastMessages { count } => Some(count),
+        }
+    }
+}
+
+/// Options for AI SDK `pruneMessages`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PruneMessagesOptions {
+    /// How to remove reasoning content from assistant messages.
+    #[serde(default)]
+    pub reasoning: PruneReasoningMode,
+    /// Tool-call/result/approval pruning rules.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<PruneToolCallRule>,
+    /// Whether to keep or remove messages that become empty.
+    #[serde(default)]
+    pub empty_messages: PruneEmptyMessagesMode,
+}
+
+impl PruneMessagesOptions {
+    /// Create options with AI SDK defaults.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set reasoning pruning mode.
+    pub const fn with_reasoning(mut self, reasoning: PruneReasoningMode) -> Self {
+        self.reasoning = reasoning;
+        self
+    }
+
+    /// Set tool pruning rules.
+    pub fn with_tool_calls(mut self, tool_calls: Vec<PruneToolCallRule>) -> Self {
+        self.tool_calls = tool_calls;
+        self
+    }
+
+    /// Set empty-message handling.
+    pub const fn with_empty_messages(mut self, empty_messages: PruneEmptyMessagesMode) -> Self {
+        self.empty_messages = empty_messages;
+        self
+    }
+}
+
+fn is_tool_name_outside_rule(tools: Option<&Vec<String>>, tool_name: Option<&str>) -> bool {
+    match tools {
+        Some(tools) => match tool_name {
+            Some(tool_name) => !tools.iter().any(|tool| tool == tool_name),
+            None => true,
+        },
+        None => false,
+    }
+}
+
+fn should_keep_tool_part(
+    rule: &PruneToolCallRule,
+    id: &str,
+    tool_name: Option<&str>,
+    kept_ids: &std::collections::HashSet<String>,
+) -> bool {
+    kept_ids.contains(id) || is_tool_name_outside_rule(rule.tools.as_ref(), tool_name)
+}
+
+fn collect_kept_tool_part_ids(
+    message: &ModelMessage,
+    kept_tool_call_ids: &mut std::collections::HashSet<String>,
+    kept_approval_ids: &mut std::collections::HashSet<String>,
+) {
+    match message {
+        ModelMessage::Assistant(message) => {
+            let AssistantContent::Parts(parts) = &message.content else {
+                return;
+            };
+            for part in parts {
+                match part {
+                    AssistantContentPart::ToolCall(part) => {
+                        kept_tool_call_ids.insert(part.tool_call_id.clone());
+                    }
+                    AssistantContentPart::ToolResult(part) => {
+                        kept_tool_call_ids.insert(part.tool_call_id.clone());
+                    }
+                    AssistantContentPart::ToolApprovalRequest(part) => {
+                        kept_approval_ids.insert(part.approval_id.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+        ModelMessage::Tool(message) => {
+            for part in &message.content {
+                match part {
+                    ToolContentPart::ToolResult(part) => {
+                        kept_tool_call_ids.insert(part.tool_call_id.clone());
+                    }
+                    ToolContentPart::ToolApprovalResponse(part) => {
+                        kept_approval_ids.insert(part.approval_id.clone());
+                    }
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn prune_assistant_tool_parts(
+    parts: Vec<AssistantContentPart>,
+    rule: &PruneToolCallRule,
+    kept_tool_call_ids: &std::collections::HashSet<String>,
+    kept_approval_ids: &std::collections::HashSet<String>,
+) -> Vec<AssistantContentPart> {
+    let mut tool_call_id_to_tool_name = HashMap::<String, String>::new();
+    let mut approval_id_to_tool_name = HashMap::<String, String>::new();
+
+    parts
+        .into_iter()
+        .filter(|part| match part {
+            AssistantContentPart::ToolCall(part) => {
+                tool_call_id_to_tool_name.insert(part.tool_call_id.clone(), part.tool_name.clone());
+                should_keep_tool_part(
+                    rule,
+                    &part.tool_call_id,
+                    Some(part.tool_name.as_str()),
+                    kept_tool_call_ids,
+                )
+            }
+            AssistantContentPart::ToolResult(part) => should_keep_tool_part(
+                rule,
+                &part.tool_call_id,
+                Some(part.tool_name.as_str()),
+                kept_tool_call_ids,
+            ),
+            AssistantContentPart::ToolApprovalRequest(part) => {
+                let tool_name = tool_call_id_to_tool_name
+                    .get(&part.tool_call_id)
+                    .map(String::as_str);
+                if let Some(tool_name) = tool_name {
+                    approval_id_to_tool_name
+                        .insert(part.approval_id.clone(), tool_name.to_string());
+                }
+                should_keep_tool_part(rule, &part.approval_id, tool_name, kept_approval_ids)
+            }
+            _ => true,
+        })
+        .collect()
+}
+
+fn prune_tool_message_parts(
+    parts: Vec<ToolContentPart>,
+    rule: &PruneToolCallRule,
+    kept_tool_call_ids: &std::collections::HashSet<String>,
+    kept_approval_ids: &std::collections::HashSet<String>,
+) -> Vec<ToolContentPart> {
+    let approval_id_to_tool_name = HashMap::<String, String>::new();
+
+    parts
+        .into_iter()
+        .filter(|part| match part {
+            ToolContentPart::ToolResult(part) => should_keep_tool_part(
+                rule,
+                &part.tool_call_id,
+                Some(part.tool_name.as_str()),
+                kept_tool_call_ids,
+            ),
+            ToolContentPart::ToolApprovalResponse(part) => {
+                let tool_name = approval_id_to_tool_name
+                    .get(&part.approval_id)
+                    .map(String::as_str);
+                should_keep_tool_part(rule, &part.approval_id, tool_name, kept_approval_ids)
+            }
+        })
+        .collect()
+}
+
+fn model_message_is_empty(message: &ModelMessage) -> bool {
+    match message {
+        ModelMessage::System(message) => message.content.is_empty(),
+        ModelMessage::User(message) => match &message.content {
+            super::prompt::UserContent::Text(text) => text.is_empty(),
+            super::prompt::UserContent::Parts(parts) => parts.is_empty(),
+        },
+        ModelMessage::Assistant(message) => match &message.content {
+            AssistantContent::Text(text) => text.is_empty(),
+            AssistantContent::Parts(parts) => parts.is_empty(),
+        },
+        ModelMessage::Tool(message) => message.content.is_empty(),
+    }
+}
+
+/// Prune AI SDK-style model messages.
+///
+/// This mirrors the pure data behavior of `generate-text/prune-messages.ts`: reasoning parts can
+/// be removed from assistant messages, tool call/result/approval parts can be pruned by recency
+/// and tool name, and messages that become empty are removed by default.
+pub fn prune_messages(
+    mut messages: Vec<ModelMessage>,
+    options: PruneMessagesOptions,
+) -> Vec<ModelMessage> {
+    if matches!(
+        options.reasoning,
+        PruneReasoningMode::All | PruneReasoningMode::BeforeLastMessage
+    ) {
+        let last_index = messages.len().saturating_sub(1);
+        messages = messages
+            .into_iter()
+            .enumerate()
+            .map(|(index, message)| {
+                let ModelMessage::Assistant(mut assistant) = message else {
+                    return message;
+                };
+                if options.reasoning == PruneReasoningMode::BeforeLastMessage && index == last_index
+                {
+                    return ModelMessage::Assistant(assistant);
+                }
+                let AssistantContent::Parts(parts) = assistant.content else {
+                    return ModelMessage::Assistant(assistant);
+                };
+
+                assistant.content = AssistantContent::Parts(
+                    parts
+                        .into_iter()
+                        .filter(|part| !matches!(part, AssistantContentPart::Reasoning(_)))
+                        .collect(),
+                );
+                ModelMessage::Assistant(assistant)
+            })
+            .collect();
+    }
+
+    for rule in &options.tool_calls {
+        let keep_last_messages_count = rule.keep_last_messages_count();
+        let mut kept_tool_call_ids = std::collections::HashSet::new();
+        let mut kept_approval_ids = std::collections::HashSet::new();
+
+        if let Some(count) = keep_last_messages_count {
+            for message in messages.iter().rev().take(count) {
+                collect_kept_tool_part_ids(
+                    message,
+                    &mut kept_tool_call_ids,
+                    &mut kept_approval_ids,
+                );
+            }
+        }
+
+        let prune_before_index = keep_last_messages_count
+            .map(|count| messages.len().saturating_sub(count))
+            .unwrap_or(messages.len());
+
+        messages = messages
+            .into_iter()
+            .enumerate()
+            .map(|(index, message)| {
+                if index >= prune_before_index {
+                    return message;
+                }
+
+                match message {
+                    ModelMessage::Assistant(mut assistant) => {
+                        let AssistantContent::Parts(parts) = assistant.content else {
+                            return ModelMessage::Assistant(assistant);
+                        };
+                        assistant.content = AssistantContent::Parts(prune_assistant_tool_parts(
+                            parts,
+                            rule,
+                            &kept_tool_call_ids,
+                            &kept_approval_ids,
+                        ));
+                        ModelMessage::Assistant(assistant)
+                    }
+                    ModelMessage::Tool(mut tool) => {
+                        tool.content = prune_tool_message_parts(
+                            tool.content,
+                            rule,
+                            &kept_tool_call_ids,
+                            &kept_approval_ids,
+                        );
+                        ModelMessage::Tool(tool)
+                    }
+                    other => other,
+                }
+            })
+            .collect();
+    }
+
+    if options.empty_messages == PruneEmptyMessagesMode::Remove {
+        messages.retain(|message| !model_message_is_empty(message));
+    }
+
+    messages
 }
 
 /// Common model information used across AI SDK callback events.
@@ -4385,7 +5189,10 @@ fn string_body_to_json_value(body: String) -> JSONValue {
 
 #[cfg(test)]
 mod tests {
-    use super::super::AssistantContent;
+    use super::super::{
+        AssistantContent, ReasoningPart, TextPart, ToolApprovalRequest, ToolApprovalResponse,
+        ToolCallPart, ToolResultPart,
+    };
     use super::*;
 
     #[test]
@@ -5136,6 +5943,81 @@ mod tests {
     }
 
     #[test]
+    fn language_model_stream_parts_match_ai_sdk_model_call_shape() {
+        let timestamp = DateTime::parse_from_rfc3339("2026-04-24T00:00:00Z")
+            .expect("timestamp")
+            .with_timezone(&Utc);
+        let usage = LanguageModelUsage {
+            input_tokens: Some(7),
+            output_tokens: Some(5),
+            total_tokens: Some(12),
+            ..LanguageModelUsage::default()
+        };
+        let provider_metadata = ProviderMetadata::from([(
+            "openai".to_string(),
+            serde_json::json!({ "responseId": "resp_1" }),
+        )]);
+        let mut end = LanguageModelStreamModelCallEndPart::new(FinishReason::Stop, usage);
+        end.raw_finish_reason = Some("stop".to_string());
+        end.provider_metadata = Some(provider_metadata);
+
+        let parts: Vec<LanguageModelStreamPart> = vec![
+            LanguageModelStreamModelCallStartPart::new(Vec::new()).into(),
+            LanguageModelStreamModelCallResponseMetadataPart::new()
+                .with_id("resp_1")
+                .with_timestamp(timestamp)
+                .with_model_id("gpt-test")
+                .into(),
+            TextStreamTextStartPart::new("text_1").into(),
+            TextStreamTextDeltaPart::new("text_1", "hello").into(),
+            TextStreamReasoningDeltaPart::new("reasoning_1", "because").into(),
+            TextStreamToolInputStartPart::new("call_1", "search").into(),
+            ToolCall::new(
+                "call_1",
+                "search".to_string(),
+                serde_json::json!({ "query": "rust" }),
+            )
+            .into(),
+            ToolResult::new(
+                "call_1",
+                "search".to_string(),
+                serde_json::json!({ "query": "rust" }),
+                ToolResultOutput::json(serde_json::json!({ "answer": "ok" })),
+            )
+            .into(),
+            TextStreamErrorPart::new(serde_json::json!({ "message": "recoverable" })).into(),
+            TextStreamRawPart::new(serde_json::json!({ "chunk": 1 })).into(),
+            end.into(),
+        ];
+
+        let json = serde_json::to_value(&parts).expect("serialize language model stream parts");
+        assert_eq!(json[0]["type"], serde_json::json!("model-call-start"));
+        assert_eq!(
+            json[1]["type"],
+            serde_json::json!("model-call-response-metadata")
+        );
+        assert_eq!(json[1]["id"], serde_json::json!("resp_1"));
+        assert_eq!(json[1]["modelId"], serde_json::json!("gpt-test"));
+        assert_eq!(json[3]["type"], serde_json::json!("text-delta"));
+        assert_eq!(json[6]["type"], serde_json::json!("tool-call"));
+        assert_eq!(json[7]["type"], serde_json::json!("tool-result"));
+        assert_eq!(json[10]["type"], serde_json::json!("model-call-end"));
+        assert_eq!(json[10]["finishReason"], serde_json::json!("stop"));
+        assert_eq!(json[10]["rawFinishReason"], serde_json::json!("stop"));
+        assert_eq!(json[10]["usage"]["totalTokens"], serde_json::json!(12));
+        assert_eq!(
+            json[10]["providerMetadata"]["openai"]["responseId"],
+            serde_json::json!("resp_1")
+        );
+
+        let roundtrip: Vec<LanguageModelStreamPart> =
+            serde_json::from_value(json).expect("deserialize language model stream parts");
+        assert_eq!(roundtrip[0].r#type(), "model-call-start");
+        assert_eq!(roundtrip[1].r#type(), "model-call-response-metadata");
+        assert_eq!(roundtrip[10].r#type(), "model-call-end");
+    }
+
+    #[test]
     fn generate_text_callback_start_events_match_ai_sdk_shape() {
         let mut provider_options = ProviderOptionsMap::new();
         provider_options.insert("openai", serde_json::json!({ "reasoningEffort": "low" }));
@@ -5238,6 +6120,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn stop_condition_helpers_match_ai_sdk_builtin_semantics() {
         fn step_with_tool_calls(
             step_number: u32,
@@ -5294,6 +6177,7 @@ mod tests {
         ];
 
         assert!(StopCondition::is_step_count(2).is_met(&steps));
+        assert!(step_count_is(2).is_met(&steps));
         assert!(!StopCondition::is_step_count(1).is_met(&steps));
         assert!(!StopCondition::is_loop_finished().is_met(&steps));
         assert!(StopCondition::has_tool_call(["search", "finalAnswer"]).is_met(&steps));
@@ -5330,7 +6214,86 @@ mod tests {
         let filtered_names: Vec<&str> = filtered.iter().map(tool_name).collect();
         assert_eq!(filtered_names, vec!["weather", "webSearch"]);
 
+        let experimental_filtered =
+            experimental_filter_active_tools(Some(&tools), Some(&["search"]))
+                .expect("experimental alias should return filtered tools");
+        let experimental_names: Vec<&str> = experimental_filtered.iter().map(tool_name).collect();
+        assert_eq!(experimental_names, vec!["search"]);
+
         assert!(filter_active_tools::<String>(None, Some(&[])).is_none());
+    }
+
+    #[test]
+    fn prune_messages_matches_ai_sdk_reasoning_and_tool_pruning() {
+        let messages = vec![
+            ModelMessage::Assistant(AssistantModelMessage::new(AssistantContent::parts(vec![
+                AssistantContentPart::Text(TextPart::new("hello")),
+                AssistantContentPart::Reasoning(ReasoningPart::new("remove this")),
+                AssistantContentPart::ToolCall(ToolCallPart::new(
+                    "call_1",
+                    "search",
+                    serde_json::json!({ "query": "rust" }),
+                )),
+                AssistantContentPart::ToolApprovalRequest(ToolApprovalRequest::new(
+                    "approval_1",
+                    "call_1",
+                )),
+            ]))),
+            ModelMessage::Tool(ToolModelMessage::new(vec![
+                ToolContentPart::ToolResult(ToolResultPart::new(
+                    "call_1",
+                    "search",
+                    ToolResultOutput::json(serde_json::json!({ "answer": "ok" })),
+                )),
+                ToolContentPart::ToolApprovalResponse(ToolApprovalResponse::new(
+                    "approval_1",
+                    true,
+                )),
+            ])),
+            ModelMessage::Assistant(AssistantModelMessage::new(AssistantContent::parts(vec![
+                AssistantContentPart::Reasoning(ReasoningPart::new("keep this")),
+                AssistantContentPart::ToolCall(ToolCallPart::new(
+                    "call_2",
+                    "weather",
+                    serde_json::json!({ "city": "HK" }),
+                )),
+            ]))),
+        ];
+
+        let pruned = prune_messages(
+            messages,
+            PruneMessagesOptions::new()
+                .with_reasoning(PruneReasoningMode::BeforeLastMessage)
+                .with_tool_calls(vec![PruneToolCallRule::before_last_message()]),
+        );
+
+        assert_eq!(pruned.len(), 2);
+
+        let ModelMessage::Assistant(first) = &pruned[0] else {
+            panic!("first pruned message should be assistant");
+        };
+        let AssistantContent::Parts(first_parts) = &first.content else {
+            panic!("first assistant message should keep parts");
+        };
+        assert_eq!(first_parts.len(), 1);
+        assert!(matches!(first_parts[0], AssistantContentPart::Text(_)));
+
+        let ModelMessage::Assistant(last) = &pruned[1] else {
+            panic!("last pruned message should be assistant");
+        };
+        let AssistantContent::Parts(last_parts) = &last.content else {
+            panic!("last assistant message should keep parts");
+        };
+        assert!(
+            last_parts
+                .iter()
+                .any(|part| matches!(part, AssistantContentPart::Reasoning(_)))
+        );
+        assert!(
+            last_parts
+                .iter()
+                .any(|part| matches!(part, AssistantContentPart::ToolCall(_)))
+        );
     }
 
     #[test]

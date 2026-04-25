@@ -40,10 +40,15 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<CallbackModelInfo>();
     let _ = size_of::<Context>();
     let _ = size_of::<DataContent>();
+    let _ = size_of::<DefaultGeneratedFile>();
     let _ = size_of::<CompletionRequest>();
     let _ = size_of::<CompletionResponse>();
+    let _ = size_of::<DynamicToolCall>();
+    let _ = size_of::<DynamicToolError>();
+    let _ = size_of::<DynamicToolResult>();
     let _ = size_of::<Embedding>();
     let _ = size_of::<EmbeddingModelUsage>();
+    let _ = size_of::<Experimental_GeneratedImage>();
     let _ = size_of::<TextPart>();
     let _ = size_of::<ImagePart>();
     let _ = size_of::<FilePart>();
@@ -120,6 +125,12 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LanguageModelReasoning>();
     let _ = size_of::<LanguageModelRequestMetadata>();
     let _ = size_of::<LanguageModelResponseMetadata>();
+    let _ = size_of::<LanguageModelStreamModelCallEndPart>();
+    let _ = size_of::<LanguageModelStreamModelCallResponseMetadataPart>();
+    let _ = size_of::<LanguageModelStreamModelCallStartPart>();
+    let _ = size_of::<LanguageModelStreamPart>();
+    let _ = size_of::<ExperimentalLanguageModelStreamPart>();
+    let _ = size_of::<Experimental_LanguageModelStreamPart>();
     let _ = size_of::<LanguageModelUsage>();
     let _ = size_of::<ProviderMetadata>();
     let _ = size_of::<ProviderOptions>();
@@ -137,6 +148,10 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<StreamTextLifecycleChunk>();
     let _ = size_of::<StreamTextLifecycleChunkType>();
     let _ = size_of::<SpeechModelResponseMetadata>();
+    let _ = size_of::<StaticToolCall>();
+    let _ = size_of::<StaticToolError>();
+    let _ = size_of::<StaticToolResult>();
+    let _ = size_of::<StepResult>();
     let _ = size_of::<ModelMessageRole>();
     let _ = size_of::<SystemModelMessage>();
     let _ = size_of::<UserModelMessage>();
@@ -147,6 +162,11 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<SystemPrompt>();
     let _ = size_of::<Prompt>();
     let _ = size_of::<StandardizedPrompt>();
+    let _ = size_of::<PruneEmptyMessagesMode>();
+    let _ = size_of::<PruneMessagesOptions>();
+    let _ = size_of::<PruneReasoningMode>();
+    let _ = size_of::<PruneToolCallMode>();
+    let _ = size_of::<PruneToolCallRule>();
     let _ = size_of::<TimeoutConfiguration>();
     let _ = size_of::<TimeoutConfigurationSettings>();
     let _ = size_of::<TranscriptionModelResponseMetadata>();
@@ -170,6 +190,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ToolExecutionEndEvent>();
     let _ = size_of::<ToolExecutionStartEvent>();
     let _ = size_of::<ToolResult<String, JSONValue, ToolResultOutput>>();
+    let _ = size_of::<TypedToolCall>();
+    let _ = size_of::<TypedToolError>();
+    let _ = size_of::<TypedToolResult>();
     let _ = size_of::<OnStartEvent>();
     let _ = size_of::<OnStepStartEvent>();
     let _ = size_of::<OnChunkEvent>();
@@ -203,6 +226,10 @@ fn public_surface_unified_imports_compile() {
     let _ = has_tool_call(["search"]);
     let _ = filter_active_tools::<String>
         as fn(Option<&[Tool]>, Option<&[String]>) -> Option<Vec<Tool>>;
+    let _ = experimental_filter_active_tools::<String>
+        as fn(Option<&[Tool]>, Option<&[String]>) -> Option<Vec<Tool>>;
+    let _ = step_count_is as fn(usize) -> StopCondition;
+    let _ = prune_messages as fn(Vec<ModelMessage>, PruneMessagesOptions) -> Vec<ModelMessage>;
     let _ = create_null_language_model_usage as fn() -> LanguageModelUsage;
     let _ = add_language_model_usage
         as fn(&LanguageModelUsage, &LanguageModelUsage) -> LanguageModelUsage;

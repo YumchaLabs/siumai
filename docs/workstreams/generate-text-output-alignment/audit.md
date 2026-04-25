@@ -15,8 +15,10 @@ Reference files:
 - `repo-ref/ai/packages/ai/src/generate-text/tool-output-denied.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/core-events.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-execution-events.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/stream-language-model-call.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/stop-condition.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/filter-active-tool.ts`
+- `repo-ref/ai/packages/ai/src/generate-text/prune-messages.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/prepare-step.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-configuration.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-call-repair-function.ts`
@@ -50,12 +52,12 @@ because request-side file/provider-option carriers use different wire shapes.
 | `text` | Supported as passive output shape | `TextOutput` preserves `type: "text"`, generated text, and provider metadata without reusing request-side prompt parts. |
 | `custom` | Supported as passive output shape | `CustomOutput` preserves `type: "custom"`, the provider-owned `kind`, and provider metadata. |
 | `file` | Supported as passive output shape | `FileOutput` preserves the AI SDK output-side nested `file: GeneratedFile` shape instead of the prompt-side flattened file input shape. |
-| `tool-call` | Supported as passive output shape | `ToolCall` now preserves the output-part `type: "tool-call"` discriminator plus provider metadata, title, invalid/error, dynamic, and provider-executed fields. |
-| `tool-result` | Supported as passive output shape | `ToolResult` now preserves the output-part `type: "tool-result"` discriminator plus provider metadata, title, dynamic/provider-executed, and preliminary result fields. |
-| `GeneratedFile` | Supported as passive output shape | `GeneratedFile` stores stable `base64` plus `mediaType` and exposes Rust byte decoding through `uint8_array()`. |
+| `tool-call` | Supported as passive output shape | `ToolCall` now preserves the output-part `type: "tool-call"` discriminator plus provider metadata, title, invalid/error, dynamic, and provider-executed fields. `StaticToolCall`, `DynamicToolCall`, and `TypedToolCall` are aliases over the same Rust carrier because static/dynamic is represented by the `dynamic` flag. |
+| `tool-result` | Supported as passive output shape | `ToolResult` now preserves the output-part `type: "tool-result"` discriminator plus provider metadata, title, dynamic/provider-executed, and preliminary result fields. `StaticToolResult`, `DynamicToolResult`, and `TypedToolResult` are aliases over the same Rust carrier. |
+| `GeneratedFile` | Supported as passive output shape | `GeneratedFile` stores stable `base64` plus `mediaType` and exposes Rust byte decoding through `uint8_array()`. `DefaultGeneratedFile` and `Experimental_GeneratedImage` are import aliases over the same carrier. |
 | `reasoning` | Supported as passive output shape | `ReasoningOutput` carries `type: "reasoning"`, text, and provider metadata. |
 | `reasoning-file` | Supported as passive output shape | `ReasoningFileOutput` carries `type: "reasoning-file"`, a nested `GeneratedFile`, and provider metadata. |
-| `tool-error` | Supported as passive output shape | `ToolError` carries the full AI SDK output-side error part shape with input, error payload, provider metadata, dynamic flag, and title. |
+| `tool-error` | Supported as passive output shape | `ToolError` carries the full AI SDK output-side error part shape with input, error payload, provider metadata, dynamic flag, and title. `StaticToolError`, `DynamicToolError`, and `TypedToolError` are aliases over the same Rust carrier. |
 | `ToolOutput` | Supported as passive output shape | `ToolOutput` is the AI SDK `tool-result | tool-error` union used by tool execution end events. |
 | `tool-output-denied` | Supported as passive output shape | `ToolOutputDenied` plus `StaticToolOutputDenied` / `TypedToolOutputDenied` aliases model the AI SDK denial part. |
 | `tool-approval-request` | Supported as passive output shape | `ToolApprovalRequestOutput` carries the full nested `toolCall` plus optional `isAutomatic`. Runtime prompt continuity still keeps ID-oriented approval parts until the tool-loop projection is refactored. |
@@ -66,7 +68,7 @@ because request-side file/provider-option carriers use different wire shapes.
 | AI SDK result structure | Siumai status | Notes |
 | --- | --- | --- |
 | `ResponseMessage` | Supported as passive output shape | `ResponseMessage` is the generated assistant/tool message union used by result response metadata. |
-| `StepResult` | Supported as passive output shape | `GenerateTextStepResult` preserves the AI SDK step envelope fields while using JSON `Context` carriers for Rust runtime/tool context snapshots. Step reasoning is represented by `GenerateTextStepReasoningPart`, matching the provider-utils `data` / `mediaType` / `providerOptions` shape instead of the final result output shape. |
+| `StepResult` | Supported as passive output shape | `StepResult` is exported as an alias over `GenerateTextStepResult`, which preserves the AI SDK step envelope fields while using JSON `Context` carriers for Rust runtime/tool context snapshots. Step reasoning is represented by `GenerateTextStepReasoningPart`, matching the provider-utils `data` / `mediaType` / `providerOptions` shape instead of the final result output shape. |
 | `GenerateTextResult` | Supported as passive output shape | `GenerateTextResult` preserves the non-streaming result envelope, including content, derived views, request/response metadata, total usage, steps, provider metadata, and structured `output`. Runtime helpers still return existing Rust text responses until a separate projection layer is built. |
 
 ## Stream Text Parts
@@ -74,6 +76,7 @@ because request-side file/provider-option carriers use different wire shapes.
 | AI SDK stream structure | Siumai status | Notes |
 | --- | --- | --- |
 | `TextStreamPart` | Supported as passive output shape | `TextStreamPart` mirrors the higher-level `streamText` output union from `generate-text/stream-text-result.ts` and intentionally stays separate from runtime `ChatStreamPart`, which models provider V4 stream semantics. |
+| `LanguageModelStreamPart` | Supported as passive model-call stream shape | `LanguageModelStreamPart` mirrors `generate-text/stream-language-model-call.ts`: it uses the allowed `TextStreamPart` subset and adds `model-call-start`, `model-call-response-metadata`, and `model-call-end` events. The excluded higher-level lifecycle parts stay on `TextStreamPart` / `StreamTextChunkEvent`. |
 | `text-delta` / `reasoning-delta` | Supported as passive output shape | The passive stream output shape uses the AI SDK `text` field, not provider V4's `delta` field. |
 | `start-step` / `finish-step` / `finish` | Supported as passive output shape | The passive output shape preserves `request`, `response`, `usage`, `finishReason`, `rawFinishReason`, `providerMetadata`, and final `totalUsage` without changing the current runtime stream event contract. |
 | `StreamTextResult` object | Deferred | The full result object still needs a tee/backpressure design before Rust can honestly expose all promise-like and stream lanes together. |
@@ -100,8 +103,9 @@ runtime invokes those callbacks.
 
 | AI SDK structure | Siumai status | Notes |
 | --- | --- | --- |
-| `StopCondition` helpers | Supported as symbolic Rust helpers | `StopCondition` represents the built-in `isStepCount`, `isLoopFinished`, and `hasToolCall` helpers as serializable data, and `is_stop_condition_met(...)` evaluates those built-ins against `GenerateTextStepResult` values. Custom function predicates remain intentionally opaque. |
-| `filterActiveTools` | Supported as Rust helper | `filter_active_tools(...)` filters `Vec<Tool>` by function or provider-defined tool names and returns `None` when the tool set itself is absent, matching the upstream helper's core behavior. |
+| `StopCondition` helpers | Supported as symbolic Rust helpers | `StopCondition` represents the built-in `isStepCount`, `isLoopFinished`, and `hasToolCall` helpers as serializable data, and `is_stop_condition_met(...)` evaluates those built-ins against `GenerateTextStepResult` values. `step_count_is(...)` is kept as the deprecated upstream alias. Custom function predicates remain intentionally opaque. |
+| `filterActiveTools` | Supported as Rust helper | `filter_active_tools(...)` filters `Vec<Tool>` by function or provider-defined tool names and returns `None` when the tool set itself is absent, matching the upstream helper's core behavior. `experimental_filter_active_tools(...)` is the Rust-named upstream experimental alias. |
+| `pruneMessages` | Supported as Rust helper | `prune_messages(...)` prunes reasoning parts, tool-call/result/approval parts, and empty messages over shared `ModelMessage` values. Rust uses explicit option/rule structs instead of the TypeScript string/template-literal union. |
 | `PrepareStepFunction` options/result | Supported as passive data shape | `PrepareStepOptions` and `PrepareStepResult` preserve the step number, previous steps, selected model identity, messages, context snapshots, and optional per-step overrides for model, tool choice, active tools, system/messages, contexts, and provider options. |
 | `ToolApprovalStatus` | Supported as passive data shape | Supports the string and object forms (`not-applicable`, `approved`, `denied`, `user-approval`, plus optional reason where upstream permits one). |
 | `ToolApprovalConfiguration` | Supported for static per-tool status maps | Function-valued approval callbacks are not serialized; `ToolApprovalDecisionContext` preserves the generic approval callback input payload for adapters that own executable logic. |
@@ -135,3 +139,11 @@ does not expose the full multi-lane stream result yet because the current text f
 provider stream events directly. The underlying partial JSON parser and one-shot
 `partial_json_value_stream(...)` projection are available, so a future streaming structured-output
 workstream can build real array element streams and tee-able result handles on top of them.
+
+The remaining `generate-text/index.ts` exports that are not represented as Rust public API are
+runtime/function/type-level surfaces rather than missing passive structures: `smoothStream`,
+`StreamTextTransform`, `StreamTextResult`, `UIMessageStreamOptions`, `OutputInterface`,
+`InferGenerateOutput`, `InferStreamOutput`, and callback function aliases such as
+`GenerateTextOnFinishCallback` / `StreamTextOnChunkCallback` / `PrepareStepFunction`. These should
+only be added when backed by real Rust stream transforms, tee/backpressure semantics, or executable
+callback traits.

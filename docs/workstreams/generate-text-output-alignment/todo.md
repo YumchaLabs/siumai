@@ -46,13 +46,23 @@ Status legend:
 - [x] Add passive AI SDK result envelope structures for `ResponseMessage`, `StepResult`, and
   `GenerateTextResult` without changing the current runtime return type, including the split
   between step-side `providerOptions` reasoning and final result-side `providerMetadata` reasoning.
+- [x] Add AI SDK export aliases for `StepResult`, `DefaultGeneratedFile`,
+  `Experimental_GeneratedImage`, and static/dynamic/typed tool call/result/error views over the
+  existing passive carriers.
 - [x] Add passive AI SDK `TextStreamPart` output structures without replacing runtime
   `ChatStreamPart` provider V4 semantics.
+- [x] Add passive AI SDK `LanguageModelStreamPart` model-call structures for
+  `stream-language-model-call.ts`, including `model-call-start`, `model-call-response-metadata`,
+  and `model-call-end`, without claiming the experimental runtime helper is implemented.
 - [x] Add passive AI SDK callback/event payload structures for `GenerateTextStartEvent`,
   `GenerateTextStepStartEvent`, `GenerateTextEndEvent`, `StreamTextChunkEvent`,
   `ToolExecutionStartEvent`, `ToolExecutionEndEvent`, and `ToolOutput`.
 - [x] Add passive AI SDK step-control and policy payloads for `StopCondition`, `filterActiveTools`, prepare-step
   options/results, tool approval status/configuration/context, and tool-call repair context/result.
+- [x] Add Rust-named helper aliases for upstream `experimental_filterActiveTools` and deprecated
+  `stepCountIs`.
+- [x] Add `prune_messages(...)` over shared `ModelMessage` values for upstream `pruneMessages`
+  reasoning/tool/empty-message pruning behavior.
 - [x] Add passive AI SDK output-part shapes for `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`.
 - [x] Add passive AI SDK output-part shapes for `ToolError` and `ToolOutputDenied`.
@@ -68,3 +78,6 @@ Status legend:
 - [-] Do not expose the full AI SDK `StreamTextResult` multi-lane result object until tee/backpressure
   semantics are designed.
 - [-] Do not add an `Output` trait that claims streaming parity before Track E exists.
+- [-] Do not expose `smoothStream`, `StreamTextTransform`, `UIMessageStreamOptions`, callback
+  function aliases, or type-level infer helpers until there is real Rust runtime/type behavior
+  behind them.
