@@ -417,8 +417,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `CompletionStreamProtocol`, and the schema-map aliases `UIDataPartSchemas` /
   `UIDataTypesToSchemas` / `InferUIDataParts`. Upstream UI part/tool alias names such as
   `UIMessage`, `UIMessagePart`, `TextUIPart`, `DataUIPart`, `ToolUIPart`, `DynamicToolUIPart`,
-  `UITool`, and `UITools` now also resolve to the existing Rust UI carriers. Runtime callbacks,
-  transport classes, custom `fetch`, and hook state machines remain intentionally deferred.
+  `UITool`, and `UITools` now also resolve to the existing Rust UI carriers. The pure
+  `ui-messages.ts` helper surface is also importable as Rust functions, including `is_text_ui_part`,
+  `is_tool_ui_part`, `get_tool_name`, and the last-assistant-message completion checks for tool
+  calls and approval responses. Runtime callbacks, transport classes, custom `fetch`, and hook
+  state machines remain intentionally deferred.
 - Public AI SDK package facades now also expose package-level provider entry helpers directly on
   their own namespaces: compat-promoted wrappers
   `provider_ext::{mistral,perplexity,fireworks,moonshotai,deepinfra}` plus the audited

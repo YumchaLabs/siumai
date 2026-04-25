@@ -2193,9 +2193,15 @@ pub mod prelude {
             add_language_model_usage, as_schema, as_schema_or_empty,
             convert_data_content_to_base64_string, create_null_language_model_usage,
             empty_json_schema, experimental_filter_active_tools, filter_active_tools,
-            get_chunk_timeout_ms, get_step_timeout_ms, get_tool_timeout_ms, get_total_timeout_ms,
-            has_tool_call, is_loop_finished, is_step_count, is_stop_condition_met, json_schema,
-            json_schema_with_validator, lazy_schema, prune_messages, step_count_is,
+            get_chunk_timeout_ms, get_static_tool_name, get_step_timeout_ms, get_tool_name,
+            get_tool_or_dynamic_tool_name, get_tool_timeout_ms, get_total_timeout_ms,
+            has_tool_call, is_custom_content_ui_part, is_data_ui_part, is_dynamic_tool_ui_part,
+            is_file_ui_part, is_loop_finished, is_reasoning_file_ui_part, is_reasoning_ui_part,
+            is_static_tool_ui_part, is_step_count, is_stop_condition_met, is_text_ui_part,
+            is_tool_ui_part, json_schema, json_schema_with_validator,
+            last_assistant_message_is_complete_with_approval_responses,
+            last_assistant_message_is_complete_with_tool_calls, lazy_schema, prune_messages,
+            step_count_is,
         };
 
         pub mod registry {

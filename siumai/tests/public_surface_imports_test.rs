@@ -403,6 +403,20 @@ fn public_surface_unified_imports_compile() {
     let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
     let _ = is_deep_equal_data as fn(&JSONValue, &JSONValue) -> bool;
+    let _ = is_text_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_custom_content_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_file_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_reasoning_file_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_reasoning_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_data_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_static_tool_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_dynamic_tool_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = is_tool_ui_part as fn(&UiMessagePart) -> bool;
+    let _ = get_static_tool_name as for<'a> fn(&'a UiMessagePart) -> Option<&'a str>;
+    let _ = get_tool_name as for<'a> fn(&'a UiMessagePart) -> Option<&'a str>;
+    let _ = get_tool_or_dynamic_tool_name as for<'a> fn(&'a UiMessagePart) -> Option<&'a str>;
+    let _ = last_assistant_message_is_complete_with_tool_calls as fn(&[UiMessage]) -> bool;
+    let _ = last_assistant_message_is_complete_with_approval_responses as fn(&[UiMessage]) -> bool;
     assert!(
         UI_MESSAGE_STREAM_HEADERS
             .iter()

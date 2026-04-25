@@ -3168,6 +3168,163 @@ pub type UIToolInvocation = super::chat::UiToolInvocation;
 /// Siumai represents this as the `UiMessagePart::StepStart` unit variant.
 pub type StepStartUIPart = UiMessagePart;
 
+/// Check whether a UI message part is a text part.
+pub fn is_text_ui_part(part: &UiMessagePart) -> bool {
+    matches!(part, UiMessagePart::Text(_))
+}
+
+/// Check whether a UI message part is a custom content part.
+pub fn is_custom_content_ui_part(part: &UiMessagePart) -> bool {
+    matches!(part, UiMessagePart::Custom(_))
+}
+
+/// Check whether a UI message part is a file part.
+pub fn is_file_ui_part(part: &UiMessagePart) -> bool {
+    matches!(part, UiMessagePart::File(_))
+}
+
+/// Check whether a UI message part is a reasoning-file part.
+pub fn is_reasoning_file_ui_part(part: &UiMessagePart) -> bool {
+    matches!(part, UiMessagePart::ReasoningFile(_))
+}
+
+/// Check whether a UI message part is a reasoning part.
+pub fn is_reasoning_ui_part(part: &UiMessagePart) -> bool {
+    matches!(part, UiMessagePart::Reasoning(_))
+}
+
+/// Check whether a UI message part is a data part.
+pub fn is_data_ui_part(part: &UiMessagePart) -> bool {
+    matches!(part, UiMessagePart::Data(_))
+}
+
+/// Check whether a UI message part is a static tool part.
+pub fn is_static_tool_ui_part(part: &UiMessagePart) -> bool {
+    matches!(
+        part,
+        UiMessagePart::Tool(super::chat::UiToolPart {
+            kind: super::chat::UiToolKind::Static { .. },
+            ..
+        })
+    )
+}
+
+/// Check whether a UI message part is a dynamic tool part.
+pub fn is_dynamic_tool_ui_part(part: &UiMessagePart) -> bool {
+    matches!(
+        part,
+        UiMessagePart::Tool(super::chat::UiToolPart {
+            kind: super::chat::UiToolKind::Dynamic { .. },
+            ..
+        })
+    )
+}
+
+/// Check whether a UI message part is any tool part.
+pub fn is_tool_ui_part(part: &UiMessagePart) -> bool {
+    matches!(part, UiMessagePart::Tool(_))
+}
+
+/// Return the static tool name for a `tool-*` UI part.
+pub fn get_static_tool_name(part: &UiMessagePart) -> Option<&str> {
+    match part {
+        UiMessagePart::Tool(tool_part) => match &tool_part.kind {
+            super::chat::UiToolKind::Static { tool_name } => Some(tool_name.as_str()),
+            super::chat::UiToolKind::Dynamic { .. } => None,
+        },
+        _ => None,
+    }
+}
+
+/// Return the resolved tool name for static or dynamic tool UI parts.
+pub fn get_tool_name(part: &UiMessagePart) -> Option<&str> {
+    match part {
+        UiMessagePart::Tool(tool_part) => Some(tool_part.tool_name()),
+        _ => None,
+    }
+}
+
+/// Deprecated AI SDK helper spelling. Use `get_tool_name`.
+pub fn get_tool_or_dynamic_tool_name(part: &UiMessagePart) -> Option<&str> {
+    get_tool_name(part)
+}
+
+/// Check whether the last assistant message's final step has completed non-provider tool calls.
+pub fn last_assistant_message_is_complete_with_tool_calls(messages: &[UiMessage]) -> bool {
+    let Some(message) = messages.last() else {
+        return false;
+    };
+    if message.role != UiMessageRole::Assistant {
+        return false;
+    }
+
+    let last_step_start_index = message
+        .parts
+        .iter()
+        .rposition(|part| matches!(part, UiMessagePart::StepStart));
+    let start = last_step_start_index.map_or(0, |index| index + 1);
+
+    let tool_parts = message.parts[start..].iter().filter_map(|part| match part {
+        UiMessagePart::Tool(tool_part) if tool_part.provider_executed != Some(true) => {
+            Some(tool_part)
+        }
+        _ => None,
+    });
+
+    let mut found = false;
+    for tool_part in tool_parts {
+        found = true;
+        if !matches!(
+            tool_part.state,
+            super::chat::UiToolPartState::OutputAvailable
+                | super::chat::UiToolPartState::OutputError
+        ) {
+            return false;
+        }
+    }
+
+    found
+}
+
+/// Check whether the last assistant message's final step has completed approval responses.
+pub fn last_assistant_message_is_complete_with_approval_responses(messages: &[UiMessage]) -> bool {
+    let Some(message) = messages.last() else {
+        return false;
+    };
+    if message.role != UiMessageRole::Assistant {
+        return false;
+    }
+
+    let last_step_start_index = message
+        .parts
+        .iter()
+        .rposition(|part| matches!(part, UiMessagePart::StepStart));
+    let start = last_step_start_index.map_or(0, |index| index + 1);
+
+    let mut found_approval_response = false;
+    for part in &message.parts[start..] {
+        let UiMessagePart::Tool(tool_part) = part else {
+            continue;
+        };
+
+        found_approval_response |= matches!(
+            tool_part.state,
+            super::chat::UiToolPartState::ApprovalResponded
+        );
+
+        if !matches!(
+            tool_part.state,
+            super::chat::UiToolPartState::OutputAvailable
+                | super::chat::UiToolPartState::OutputError
+                | super::chat::UiToolPartState::ApprovalResponded
+        ) {
+            return false;
+        }
+    }
+
+    found_approval_response
+}
+
 /// Passive message input accepted by AI SDK `CreateUIMessage`.
 ///
 /// Upstream models this as `Omit<UIMessage, "id" | "role"> & { id?: ...; role?: ... }`.
@@ -9701,6 +9858,154 @@ mod tests {
         assert!(serde_json::from_value::<UiMessageStartChunk>(missing_type_chunk.clone()).is_err());
         assert!(serde_json::from_value::<UiMessageChunk>(missing_type_chunk).is_err());
         assert!(serde_json::from_value::<UiMessageChunk>(serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn ui_message_helper_functions_match_ai_sdk_semantics() {
+        use crate::types::chat::{UiToolPart, UiToolPartState};
+
+        let text = UiMessagePart::Text(TextUIPart::new("hello"));
+        let custom = UiMessagePart::Custom(CustomContentUIPart::new("openai.redacted"));
+        let file = UiMessagePart::File(FileUIPart::new(
+            "https://example.com/file.txt",
+            "text/plain",
+        ));
+        let reasoning_file = UiMessagePart::ReasoningFile(ReasoningFileUIPart::new(
+            "https://example.com/reasoning.txt",
+            "text/plain",
+        ));
+        let reasoning = UiMessagePart::Reasoning(ReasoningUIPart::new("thinking"));
+        let data =
+            UiMessagePart::Data(DataUIPart::new("status", serde_json::json!({ "ok": true })));
+        let static_tool = UiMessagePart::Tool(UiToolPart::named(
+            "search",
+            "call_static",
+            UiToolPartState::OutputAvailable,
+        ));
+        let dynamic_tool = UiMessagePart::Tool(UiToolPart::dynamic(
+            "code-runner",
+            "call_dynamic",
+            UiToolPartState::OutputError,
+        ));
+
+        assert!(is_text_ui_part(&text));
+        assert!(is_custom_content_ui_part(&custom));
+        assert!(is_file_ui_part(&file));
+        assert!(is_reasoning_file_ui_part(&reasoning_file));
+        assert!(is_reasoning_ui_part(&reasoning));
+        assert!(is_data_ui_part(&data));
+        assert!(is_static_tool_ui_part(&static_tool));
+        assert!(!is_static_tool_ui_part(&dynamic_tool));
+        assert!(is_dynamic_tool_ui_part(&dynamic_tool));
+        assert!(!is_dynamic_tool_ui_part(&static_tool));
+        assert!(is_tool_ui_part(&static_tool));
+        assert!(is_tool_ui_part(&dynamic_tool));
+        assert!(!is_tool_ui_part(&text));
+        assert_eq!(get_static_tool_name(&static_tool), Some("search"));
+        assert_eq!(get_static_tool_name(&dynamic_tool), None);
+        assert_eq!(get_tool_name(&static_tool), Some("search"));
+        assert_eq!(get_tool_name(&dynamic_tool), Some("code-runner"));
+        assert_eq!(
+            get_tool_or_dynamic_tool_name(&dynamic_tool),
+            Some("code-runner")
+        );
+        assert_eq!(get_tool_name(&text), None);
+
+        let complete_tool_call = UiMessage::assistant(
+            "msg_complete_tools",
+            vec![
+                UiMessagePart::Tool(UiToolPart::named(
+                    "previous",
+                    "call_previous",
+                    UiToolPartState::InputAvailable,
+                )),
+                UiMessagePart::StepStart,
+                UiMessagePart::Tool(UiToolPart::named(
+                    "search",
+                    "call_1",
+                    UiToolPartState::OutputAvailable,
+                )),
+                UiMessagePart::Tool(UiToolPart::dynamic(
+                    "code-runner",
+                    "call_2",
+                    UiToolPartState::OutputError,
+                )),
+            ],
+        );
+        assert!(last_assistant_message_is_complete_with_tool_calls(&[
+            complete_tool_call
+        ]));
+
+        let mut provider_executed = UiToolPart::named(
+            "provider-search",
+            "call_provider",
+            UiToolPartState::OutputAvailable,
+        );
+        provider_executed.provider_executed = Some(true);
+        let only_provider_executed = UiMessage::assistant(
+            "msg_provider_tools",
+            vec![UiMessagePart::Tool(provider_executed)],
+        );
+        assert!(!last_assistant_message_is_complete_with_tool_calls(&[
+            only_provider_executed,
+        ]));
+
+        let incomplete_tool_call = UiMessage::assistant(
+            "msg_incomplete_tools",
+            vec![UiMessagePart::Tool(UiToolPart::named(
+                "search",
+                "call_pending",
+                UiToolPartState::InputAvailable,
+            ))],
+        );
+        assert!(!last_assistant_message_is_complete_with_tool_calls(&[
+            incomplete_tool_call
+        ]));
+
+        let approval_responded = UiMessage::assistant(
+            "msg_approvals",
+            vec![
+                UiMessagePart::Tool(UiToolPart::named(
+                    "approval",
+                    "call_approval",
+                    UiToolPartState::ApprovalResponded,
+                )),
+                UiMessagePart::Tool(UiToolPart::named(
+                    "search",
+                    "call_result",
+                    UiToolPartState::OutputAvailable,
+                )),
+            ],
+        );
+        assert!(last_assistant_message_is_complete_with_approval_responses(
+            &[approval_responded,]
+        ));
+
+        let pending_approval = UiMessage::assistant(
+            "msg_pending_approval",
+            vec![
+                UiMessagePart::Tool(UiToolPart::named(
+                    "approval",
+                    "call_approval",
+                    UiToolPartState::ApprovalResponded,
+                )),
+                UiMessagePart::Tool(UiToolPart::named(
+                    "search",
+                    "call_pending",
+                    UiToolPartState::InputAvailable,
+                )),
+            ],
+        );
+        assert!(!last_assistant_message_is_complete_with_approval_responses(
+            &[pending_approval,]
+        ));
+
+        assert!(!last_assistant_message_is_complete_with_tool_calls(&[
+            UiMessage::user("msg_user", vec![UiMessagePart::text("hello")])
+        ]));
+        assert!(!last_assistant_message_is_complete_with_approval_responses(
+            &[]
+        ));
     }
 
     #[test]
