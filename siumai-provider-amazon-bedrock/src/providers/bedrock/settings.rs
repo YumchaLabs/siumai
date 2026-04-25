@@ -90,7 +90,10 @@ impl AmazonBedrockProviderSettings {
     }
 
     /// Convert package-level provider settings into the config-first carrier for a specific model.
-    pub fn into_config_for_model<S: Into<String>>(self, model: S) -> Result<BedrockConfig, LlmError> {
+    pub fn into_config_for_model<S: Into<String>>(
+        self,
+        model: S,
+    ) -> Result<BedrockConfig, LlmError> {
         self.into_builder_for_model(model).into_config()
     }
 }
@@ -98,10 +101,10 @@ impl AmazonBedrockProviderSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use crate::execution::http::transport::{
         HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
     };
+    use async_trait::async_trait;
     use reqwest::header::HeaderMap;
 
     #[derive(Clone, Default)]
