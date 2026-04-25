@@ -255,7 +255,7 @@ impl RerankResponseTransformer for OpenAiRerankResponseTransformer {
                     None
                 };
 
-                Ok(crate::types::RerankResult {
+                Ok(crate::types::RerankRankingEntry {
                     index,
                     relevance_score,
                     document,

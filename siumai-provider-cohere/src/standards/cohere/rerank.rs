@@ -10,7 +10,7 @@ use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::provider_options::CohereRerankOptions;
 use crate::types::{
-    RerankDocuments, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage,
+    RerankDocuments, RerankRankingEntry, RerankRequest, RerankResponse, RerankTokenUsage,
 };
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
@@ -157,7 +157,7 @@ impl RerankResponseTransformer for CohereRerankResponseTransformer {
                         LlmError::ParseError("Missing 'relevance_score' field".into())
                     })?;
 
-                Ok(RerankResult {
+                Ok(RerankRankingEntry {
                     document: None,
                     index,
                     relevance_score,

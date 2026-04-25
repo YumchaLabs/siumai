@@ -49,6 +49,8 @@ References:
 - `repo-ref/ai/packages/ai/src/embed/embed-result.ts`
 - `repo-ref/ai/packages/ai/src/embed/embed-many-result.ts`
 - `repo-ref/ai/packages/ai/src/embed/embed-events.ts`
+- `repo-ref/ai/packages/ai/src/rerank/rerank-result.ts`
+- `repo-ref/ai/packages/ai/src/rerank/rerank-events.ts`
 - `repo-ref/ai/packages/ai/src/generate-image/generate-image-result.ts`
 - `repo-ref/ai/packages/ai/src/generate-speech/generated-audio-file.ts`
 - `repo-ref/ai/packages/ai/src/generate-speech/generate-speech-result.ts`
@@ -99,6 +101,13 @@ surface now exposes `EmbedResult`, `EmbedManyResult`, `EmbedStartEvent`, `EmbedE
 `EmbeddingModelCallStartEvent`, `EmbeddingModelCallEndEvent`, and shared response-data carriers
 over the existing `Embedding`, `EmbeddingModelUsage`, `Warning`, and provider-metadata shapes.
 These remain result/callback payload views rather than a second embedding runtime.
+
+Rerank helper parity now follows the same rule. The old provider-level single result item has been
+renamed to `RerankRankingEntry`, so the public `RerankResult<VALUE>` name can match AI SDK's
+full `rerank()` result envelope. The passive surface also exposes `RerankRanking`,
+`RerankResponseMetadata`, `RerankStartEvent`, `RerankEndEvent`,
+`RerankingModelCallStartEvent`, `RerankingModelCallEndEvent`, and
+`RerankingModelCallRanking` without adding a second rerank runtime.
 
 The higher-level speech/transcription helper story is now materially closer too: stable
 `TtsResponse` / `SttResponse` responses now preserve final `response` metadata and also expose

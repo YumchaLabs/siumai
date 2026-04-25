@@ -15,7 +15,7 @@ impl crate::traits::RerankCapability for BridgeRerankClient {
         Ok(crate::types::RerankResponse {
             id: "bridge-rerank".to_string(),
             results: (0..doc_len)
-                .map(|index| crate::types::RerankResult {
+                .map(|index| crate::types::RerankRankingEntry {
                     document: None,
                     index: index as u32,
                     relevance_score: (doc_len - index) as f64,
@@ -155,7 +155,7 @@ async fn provider_factory_native_reranking_family_path_works() {
             Ok(crate::types::RerankResponse {
                 id: "native-rerank".to_string(),
                 results: (0..doc_len)
-                    .map(|index| crate::types::RerankResult {
+                    .map(|index| crate::types::RerankRankingEntry {
                         document: None,
                         index: index as u32,
                         relevance_score: (doc_len - index) as f64,
@@ -246,7 +246,7 @@ async fn reranking_model_handle_uses_native_family_path_when_available() {
             Ok(crate::types::RerankResponse {
                 id: "native-handle-rerank".to_string(),
                 results: (0..doc_len)
-                    .map(|index| crate::types::RerankResult {
+                    .map(|index| crate::types::RerankRankingEntry {
                         document: None,
                         index: index as u32,
                         relevance_score: (doc_len - index) as f64,

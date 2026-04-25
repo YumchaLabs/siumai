@@ -131,15 +131,15 @@ pub struct RerankResponse {
     pub id: String,
 
     /// Ranked results
-    pub results: Vec<RerankResult>,
+    pub results: Vec<RerankRankingEntry>,
 
     /// Token usage information
     pub tokens: RerankTokenUsage,
 }
 
-/// Individual rerank result
+/// Individual ranked document entry returned by provider-level rerank calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RerankResult {
+pub struct RerankRankingEntry {
     /// Original document content (if return_documents is true)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document: Option<RerankDocument>,
@@ -312,12 +312,12 @@ mod tests {
         let response = RerankResponse {
             id: "test-id".to_string(),
             results: vec![
-                RerankResult {
+                RerankRankingEntry {
                     document: None,
                     index: 2,
                     relevance_score: 0.9,
                 },
-                RerankResult {
+                RerankRankingEntry {
                     document: None,
                     index: 0,
                     relevance_score: 0.7,

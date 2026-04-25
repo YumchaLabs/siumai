@@ -195,7 +195,7 @@ impl crate::traits::RerankCapability for TestProvRerankClient {
         Ok(crate::types::RerankResponse {
             id: "rerank-test".to_string(),
             results: (0..doc_len)
-                .map(|i| crate::types::RerankResult {
+                .map(|i| crate::types::RerankRankingEntry {
                     document: None,
                     index: i as u32,
                     relevance_score: (doc_len - i) as f64,

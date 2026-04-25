@@ -5288,6 +5288,238 @@ pub struct EmbeddingModelCallEndEvent {
     pub usage: EmbeddingModelUsage,
 }
 
+/// AI SDK-style response data returned by reranking helpers.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankResponseMetadata {
+    /// Response id when the provider sends one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Timestamp for the response.
+    pub timestamp: DateTime<Utc>,
+    /// Model identifier used for the response.
+    pub model_id: String,
+    /// Response headers when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Raw response body when available.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+}
+
+impl RerankResponseMetadata {
+    /// Create rerank response metadata.
+    pub fn new(timestamp: DateTime<Utc>, model_id: impl Into<String>) -> Self {
+        Self {
+            id: None,
+            timestamp,
+            model_id: model_id.into(),
+            headers: None,
+            body: None,
+        }
+    }
+
+    /// Attach a response id.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Attach response headers.
+    pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+        self.headers = Some(headers);
+        self
+    }
+
+    /// Attach a raw response body.
+    pub fn with_body(mut self, body: JSONValue) -> Self {
+        self.body = Some(body);
+        self
+    }
+}
+
+/// Single ranking entry in an AI SDK-style rerank result.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankRanking<VALUE = JSONValue> {
+    /// Original input index.
+    pub original_index: u32,
+    /// Relevance score.
+    pub score: f64,
+    /// Reranked document value.
+    pub document: VALUE,
+}
+
+impl<VALUE> RerankRanking<VALUE> {
+    /// Create a rerank ranking entry.
+    pub fn new(original_index: u32, score: f64, document: VALUE) -> Self {
+        Self {
+            original_index,
+            score,
+            document,
+        }
+    }
+}
+
+/// Passive AI SDK-style result envelope for a `rerank` call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankResult<VALUE = JSONValue> {
+    /// Original documents that were reranked.
+    pub original_documents: Vec<VALUE>,
+    /// Reranked documents sorted by descending relevance.
+    pub reranked_documents: Vec<VALUE>,
+    /// Ranking entries with original indices, scores, and documents.
+    pub ranking: Vec<RerankRanking<VALUE>>,
+    /// Optional provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Response metadata.
+    pub response: RerankResponseMetadata,
+}
+
+impl<VALUE: Clone> RerankResult<VALUE> {
+    /// Create a rerank result from original documents, ranking entries, and response metadata.
+    pub fn new(
+        original_documents: Vec<VALUE>,
+        ranking: Vec<RerankRanking<VALUE>>,
+        response: RerankResponseMetadata,
+    ) -> Self {
+        let reranked_documents = ranking.iter().map(|entry| entry.document.clone()).collect();
+
+        Self {
+            original_documents,
+            reranked_documents,
+            ranking,
+            provider_metadata: None,
+            response,
+        }
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+}
+
+/// Event payload for AI SDK rerank `onStart` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankStartEvent {
+    /// Unique call id.
+    pub call_id: String,
+    /// Operation id, normally `ai.rerank`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Documents being reranked.
+    pub documents: Vec<JSONValue>,
+    /// Query used for reranking.
+    pub query: String,
+    /// Number of top documents to return.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_n: Option<u32>,
+    /// Maximum number of retries.
+    pub max_retries: u32,
+    /// Additional HTTP headers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, Option<String>>>,
+    /// Provider-specific options.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<ProviderOptions>,
+}
+
+/// Event payload for AI SDK rerank `onFinish` callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankEndEvent {
+    /// Unique call id.
+    pub call_id: String,
+    /// Operation id, normally `ai.rerank`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Documents that were reranked.
+    pub documents: Vec<JSONValue>,
+    /// Query used for reranking.
+    pub query: String,
+    /// Ranking entries.
+    pub ranking: Vec<RerankRanking<JSONValue>>,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Optional provider-specific metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Response metadata.
+    pub response: RerankResponseMetadata,
+}
+
+/// Event payload for the start of an underlying reranking-model call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankingModelCallStartEvent {
+    /// Unique outer rerank call id.
+    pub call_id: String,
+    /// Operation id, normally `ai.rerank.doRerank`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Documents being reranked.
+    pub documents: Vec<JSONValue>,
+    /// Document family, usually `text` or `object`.
+    pub documents_type: String,
+    /// Query used for reranking.
+    pub query: String,
+    /// Number of top documents to return.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub top_n: Option<u32>,
+}
+
+/// Ranking summary returned by an underlying reranking-model call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankingModelCallRanking {
+    /// Original document index.
+    pub index: u32,
+    /// Provider relevance score.
+    pub relevance_score: f64,
+}
+
+impl RerankingModelCallRanking {
+    /// Create a reranking model-call ranking entry.
+    pub fn new(index: u32, relevance_score: f64) -> Self {
+        Self {
+            index,
+            relevance_score,
+        }
+    }
+}
+
+/// Event payload for the end of an underlying reranking-model call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RerankingModelCallEndEvent {
+    /// Unique outer rerank call id.
+    pub call_id: String,
+    /// Operation id, normally `ai.rerank.doRerank`.
+    pub operation_id: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+    /// Document family, usually `text` or `object`.
+    pub documents_type: String,
+    /// Ranking summaries from the model call.
+    pub ranking: Vec<RerankingModelCallRanking>,
+}
+
 /// AI SDK-style image-model usage shape.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct ImageModelUsage {
@@ -6143,6 +6375,121 @@ mod tests {
             serde_json::json!("embed_1")
         );
         assert_eq!(model_end_json["embeddings"][0][0], serde_json::json!(1.0));
+    }
+
+    #[test]
+    fn rerank_result_and_event_payloads_match_ai_sdk_shape() {
+        let timestamp = DateTime::parse_from_rfc3339("2026-04-21T09:03:00Z")
+            .expect("valid timestamp")
+            .with_timezone(&Utc);
+        let response = RerankResponseMetadata::new(timestamp, "rerank-model")
+            .with_id("rr_1")
+            .with_headers(HashMap::from([(
+                "x-request-id".to_string(),
+                "req_1".to_string(),
+            )]))
+            .with_body(serde_json::json!({ "ok": true }));
+        let original_documents = vec!["apple".to_string(), "banana".to_string()];
+        let ranking = vec![
+            RerankRanking::new(1, 0.9, "banana".to_string()),
+            RerankRanking::new(0, 0.7, "apple".to_string()),
+        ];
+        let result = RerankResult::new(
+            original_documents.clone(),
+            ranking.clone(),
+            response.clone(),
+        )
+        .with_provider_metadata(HashMap::from([(
+            "cohere".to_string(),
+            serde_json::json!({ "searchUnits": 1 }),
+        )]));
+        let result_json = serde_json::to_value(&result).expect("serialize rerank result");
+
+        assert_eq!(
+            result_json["originalDocuments"][0],
+            serde_json::json!("apple")
+        );
+        assert_eq!(
+            result_json["rerankedDocuments"][0],
+            serde_json::json!("banana")
+        );
+        assert_eq!(
+            result_json["ranking"][0]["originalIndex"],
+            serde_json::json!(1)
+        );
+        assert_eq!(result_json["ranking"][0]["score"], serde_json::json!(0.9));
+        assert_eq!(result_json["response"]["id"], serde_json::json!("rr_1"));
+        assert_eq!(
+            result_json["providerMetadata"]["cohere"]["searchUnits"],
+            serde_json::json!(1)
+        );
+        let _: RerankResult<String> =
+            serde_json::from_value(result_json).expect("deserialize rerank result");
+
+        let documents = vec![serde_json::json!("apple"), serde_json::json!("banana")];
+        let start = RerankStartEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.rerank".to_string(),
+            provider: "cohere".to_string(),
+            model_id: "rerank-model".to_string(),
+            documents: documents.clone(),
+            query: "fruit".to_string(),
+            top_n: Some(2),
+            max_retries: 2,
+            headers: None,
+            provider_options: None,
+        };
+        let end = RerankEndEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.rerank".to_string(),
+            provider: "cohere".to_string(),
+            model_id: "rerank-model".to_string(),
+            documents: documents.clone(),
+            query: "fruit".to_string(),
+            ranking: vec![
+                RerankRanking::new(1, 0.9, serde_json::json!("banana")),
+                RerankRanking::new(0, 0.7, serde_json::json!("apple")),
+            ],
+            warnings: Vec::new(),
+            provider_metadata: None,
+            response: response.clone(),
+        };
+        let start_json = serde_json::to_value(&start).expect("serialize rerank start event");
+        let end_json = serde_json::to_value(&end).expect("serialize rerank end event");
+        assert_eq!(start_json["documents"][0], serde_json::json!("apple"));
+        assert_eq!(start_json["topN"], serde_json::json!(2));
+        assert_eq!(
+            end_json["ranking"][0]["document"],
+            serde_json::json!("banana")
+        );
+
+        let model_call_start = RerankingModelCallStartEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.rerank.doRerank".to_string(),
+            provider: "cohere".to_string(),
+            model_id: "rerank-model".to_string(),
+            documents,
+            documents_type: "text".to_string(),
+            query: "fruit".to_string(),
+            top_n: Some(2),
+        };
+        let model_call_end = RerankingModelCallEndEvent {
+            call_id: "call_1".to_string(),
+            operation_id: "ai.rerank.doRerank".to_string(),
+            provider: "cohere".to_string(),
+            model_id: "rerank-model".to_string(),
+            documents_type: "text".to_string(),
+            ranking: vec![RerankingModelCallRanking::new(1, 0.9)],
+        };
+        let model_start_json =
+            serde_json::to_value(&model_call_start).expect("serialize rerank model start");
+        let model_end_json =
+            serde_json::to_value(&model_call_end).expect("serialize rerank model end");
+        assert_eq!(model_start_json["documentsType"], serde_json::json!("text"));
+        assert_eq!(
+            model_end_json["ranking"][0]["relevanceScore"],
+            serde_json::json!(0.9)
+        );
     }
 
     #[test]

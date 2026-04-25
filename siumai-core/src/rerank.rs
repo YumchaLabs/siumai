@@ -58,7 +58,7 @@ mod tests {
                 results: docs
                     .into_iter()
                     .enumerate()
-                    .map(|(idx, _)| crate::types::RerankResult {
+                    .map(|(idx, _)| crate::types::RerankRankingEntry {
                         document: None,
                         index: idx as u32,
                         relevance_score: 1.0 / (1.0 + idx as f64),

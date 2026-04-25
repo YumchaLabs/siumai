@@ -155,6 +155,15 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ReasoningFileOutput>();
     let _ = size_of::<ReasoningOutput>();
     let _ = size_of::<RequestOptions>();
+    let _ = size_of::<RerankEndEvent>();
+    let _ = size_of::<RerankRanking>();
+    let _ = size_of::<RerankRankingEntry>();
+    let _ = size_of::<RerankResponseMetadata>();
+    let _ = size_of::<RerankResult>();
+    let _ = size_of::<RerankStartEvent>();
+    let _ = size_of::<RerankingModelCallEndEvent>();
+    let _ = size_of::<RerankingModelCallRanking>();
+    let _ = size_of::<RerankingModelCallStartEvent>();
     let _ = size_of::<Source>();
     let _ = size_of::<StopCondition>();
     let _ = size_of::<StreamRequestOptions>();

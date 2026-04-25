@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub use siumai_core::rerank::{RerankModelV3, RerankingModel};
-pub use siumai_core::types::{RerankRequest, RerankResponse};
+pub use siumai_core::types::{RerankRankingEntry, RerankRequest, RerankResponse};
 
 /// Options for `rerank::rerank`.
 #[derive(Debug, Clone, Default)]

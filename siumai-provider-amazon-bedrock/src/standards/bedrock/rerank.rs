@@ -7,7 +7,7 @@ use crate::error::LlmError;
 use crate::execution::transformers::rerank_request::RerankRequestTransformer;
 use crate::execution::transformers::rerank_response::RerankResponseTransformer;
 use crate::types::{
-    RerankDocuments, RerankRequest, RerankResponse, RerankResult, RerankTokenUsage,
+    RerankDocuments, RerankRankingEntry, RerankRequest, RerankResponse, RerankTokenUsage,
 };
 use reqwest::header::HeaderMap;
 use std::sync::Arc;
@@ -172,7 +172,7 @@ impl RerankResponseTransformer for BedrockRerankResponseTransformer {
                     .or_else(|| item.get("relevance_score"))
                     .and_then(|v| v.as_f64())
                     .ok_or_else(|| LlmError::ParseError("Missing 'relevanceScore' field".into()))?;
-                Ok(RerankResult {
+                Ok(RerankRankingEntry {
                     document: None,
                     index,
                     relevance_score: score,
