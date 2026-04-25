@@ -71,6 +71,9 @@ References:
 - `repo-ref/ai/packages/ai/src/generate-text/prepare-step.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-configuration.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-call-repair-function.ts`
+- `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
+- `repo-ref/ai/packages/ai/src/util/data-url.ts`
+- `repo-ref/ai/packages/ai/src/util/is-deep-equal-data.ts`
 
 Status legend:
 
@@ -221,6 +224,11 @@ The same passive-structure rule now covers the remaining high-value `generateObj
 plus its named variants mirror the event union from `stream-object-result.ts`. This improves
 import/serde parity for callback and stream-event data without claiming the full AI SDK
 `StreamObjectResult` runtime object exists on the Rust facade yet.
+
+The low-level data utility surface is also less ad hoc now: the root facade and unified prelude
+expose `cosine_similarity`, `get_text_from_data_url`, and `is_deep_equal_data`, matching the
+audited AI SDK helper semantics while using Rust `Result` errors instead of thrown
+`InvalidArgumentError` / generic JavaScript errors.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

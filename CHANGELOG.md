@@ -84,6 +84,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::parse_json_event_stream` and `prelude::unified::parse_json_event_stream` parse SSE
   `data:` JSON payloads while ignoring `[DONE]`, using Rust stream item errors instead of a
   TypeScript-style `ParseResult` union.
+- AI SDK utility parity now exposes pure Rust helpers for stable data operations:
+  `cosine_similarity`, `get_text_from_data_url`, and `is_deep_equal_data` are available from the
+  root facade and `prelude::unified`, mirroring `cosineSimilarity`, `getTextFromDataUrl`, and
+  `isDeepEqualData` with Rust `Result` errors for invalid inputs.
 - AI SDK `generateObject` parity now has a non-streaming Rust helper:
   `siumai::structured_output::generate_object` plus root/prelude re-exports for
   `generate_object`, `generate_array`, `generate_enum`, `GenerateObjectOptions`,

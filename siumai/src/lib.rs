@@ -101,8 +101,8 @@ pub use siumai_core::hosted_tools;
 
 /// AI SDK-style ID generation helpers.
 pub use siumai_core::utils::{
-    DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, IdGenerator, IdGeneratorOptions, create_id_generator,
-    generate_id,
+    DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, IdGenerator, IdGeneratorOptions, cosine_similarity,
+    create_id_generator, generate_id, get_text_from_data_url, is_deep_equal_data,
 };
 
 /// Protocol mapping facade (stable imports for protocol standards).
@@ -2051,7 +2051,8 @@ pub mod prelude {
         pub use crate::tools;
         pub use crate::{
             DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, IdGenerator, IdGeneratorOptions,
-            create_id_generator, generate_id,
+            cosine_similarity, create_id_generator, generate_id, get_text_from_data_url,
+            is_deep_equal_data,
         };
         pub use crate::{
             ExecutableTool, ExecutableTools, ToolExecuteFunction, ToolExecutionOptions,

@@ -273,6 +273,9 @@ fn public_surface_unified_imports_compile() {
         as fn(&LanguageModelUsage, &LanguageModelUsage) -> LanguageModelUsage;
     let _ = add_image_model_usage as fn(&ImageModelUsage, &ImageModelUsage) -> ImageModelUsage;
     let _ = convert_data_content_to_base64_string as fn(&DataContent) -> String;
+    let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
+    let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
+    let _ = is_deep_equal_data as fn(&JSONValue, &JSONValue) -> bool;
 
     let schema = json_schema(serde_json::json!({ "type": "object" }));
     assert_eq!(schema.json_schema()["type"], serde_json::json!("object"));
