@@ -227,15 +227,18 @@ and `tool-execution-events.ts` (`GenerateTextStartEvent`, `GenerateTextStepStart
 `ToolExecutionEndEvent`, and `ToolOutput`). The same pass now covers the pure
 step-control/configuration data around `stop-condition.ts`, `filter-active-tool.ts`,
 `prune-messages.ts`, `prepare-step.ts`, tool approval configuration, and tool-call repair
-contexts. These remain intentionally separate from runtime `ChatStreamPart` and current text
-helper returns, so the structure is importable and serde-aligned without falsely claiming full AI
-SDK `StreamTextResult` multi-lane runtime behavior, the experimental `streamLanguageModelCall`
-runtime helper, or serializing TypeScript callback functions. Rust-named aliases are also present
-for upstream's `experimental_filterActiveTools` and deprecated `stepCountIs` exports, and
-`prune_messages(...)` now covers the upstream pure message-pruning helper over shared
-`ModelMessage` values. Runtime/function/type-level exports such as `smoothStream`,
-`StreamTextTransform`, callback aliases, `OutputInterface`, and infer helpers remain intentionally
-deferred until backed by real Rust behavior.
+contexts. The tool-repair error split now follows upstream exactly at the passive data layer:
+`ToolCallRepairFunctionError` carries the `NoSuchToolError | InvalidToolInputError` callback input
+union, while `ToolCallRepairError` remains the separate repair-failure wrapper from
+`error/tool-call-repair-error.ts`. These remain intentionally separate from runtime
+`ChatStreamPart` and current text helper returns, so the structure is importable and serde-aligned
+without falsely claiming full AI SDK `StreamTextResult` multi-lane runtime behavior, the
+experimental `streamLanguageModelCall` runtime helper, or serializing TypeScript callback
+functions. Rust-named aliases are also present for upstream's `experimental_filterActiveTools` and
+deprecated `stepCountIs` exports, and `prune_messages(...)` now covers the upstream pure
+message-pruning helper over shared `ModelMessage` values. Runtime/function/type-level exports such
+as `smoothStream`, `StreamTextTransform`, callback aliases, `OutputInterface`, and infer helpers
+remain intentionally deferred until backed by real Rust behavior.
 
 The same passive-structure rule now covers the remaining high-value `generateObject` event data:
 `GenerateObjectStartEvent`, `GenerateObjectStepStartEvent`, `GenerateObjectStepEndEvent`,

@@ -5756,37 +5756,135 @@ pub struct ToolApprovalDecisionContext<NAME = String, INPUT = JSONValue> {
     pub messages: Vec<ModelMessage>,
 }
 
-/// Passive repair error category for AI SDK `ToolCallRepairFunction`.
+/// AI SDK `NoSuchToolError` data carried into tool-call repair callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoSuchToolError {
+    /// Tool name from the failed call.
+    pub tool_name: String,
+    /// Available tool names when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub available_tools: Option<Vec<String>>,
+    /// Human-readable error message.
+    pub message: String,
+}
+
+impl NoSuchToolError {
+    /// Create a `NoSuchToolError` with the upstream default message shape.
+    pub fn new(tool_name: impl Into<String>, available_tools: Option<Vec<String>>) -> Self {
+        let tool_name = tool_name.into();
+        let message = match available_tools.as_ref() {
+            Some(available_tools) => format!(
+                "Model tried to call unavailable tool '{tool_name}'. Available tools: {}.",
+                available_tools.join(", ")
+            ),
+            None => format!(
+                "Model tried to call unavailable tool '{tool_name}'. No tools are available."
+            ),
+        };
+
+        Self {
+            tool_name,
+            available_tools,
+            message,
+        }
+    }
+}
+
+fn ai_sdk_error_message(cause: Option<&JSONValue>) -> String {
+    match cause {
+        None | Some(JSONValue::Null) => "unknown error".to_string(),
+        Some(JSONValue::String(message)) => message.clone(),
+        Some(cause) => cause.to_string(),
+    }
+}
+
+/// AI SDK `InvalidToolInputError` data carried into tool-call repair callbacks.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidToolInputError {
+    /// Tool name from the failed call.
+    pub tool_name: String,
+    /// Raw tool input text that failed parsing or validation.
+    pub tool_input: String,
+    /// Human-readable error message.
+    pub message: String,
+    /// Provider/application error payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+}
+
+impl InvalidToolInputError {
+    /// Create an invalid-tool-input error.
+    pub fn new(
+        tool_name: impl Into<String>,
+        tool_input: impl Into<String>,
+        cause: Option<JSONValue>,
+    ) -> Self {
+        let tool_name = tool_name.into();
+        let message = format!(
+            "Invalid input for tool {tool_name}: {}",
+            ai_sdk_error_message(cause.as_ref())
+        );
+
+        Self {
+            tool_name,
+            tool_input: tool_input.into(),
+            message,
+            cause,
+        }
+    }
+}
+
+/// Passive repair error union accepted by AI SDK `ToolCallRepairFunction`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
-pub enum ToolCallRepairError {
+pub enum ToolCallRepairFunctionError {
     /// The requested tool name is not available.
-    NoSuchTool {
-        /// Tool name from the failed call.
-        #[serde(rename = "toolName", alias = "tool_name")]
-        tool_name: String,
-        /// Available tool names when known.
-        #[serde(
-            rename = "availableTools",
-            alias = "available_tools",
-            default,
-            skip_serializing_if = "Vec::is_empty"
-        )]
-        available_tools: Vec<String>,
-    },
+    NoSuchTool(NoSuchToolError),
     /// The tool input failed schema validation or parsing.
-    InvalidToolInput {
-        /// Tool name from the failed call.
-        #[serde(rename = "toolName", alias = "tool_name")]
-        tool_name: String,
-        /// Provider/application error payload.
-        error: JSONValue,
-    },
-    /// Application-owned repair error payload.
-    Other {
-        /// Opaque error payload.
-        error: JSONValue,
-    },
+    InvalidToolInput(InvalidToolInputError),
+}
+
+impl From<NoSuchToolError> for ToolCallRepairFunctionError {
+    fn from(error: NoSuchToolError) -> Self {
+        Self::NoSuchTool(error)
+    }
+}
+
+impl From<InvalidToolInputError> for ToolCallRepairFunctionError {
+    fn from(error: InvalidToolInputError) -> Self {
+        Self::InvalidToolInput(error)
+    }
+}
+
+/// AI SDK `ToolCallRepairError` wrapper thrown when repair itself fails.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCallRepairError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Original parse/availability error that triggered repair.
+    pub original_error: ToolCallRepairFunctionError,
+    /// Provider/application repair failure payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+}
+
+impl ToolCallRepairError {
+    /// Create a repair error wrapper.
+    pub fn new(original_error: ToolCallRepairFunctionError, cause: Option<JSONValue>) -> Self {
+        let message = format!(
+            "Error repairing tool call: {}",
+            ai_sdk_error_message(cause.as_ref())
+        );
+
+        Self {
+            message,
+            original_error,
+            cause,
+        }
+    }
 }
 
 /// Passive options passed to AI SDK `ToolCallRepairFunction`.
@@ -5809,7 +5907,7 @@ pub struct ToolCallRepairContext<NAME = String, INPUT = JSONValue> {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub input_schemas: HashMap<String, JSONSchema7>,
     /// Error that caused repair to be attempted.
-    pub error: ToolCallRepairError,
+    pub error: ToolCallRepairFunctionError,
 }
 
 /// Passive repair result returned by an AI SDK `ToolCallRepairFunction`.
@@ -9856,10 +9954,10 @@ mod tests {
                 "lookup".to_string(),
                 serde_json::json!({ "type": "object" }),
             )]),
-            error: ToolCallRepairError::NoSuchTool {
-                tool_name: "search".to_string(),
-                available_tools: vec!["lookup".to_string()],
-            },
+            error: ToolCallRepairFunctionError::NoSuchTool(NoSuchToolError::new(
+                "search",
+                Some(vec!["lookup".to_string()]),
+            )),
         };
         let repair_json = serde_json::to_value(&repair_context).expect("serialize repair context");
         assert_eq!(
@@ -9875,8 +9973,47 @@ mod tests {
             serde_json::json!({
                 "type": "no-such-tool",
                 "toolName": "search",
-                "availableTools": ["lookup"]
+                "availableTools": ["lookup"],
+                "message": "Model tried to call unavailable tool 'search'. Available tools: lookup."
             })
+        );
+
+        let invalid_tool_input_error =
+            ToolCallRepairFunctionError::from(InvalidToolInputError::new(
+                "search",
+                "{",
+                Some(serde_json::json!({ "message": "bad input" })),
+            ));
+        let invalid_tool_input_json =
+            serde_json::to_value(&invalid_tool_input_error).expect("serialize invalid input error");
+        assert_eq!(
+            invalid_tool_input_json,
+            serde_json::json!({
+                "type": "invalid-tool-input",
+                "toolName": "search",
+                "toolInput": "{",
+                "message": r#"Invalid input for tool search: {"message":"bad input"}"#,
+                "cause": { "message": "bad input" }
+            })
+        );
+
+        let repair_error = ToolCallRepairError::new(
+            serde_json::from_value(repair_json["error"].clone()).expect("deserialize repair error"),
+            Some(serde_json::json!({ "message": "repair failed" })),
+        );
+        let repair_error_json =
+            serde_json::to_value(&repair_error).expect("serialize repair error wrapper");
+        assert_eq!(
+            repair_error_json["message"],
+            serde_json::json!(r#"Error repairing tool call: {"message":"repair failed"}"#)
+        );
+        assert_eq!(
+            repair_error_json["originalError"]["type"],
+            serde_json::json!("no-such-tool")
+        );
+        assert_eq!(
+            repair_error_json["cause"]["message"],
+            serde_json::json!("repair failed")
         );
 
         let repair_result: ToolCallRepairResult = Some(ToolCall::new(

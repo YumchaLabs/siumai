@@ -220,8 +220,10 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<VideoModelResponseMetadata>();
     let _ = size_of::<ProviderOptionsMap>();
     let _ = size_of::<InvalidDataContentError>();
+    let _ = size_of::<InvalidToolInputError>();
     let _ = size_of::<MissingToolResultsError>();
     let _ = size_of::<ModelMessageConversionError>();
+    let _ = size_of::<NoSuchToolError>();
     let _ = size_of::<PromptExecutionError>();
     let _ = size_of::<PromptValidationError>();
     let _ = size_of::<ToolCall<String, JSONValue>>();
@@ -232,6 +234,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ToolApprovalStatusType>();
     let _ = size_of::<ToolCallRepairContext>();
     let _ = size_of::<ToolCallRepairError>();
+    let _ = size_of::<ToolCallRepairFunctionError>();
     let _ = size_of::<ToolCallRepairResult>();
     let _ = size_of::<ToolExecutionEndEvent>();
     let _ = size_of::<ToolExecutionStartEvent>();

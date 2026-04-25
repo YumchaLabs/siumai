@@ -61,9 +61,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `is_stop_condition_met`; `filter_active_tools` plus the upstream experimental/deprecated helper
   aliases `experimental_filter_active_tools` and `step_count_is`; `PrepareStepOptions` /
   `PrepareStepResult`; `ToolApprovalStatus` / `ToolApprovalConfiguration` /
-  `ToolApprovalDecisionContext`; and `ToolCallRepairContext` / `ToolCallRepairError` /
-  `ToolCallRepairResult`. Function-valued upstream callbacks remain represented as data carriers
-  or Rust helper functions only.
+  `ToolApprovalDecisionContext`; and `ToolCallRepairContext` /
+  `ToolCallRepairFunctionError` / `NoSuchToolError` / `InvalidToolInputError` /
+  `ToolCallRepairError` / `ToolCallRepairResult`. The repair-function input error union now stays
+  separate from AI SDK's repair-failure wrapper error, matching
+  `tool-call-repair-function.ts` and `tool-call-repair-error.ts`. Function-valued upstream
+  callbacks remain represented as data carriers or Rust helper functions only.
 - AI SDK `pruneMessages` parity is now available as `prune_messages(...)` with
   `PruneMessagesOptions`, `PruneReasoningMode`, `PruneToolCallRule`, `PruneToolCallMode`, and
   `PruneEmptyMessagesMode`, covering reasoning pruning, tool-call/result/approval pruning, and
