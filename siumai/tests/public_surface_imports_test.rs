@@ -6,7 +6,9 @@ fn public_surface_unified_imports_compile() {
     use siumai::prelude::unified::*;
 
     let _ = size_of::<ChatRequest>();
+    let _ = size_of::<ChatRequestOptions>();
     let _ = size_of::<ChatResponse>();
+    let _ = size_of::<ChatStatus>();
     let _ = size_of::<ResponseFormat>();
     let _ = size_of::<CallSettings>();
     let _ = size_of::<JSONSchema7>();
@@ -51,10 +53,13 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<CancelHandle>();
     let _ = size_of::<CallbackModelInfo>();
     let _ = size_of::<Context>();
+    let _ = size_of::<CreateUIMessage>();
     let _ = size_of::<DataContent>();
     let _ = size_of::<DefaultGeneratedFile>();
     let _ = size_of::<CompletionRequest>();
+    let _ = size_of::<CompletionRequestOptions>();
     let _ = size_of::<CompletionResponse>();
+    let _ = size_of::<CompletionStreamProtocol>();
     let _ = size_of::<DynamicToolCall>();
     let _ = size_of::<DynamicToolError>();
     let _ = size_of::<DynamicToolResult>();
@@ -146,6 +151,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
     let _ = size_of::<ImageModelUsage>();
+    let _ = size_of::<InferUIDataParts>();
     let _ = size_of::<LanguageModelCallOptions>();
     let _ = size_of::<LanguageModelInputTokenDetails>();
     let _ = size_of::<LanguageModelOutputTokenDetails>();
@@ -166,6 +172,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<PrepareStepResult>();
     let _ = size_of::<ReasoningFileOutput>();
     let _ = size_of::<ReasoningOutput>();
+    let _ = size_of::<RequestCredentials>();
     let _ = size_of::<RequestOptions>();
     let _ = size_of::<RerankEndEvent>();
     let _ = size_of::<RerankRanking>();
@@ -232,6 +239,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<TypedToolCall>();
     let _ = size_of::<TypedToolError>();
     let _ = size_of::<TypedToolResult>();
+    let _ = size_of::<UIDataPartSchemas>();
+    let _ = size_of::<UIDataTypesToSchemas>();
     let _ = size_of::<UIMessageStreamOptions>();
     let _ = size_of::<UiCustomPart>();
     let _ = size_of::<UiDataPart>();
@@ -286,6 +295,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<UiToolKind>();
     let _ = size_of::<UiToolPart>();
     let _ = size_of::<UiToolPartState>();
+    let _ = size_of::<UseCompletionOptions>();
     let _ = size_of::<OnStartEvent>();
     let _ = size_of::<OnStepStartEvent>();
     let _ = size_of::<OnChunkEvent>();

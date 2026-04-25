@@ -7,7 +7,7 @@
 use super::chat::{ContentPart, SourcePart, UiMessage};
 use super::{
     AssistantContent, AssistantContentPart, AssistantModelMessage, DataContent, EmbeddingUsage,
-    FinishReason, HttpRequestInfo, HttpResponseInfo, ModelMessage, PromptInput,
+    FinishReason, FlexibleSchema, HttpRequestInfo, HttpResponseInfo, ModelMessage, PromptInput,
     ProviderMetadataMap, ProviderOptionsMap, ResponseMetadata, StandardizedPrompt, SystemPrompt,
     Tool, ToolChoice, ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, Warning,
 };
@@ -2193,6 +2193,264 @@ pub const UI_MESSAGE_STREAM_HEADERS: &[(&str, &str)] = &[
     ("x-vercel-ai-ui-message-stream", "v1"),
     ("x-accel-buffering", "no"),
 ];
+
+/// AI SDK UI data-part schema map.
+pub type UIDataPartSchemas = HashMap<String, FlexibleSchema<JSONValue>>;
+
+/// AI SDK UI data type to schema map. Rust keeps this as the same runtime map.
+pub type UIDataTypesToSchemas = UIDataPartSchemas;
+
+/// AI SDK inferred UI data parts. Rust exposes the resolved JSON-value map directly.
+pub type InferUIDataParts = HashMap<String, JSONValue>;
+
+/// Passive message input accepted by AI SDK `CreateUIMessage`.
+///
+/// Upstream models this as `Omit<UIMessage, "id" | "role"> & { id?: ...; role?: ... }`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateUIMessage<MessagePart = super::chat::UiMessagePart> {
+    /// Optional UI message id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Optional role, defaulted by the caller/runtime when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role: Option<super::chat::UiMessageRole>,
+    /// Optional UI-only metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JSONValue>,
+    /// Renderable UI parts.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<MessagePart>,
+}
+
+impl<MessagePart> Default for CreateUIMessage<MessagePart> {
+    fn default() -> Self {
+        Self {
+            id: None,
+            role: None,
+            metadata: None,
+            parts: Vec::new(),
+        }
+    }
+}
+
+impl<MessagePart> CreateUIMessage<MessagePart> {
+    /// Create an empty create-message payload.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the optional message id.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Set the optional message role.
+    pub fn with_role(mut self, role: super::chat::UiMessageRole) -> Self {
+        self.role = Some(role);
+        self
+    }
+
+    /// Set UI-only metadata.
+    pub fn with_metadata(mut self, metadata: impl Into<JSONValue>) -> Self {
+        self.metadata = Some(metadata.into());
+        self
+    }
+
+    /// Set renderable UI parts.
+    pub fn with_parts(mut self, parts: impl IntoIterator<Item = MessagePart>) -> Self {
+        self.parts = parts.into_iter().collect();
+        self
+    }
+}
+
+/// Serializable subset of AI SDK `ChatRequestOptions`.
+///
+/// Browser `Headers` objects are represented as a plain string map.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatRequestOptions {
+    /// Additional headers passed to the API endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Additional JSON body properties sent to the API endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+    /// Request metadata passed through the UI transport.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JSONValue>,
+}
+
+impl ChatRequestOptions {
+    /// Create empty chat request options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set request headers.
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.headers = Some(headers.into_iter().collect());
+        self
+    }
+
+    /// Set additional request body properties.
+    pub fn with_body(mut self, body: impl Into<JSONValue>) -> Self {
+        self.body = Some(body.into());
+        self
+    }
+
+    /// Set request metadata.
+    pub fn with_metadata(mut self, metadata: impl Into<JSONValue>) -> Self {
+        self.metadata = Some(metadata.into());
+        self
+    }
+}
+
+/// AI SDK `ChatStatus` values.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChatStatus {
+    Submitted,
+    Streaming,
+    Ready,
+    Error,
+}
+
+/// Serializable subset of AI SDK `CompletionRequestOptions`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CompletionRequestOptions {
+    /// Additional headers passed to the API endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Additional JSON body properties sent to the API endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+}
+
+impl CompletionRequestOptions {
+    /// Create empty completion request options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set request headers.
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.headers = Some(headers.into_iter().collect());
+        self
+    }
+
+    /// Set additional request body properties.
+    pub fn with_body(mut self, body: impl Into<JSONValue>) -> Self {
+        self.body = Some(body.into());
+        self
+    }
+}
+
+/// Browser request credentials mode used by AI SDK UI helpers.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "kebab-case")]
+pub enum RequestCredentials {
+    Omit,
+    SameOrigin,
+    Include,
+}
+
+/// AI SDK `useCompletion` stream protocol.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "lowercase")]
+pub enum CompletionStreamProtocol {
+    Data,
+    Text,
+}
+
+/// Serializable subset of AI SDK `UseCompletionOptions`.
+///
+/// Function-valued options (`onFinish`, `onError`) and custom `fetch` are intentionally deferred.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UseCompletionOptions {
+    /// Completion API endpoint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api: Option<String>,
+    /// Shared completion id.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Initial prompt input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_input: Option<String>,
+    /// Initial completion text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub initial_completion: Option<String>,
+    /// Browser credentials mode.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub credentials: Option<RequestCredentials>,
+    /// HTTP headers sent with the request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Extra JSON body object sent with the prompt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+    /// Streaming protocol, defaulted by the UI runtime when absent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream_protocol: Option<CompletionStreamProtocol>,
+}
+
+impl UseCompletionOptions {
+    /// Create empty completion hook options.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the completion API endpoint.
+    pub fn with_api(mut self, api: impl Into<String>) -> Self {
+        self.api = Some(api.into());
+        self
+    }
+
+    /// Set the shared completion id.
+    pub fn with_id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Set the initial prompt input.
+    pub fn with_initial_input(mut self, initial_input: impl Into<String>) -> Self {
+        self.initial_input = Some(initial_input.into());
+        self
+    }
+
+    /// Set the initial completion text.
+    pub fn with_initial_completion(mut self, initial_completion: impl Into<String>) -> Self {
+        self.initial_completion = Some(initial_completion.into());
+        self
+    }
+
+    /// Set browser credentials mode.
+    pub fn with_credentials(mut self, credentials: RequestCredentials) -> Self {
+        self.credentials = Some(credentials);
+        self
+    }
+
+    /// Set request headers.
+    pub fn with_headers(mut self, headers: impl IntoIterator<Item = (String, String)>) -> Self {
+        self.headers = Some(headers.into_iter().collect());
+        self
+    }
+
+    /// Set extra request body properties.
+    pub fn with_body(mut self, body: impl Into<JSONValue>) -> Self {
+        self.body = Some(body.into());
+        self
+    }
+
+    /// Set stream protocol.
+    pub fn with_stream_protocol(mut self, stream_protocol: CompletionStreamProtocol) -> Self {
+        self.stream_protocol = Some(stream_protocol);
+        self
+    }
+}
 
 /// Passive serializable subset of AI SDK `UIMessageStreamOptions`.
 ///
@@ -7520,7 +7778,7 @@ fn string_body_to_json_value(body: String) -> JSONValue {
 mod tests {
     use super::super::{
         AssistantContent, ReasoningPart, TextPart, ToolApprovalRequest, ToolApprovalResponse,
-        ToolCallPart, ToolResultPart, UiMessagePart,
+        ToolCallPart, ToolResultPart, UiMessagePart, UiMessageRole,
     };
     use super::*;
 
@@ -7773,6 +8031,95 @@ mod tests {
                 .map(|(_, value)| *value),
             Some("v1")
         );
+
+        let create_message = CreateUIMessage::new()
+            .with_id("msg_new")
+            .with_role(UiMessageRole::User)
+            .with_metadata(serde_json::json!({ "draft": true }))
+            .with_parts(vec![UiMessagePart::text("hello")]);
+        let create_message_json =
+            serde_json::to_value(&create_message).expect("serialize create UI message");
+        assert_eq!(create_message_json["id"], serde_json::json!("msg_new"));
+        assert_eq!(create_message_json["role"], serde_json::json!("user"));
+        assert_eq!(
+            create_message_json["metadata"]["draft"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            create_message_json["parts"][0]["type"],
+            serde_json::json!("text")
+        );
+
+        let chat_request_options = ChatRequestOptions::new()
+            .with_headers(HashMap::from([(
+                "x-trace-id".to_string(),
+                "trace_1".to_string(),
+            )]))
+            .with_body(serde_json::json!({ "sessionId": "sess_1" }))
+            .with_metadata(serde_json::json!({ "source": "ui" }));
+        let chat_request_json =
+            serde_json::to_value(&chat_request_options).expect("serialize chat request options");
+        assert_eq!(
+            chat_request_json["headers"]["x-trace-id"],
+            serde_json::json!("trace_1")
+        );
+        assert_eq!(
+            chat_request_json["body"]["sessionId"],
+            serde_json::json!("sess_1")
+        );
+        assert_eq!(
+            chat_request_json["metadata"]["source"],
+            serde_json::json!("ui")
+        );
+        assert_eq!(
+            serde_json::to_value(ChatStatus::Streaming).expect("serialize chat status"),
+            serde_json::json!("streaming")
+        );
+
+        let completion_request_options = CompletionRequestOptions::new()
+            .with_headers(HashMap::from([("x-mode".to_string(), "test".to_string())]))
+            .with_body(serde_json::json!({ "tenant": "acme" }));
+        let completion_request_json = serde_json::to_value(&completion_request_options)
+            .expect("serialize completion request options");
+        assert_eq!(
+            completion_request_json["headers"]["x-mode"],
+            serde_json::json!("test")
+        );
+        assert_eq!(
+            completion_request_json["body"]["tenant"],
+            serde_json::json!("acme")
+        );
+
+        let use_completion_options = UseCompletionOptions::new()
+            .with_api("/api/completion")
+            .with_id("completion_1")
+            .with_initial_input("question")
+            .with_initial_completion("answer")
+            .with_credentials(RequestCredentials::SameOrigin)
+            .with_headers(HashMap::from([("x-ui".to_string(), "1".to_string())]))
+            .with_body(serde_json::json!({ "sessionId": "sess_1" }))
+            .with_stream_protocol(CompletionStreamProtocol::Text);
+        let use_completion_json = serde_json::to_value(&use_completion_options)
+            .expect("serialize use completion options");
+        assert_eq!(
+            use_completion_json["initialInput"],
+            serde_json::json!("question")
+        );
+        assert_eq!(
+            use_completion_json["initialCompletion"],
+            serde_json::json!("answer")
+        );
+        assert_eq!(
+            use_completion_json["credentials"],
+            serde_json::json!("same-origin")
+        );
+        assert_eq!(
+            use_completion_json["streamProtocol"],
+            serde_json::json!("text")
+        );
+        assert!(use_completion_json.get("onFinish").is_none());
+        assert!(use_completion_json.get("onError").is_none());
+        assert!(use_completion_json.get("fetch").is_none());
 
         let options = UiMessageStreamOptions::new()
             .with_original_messages(vec![UiMessage::user(

@@ -393,6 +393,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   helpers or function-valued callbacks. `siumai::ui::safe_validate_ui_messages(...)` and
   `SafeValidateUiMessagesResult` / `SafeValidateUIMessagesResult` now mirror the upstream
   `safeValidateUIMessages` result-union path for callers that prefer non-throwing validation.
+  Passive UI client configuration shapes are also importable from `prelude::unified`:
+  `CreateUIMessage`, `ChatRequestOptions`, `ChatStatus`, `CompletionRequestOptions`,
+  `UseCompletionOptions`, `RequestCredentials`, `CompletionStreamProtocol`, and the schema-map
+  aliases `UIDataPartSchemas` / `UIDataTypesToSchemas` / `InferUIDataParts`; runtime callbacks,
+  transports, custom `fetch`, and hook state machines remain intentionally deferred.
 - Public AI SDK package facades now also expose package-level provider entry helpers directly on
   their own namespaces: compat-promoted wrappers
   `provider_ext::{mistral,perplexity,fireworks,moonshotai,deepinfra}` plus the audited
