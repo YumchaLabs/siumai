@@ -56,6 +56,14 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `ToolExecutionEndEvent`, plus deprecated upstream alias names such as `OnStartEvent` and
   `OnToolCallFinishEvent`. These mirror `core-events.ts` / `tool-execution-events.ts` as data
   carriers without claiming runtime callback wiring.
+- AI SDK `error/index.ts` parity now has passive Rust carriers for the high-value serializable
+  error data that was still missing from the import surface: `InvalidArgumentError`,
+  `InvalidStreamPartError`, `InvalidToolApprovalError`, `ToolCallNotFoundForApprovalError`,
+  `NoImageGeneratedError`, `NoObjectGeneratedError`, `NoOutputGeneratedError`,
+  `NoSpeechGeneratedError`, `NoTranscriptGeneratedError`, `NoVideoGeneratedError`,
+  `UnsupportedModelVersionError`, `UIMessageStreamError`, `InvalidMessageRoleError`,
+  `MessageConversionError`, `RetryError`, and `RetryErrorReason`. These are data-shape exports
+  and do not replace Siumai's runtime error hierarchy.
 - AI SDK generate-text step-control payloads now have passive Rust structures and helpers:
   symbolic `StopCondition` plus `is_step_count`, `is_loop_finished`, `has_tool_call`, and
   `is_stop_condition_met`; `filter_active_tools` plus the upstream experimental/deprecated helper

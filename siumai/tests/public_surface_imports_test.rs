@@ -116,6 +116,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<GenerateTextStepResult>();
     let _ = size_of::<GenerateTextStepStartEvent>();
     let _ = size_of::<ResponseMessage>();
+    let _ = size_of::<RetryError>();
+    let _ = size_of::<RetryErrorReason>();
     let _ = size_of::<TextStreamAbortPart>();
     let _ = size_of::<TextStreamCustomPart>();
     let _ = size_of::<TextStreamErrorPart>();
@@ -152,6 +154,10 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ImageModelResponseMetadata>();
     let _ = size_of::<ImageModelUsage>();
     let _ = size_of::<InferUIDataParts>();
+    let _ = size_of::<InvalidArgumentError>();
+    let _ = size_of::<InvalidMessageRoleError>();
+    let _ = size_of::<InvalidStreamPartError>();
+    let _ = size_of::<InvalidToolApprovalError>();
     let _ = size_of::<LanguageModelCallOptions>();
     let _ = size_of::<LanguageModelInputTokenDetails>();
     let _ = size_of::<LanguageModelOutputTokenDetails>();
@@ -222,8 +228,15 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<InvalidDataContentError>();
     let _ = size_of::<InvalidToolInputError>();
     let _ = size_of::<MissingToolResultsError>();
+    let _ = size_of::<MessageConversionError>();
     let _ = size_of::<ModelMessageConversionError>();
+    let _ = size_of::<NoImageGeneratedError>();
+    let _ = size_of::<NoObjectGeneratedError>();
+    let _ = size_of::<NoOutputGeneratedError>();
+    let _ = size_of::<NoSpeechGeneratedError>();
     let _ = size_of::<NoSuchToolError>();
+    let _ = size_of::<NoTranscriptGeneratedError>();
+    let _ = size_of::<NoVideoGeneratedError>();
     let _ = size_of::<PromptExecutionError>();
     let _ = size_of::<PromptValidationError>();
     let _ = size_of::<ToolCall<String, JSONValue>>();
@@ -232,6 +245,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ToolApprovalStatus>();
     let _ = size_of::<ToolApprovalStatusDetails>();
     let _ = size_of::<ToolApprovalStatusType>();
+    let _ = size_of::<ToolCallNotFoundForApprovalError>();
     let _ = size_of::<ToolCallRepairContext>();
     let _ = size_of::<ToolCallRepairError>();
     let _ = size_of::<ToolCallRepairFunctionError>();
@@ -244,6 +258,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<TypedToolResult>();
     let _ = size_of::<UIDataPartSchemas>();
     let _ = size_of::<UIDataTypesToSchemas>();
+    let _ = size_of::<UIMessageStreamError>();
     let _ = size_of::<UIMessageStreamOptions>();
     let _ = size_of::<UiCustomPart>();
     let _ = size_of::<UiDataPart>();
@@ -280,6 +295,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<UiMessageToolOutputAvailableChunk<JSONValue>>();
     let _ = size_of::<UiMessageToolOutputDeniedChunk>();
     let _ = size_of::<UiMessageToolOutputErrorChunk>();
+    let _ = size_of::<UiMessageWithoutId>();
     let _ = size_of::<UiMessageStreamOptions>();
     let _ = size_of::<UiPartState>();
     let _ = size_of::<UiProviderMetadata>();
@@ -298,6 +314,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<UiToolKind>();
     let _ = size_of::<UiToolPart>();
     let _ = size_of::<UiToolPartState>();
+    let _ = size_of::<UnsupportedModelVersionError>();
     let _ = size_of::<UseCompletionOptions>();
     let _ = size_of::<OnStartEvent>();
     let _ = size_of::<OnStepStartEvent>();

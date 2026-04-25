@@ -4,7 +4,7 @@
 //! Siumai already has a stable equivalent or can expose a passive data structure honestly
 //! without pretending the runtime wiring is more complete than it is today.
 
-use super::chat::{ContentPart, SourcePart, UiMessage};
+use super::chat::{ContentPart, SourcePart, UiMessage, UiMessagePart, UiMessageRole};
 use super::{
     AssistantContent, AssistantContentPart, AssistantModelMessage, DataContent, EmbeddingUsage,
     FinishReason, FlexibleSchema, HttpRequestInfo, HttpResponseInfo, ModelMessage, PromptInput,
@@ -38,6 +38,445 @@ pub type Context = HashMap<String, JSONValue>;
 
 /// AI SDK-style single embedding vector.
 pub type Embedding = Vec<f32>;
+
+/// AI SDK `InvalidArgumentError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidArgumentError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Invalid parameter name.
+    pub parameter: String,
+    /// Invalid parameter value when serializable.
+    pub value: JSONValue,
+}
+
+impl InvalidArgumentError {
+    /// Create an `InvalidArgumentError` with the upstream default message prefix.
+    pub fn new(parameter: impl Into<String>, value: JSONValue, message: impl Into<String>) -> Self {
+        let parameter = parameter.into();
+        let message = format!(
+            "Invalid argument for parameter {parameter}: {}",
+            message.into()
+        );
+
+        Self {
+            message,
+            parameter,
+            value,
+        }
+    }
+}
+
+/// AI SDK `InvalidStreamPartError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidStreamPartError<NAME = String, INPUT = JSONValue, OUTPUT = ToolResultOutput> {
+    /// Human-readable error message.
+    pub message: String,
+    /// Invalid language-model stream chunk.
+    pub chunk: LanguageModelStreamPart<NAME, INPUT, OUTPUT>,
+}
+
+impl<NAME, INPUT, OUTPUT> InvalidStreamPartError<NAME, INPUT, OUTPUT> {
+    /// Create an `InvalidStreamPartError`.
+    pub fn new(
+        chunk: LanguageModelStreamPart<NAME, INPUT, OUTPUT>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            message: message.into(),
+            chunk,
+        }
+    }
+}
+
+/// AI SDK `InvalidToolApprovalError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidToolApprovalError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Unknown approval id.
+    pub approval_id: String,
+}
+
+impl InvalidToolApprovalError {
+    /// Create an `InvalidToolApprovalError` with the upstream default message.
+    pub fn new(approval_id: impl Into<String>) -> Self {
+        let approval_id = approval_id.into();
+        Self {
+            message: format!(
+                "Tool approval response references unknown approvalId: \"{approval_id}\". \
+                 No matching tool-approval-request found in message history."
+            ),
+            approval_id,
+        }
+    }
+}
+
+/// AI SDK `ToolCallNotFoundForApprovalError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ToolCallNotFoundForApprovalError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Tool call id that was referenced by the approval request.
+    pub tool_call_id: String,
+    /// Approval id that could not be matched.
+    pub approval_id: String,
+}
+
+impl ToolCallNotFoundForApprovalError {
+    /// Create a `ToolCallNotFoundForApprovalError` with the upstream default message.
+    pub fn new(tool_call_id: impl Into<String>, approval_id: impl Into<String>) -> Self {
+        let tool_call_id = tool_call_id.into();
+        let approval_id = approval_id.into();
+        Self {
+            message: format!(
+                "Tool call \"{tool_call_id}\" not found for approval request \"{approval_id}\"."
+            ),
+            tool_call_id,
+            approval_id,
+        }
+    }
+}
+
+/// AI SDK `NoImageGeneratedError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoImageGeneratedError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+    /// Response metadata for each call.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub responses: Option<Vec<ImageModelResponseMetadata>>,
+}
+
+impl NoImageGeneratedError {
+    /// Create a `NoImageGeneratedError` with the upstream default message.
+    pub fn new(
+        responses: Option<Vec<ImageModelResponseMetadata>>,
+        cause: Option<JSONValue>,
+    ) -> Self {
+        Self {
+            message: "No image generated.".to_string(),
+            cause,
+            responses,
+        }
+    }
+}
+
+/// AI SDK `NoObjectGeneratedError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoObjectGeneratedError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+    /// Generated text that failed parsing or validation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// Response metadata.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<LanguageModelResponseMetadata>,
+    /// Language model usage.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<LanguageModelUsage>,
+    /// Finish reason when known.
+    #[serde(rename = "finishReason", skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<FinishReason>,
+}
+
+impl NoObjectGeneratedError {
+    /// Create a `NoObjectGeneratedError` with the upstream default message.
+    pub fn new(
+        text: Option<String>,
+        response: Option<LanguageModelResponseMetadata>,
+        usage: Option<LanguageModelUsage>,
+        finish_reason: Option<FinishReason>,
+        cause: Option<JSONValue>,
+    ) -> Self {
+        Self {
+            message: "No object generated.".to_string(),
+            cause,
+            text,
+            response,
+            usage,
+            finish_reason,
+        }
+    }
+}
+
+/// AI SDK `NoOutputGeneratedError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoOutputGeneratedError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+}
+
+impl NoOutputGeneratedError {
+    /// Create a `NoOutputGeneratedError` with the upstream default message.
+    pub fn new(cause: Option<JSONValue>) -> Self {
+        Self {
+            message: "No output generated.".to_string(),
+            cause,
+        }
+    }
+}
+
+/// AI SDK `NoSpeechGeneratedError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoSpeechGeneratedError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Response metadata for each call.
+    pub responses: Vec<SpeechModelResponseMetadata>,
+}
+
+impl NoSpeechGeneratedError {
+    /// Create a `NoSpeechGeneratedError` with the upstream default message.
+    pub fn new(responses: Vec<SpeechModelResponseMetadata>) -> Self {
+        Self {
+            message: "No speech audio generated.".to_string(),
+            responses,
+        }
+    }
+}
+
+/// AI SDK `NoTranscriptGeneratedError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoTranscriptGeneratedError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Response metadata for each call.
+    pub responses: Vec<TranscriptionModelResponseMetadata>,
+}
+
+impl NoTranscriptGeneratedError {
+    /// Create a `NoTranscriptGeneratedError` with the upstream default message.
+    pub fn new(responses: Vec<TranscriptionModelResponseMetadata>) -> Self {
+        Self {
+            message: "No transcript generated.".to_string(),
+            responses,
+        }
+    }
+}
+
+/// AI SDK `NoVideoGeneratedError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoVideoGeneratedError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+    /// Response metadata for each call.
+    pub responses: Vec<VideoModelResponseMetadata>,
+}
+
+impl NoVideoGeneratedError {
+    /// Create a `NoVideoGeneratedError` with the upstream default message.
+    pub fn new(responses: Vec<VideoModelResponseMetadata>, cause: Option<JSONValue>) -> Self {
+        Self {
+            message: "No video generated.".to_string(),
+            cause,
+            responses,
+        }
+    }
+}
+
+/// AI SDK `UnsupportedModelVersionError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UnsupportedModelVersionError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Unsupported model specification version.
+    pub version: String,
+    /// Provider id.
+    pub provider: String,
+    /// Model id.
+    pub model_id: String,
+}
+
+impl UnsupportedModelVersionError {
+    /// Create an `UnsupportedModelVersionError` with the upstream default message.
+    pub fn new(
+        version: impl Into<String>,
+        provider: impl Into<String>,
+        model_id: impl Into<String>,
+    ) -> Self {
+        let version = version.into();
+        let provider = provider.into();
+        let model_id = model_id.into();
+        Self {
+            message: format!(
+                "Unsupported model version {version} for provider \"{provider}\" and model \
+                 \"{model_id}\". AI SDK 5 only supports models that implement specification \
+                 version \"v2\"."
+            ),
+            version,
+            provider,
+            model_id,
+        }
+    }
+}
+
+/// AI SDK `UIMessageStreamError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct UIMessageStreamError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Chunk type that caused the error.
+    pub chunk_type: String,
+    /// Part id or tool-call id associated with the failing chunk.
+    pub chunk_id: String,
+}
+
+impl UIMessageStreamError {
+    /// Create a `UIMessageStreamError`.
+    pub fn new(
+        chunk_type: impl Into<String>,
+        chunk_id: impl Into<String>,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            message: message.into(),
+            chunk_type: chunk_type.into(),
+            chunk_id: chunk_id.into(),
+        }
+    }
+}
+
+/// AI SDK `InvalidMessageRoleError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct InvalidMessageRoleError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Invalid message role.
+    pub role: String,
+}
+
+impl InvalidMessageRoleError {
+    /// Create an `InvalidMessageRoleError` with the upstream default message.
+    pub fn new(role: impl Into<String>) -> Self {
+        let role = role.into();
+        Self {
+            message: format!(
+                "Invalid message role: '{role}'. Must be one of: \"system\", \"user\", \
+                 \"assistant\", \"tool\"."
+            ),
+            role,
+        }
+    }
+}
+
+/// AI SDK `Omit<UIMessage, 'id'>` payload used by `MessageConversionError`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UiMessageWithoutId {
+    /// Message role.
+    pub role: UiMessageRole,
+    /// Optional UI-only metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<JSONValue>,
+    /// Renderable UI parts.
+    #[serde(default)]
+    pub parts: Vec<UiMessagePart>,
+}
+
+impl UiMessageWithoutId {
+    /// Create a UI message payload without an id.
+    pub fn new(role: UiMessageRole, parts: Vec<UiMessagePart>) -> Self {
+        Self {
+            role,
+            metadata: None,
+            parts,
+        }
+    }
+
+    /// Attach UI-only metadata.
+    pub fn with_metadata(mut self, metadata: JSONValue) -> Self {
+        self.metadata = Some(metadata);
+        self
+    }
+}
+
+/// AI SDK `MessageConversionError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageConversionError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Original UI message without the `id` field.
+    pub original_message: UiMessageWithoutId,
+}
+
+impl MessageConversionError {
+    /// Create a `MessageConversionError`.
+    pub fn new(original_message: UiMessageWithoutId, message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            original_message,
+        }
+    }
+}
+
+/// AI SDK `RetryErrorReason` union.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum RetryErrorReason {
+    #[serde(rename = "maxRetriesExceeded")]
+    MaxRetriesExceeded,
+    #[serde(rename = "errorNotRetryable")]
+    ErrorNotRetryable,
+    #[serde(rename = "abort")]
+    Abort,
+}
+
+/// AI SDK `RetryError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RetryError {
+    /// Human-readable error message.
+    pub message: String,
+    /// Retry termination reason.
+    pub reason: RetryErrorReason,
+    /// Last error payload when at least one error exists.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_error: Option<JSONValue>,
+    /// Error payloads collected across retry attempts.
+    pub errors: Vec<JSONValue>,
+}
+
+impl RetryError {
+    /// Create a `RetryError` and derive `lastError` from the final entry.
+    pub fn new(
+        message: impl Into<String>,
+        reason: RetryErrorReason,
+        errors: Vec<JSONValue>,
+    ) -> Self {
+        Self {
+            message: message.into(),
+            reason,
+            last_error: errors.last().cloned(),
+            errors,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SourceMarker {
@@ -8947,6 +9386,158 @@ mod tests {
             serde_json::json!("Search result")
         );
         assert_eq!(tool_result_json["preliminary"], serde_json::json!(true));
+    }
+
+    #[test]
+    fn ai_sdk_error_index_passive_shapes_match_exported_errors() {
+        let invalid_argument =
+            InvalidArgumentError::new("temperature", serde_json::json!(2), "must be <= 1");
+        assert_eq!(
+            serde_json::to_value(&invalid_argument).expect("serialize invalid argument"),
+            serde_json::json!({
+                "message": "Invalid argument for parameter temperature: must be <= 1",
+                "parameter": "temperature",
+                "value": 2
+            })
+        );
+
+        let invalid_stream_part = InvalidStreamPartError::new(
+            LanguageModelStreamPart::<String, JSONValue, ToolResultOutput>::TextDelta(
+                TextStreamTextDeltaPart::new("txt_1", "hello"),
+            ),
+            "Unexpected chunk",
+        );
+        let invalid_stream_part_json =
+            serde_json::to_value(&invalid_stream_part).expect("serialize invalid stream part");
+        assert_eq!(
+            invalid_stream_part_json["chunk"]["type"],
+            serde_json::json!("text-delta")
+        );
+        assert_eq!(
+            invalid_stream_part_json["message"],
+            serde_json::json!("Unexpected chunk")
+        );
+
+        assert_eq!(
+            serde_json::to_value(InvalidToolApprovalError::new("approval_1"))
+                .expect("serialize invalid tool approval")["message"],
+            serde_json::json!(
+                "Tool approval response references unknown approvalId: \"approval_1\". \
+                 No matching tool-approval-request found in message history."
+            )
+        );
+
+        assert_eq!(
+            serde_json::to_value(ToolCallNotFoundForApprovalError::new(
+                "call_1",
+                "approval_1"
+            ))
+            .expect("serialize missing approval tool call")["message"],
+            serde_json::json!(
+                "Tool call \"call_1\" not found for approval request \"approval_1\"."
+            )
+        );
+
+        let unsupported = UnsupportedModelVersionError::new("v1", "test", "model");
+        assert_eq!(
+            serde_json::to_value(&unsupported).expect("serialize unsupported model version"),
+            serde_json::json!({
+                "message": "Unsupported model version v1 for provider \"test\" and model \"model\". AI SDK 5 only supports models that implement specification version \"v2\".",
+                "version": "v1",
+                "provider": "test",
+                "modelId": "model"
+            })
+        );
+
+        let ui_stream_error = UIMessageStreamError::new("text-delta", "txt_1", "Missing start");
+        assert_eq!(
+            serde_json::to_value(&ui_stream_error).expect("serialize UI stream error"),
+            serde_json::json!({
+                "message": "Missing start",
+                "chunkType": "text-delta",
+                "chunkId": "txt_1"
+            })
+        );
+
+        let invalid_role = InvalidMessageRoleError::new("developer");
+        assert_eq!(
+            serde_json::to_value(&invalid_role).expect("serialize invalid role")["message"],
+            serde_json::json!(
+                "Invalid message role: 'developer'. Must be one of: \"system\", \"user\", \"assistant\", \"tool\"."
+            )
+        );
+
+        let message_conversion = MessageConversionError::new(
+            UiMessageWithoutId::new(UiMessageRole::Assistant, vec![UiMessagePart::text("hello")]),
+            "Cannot convert assistant message",
+        );
+        let message_conversion_json =
+            serde_json::to_value(&message_conversion).expect("serialize message conversion error");
+        assert_eq!(
+            message_conversion_json["originalMessage"]["role"],
+            serde_json::json!("assistant")
+        );
+        assert_eq!(
+            message_conversion_json["originalMessage"]["parts"][0]["type"],
+            serde_json::json!("text")
+        );
+
+        let retry = RetryError::new(
+            "Retries exhausted",
+            RetryErrorReason::MaxRetriesExceeded,
+            vec![
+                serde_json::json!("first"),
+                serde_json::json!({ "message": "last" }),
+            ],
+        );
+        let retry_json = serde_json::to_value(&retry).expect("serialize retry error");
+        assert_eq!(
+            retry_json["reason"],
+            serde_json::json!("maxRetriesExceeded")
+        );
+        assert_eq!(
+            retry_json["lastError"]["message"],
+            serde_json::json!("last")
+        );
+
+        assert_eq!(
+            serde_json::to_value(NoImageGeneratedError::new(None, None))
+                .expect("serialize no image error"),
+            serde_json::json!({ "message": "No image generated." })
+        );
+        assert_eq!(
+            serde_json::to_value(NoObjectGeneratedError::new(
+                Some("{}".to_string()),
+                None,
+                Some(LanguageModelUsage::new(1, 2)),
+                Some(FinishReason::Stop),
+                None,
+            ))
+            .expect("serialize no object error")["finishReason"],
+            serde_json::json!("stop")
+        );
+        assert_eq!(
+            serde_json::to_value(NoOutputGeneratedError::new(Some(serde_json::json!(
+                "empty response"
+            ),)))
+            .expect("serialize no output error")["cause"],
+            serde_json::json!("empty response")
+        );
+        assert_eq!(
+            serde_json::to_value(NoSpeechGeneratedError::new(Vec::new()))
+                .expect("serialize no speech error")["message"],
+            serde_json::json!("No speech audio generated.")
+        );
+        assert_eq!(
+            serde_json::to_value(NoTranscriptGeneratedError::new(Vec::new()))
+                .expect("serialize no transcript error")["message"],
+            serde_json::json!("No transcript generated.")
+        );
+        assert_eq!(
+            serde_json::to_value(NoVideoGeneratedError::new(Vec::new(), None))
+                .expect("serialize no video error")["message"],
+            serde_json::json!("No video generated.")
+        );
     }
 
     #[test]
