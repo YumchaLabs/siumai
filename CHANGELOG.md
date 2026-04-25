@@ -68,16 +68,17 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `PruneMessagesOptions`, `PruneReasoningMode`, `PruneToolCallRule`, `PruneToolCallMode`, and
   `PruneEmptyMessagesMode`, covering reasoning pruning, tool-call/result/approval pruning, and
   empty-message removal over the shared `ModelMessage` carrier.
-- AI SDK embed/rerank/image/audio helper result envelopes now have passive Rust data structures:
+- AI SDK embed/rerank/image/video/audio helper result envelopes now have passive Rust data
+  structures:
   `EmbedResult`, `EmbedManyResult`, embed callback/model-call event payloads,
   `ModelCallResponseData`, `RerankResult`, `RerankRanking`, rerank callback/model-call event
   payloads, `GenerateImageResult`, `Experimental_GenerateImageResult`, `GeneratedAudioFile`,
-  `SpeechResult`, `Experimental_SpeechResult`, `TranscriptionResult`,
+  `GenerateVideoResult`, `SpeechResult`, `Experimental_SpeechResult`, `TranscriptionResult`,
   `Experimental_TranscriptionResult`, and `TranscriptionSegment`. These mirror the `embed`,
-  `embedMany`, `rerank`, `generateImage`, `generateSpeech`, and `transcribe` result object shapes
-  without changing the existing provider-owned runtime helpers. The previous provider-level
-  single rerank item is now named `RerankRankingEntry`, freeing `RerankResult` for the AI SDK-style
-  result envelope.
+  `embedMany`, `rerank`, `generateImage`, `generateVideo`, `generateSpeech`, and `transcribe`
+  result object shapes without changing the existing provider-owned runtime helpers. The previous
+  provider-level single rerank item is now named `RerankRankingEntry`, freeing `RerankResult` for
+  the AI SDK-style result envelope.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:

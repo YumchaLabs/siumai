@@ -98,6 +98,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ToolContent>();
     let _ = size_of::<GenerateImageRequest>();
     let _ = size_of::<GenerateImageResult>();
+    let _ = size_of::<GenerateVideoResult>();
     let _ = size_of::<GenerateTextContentPart>();
     let _ = size_of::<GenerateTextEndEvent>();
     let _ = size_of::<GenerateTextModelInfo>();

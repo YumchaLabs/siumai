@@ -7219,6 +7219,63 @@ impl GenerateImageResult {
 #[allow(non_camel_case_types)]
 pub type Experimental_GenerateImageResult = GenerateImageResult;
 
+/// Passive AI SDK-style result envelope for an `experimental_generateVideo` call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GenerateVideoResult {
+    /// First generated video.
+    pub video: GeneratedFile,
+    /// Generated videos.
+    pub videos: Vec<GeneratedFile>,
+    /// Non-fatal provider warnings.
+    pub warnings: Vec<Warning>,
+    /// Response metadata from each underlying provider call.
+    pub responses: Vec<VideoModelResponseMetadata>,
+    /// Provider-specific metadata keyed by provider id.
+    pub provider_metadata: VideoModelProviderMetadata,
+}
+
+impl GenerateVideoResult {
+    /// Create a result from a required first video and the full video list.
+    pub fn new(video: GeneratedFile, mut videos: Vec<GeneratedFile>) -> Self {
+        if videos.is_empty() {
+            videos.push(video.clone());
+        }
+
+        Self {
+            video,
+            videos,
+            warnings: Vec::new(),
+            responses: Vec::new(),
+            provider_metadata: VideoModelProviderMetadata::default(),
+        }
+    }
+
+    /// Try to create a result from the full video list.
+    pub fn from_videos(videos: Vec<GeneratedFile>) -> Option<Self> {
+        let video = videos.first()?.clone();
+        Some(Self::new(video, videos))
+    }
+
+    /// Attach non-fatal provider warnings.
+    pub fn with_warnings(mut self, warnings: Vec<Warning>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    /// Attach response metadata envelopes.
+    pub fn with_responses(mut self, responses: Vec<VideoModelResponseMetadata>) -> Self {
+        self.responses = responses;
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: VideoModelProviderMetadata) -> Self {
+        self.provider_metadata = provider_metadata;
+        self
+    }
+}
+
 /// Passive AI SDK-style result envelope for a `generateSpeech` call.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -7733,6 +7790,45 @@ mod tests {
         );
         let _: Experimental_GenerateImageResult =
             serde_json::from_value(image_json).expect("deserialize image result");
+
+        let video_file = GeneratedFile::from_bytes(b"video", "video/mp4");
+        let video_response = VideoModelResponseMetadata {
+            timestamp: DateTime::parse_from_rfc3339("2026-04-21T09:00:30Z")
+                .expect("valid timestamp")
+                .with_timezone(&Utc),
+            model_id: "video-model".to_string(),
+            headers: None,
+            provider_metadata: Some(HashMap::from([(
+                "xai".to_string(),
+                serde_json::json!({ "requestId": "vid_1" }),
+            )])),
+        };
+        let video_result = GenerateVideoResult::new(video_file.clone(), vec![video_file])
+            .with_responses(vec![video_response])
+            .with_provider_metadata(HashMap::from([(
+                "xai".to_string(),
+                serde_json::json!({ "videos": [{ "id": "vid_1" }] }),
+            )]));
+        let video_json = serde_json::to_value(&video_result).expect("serialize video result");
+
+        assert_eq!(
+            video_json["video"]["mediaType"],
+            serde_json::json!("video/mp4")
+        );
+        assert_eq!(
+            video_json["videos"][0]["base64"],
+            serde_json::json!("dmlkZW8=")
+        );
+        assert_eq!(
+            video_json["responses"][0]["providerMetadata"]["xai"]["requestId"],
+            serde_json::json!("vid_1")
+        );
+        assert_eq!(
+            video_json["providerMetadata"]["xai"]["videos"][0]["id"],
+            serde_json::json!("vid_1")
+        );
+        let _: GenerateVideoResult =
+            serde_json::from_value(video_json).expect("deserialize video result");
 
         let audio = GeneratedAudioFile::from_bytes(b"audio", "audio/mpeg");
         assert_eq!(audio.format, "mp3");
