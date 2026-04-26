@@ -241,6 +241,16 @@ pub async fn synthesize<M: SpeechModel + ?Sized>(
     Ok(speech_result_from_response(model.provider_id(), response))
 }
 
+/// Deprecated AI SDK-style alias for `synthesize`.
+#[deprecated(note = "Use synthesize instead.")]
+pub async fn experimental_generate_speech<M: SpeechModel + ?Sized>(
+    model: &M,
+    request: TtsRequest,
+    options: SynthesizeOptions,
+) -> Result<SpeechResult, LlmError> {
+    synthesize(model, request, options).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

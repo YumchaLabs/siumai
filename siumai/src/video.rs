@@ -1360,6 +1360,16 @@ pub async fn generate<M: VideoModelV4 + ?Sized>(
     })
 }
 
+/// Deprecated AI SDK-style alias for `generate`.
+#[deprecated(note = "Use generate instead.")]
+pub async fn experimental_generate_video<M: VideoModelV4 + ?Sized>(
+    model: &M,
+    request: VideoGenerationRequest,
+    options: GenerateOptions,
+) -> Result<GenerateVideoResult, LlmError> {
+    generate(model, request, options).await
+}
+
 /// Submit video-generation tasks, poll them to completion, and normalize the result into explicit
 /// `MaterializedVideo` objects.
 pub async fn generate_materialized<M: VideoModelV4 + ?Sized>(

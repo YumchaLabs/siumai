@@ -2056,6 +2056,8 @@ pub mod prelude {
             FileUploadProvider, UploadFileApi, UploadFileOptions, UploadFileProviderMetadata,
             UploadFileResult,
         };
+        #[allow(deprecated)]
+        pub use crate::image::experimental_generate_image;
         pub use crate::parse_json_event_stream;
         #[doc(hidden)]
         pub use crate::provider::Siumai;
@@ -2065,6 +2067,8 @@ pub mod prelude {
             UploadSkillApi, UploadSkillFile, UploadSkillFileContent, UploadSkillOptions,
             UploadSkillProviderMetadata, UploadSkillResult,
         };
+        #[allow(deprecated)]
+        pub use crate::speech::experimental_generate_speech;
         pub use crate::structured_output::{
             GenerateObjectOptions, GenerateObjectResult, GenerateObjectSchema,
             PartialJsonParseResult, PartialJsonParseState, PartialJsonValueStream,
@@ -2074,6 +2078,10 @@ pub mod prelude {
         };
         pub use crate::tooling;
         pub use crate::tools;
+        #[allow(deprecated)]
+        pub use crate::transcription::experimental_transcribe;
+        #[allow(deprecated)]
+        pub use crate::video::experimental_generate_video;
         pub use crate::{
             DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, IdGenerator, IdGeneratorOptions,
             cosine_similarity, create_id_generator, generate_id, get_text_from_data_url,

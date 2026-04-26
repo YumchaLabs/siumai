@@ -255,6 +255,16 @@ pub async fn transcribe<M: TranscriptionModel + ?Sized>(
     ))
 }
 
+/// Deprecated AI SDK-style alias for `transcribe`.
+#[deprecated(note = "Use transcribe instead.")]
+pub async fn experimental_transcribe<M: TranscriptionModel + ?Sized>(
+    model: &M,
+    request: SttRequest,
+    options: TranscribeOptions,
+) -> Result<TranscriptionResult, LlmError> {
+    transcribe(model, request, options).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

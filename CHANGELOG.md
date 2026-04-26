@@ -110,6 +110,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   union over text-only prompts or `{ images, text?, mask? }` image prompts. It is exported from
   `siumai::image` and `prelude::unified`, serializes to the upstream shape, and can be converted
   into `GenerateImageRequest` without adding a fake image-generation runtime.
+- Deprecated AI SDK experimental helper spellings now have honest Rust-style aliases over the
+  existing real helper paths: `experimental_generate_image`, `experimental_generate_speech`,
+  `experimental_generate_video`, and `experimental_transcribe`.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:

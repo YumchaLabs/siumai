@@ -667,6 +667,16 @@ pub async fn generate_image<M: ImageModelV4 + ImageExtras + ?Sized>(
     ensure_images_generated(results, call_image_counts)
 }
 
+/// Deprecated AI SDK-style alias for `generate_image`.
+#[deprecated(note = "Use generate_image instead.")]
+pub async fn experimental_generate_image<M: ImageModelV4 + ImageExtras + ?Sized>(
+    model: &M,
+    request: GenerateImageRequest,
+    options: GenerateOptions,
+) -> Result<ImageGenerationResponse, LlmError> {
+    generate_image(model, request, options).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
