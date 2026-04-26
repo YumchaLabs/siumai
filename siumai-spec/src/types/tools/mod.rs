@@ -14,6 +14,6 @@ mod openai_builtin;
 mod tests;
 
 pub use choice::{LanguageModelV4ToolChoice, ToolChoice, ToolType, prepare_tool_choice};
-pub use function::ToolFunction;
-pub use provider_defined::ProviderDefinedTool;
+pub use function::{LanguageModelV4FunctionTool, ToolFunction};
+pub use provider_defined::{LanguageModelV4ProviderTool, ProviderDefinedTool};
 pub use tool::Tool;

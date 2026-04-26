@@ -47,6 +47,9 @@ Status legend:
   - `prepareToolChoice` / `LanguageModelV4ToolChoice` are covered by a Rust projection that keeps
     the existing high-level `ToolChoice` input compatibility while exposing the AI SDK model-facing
     `{ type: ... }` object shape as a separate stable data structure.
+  - `LanguageModelV4FunctionTool` / `LanguageModelV4ProviderTool` are covered by Rust projections
+    from the wider stable `Tool` surface, so model-facing tool objects no longer need to carry
+    user/runtime metadata that upstream keeps outside the provider-call shape.
   - `createProviderDefinedToolFactory`,
     `createProviderDefinedToolFactoryWithOutputSchema`, and
     `createProviderExecutedToolFactory` are covered by Rust factory facades over the shared

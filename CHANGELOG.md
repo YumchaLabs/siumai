@@ -89,6 +89,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK model-facing tool-choice parity now exposes `LanguageModelV4ToolChoice` and
   `prepare_tool_choice(...)`, preserving the upstream split where high-level `ToolChoice` accepts
   string-like inputs while provider-facing V4 calls receive `{ type: ... }` objects.
+- AI SDK model-facing tool-shape parity now exposes `LanguageModelV4FunctionTool` and
+  `LanguageModelV4ProviderTool` projections, keeping user-facing `Tool` metadata such as
+  `outputSchema`, `title`, `isProviderExecuted`, and deferred-result hints off the narrower
+  provider-call tool objects.
 - AI SDK provider-utils provider-tool factory parity now has a real Rust carrier/facade:
   provider tools serialize as `type: "provider"` and preserve `isProviderExecuted`,
   `inputSchema`, `outputSchema`, `args`, and `supportsDeferredResults`, while

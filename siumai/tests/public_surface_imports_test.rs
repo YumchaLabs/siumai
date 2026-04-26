@@ -253,6 +253,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ExperimentalLanguageModelStreamPart>();
     let _ = size_of::<Experimental_LanguageModelStreamPart>();
     let _ = size_of::<LanguageModelUsage>();
+    let _ = size_of::<LanguageModelV4FunctionTool>();
+    let _ = size_of::<LanguageModelV4ProviderTool>();
     let _ = size_of::<LanguageModelV4ToolChoice>();
     let _ = size_of::<LoadAPIKeyError>();
     let _ = size_of::<LoadSettingError>();

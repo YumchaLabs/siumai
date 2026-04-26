@@ -2,7 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{ProviderDefinedTool, ToolFunction};
+use super::{
+    LanguageModelV4FunctionTool, LanguageModelV4ProviderTool, ProviderDefinedTool, ToolFunction,
+};
 
 /// Tool definition for function calling
 ///
@@ -331,6 +333,19 @@ impl Tool {
             Self::ProviderDefined(tool) => {
                 Self::ProviderDefined(tool.with_provider_options_map(provider_options_map))
             }
+        }
+    }
+
+    /// Project this tool onto the AI SDK V4 model-facing function-tool shape when applicable.
+    pub fn to_language_model_v4_function_tool(&self) -> Option<LanguageModelV4FunctionTool> {
+        self.function_ref().map(LanguageModelV4FunctionTool::from)
+    }
+
+    /// Project this tool onto the AI SDK V4 model-facing provider-tool shape when applicable.
+    pub fn to_language_model_v4_provider_tool(&self) -> Option<LanguageModelV4ProviderTool> {
+        match self {
+            Self::ProviderDefined(tool) => Some(LanguageModelV4ProviderTool::from(tool)),
+            Self::Function { .. } => None,
         }
     }
 }

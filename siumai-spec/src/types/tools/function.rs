@@ -2,6 +2,61 @@
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum FunctionToolType {
+    Function,
+}
+
+impl Default for FunctionToolType {
+    fn default() -> Self {
+        Self::Function
+    }
+}
+
+/// AI SDK V4 model-facing function-tool shape.
+///
+/// This is narrower than the stable user-facing `ToolFunction`: output schemas and UI-only titles
+/// stay on the higher-level tool surface, while provider model calls receive only the fields in
+/// `LanguageModelV4FunctionTool`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModelV4FunctionTool {
+    #[serde(rename = "type")]
+    marker: FunctionToolType,
+    /// Tool name unique within this model call.
+    pub name: String,
+    /// Optional tool description.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Tool input schema.
+    pub input_schema: serde_json::Value,
+    /// Optional input examples.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_examples: Option<Vec<serde_json::Value>>,
+    /// Optional strict-mode setting.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
+    /// Tool-level provider options.
+    #[serde(skip_serializing_if = "crate::types::ProviderOptionsMap::is_empty")]
+    pub provider_options: crate::types::ProviderOptionsMap,
+}
+
+impl LanguageModelV4FunctionTool {
+    /// Create a model-facing function tool.
+    pub fn new(name: impl Into<String>, input_schema: serde_json::Value) -> Self {
+        Self {
+            marker: FunctionToolType::Function,
+            name: name.into(),
+            description: None,
+            input_schema,
+            input_examples: None,
+            strict: None,
+            provider_options: crate::types::ProviderOptionsMap::default(),
+        }
+    }
+}
+
 /// Tool function definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolFunction {
@@ -166,5 +221,34 @@ impl ToolFunction {
     ) -> Self {
         self.provider_options_map = provider_options_map;
         self
+    }
+
+    /// Project this stable user-facing function tool onto the AI SDK V4 model-facing shape.
+    pub fn to_language_model_v4(&self) -> LanguageModelV4FunctionTool {
+        self.into()
+    }
+}
+
+impl From<&ToolFunction> for LanguageModelV4FunctionTool {
+    fn from(value: &ToolFunction) -> Self {
+        Self {
+            marker: FunctionToolType::Function,
+            name: value.name.clone(),
+            description: if value.description.is_empty() {
+                None
+            } else {
+                Some(value.description.clone())
+            },
+            input_schema: value.parameters.clone(),
+            input_examples: value.input_examples.clone(),
+            strict: value.strict,
+            provider_options: value.provider_options_map.clone(),
+        }
+    }
+}
+
+impl From<ToolFunction> for LanguageModelV4FunctionTool {
+    fn from(value: ToolFunction) -> Self {
+        Self::from(&value)
     }
 }

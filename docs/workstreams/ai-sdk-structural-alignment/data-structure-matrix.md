@@ -411,6 +411,12 @@ serialization where provider wire adapters depend on it, while `LanguageModelV4T
 `{ type: "none" }`, `{ type: "required" }`, or `{ type: "tool", toolName }`). This avoids a
 breaking wire-format change while closing the model-facing data-structure gap.
 
+The model-facing tool object layer now follows the same split. `LanguageModelV4FunctionTool`
+projects from the wider `ToolFunction` while omitting user-facing `title` and `outputSchema`, and
+`LanguageModelV4ProviderTool` projects provider tools down to `{ type, id, name, args }` without
+leaking execution ownership, schema, provider options, or deferred-result metadata into the narrow
+provider-call object. The existing `Tool` carrier remains the stable user/runtime structure.
+
 The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
 serializes provider tools as AI SDK `type: "provider"` while still accepting the old
 `provider-defined` discriminator on input, and `ProviderDefinedTool` now carries

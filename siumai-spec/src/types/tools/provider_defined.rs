@@ -2,6 +2,48 @@
 
 use super::Tool;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+enum ProviderToolType {
+    Provider,
+}
+
+impl Default for ProviderToolType {
+    fn default() -> Self {
+        Self::Provider
+    }
+}
+
+/// AI SDK V4 model-facing provider-tool shape.
+///
+/// This projection intentionally keeps only `{ type, id, name, args }`. Execution ownership,
+/// schemas, deferred-result metadata, title, and provider options remain on the stable portable
+/// `ProviderDefinedTool` surface where orchestration and UI layers can consume them.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModelV4ProviderTool {
+    #[serde(rename = "type")]
+    marker: ProviderToolType,
+    /// Provider tool id in `<provider>.<tool>` format.
+    pub id: String,
+    /// Tool name unique within this model call.
+    pub name: String,
+    /// Provider-owned tool configuration arguments.
+    pub args: serde_json::Value,
+}
+
+impl LanguageModelV4ProviderTool {
+    /// Create a model-facing provider tool.
+    pub fn new(id: impl Into<String>, name: impl Into<String>, args: serde_json::Value) -> Self {
+        Self {
+            marker: ProviderToolType::Provider,
+            id: id.into(),
+            name: name.into(),
+            args,
+        }
+    }
+}
+
 /// Provider-defined tool configuration
 ///
 /// This represents an AI SDK-style `type: "provider"` tool. Most built-in hosted tools are both
@@ -318,6 +360,11 @@ impl ProviderDefinedTool {
         self
     }
 
+    /// Project this stable provider tool onto the AI SDK V4 model-facing shape.
+    pub fn to_language_model_v4(&self) -> LanguageModelV4ProviderTool {
+        self.into()
+    }
+
     /// Get the provider name from the ID
     ///
     /// # Example
@@ -355,5 +402,22 @@ impl ProviderDefinedTool {
             Tool::ProviderDefined(pd) => Some(pd),
             _ => None,
         }
+    }
+}
+
+impl From<&ProviderDefinedTool> for LanguageModelV4ProviderTool {
+    fn from(value: &ProviderDefinedTool) -> Self {
+        Self {
+            marker: ProviderToolType::Provider,
+            id: value.id.clone(),
+            name: value.name.clone(),
+            args: value.args.clone(),
+        }
+    }
+}
+
+impl From<ProviderDefinedTool> for LanguageModelV4ProviderTool {
+    fn from(value: ProviderDefinedTool) -> Self {
+        Self::from(&value)
     }
 }

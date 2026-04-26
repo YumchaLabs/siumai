@@ -576,6 +576,106 @@ fn function_tool_builder_exposes_title_examples_strict_and_provider_options() {
 }
 
 #[test]
+fn language_model_v4_function_tool_projection_matches_model_facing_shape() {
+    let mut provider_options = crate::types::ProviderOptionsMap::default();
+    provider_options.insert(
+        "anthropic",
+        serde_json::json!({
+            "cacheControl": { "type": "ephemeral" }
+        }),
+    );
+
+    let tool = Tool::function_with_output_schema(
+        "weather",
+        "Get weather",
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "city": { "type": "string" }
+            }
+        }),
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "forecast": { "type": "string" }
+            }
+        }),
+    )
+    .with_title("Weather tool")
+    .with_input_examples([serde_json::json!({
+        "input": { "city": "Tokyo" }
+    })])
+    .with_strict(true)
+    .with_provider_options_map(provider_options.clone());
+
+    let projected = tool
+        .to_language_model_v4_function_tool()
+        .expect("function tool projection");
+    let value = serde_json::to_value(projected).expect("serialize model-facing function tool");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "type": "function",
+            "name": "weather",
+            "description": "Get weather",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "city": { "type": "string" }
+                }
+            },
+            "inputExamples": [
+                {
+                    "input": { "city": "Tokyo" }
+                }
+            ],
+            "strict": true,
+            "providerOptions": provider_options,
+        })
+    );
+    assert!(value.get("title").is_none());
+    assert!(value.get("outputSchema").is_none());
+}
+
+#[test]
+fn language_model_v4_provider_tool_projection_matches_model_facing_shape() {
+    let tool = Tool::provider_executed_with_schema(
+        "openai.web_search",
+        "web_search",
+        serde_json::json!({ "type": "object" }),
+        serde_json::json!({ "type": "object" }),
+    )
+    .with_title("Web search")
+    .with_args(serde_json::json!({
+        "searchContextSize": "high"
+    }))
+    .with_supports_deferred_results(true);
+
+    let projected = tool
+        .to_language_model_v4_provider_tool()
+        .expect("provider tool projection");
+    let value = serde_json::to_value(projected).expect("serialize model-facing provider tool");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "type": "provider",
+            "id": "openai.web_search",
+            "name": "web_search",
+            "args": {
+                "searchContextSize": "high"
+            }
+        })
+    );
+    assert!(value.get("title").is_none());
+    assert!(value.get("inputSchema").is_none());
+    assert!(value.get("outputSchema").is_none());
+    assert!(value.get("isProviderExecuted").is_none());
+    assert!(value.get("supportsDeferredResults").is_none());
+}
+
+#[test]
 fn provider_defined_tool_roundtrips_optional_title() {
     let tool = Tool::provider_defined("openai.web_search", "web_search").with_title("Search");
     let value = serde_json::to_value(&tool).expect("serialize tool");
