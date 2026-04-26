@@ -23,6 +23,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<Schema>();
     let _ = size_of::<LazySchema>();
     let _ = size_of::<FlexibleSchema>();
+    let _ = size_of::<SerialJobExecutor>();
     let _ = size_of::<ValidationResult>();
     let _ = size_of::<ModelCallResponseData>();
     let _ = size_of::<GenerateObjectOptions>();

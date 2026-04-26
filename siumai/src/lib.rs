@@ -102,9 +102,9 @@ pub use siumai_core::hosted_tools;
 /// AI SDK-style ID generation helpers.
 pub use siumai_core::utils::{
     DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_MAX_DOWNLOAD_SIZE, Download, DownloadOptions,
-    DownloadedFile, IdGenerator, IdGeneratorOptions, cosine_similarity, create_download,
-    create_id_generator, download_url, generate_id, get_text_from_data_url, is_deep_equal_data,
-    read_response_with_size_limit, validate_download_url,
+    DownloadedFile, IdGenerator, IdGeneratorOptions, SerialJobExecutor, cosine_similarity,
+    create_download, create_id_generator, download_url, generate_id, get_text_from_data_url,
+    is_deep_equal_data, read_response_with_size_limit, validate_download_url,
 };
 
 /// Protocol mapping facade (stable imports for protocol standards).
@@ -2087,8 +2087,8 @@ pub mod prelude {
         pub use crate::video::experimental_generate_video;
         pub use crate::{
             DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_MAX_DOWNLOAD_SIZE, Download,
-            DownloadOptions, DownloadedFile, IdGenerator, IdGeneratorOptions, cosine_similarity,
-            create_download, create_id_generator, download_url, generate_id,
+            DownloadOptions, DownloadedFile, IdGenerator, IdGeneratorOptions, SerialJobExecutor,
+            cosine_similarity, create_download, create_id_generator, download_url, generate_id,
             get_text_from_data_url, is_deep_equal_data, read_response_with_size_limit,
             validate_download_url,
         };

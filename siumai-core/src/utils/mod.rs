@@ -33,6 +33,7 @@ pub mod download;
 pub mod id;
 pub mod mime;
 pub mod model_alias;
+pub mod serial_job;
 pub mod url;
 pub mod utf8_decoder;
 
@@ -45,6 +46,7 @@ pub use download::*;
 pub use id::*;
 pub use mime::*;
 pub use model_alias::*;
+pub use serial_job::*;
 pub use url::*;
 pub use utf8_decoder::Utf8StreamDecoder;
 

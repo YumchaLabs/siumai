@@ -17,6 +17,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   mirror the upstream `createDownload` / `validateDownloadUrl` / size-limit behavior for
   `http`, `https`, and inline `data:` URLs while returning the existing passive `DownloadError`
   carrier.
+- AI SDK util `SerialJobExecutor` parity is now available as `siumai::SerialJobExecutor` and in
+  `prelude::unified`, providing a cloneable async executor that serializes concurrently submitted
+  jobs while preserving each job's return value or error.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,

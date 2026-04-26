@@ -85,6 +85,8 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/download-error.ts`
 - `repo-ref/ai/packages/provider-utils/src/read-response-with-size-limit.ts`
 - `repo-ref/ai/packages/provider-utils/src/validate-download-url.ts`
+- `repo-ref/ai/packages/ai/src/util/job.ts`
+- `repo-ref/ai/packages/ai/src/util/serial-job-executor.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
 - `repo-ref/ai/packages/ai/src/util/data-url.ts`
 - `repo-ref/ai/packages/ai/src/util/is-deep-equal-data.ts`
@@ -310,6 +312,12 @@ helpers too: `create_download(...)`, `Download::download(...)`, `download_url(..
 intentionally mirror public error data fields and default messages without replacing Siumai's
 runtime `LlmError` hierarchy or pretending that TypeScript `AISDKError.isInstance(...)` markers
 exist in Rust.
+
+The small non-browser util surface is also closer now. `SerialJobExecutor` is implemented as a
+real Rust async utility backed by a FIFO `tokio::sync::Mutex`, so concurrent callers can submit
+jobs while the executor polls only one job future at a time. This is deliberately separate from
+Web `ReadableStream` helpers such as `consumeStream` and `simulateReadableStream`, which remain
+browser/runtime stream utilities rather than core data structures.
 
 The same passive-structure rule now covers the remaining high-value `generateObject` event data:
 `GenerateObjectStartEvent`, `GenerateObjectStepStartEvent`, `GenerateObjectStepEndEvent`,
@@ -689,6 +697,7 @@ The biggest remaining gaps are:
 | `streamText` / `StreamTextResult` | `packages/ai/src/generate-text/stream-text-result.ts` | Passive result/event carriers implemented; full runtime deferred | `TextStreamPart`, callback events, and stream options are importable, but a real multi-lane `StreamTextResult` needs an explicit Rust tee/backpressure/HTTP design. |
 | `createTextStreamResponse` / `pipeTextStreamToResponse` | `packages/ai/src/text-stream/create-text-stream-response.ts`, `packages/ai/src/text-stream/pipe-text-stream-to-response.ts` | Covered on the Axum server-adapter boundary | `siumai-extras::server::axum::to_text_stream_response(...)` and `to_text_stream_response_with_options(...)` provide the Rust equivalent for `ChatStream` -> `text/plain; charset=utf-8` streaming responses. A Node `ServerResponse` pipe helper remains intentionally outside Rust core. |
 | `createDownload` / util download helpers | `packages/ai/src/util/download/create-download.ts`, `packages/ai/src/util/download/download.ts`, `packages/provider-utils/src/validate-download-url.ts`, `packages/provider-utils/src/read-response-with-size-limit.ts` | Implemented as Rust utility helpers | `siumai::{create_download, download_url, validate_download_url, read_response_with_size_limit, DEFAULT_MAX_DOWNLOAD_SIZE}` plus the same unified-prelude exports now cover SSRF-style URL validation, inline `data:` downloads, response content-type capture, and 2 GiB default size limiting. The TypeScript-only `DownloadFunction` callback alias remains a runtime-function pattern rather than a passive data structure. |
+| `SerialJobExecutor` | `packages/ai/src/util/serial-job-executor.ts`, `packages/ai/src/util/job.ts` | Implemented as `siumai::SerialJobExecutor` | Rust exposes a cloneable async executor that serializes concurrently submitted jobs through one shared FIFO mutex while preserving each job's return value or error. |
 | `AbstractChat` | `packages/ai/src/ui/chat.ts` | Intentionally deferred | This is the stateful browser/client chat controller above `ChatTransport`, not a passive data structure. Siumai should only add an equivalent after it owns a Rust runtime abstraction with matching state transitions. |
 | `callCompletionApi` | `packages/ai/src/ui/call-completion-api.ts` | Intentionally deferred | This helper owns browser `fetch`, abort-controller state, UI loading/error callbacks, and text/data stream consumption. Current Rust completion/text helpers cover provider execution, not browser hook transport state. |
 | `convertFileListToFileUIParts` | `packages/ai/src/ui/convert-file-list-to-file-ui-parts.ts` | Intentionally deferred | This helper depends on browser `FileList` and `FileReader`; Rust already has file/provider-reference carriers, but not a browser DOM file-list runtime. |

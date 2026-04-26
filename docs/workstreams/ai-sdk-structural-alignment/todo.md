@@ -25,6 +25,8 @@ Status legend:
   - `createDownload` is covered by Rust utility helpers that validate safe download URLs, support
     inline `data:` payloads, preserve media type, and enforce the upstream 2 GiB default size
     limit.
+  - `SerialJobExecutor` is covered by a cloneable Rust async executor that serializes submitted
+    jobs through a shared FIFO mutex and preserves each job's return value.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.
