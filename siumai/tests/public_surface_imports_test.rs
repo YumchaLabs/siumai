@@ -28,6 +28,9 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<JsonInstructionOptions>();
     let _ = size_of::<JsonInstructionMessageOptions>();
     let _ = size_of::<JsonParseResult>();
+    let _ = size_of::<LoadApiKeyOptions>();
+    let _ = size_of::<LoadOptionalSettingOptions>();
+    let _ = size_of::<LoadSettingOptions>();
     let _ = size_of::<ReasoningBudgetOptions<'static>>();
     let _ = size_of::<ReasoningLevel>();
     let _ = size_of::<ReasoningLevelConversionError>();
@@ -496,6 +499,41 @@ fn public_surface_unified_imports_compile() {
     );
     let _ = normalize_header_map as fn(&reqwest::header::HeaderMap) -> HeaderRecord;
     let _ = extract_response_headers as fn(&reqwest::header::HeaderMap) -> HeaderRecord;
+    assert!(is_non_nullable(&Some("value")));
+    assert_eq!(
+        filter_nullable([Some("a"), None, Some("b")]),
+        vec!["a", "b"]
+    );
+    let filtered_entries = remove_undefined_entries([
+        ("keep", Some("yes")),
+        ("drop", None),
+        ("also_keep", Some("ok")),
+    ]);
+    assert_eq!(filtered_entries.get("keep"), Some(&"yes"));
+    assert!(!filtered_entries.contains_key("drop"));
+    assert_eq!(
+        load_api_key(
+            LoadApiKeyOptions::new("SIUMAI_PUBLIC_SURFACE_KEY", "Test")
+                .with_api_key("explicit-key")
+        )
+        .expect("explicit api key"),
+        "explicit-key"
+    );
+    assert_eq!(
+        load_setting(
+            LoadSettingOptions::new("SIUMAI_PUBLIC_SURFACE_SETTING", "setting", "Test")
+                .with_setting_value("explicit-setting"),
+        )
+        .expect("explicit setting"),
+        "explicit-setting"
+    );
+    assert_eq!(
+        load_optional_setting(
+            LoadOptionalSettingOptions::new("SIUMAI_PUBLIC_SURFACE_OPTIONAL")
+                .with_setting_value("explicit-optional")
+        ),
+        Some("explicit-optional".to_string())
+    );
     assert_eq!(media_type_to_extension("audio/mpeg"), "mp3");
     assert_eq!(strip_file_extension("archive.tar.gz"), "archive");
     assert_eq!(

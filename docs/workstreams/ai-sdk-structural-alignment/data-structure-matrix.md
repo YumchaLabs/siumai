@@ -88,8 +88,14 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/combine-headers.ts`
 - `repo-ref/ai/packages/provider-utils/src/create-tool-name-mapping.ts`
 - `repo-ref/ai/packages/provider-utils/src/extract-response-headers.ts`
+- `repo-ref/ai/packages/provider-utils/src/filter-nullable.ts`
+- `repo-ref/ai/packages/provider-utils/src/is-non-nullable.ts`
+- `repo-ref/ai/packages/provider-utils/src/remove-undefined-entries.ts`
 - `repo-ref/ai/packages/provider-utils/src/normalize-headers.ts`
 - `repo-ref/ai/packages/provider-utils/src/with-user-agent-suffix.ts`
+- `repo-ref/ai/packages/provider-utils/src/load-api-key.ts`
+- `repo-ref/ai/packages/provider-utils/src/load-setting.ts`
+- `repo-ref/ai/packages/provider-utils/src/load-optional-setting.ts`
 - `repo-ref/ai/packages/provider-utils/src/media-type-to-extension.ts`
 - `repo-ref/ai/packages/provider-utils/src/strip-file-extension.ts`
 - `repo-ref/ai/packages/provider-utils/src/without-trailing-slash.ts`

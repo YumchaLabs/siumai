@@ -46,6 +46,10 @@ Status legend:
   - `validateTypes` / `safeValidateTypes` are covered by Rust helpers over `Schema`,
     `ValidationResult`, and `TypeValidationError`; unchecked TypeScript generic casts are
     intentionally not replicated when a schema has no runtime validator.
+  - `filterNullable`, `isNonNullable`, and `removeUndefinedEntries` are covered by Rust `Option`
+    helpers.
+  - `loadApiKey`, `loadSetting`, and `loadOptionalSetting` are covered by Rust environment-loader
+    helpers over the existing passive error carriers.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.
