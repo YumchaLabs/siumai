@@ -425,9 +425,9 @@ longer just a stable `ModelMessage` alias: `prepare_language_model_v4_prompt(...
 messages into V4 provider prompt messages, wraps user/assistant text into `text` parts, converts
 legacy image parts to V4 `file` parts with `image/*` fallback media type, serializes provider file
 references as direct `data` maps, filters assistant `tool-approval-request` parts, preserves only
-provider-executed tool approval responses, and coalesces adjacent tool messages. This keeps the
-ergonomic prompt model separate from the actual provider prompt object expected by
-`language-model-v4-prompt.ts`.
+provider-executed tool approval responses with their `providerOptions`, and coalesces adjacent tool
+messages. This keeps the ergonomic prompt model separate from the actual provider prompt object
+expected by `language-model-v4-prompt.ts`.
 
 `LanguageModelV4CallOptions` now gives Rust callers an explicit model-facing provider-call overlay
 too: it groups the standardized prompt, projected `LanguageModelV4Tool` union, V4 tool choice,

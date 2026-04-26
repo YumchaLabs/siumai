@@ -798,6 +798,13 @@ pub struct ToolApprovalResponse {
         skip_serializing_if = "Option::is_none"
     )]
     pub provider_executed: Option<bool>,
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
 }
 
 impl ToolApprovalResponse {
@@ -808,6 +815,7 @@ impl ToolApprovalResponse {
             approved,
             reason: None,
             provider_executed: None,
+            provider_options: ProviderOptionsMap::default(),
         }
     }
 
@@ -820,6 +828,12 @@ impl ToolApprovalResponse {
     /// Mark whether the approval response refers to a provider-executed tool call.
     pub fn with_provider_executed(mut self, provider_executed: bool) -> Self {
         self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
         self
     }
 }
@@ -1504,7 +1518,7 @@ impl From<&ToolContentPart> for ContentPart {
                 approved: part.approved,
                 reason: part.reason.clone(),
                 provider_executed: part.provider_executed,
-                provider_options: ProviderOptionsMap::default(),
+                provider_options: part.provider_options.clone(),
             },
         }
     }
@@ -1973,23 +1987,14 @@ fn tool_approval_response_from_content_part(
             reason,
             provider_executed,
             provider_options,
-        } => {
-            if !provider_options.is_empty() {
-                return Err(ModelMessageConversionError::UnsupportedContentPart {
-                    context: "tool",
-                    part_type: "tool-approval-response",
-                    reason: "provider options are not part of the AI SDK tool-approval-response prompt contract",
-                });
-            }
-
-            Ok(ToolApprovalResponse {
-                part_type: tool_approval_response_part_type(),
-                approval_id: approval_id.clone(),
-                approved: *approved,
-                reason: reason.clone(),
-                provider_executed: *provider_executed,
-            })
-        }
+        } => Ok(ToolApprovalResponse {
+            part_type: tool_approval_response_part_type(),
+            approval_id: approval_id.clone(),
+            approved: *approved,
+            reason: reason.clone(),
+            provider_executed: *provider_executed,
+            provider_options: provider_options.clone(),
+        }),
         _ => Err(unsupported_part(
             "unknown",
             part,
@@ -2435,9 +2440,12 @@ mod tests {
 
     #[test]
     fn tool_approval_response_builder_roundtrips_optional_fields() {
+        let mut provider_options = ProviderOptionsMap::default();
+        provider_options.insert("anthropic", serde_json::json!({ "approvalMode": "manual" }));
         let response = ToolApprovalResponse::new("approval_1", true)
             .with_reason("looks safe")
-            .with_provider_executed(true);
+            .with_provider_executed(true)
+            .with_provider_options_map(provider_options.clone());
 
         let value = serde_json::to_value(&response).expect("serialize tool approval response");
         assert_eq!(value["type"], serde_json::json!("tool-approval-response"));
@@ -2445,12 +2453,17 @@ mod tests {
         assert_eq!(value["approved"], serde_json::json!(true));
         assert_eq!(value["reason"], serde_json::json!("looks safe"));
         assert_eq!(value["providerExecuted"], serde_json::json!(true));
+        assert_eq!(
+            value["providerOptions"],
+            serde_json::json!({ "anthropic": { "approvalMode": "manual" } })
+        );
 
         let roundtrip: ToolApprovalResponse =
             serde_json::from_value(value).expect("deserialize tool approval response");
         assert_eq!(roundtrip.approval_id, "approval_1");
         assert_eq!(roundtrip.reason.as_deref(), Some("looks safe"));
         assert_eq!(roundtrip.provider_executed, Some(true));
+        assert_eq!(roundtrip.provider_options, provider_options);
     }
 
     #[test]

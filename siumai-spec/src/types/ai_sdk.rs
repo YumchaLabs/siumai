@@ -8253,6 +8253,14 @@ pub struct LanguageModelV4ToolApprovalResponsePart {
     /// Optional reason for approval or denial.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
 }
 
 impl LanguageModelV4ToolApprovalResponsePart {
@@ -8263,6 +8271,7 @@ impl LanguageModelV4ToolApprovalResponsePart {
             approval_id: approval_id.into(),
             approved,
             reason: None,
+            provider_options: ProviderOptionsMap::default(),
         }
     }
 
@@ -8273,12 +8282,19 @@ impl LanguageModelV4ToolApprovalResponsePart {
             approval_id: part.approval_id.clone(),
             approved: part.approved,
             reason: part.reason.clone(),
+            provider_options: part.provider_options.clone(),
         }
     }
 
     /// Attach an optional reason.
     pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
         self.reason = Some(reason.into());
+        self
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
         self
     }
 
@@ -14305,8 +14321,13 @@ mod tests {
         let first_tool = ToolModelMessage::new(vec![ToolContentPart::ToolResult(
             ToolResultPart::new("call_1", "weather", ToolResultOutput::text("sunny")),
         )]);
+        let mut approval_provider_options = ProviderOptionsMap::default();
+        approval_provider_options
+            .insert("anthropic", serde_json::json!({ "approvalMode": "manual" }));
         let second_tool = ToolModelMessage::new(vec![ToolContentPart::ToolApprovalResponse(
-            ToolApprovalResponse::new("approval_2", true).with_provider_executed(true),
+            ToolApprovalResponse::new("approval_2", true)
+                .with_provider_executed(true)
+                .with_provider_options_map(approval_provider_options),
         )]);
 
         let prompt = prepare_language_model_v4_prompt(vec![
@@ -14351,7 +14372,12 @@ mod tests {
             serde_json::json!({
                 "type": "tool-approval-response",
                 "approvalId": "approval_2",
-                "approved": true
+                "approved": true,
+                "providerOptions": {
+                    "anthropic": {
+                        "approvalMode": "manual"
+                    }
+                }
             })
         );
     }

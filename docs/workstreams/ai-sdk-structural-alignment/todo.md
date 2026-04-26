@@ -53,7 +53,7 @@ Status legend:
   - `LanguageModelV4Prompt`, `LanguageModelV4Message`, and V4 prompt parts are covered by a Rust
     projection from stable `ModelMessage`, including image-to-file conversion, direct provider
     reference data maps, filtered assistant approval requests, provider-executed approval
-    responses, and adjacent tool-message coalescing.
+    responses with `providerOptions`, and adjacent tool-message coalescing.
   - `LanguageModelV4CallOptions` / `LanguageModelV4Tool` are covered by a Rust overlay that
     groups prompt, projected model-facing tools, tool choice, headers, abort, reasoning, and
     provider options like the upstream provider-call contract while preserving the existing

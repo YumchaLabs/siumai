@@ -99,6 +99,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   provider prompt shape where images become `file` parts, provider file references become direct
   `data` maps, assistant approval requests are filtered, and provider-executed approval responses
   are preserved.
+- V4 prompt `tool-approval-response` parts now preserve request-side `providerOptions`, matching
+  the upstream provider prompt shape instead of rejecting those options during stable
+  `ContentPart` / `ModelMessage` conversion.
 - AI SDK model-facing call-options parity now exposes `LanguageModelV4CallOptions` and
   `LanguageModelV4Tool`, keeping prompt, V4-projected tools, tool choice, headers, abort handle,
   reasoning, and provider options together in the same provider-call overlay without replacing the
