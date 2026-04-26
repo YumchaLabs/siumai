@@ -4,6 +4,15 @@
 
 use std::collections::BTreeMap;
 
+pub use regex::Regex as UrlSupportRegex;
+
+/// AI SDK-style URL support table keyed by media type or wildcard.
+///
+/// Keys are case-insensitive media types. `*` and `*/*` match all media types; keys such as
+/// `image/*` match by media-type prefix after the `*` is removed, mirroring provider-utils
+/// `isUrlSupported(...)`.
+pub type SupportedUrlMap = BTreeMap<String, Vec<UrlSupportRegex>>;
+
 /// Safely join a base URL with a path, handling trailing/leading slashes correctly
 ///
 /// This function ensures that there's exactly one slash between the base URL and path,
@@ -97,6 +106,34 @@ pub fn with_query_params(url: &str, query_params: &BTreeMap<String, String>) -> 
 /// slash is removed.
 pub fn without_trailing_slash(url: Option<&str>) -> Option<String> {
     url.map(|url| url.strip_suffix('/').unwrap_or(url).to_string())
+}
+
+/// Check whether a URL is natively supported for a media type.
+///
+/// This mirrors AI SDK provider-utils `isUrlSupported(...)`: media type and URL are lowercased,
+/// wildcard keys (`*` / `*/*`) match everything, and other keys match as media-type prefixes
+/// after removing the first `*`.
+pub fn is_url_supported(media_type: &str, url: &str, supported_urls: &SupportedUrlMap) -> bool {
+    let media_type = media_type.to_lowercase();
+    let url = url.to_lowercase();
+
+    supported_urls
+        .iter()
+        .filter(|(key, _)| {
+            let media_type_prefix = media_type_prefix(key);
+            media_type.starts_with(&media_type_prefix)
+        })
+        .flat_map(|(_, patterns)| patterns)
+        .any(|pattern| pattern.is_match(&url))
+}
+
+fn media_type_prefix(media_type: &str) -> String {
+    let media_type = media_type.to_lowercase();
+    if media_type == "*" || media_type == "*/*" {
+        String::new()
+    } else {
+        media_type.replacen('*', "", 1)
+    }
 }
 
 /// Join multiple URL segments safely
@@ -341,5 +378,54 @@ mod tests {
             Some("https://api.example.com".to_string())
         );
         assert_eq!(without_trailing_slash(None), None);
+    }
+
+    #[test]
+    fn is_url_supported_matches_ai_sdk_prefix_and_pattern_rules() {
+        let supported_urls = SupportedUrlMap::from([
+            (
+                "image/*".to_string(),
+                vec![UrlSupportRegex::new(r"^https://images\.example\.com/").unwrap()],
+            ),
+            (
+                "*/*".to_string(),
+                vec![UrlSupportRegex::new(r"^https://cdn\.example\.com/").unwrap()],
+            ),
+        ]);
+
+        assert!(is_url_supported(
+            "IMAGE/PNG",
+            "HTTPS://IMAGES.EXAMPLE.COM/A.PNG",
+            &supported_urls
+        ));
+        assert!(is_url_supported(
+            "video/mp4",
+            "https://cdn.example.com/a.mp4",
+            &supported_urls
+        ));
+        assert!(!is_url_supported(
+            "audio/mpeg",
+            "https://audio.example.com/a.mp3",
+            &supported_urls
+        ));
+    }
+
+    #[test]
+    fn is_url_supported_treats_star_like_ai_sdk_replace() {
+        let supported_urls = SupportedUrlMap::from([(
+            "application/*+json".to_string(),
+            vec![UrlSupportRegex::new(r"^https://api\.example\.com/").unwrap()],
+        )]);
+
+        assert!(is_url_supported(
+            "application/+json-patch",
+            "https://api.example.com/schema",
+            &supported_urls
+        ));
+        assert!(!is_url_supported(
+            "application/json",
+            "https://api.example.com/schema",
+            &supported_urls
+        ));
     }
 }

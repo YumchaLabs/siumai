@@ -82,6 +82,7 @@ rand = "0.8"
 # URL encoding
 urlencoding = "2.1"
 infer = "0.19"
+regex = "1.11"
 
 # Core crate (for workspace consumption)
 # Disable default features; downstream crates must opt-in provider features explicitly

@@ -42,6 +42,7 @@ tracing.workspace = true
 rand.workspace = true
 urlencoding.workspace = true
 infer.workspace = true
+regex.workspace = true
 secrecy.workspace = true
 backoff.workspace = true
 lru.workspace = true

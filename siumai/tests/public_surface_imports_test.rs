@@ -24,6 +24,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LazySchema>();
     let _ = size_of::<FlexibleSchema>();
     let _ = size_of::<Arrayable<String>>();
+    let _ = size_of::<SupportedUrlMap>();
+    let _ = size_of::<UrlSupportRegex>();
     let _ = size_of::<SerialJobExecutor>();
     let _ = size_of::<HeaderRecord>();
     let _ = size_of::<JsonInstructionOptions>();
@@ -69,6 +71,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<IdGeneratorOptions>();
     let _ = delay;
     let _ = is_abort_error;
+    let _ = is_url_supported;
     let _ = size_of::<ExecutableTool>();
     let _ = size_of::<ExecutableTools>();
     let _ = size_of::<ProviderDefinedToolFactory>();

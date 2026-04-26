@@ -119,6 +119,7 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/validate-types.ts`
 - `repo-ref/ai/packages/provider-utils/src/is-provider-reference.ts`
 - `repo-ref/ai/packages/provider-utils/src/resolve-provider-reference.ts`
+- `repo-ref/ai/packages/provider-utils/src/is-url-supported.ts`
 - `repo-ref/ai/packages/ai/src/util/job.ts`
 - `repo-ref/ai/packages/ai/src/util/serial-job-executor.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
@@ -369,11 +370,12 @@ audited AI SDK helper semantics while using Rust `Result` errors instead of thro
 Pure provider-utils HTTP/string helpers now have the same treatment where Rust can represent the
 behavior honestly: `HeaderRecord`, `normalize_headers`, `normalize_optional_headers`,
 `normalize_header_map`, `combine_headers`, `with_user_agent_suffix`,
-`media_type_to_extension`, `strip_file_extension`, and `without_trailing_slash` cover the audited
-header normalization/merge, user-agent suffix, media-type extension, filename stem, and trailing
-slash helpers. `isUrlSupported` remains deferred because its upstream contract accepts live
-JavaScript `RegExp` values, so a Rust surface should be introduced only when a real provider URL
-support table needs a typed matcher rather than a fake direct export.
+`media_type_to_extension`, `strip_file_extension`, `without_trailing_slash`,
+`SupportedUrlMap`, `UrlSupportRegex`, and `is_url_supported` cover the audited header
+normalization/merge, user-agent suffix, media-type extension, filename stem, trailing-slash, and
+URL support-table helpers. `isUrlSupported` uses a real Rust `regex`-backed typed map rather than
+a fake marker export, preserving the upstream media-type wildcard/prefix behavior while avoiding
+JavaScript `RegExp` runtime objects.
 
 The pure provider-utils JSON instruction helper is now covered too. `inject_json_instruction`
 matches the upstream generic-vs-schema prompt construction defaults, while

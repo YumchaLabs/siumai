@@ -76,6 +76,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::{IdGenerator, IdGeneratorOptions, create_id_generator, generate_id}` and the same names
   in `prelude::unified` mirror the upstream non-cryptographic `createIdGenerator` / `generateId`
   contract with Rust `Result`-based option validation.
+- AI SDK provider-utils URL support parity now exposes `SupportedUrlMap`, `UrlSupportRegex`, and
+  `is_url_supported`, matching upstream media-type wildcard/prefix handling plus URL regex checks
+  over a typed Rust table.
 - AI SDK provider-utils tool helper parity is now easier to import directly:
   `siumai::{tool, dynamic_tool, ToolExecutionOptions, ToolExecuteFunction, ToolSet}` and the same
   names in `prelude::unified` expose the existing runtime tool binding surface without merging

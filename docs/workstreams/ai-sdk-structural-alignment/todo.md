@@ -62,6 +62,9 @@ Status legend:
     helpers over the existing passive error carriers.
   - `convertImageModelFileToDataUri` is covered by a Rust helper over the existing
     `ImageEditInput` carrier.
+  - `isUrlSupported` is covered by `SupportedUrlMap` / `UrlSupportRegex` /
+    `is_url_supported(...)`, preserving upstream media-type wildcard/prefix semantics and URL
+    regex matching over a typed Rust map.
   - `StreamingToolCallTracker` is covered by a Rust helper over OpenAI-compatible tool-call
     deltas, accumulating streamed JSON argument text and emitting typed V4 `tool-input-*` and
     final `tool-call` stream parts.
