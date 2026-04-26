@@ -96,12 +96,17 @@ pub type LanguageModelV4StreamUsage = LanguageModelV3Usage;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LanguageModelV3InputTokens {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
-    #[serde(rename = "noCache")]
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "noCache")]
     pub no_cache: Option<u64>,
-    #[serde(rename = "cacheRead")]
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "cacheRead")]
     pub cache_read: Option<u64>,
-    #[serde(rename = "cacheWrite")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "cacheWrite"
+    )]
     pub cache_write: Option<u64>,
 }
 
@@ -110,8 +115,11 @@ pub type LanguageModelV4StreamInputTokens = LanguageModelV3InputTokens;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LanguageModelV3OutputTokens {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub total: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<u64>,
 }
 
@@ -1342,6 +1350,28 @@ impl LanguageModelV3StreamPart {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_usage_omits_unknown_token_fields() {
+        let usage = LanguageModelV3Usage {
+            input_tokens: LanguageModelV3InputTokens {
+                total: None,
+                no_cache: None,
+                cache_read: None,
+                cache_write: None,
+            },
+            output_tokens: LanguageModelV3OutputTokens {
+                total: None,
+                text: None,
+                reasoning: None,
+            },
+            raw: None,
+        };
+
+        let value = serde_json::to_value(&usage).expect("serialize stream usage");
+        assert_eq!(value["inputTokens"], serde_json::json!({}));
+        assert_eq!(value["outputTokens"], serde_json::json!({}));
+    }
 
     #[test]
     fn stream_part_parses_from_custom_event_payload() {

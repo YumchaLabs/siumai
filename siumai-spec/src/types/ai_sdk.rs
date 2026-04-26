@@ -9138,10 +9138,91 @@ impl From<FinishReason> for LanguageModelV4FinishReason {
 }
 
 /// AI SDK V4 input-token accounting.
-pub type LanguageModelV4InputTokens = UsageInputTokens;
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LanguageModelV4InputTokens {
+    /// Total input tokens, including cache hits and cache writes when billed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    /// Non-cached input tokens.
+    #[serde(rename = "noCache", skip_serializing_if = "Option::is_none")]
+    pub no_cache: Option<u64>,
+    /// Tokens read from cache.
+    #[serde(rename = "cacheRead", skip_serializing_if = "Option::is_none")]
+    pub cache_read: Option<u64>,
+    /// Tokens written to cache.
+    #[serde(rename = "cacheWrite", skip_serializing_if = "Option::is_none")]
+    pub cache_write: Option<u64>,
+}
+
+impl LanguageModelV4InputTokens {
+    /// Create input token usage with only the total populated.
+    pub const fn with_total(total: u64) -> Self {
+        Self {
+            total: Some(total),
+            no_cache: None,
+            cache_read: None,
+            cache_write: None,
+        }
+    }
+}
+
+impl From<&UsageInputTokens> for LanguageModelV4InputTokens {
+    fn from(value: &UsageInputTokens) -> Self {
+        Self {
+            total: value.total.map(u64::from),
+            no_cache: value.no_cache.map(u64::from),
+            cache_read: value.cache_read.map(u64::from),
+            cache_write: value.cache_write.map(u64::from),
+        }
+    }
+}
+
+impl From<UsageInputTokens> for LanguageModelV4InputTokens {
+    fn from(value: UsageInputTokens) -> Self {
+        Self::from(&value)
+    }
+}
 
 /// AI SDK V4 output-token accounting.
-pub type LanguageModelV4OutputTokens = UsageOutputTokens;
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LanguageModelV4OutputTokens {
+    /// Total output tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total: Option<u64>,
+    /// Text/output-visible tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<u64>,
+    /// Reasoning tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<u64>,
+}
+
+impl LanguageModelV4OutputTokens {
+    /// Create output token usage with only the total populated.
+    pub const fn with_total(total: u64) -> Self {
+        Self {
+            total: Some(total),
+            text: None,
+            reasoning: None,
+        }
+    }
+}
+
+impl From<&UsageOutputTokens> for LanguageModelV4OutputTokens {
+    fn from(value: &UsageOutputTokens) -> Self {
+        Self {
+            total: value.total.map(u64::from),
+            text: value.text.map(u64::from),
+            reasoning: value.reasoning.map(u64::from),
+        }
+    }
+}
+
+impl From<UsageOutputTokens> for LanguageModelV4OutputTokens {
+    fn from(value: UsageOutputTokens) -> Self {
+        Self::from(&value)
+    }
+}
 
 /// AI SDK V4 language-model usage payload.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
@@ -9160,12 +9241,12 @@ pub struct LanguageModelV4Usage {
 impl LanguageModelV4Usage {
     /// Create a V4 usage payload.
     pub fn new(
-        input_tokens: LanguageModelV4InputTokens,
-        output_tokens: LanguageModelV4OutputTokens,
+        input_tokens: impl Into<LanguageModelV4InputTokens>,
+        output_tokens: impl Into<LanguageModelV4OutputTokens>,
     ) -> Self {
         Self {
-            input_tokens,
-            output_tokens,
+            input_tokens: input_tokens.into(),
+            output_tokens: output_tokens.into(),
             raw: None,
         }
     }
@@ -9180,8 +9261,8 @@ impl LanguageModelV4Usage {
 impl From<&Usage> for LanguageModelV4Usage {
     fn from(value: &Usage) -> Self {
         Self {
-            input_tokens: value.input_tokens.clone(),
-            output_tokens: value.output_tokens.clone(),
+            input_tokens: value.normalized_input_tokens().into(),
+            output_tokens: value.normalized_output_tokens().into(),
             raw: value.raw.clone(),
         }
     }
@@ -9405,7 +9486,7 @@ pub struct LanguageModelV4CallOptions {
     /// Standardized model prompt.
     pub prompt: LanguageModelV4Prompt,
     /// Maximum output tokens requested by the caller.
-    pub max_output_tokens: Option<u32>,
+    pub max_output_tokens: Option<u64>,
     /// Sampling temperature.
     pub temperature: Option<f64>,
     /// Stop sequences.
@@ -9450,6 +9531,12 @@ impl LanguageModelV4CallOptions {
     /// Create call options by projecting stable model messages to the V4 provider prompt.
     pub fn from_model_messages(messages: impl IntoIterator<Item = ModelMessage>) -> Self {
         Self::new(prepare_language_model_v4_prompt(messages))
+    }
+
+    /// Set the maximum output tokens requested by the caller.
+    pub const fn with_max_output_tokens(mut self, max_output_tokens: u64) -> Self {
+        self.max_output_tokens = Some(max_output_tokens);
+        self
     }
 
     /// Attach already projected model-facing tools.
@@ -14266,12 +14353,14 @@ mod tests {
         );
 
         let options = LanguageModelV4CallOptions::from_model_messages(stable_prompt)
+            .with_max_output_tokens(u64::from(u32::MAX) + 1)
             .with_stable_tools(vec![tool])
             .with_tool_choice(ToolChoice::Required)
             .with_header("x-test", "1")
             .without_header("x-drop");
 
         assert_eq!(options.prompt, prompt);
+        assert_eq!(options.max_output_tokens, Some(u64::from(u32::MAX) + 1));
         assert_eq!(
             options.tool_choice,
             Some(LanguageModelV4ToolChoice::Required)
@@ -14479,6 +14568,52 @@ mod tests {
         let roundtrip: LanguageModelV4GenerateResult =
             serde_json::from_value(json).expect("deserialize V4 generate result");
         assert_eq!(roundtrip.content[3].r#type(), "tool-call");
+    }
+
+    #[test]
+    fn language_model_v4_usage_keeps_provider_sized_token_counts() {
+        let above_u32 = u64::from(u32::MAX) + 1;
+        let usage = LanguageModelV4Usage::new(
+            LanguageModelV4InputTokens {
+                total: Some(above_u32),
+                no_cache: Some(above_u32 - 20),
+                cache_read: Some(10),
+                cache_write: Some(10),
+            },
+            LanguageModelV4OutputTokens {
+                total: Some(above_u32 + 100),
+                text: Some(above_u32 + 80),
+                reasoning: Some(20),
+            },
+        );
+
+        let json = serde_json::to_value(&usage).expect("serialize V4 usage");
+        assert_eq!(json["inputTokens"]["total"], serde_json::json!(above_u32));
+        assert_eq!(
+            json["outputTokens"]["text"],
+            serde_json::json!(above_u32 + 80)
+        );
+
+        let roundtrip: LanguageModelV4Usage =
+            serde_json::from_value(json).expect("deserialize V4 usage");
+        assert_eq!(roundtrip.input_tokens.total, Some(above_u32));
+        assert_eq!(roundtrip.output_tokens.text, Some(above_u32 + 80));
+
+        let stable_usage = LanguageModelV4Usage::new(
+            super::super::UsageInputTokens {
+                total: Some(10),
+                no_cache: Some(7),
+                cache_read: Some(2),
+                cache_write: Some(1),
+            },
+            super::super::UsageOutputTokens {
+                total: Some(5),
+                text: Some(4),
+                reasoning: Some(1),
+            },
+        );
+        assert_eq!(stable_usage.input_tokens.total, Some(10_u64));
+        assert_eq!(stable_usage.output_tokens.reasoning, Some(1_u64));
     }
 
     #[test]

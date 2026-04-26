@@ -58,11 +58,16 @@ Status legend:
   - `LanguageModelV4CallOptions` / `LanguageModelV4Tool` are covered by a Rust overlay that
     groups prompt, projected model-facing tools, tool choice, headers, abort, reasoning, and
     provider options like the upstream provider-call contract while preserving the existing
-    reusable Rust split for runtime APIs.
+    reusable Rust split for runtime APIs. V4 `maxOutputTokens` now also uses a provider-facing
+    `u64` instead of inheriting the stable settings layer's `u32` compatibility limit.
   - `LanguageModelV4Content`, `LanguageModelV4GenerateResult`, and
     `LanguageModelV4StreamResult` are covered by passive Rust overlays for the upstream
     model-facing result envelopes, including V4 file/reasoning-file/tool-call/tool-result/
     approval-request parts, finish reason, usage, and response metadata.
+  - `LanguageModelV4Usage` now owns provider-facing `u64` token carriers instead of aliasing the
+    stable Rust `UsageInputTokens` / `UsageOutputTokens` `u32` compatibility structs, so V4
+    overlays match upstream `number | undefined` usage counts while stable runtime usage remains
+    backward-compatible.
   - Experimental low-level stream payload aliases now use `LanguageModelV4Stream*` names, reserving
     the unqualified `LanguageModelV4*` names for standalone upstream provider V4 shapes.
   - `LanguageModelV4` is now represented as a provider-facing Rust trait over `supported_urls`,
@@ -99,6 +104,8 @@ Status legend:
     OpenAI-style underscore values; Siumai-specific `StopSequence` and provider-specific
     `Other(...)` details are preserved through `finishReason.raw`, and legacy underscore inputs
     still deserialize for compatibility.
+  - `LanguageModelV4StreamUsage` now also omits unknown token subfields instead of serializing
+    `null`, matching upstream `number | undefined` behavior on streamed `finish.usage` payloads.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

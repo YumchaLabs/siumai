@@ -51,6 +51,14 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `finishReason.unified` union values (`stop`, `length`, `content-filter`, `tool-calls`, `error`,
   `other`) while preserving Siumai-specific `StopSequence` / provider-specific reasons in
   `finishReason.raw` and still accepting legacy underscore values on input.
+- AI SDK V4 language-model usage parity now uses provider-facing `u64` token carriers for
+  `LanguageModelV4Usage`, matching upstream `number | undefined` semantics without leaking the
+  stable Rust `Usage` layer's `u32` compatibility limit into provider V4 overlays.
+- AI SDK V4 stream usage payloads now also omit unknown token subfields instead of serializing
+  `null`, matching upstream `undefined` token-count behavior on streamed `finish.usage` parts.
+- AI SDK V4 call-options parity now also keeps `LanguageModelV4CallOptions.max_output_tokens` as a
+  provider-facing `u64`, while the stable high-level settings structs retain their existing `u32`
+  compatibility surface.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and

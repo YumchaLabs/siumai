@@ -436,7 +436,9 @@ too: it groups the standardized prompt, projected `LanguageModelV4Tool` union, V
 headers, abort handle, raw-chunk intent, reasoning, response format, and provider options in the
 same conceptual object as the upstream provider interface. Runtime APIs can keep using the more
 ergonomic `LanguageModelCallOptions` / `RequestOptions` split without pretending that split is the
-actual provider V4 call object.
+actual provider V4 call object. Its `maxOutputTokens` field now uses a provider-facing `u64`,
+matching the upstream `number | undefined` width more honestly than the stable runtime settings'
+`u32` compatibility slot.
 
 The non-streaming provider result layer now has the same narrow overlay. `LanguageModelV4Content`
 models the upstream generated-content union separately from high-level `GenerateTextContentPart`,
@@ -446,7 +448,10 @@ so provider-facing files use top-level `mediaType` + `data`, tool calls keep str
 `LanguageModelV4GenerateResult` groups that content with V4 finish reason, V4 usage, provider
 metadata, request/response telemetry, and warnings; `LanguageModelV4StreamResult<STREAM>` keeps the
 same request/response envelope while leaving the Rust stream carrier generic instead of pretending
-to be JavaScript `ReadableStream`.
+to be JavaScript `ReadableStream`. The provider-facing `LanguageModelV4Usage` token carriers are
+now independent `u64` structs rather than aliases to the stable `Usage` layer's `u32`
+compatibility storage, so this overlay can represent upstream `number | undefined` usage counts
+without constraining provider-native accounting to the high-level Rust runtime limit.
 
 The provider-facing model interface is now explicit as well. `siumai_core::text::LanguageModelV4`
 mirrors the upstream `LanguageModelV4` contract around model metadata, `supportedUrls`,
@@ -462,7 +467,8 @@ experimental stream payload helpers are named `LanguageModelV4StreamToolCall`,
 `LanguageModelV4StreamPart` enum while avoiding the previous ambiguity where
 `LanguageModelV4ToolCall` could mean either a standalone provider-result part with a `type` field
 or an internally tagged stream payload that relies on the surrounding stream enum for the
-discriminator.
+discriminator. The stream usage payload also now treats missing token counts as upstream
+`undefined` values by omitting those JSON fields rather than serializing `null`.
 
 The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
 serializes provider tools as AI SDK `type: "provider"` while still accepting the old
