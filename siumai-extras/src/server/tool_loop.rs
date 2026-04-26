@@ -698,6 +698,7 @@ mod tests {
                 created: None,
                 provider: "mock".to_string(),
                 request_id: None,
+                headers: None,
             };
 
             match idx {
@@ -875,6 +876,7 @@ mod tests {
                 created: None,
                 provider: "mock".to_string(),
                 request_id: None,
+                headers: None,
             };
 
             match idx {
@@ -1067,6 +1069,7 @@ mod tests {
                 created: None,
                 provider: "mock".to_string(),
                 request_id: None,
+                headers: None,
             };
 
             match idx {

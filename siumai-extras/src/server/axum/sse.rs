@@ -5,7 +5,14 @@
 use std::convert::Infallible;
 use std::pin::Pin;
 
-use axum::response::sse::{Event, Sse};
+use axum::{
+    body::Body,
+    http::{HeaderMap, HeaderValue, StatusCode, header},
+    response::{
+        Response,
+        sse::{Event, Sse},
+    },
+};
 use futures::{Stream, StreamExt};
 use serde::Serialize;
 
@@ -54,6 +61,20 @@ pub struct SseOptions {
     pub masked_error_message: Option<String>,
 }
 
+/// Options for plain text stream response encoding.
+#[derive(Debug, Clone)]
+pub struct TextStreamResponseOptions {
+    /// HTTP status code for the response.
+    ///
+    /// Default: `200 OK`
+    pub status: StatusCode,
+
+    /// Additional response headers.
+    ///
+    /// If `content-type` is absent, `text/plain; charset=utf-8` is inserted.
+    pub headers: HeaderMap,
+}
+
 impl Default for SseOptions {
     fn default() -> Self {
         Self {
@@ -62,6 +83,15 @@ impl Default for SseOptions {
             include_start: true,
             mask_errors: true,
             masked_error_message: None,
+        }
+    }
+}
+
+impl Default for TextStreamResponseOptions {
+    fn default() -> Self {
+        Self {
+            status: StatusCode::OK,
+            headers: HeaderMap::new(),
         }
     }
 }
@@ -230,6 +260,32 @@ pub fn to_text_stream(
     Box::pin(text_stream)
 }
 
+/// Convert a `ChatStream` into an Axum plain text streaming response.
+///
+/// This is the Axum-specific equivalent of AI SDK `createTextStreamResponse`: each text chunk is
+/// emitted as UTF-8 bytes and the response defaults to `content-type: text/plain; charset=utf-8`.
+pub fn to_text_stream_response(stream: ChatStream) -> Response<Body> {
+    to_text_stream_response_with_options(stream, TextStreamResponseOptions::default())
+}
+
+/// Convert a `ChatStream` into an Axum plain text streaming response with custom response options.
+pub fn to_text_stream_response_with_options(
+    stream: ChatStream,
+    mut opts: TextStreamResponseOptions,
+) -> Response<Body> {
+    if !opts.headers.contains_key(header::CONTENT_TYPE) {
+        opts.headers.insert(
+            header::CONTENT_TYPE,
+            HeaderValue::from_static("text/plain; charset=utf-8"),
+        );
+    }
+
+    let mut response = Response::new(Body::from_stream(to_text_stream(stream)));
+    *response.status_mut() = opts.status;
+    *response.headers_mut() = opts.headers;
+    response
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +313,7 @@ mod tests {
                     created: Some(chrono::Utc::now()),
                     provider: "openai".to_string(),
                     request_id: None,
+                    headers: None,
                 },
             }),
             Ok(ChatStreamEvent::ContentDelta {
@@ -304,6 +361,65 @@ mod tests {
             out.push_str(&item.unwrap());
         }
         assert_eq!(out, "Hello world");
+    }
+
+    #[tokio::test]
+    async fn test_to_text_stream_response_sets_text_plain_header() {
+        let events = vec![
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: "Hello".to_string(),
+                index: None,
+            }),
+            Ok(ChatStreamEvent::ContentDelta {
+                delta: " world".to_string(),
+                index: None,
+            }),
+        ];
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(events));
+        let response = to_text_stream_response(chat_stream);
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE),
+            Some(&HeaderValue::from_static("text/plain; charset=utf-8"))
+        );
+
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body bytes");
+        assert_eq!(
+            String::from_utf8(body.to_vec()).expect("utf8"),
+            "Hello world"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_to_text_stream_response_with_options_preserves_custom_headers() {
+        let events = vec![Ok(ChatStreamEvent::ContentDelta {
+            delta: "Accepted".to_string(),
+            index: None,
+        })];
+        let mut headers = HeaderMap::new();
+        headers.insert("x-test", HeaderValue::from_static("ok"));
+
+        let chat_stream: ChatStream = Box::pin(stream::iter(events));
+        let response = to_text_stream_response_with_options(
+            chat_stream,
+            TextStreamResponseOptions {
+                status: StatusCode::ACCEPTED,
+                headers,
+            },
+        );
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE),
+            Some(&HeaderValue::from_static("text/plain; charset=utf-8"))
+        );
+        assert_eq!(
+            response.headers().get("x-test"),
+            Some(&HeaderValue::from_static("ok"))
+        );
     }
 
     #[tokio::test]

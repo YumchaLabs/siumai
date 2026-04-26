@@ -146,7 +146,10 @@ fn request_normalize_smoke_restores_openai_chat_request() {
         strict,
         schema,
         ..
-    } = format;
+    } = format
+    else {
+        panic!("expected JSON Schema response format");
+    };
     assert_eq!(name.as_deref(), Some("response"));
     assert_eq!(strict, Some(false));
     assert_eq!(schema["properties"]["ok"]["type"], json!("boolean"));

@@ -7,7 +7,8 @@
 //! - **SSE Response**: `to_sse_response()` converts `ChatStream` to `Sse<impl Stream>`
 //!   and exports the stable semantic lane as `event: part` frames with a
 //!   `{ part, replay }` JSON envelope (`replay` is `null` when absent)
-//! - **Text Response**: `to_text_stream()` converts `ChatStream` to plain text stream
+//! - **Text Response**: `to_text_stream()` converts `ChatStream` to a plain text stream, and
+//!   `to_text_stream_response()` wraps that stream in an Axum `text/plain; charset=utf-8` response
 //! - **Gateway Helpers**: provider-native request normalization and SSE/JSON transcoding helpers
 //! - **Runtime Helpers**: policy-aware request/upstream body reads
 //! - **Error Handling**: automatic error masking for production environments
@@ -33,7 +34,10 @@ pub use runtime::{
     GatewayBodyReadError, GatewayBodyRole, read_request_body_with_policy,
     read_request_json_with_policy, read_upstream_body_with_policy, read_upstream_json_with_policy,
 };
-pub use sse::{SseOptions, to_sse_response, to_text_stream};
+pub use sse::{
+    SseOptions, TextStreamResponseOptions, to_sse_response, to_text_stream,
+    to_text_stream_response, to_text_stream_response_with_options,
+};
 pub use transcode_json::{
     TargetJsonFormat, TranscodeJsonOptions, to_transcoded_json_response,
     to_transcoded_json_response_with_response_transform,

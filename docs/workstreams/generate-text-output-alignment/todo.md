@@ -1,6 +1,6 @@
 # Generate Text Output Alignment - TODO
 
-Last updated: 2026-04-24
+Last updated: 2026-04-26
 
 Status legend:
 
@@ -78,6 +78,5 @@ Status legend:
 - [-] Do not expose the full AI SDK `StreamTextResult` multi-lane result object until tee/backpressure
   semantics are designed.
 - [-] Do not add an `Output` trait that claims streaming parity before Track E exists.
-- [-] Do not expose `smoothStream`, `StreamTextTransform`, `UIMessageStreamOptions`, callback
-  function aliases, or type-level infer helpers until there is real Rust runtime/type behavior
-  behind them.
+- [-] Do not expose `smoothStream`, `StreamTextTransform`, callback function aliases, or type-level
+  infer helpers until there is real Rust runtime/type behavior behind them.

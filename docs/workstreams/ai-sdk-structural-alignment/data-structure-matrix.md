@@ -83,6 +83,8 @@ References:
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
 - `repo-ref/ai/packages/ai/src/util/data-url.ts`
 - `repo-ref/ai/packages/ai/src/util/is-deep-equal-data.ts`
+- `repo-ref/ai/packages/ai/src/text-stream/create-text-stream-response.ts`
+- `repo-ref/ai/packages/ai/src/text-stream/pipe-text-stream-to-response.ts`
 - `repo-ref/ai/packages/ai/src/ui/chat.ts`
 - `repo-ref/ai/packages/ai/src/ui/call-completion-api.ts`
 - `repo-ref/ai/packages/ai/src/ui/convert-file-list-to-file-ui-parts.ts`
@@ -275,11 +277,15 @@ infer helpers remain intentionally deferred until backed by real Rust behavior.
 The latest bounded root-export audit leaves only runtime-owned browser/Vercel surfaces as clear
 top-level gaps rather than missing passive data structures. `generateText` now has an honest
 single-step Rust projection, while `streamText` still has passive event/result-carrier parity but
-not the full multi-lane streaming result runtime. The remaining AI SDK root exports
-`AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` belong to the browser UI
-transport/state/FileList layer; `gateway` and `createGateway` belong to the separate Vercel
-Gateway provider package. Siumai should not add empty marker exports for these names until it owns
-the corresponding runtime contracts.
+not the full multi-lane streaming result runtime. The AI SDK `text-stream` HTTP response helpers
+now have an honest Rust server boundary through `siumai-extras::server::axum`:
+`to_text_stream_response(...)` and `to_text_stream_response_with_options(...)` wrap the existing
+plain text stream in an Axum `text/plain; charset=utf-8` response instead of pretending browser
+`Response` or Node `ServerResponse` exist in core. The remaining AI SDK root exports
+`AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` still belong to the
+browser UI transport/state/FileList layer; `gateway` and `createGateway` belong to the separate
+Vercel Gateway provider package. Siumai should not add empty marker exports for these names until
+it owns the corresponding runtime contracts.
 
 The AI SDK `error/index.ts` passive import surface is now materially closer as well. Siumai exposes
 serializable carriers for the missing high-value error classes such as invalid argument/stream
@@ -672,6 +678,7 @@ The biggest remaining gaps are:
 | --- | --- | --- | --- |
 | `generateText` | `packages/ai/src/generate-text/generate-text.ts`, `packages/ai/src/generate-text/generate-text-result.ts` | Implemented as `siumai::generate_text(...)` / `siumai::text::generate_text(...)` | Rust now owns an honest single-step projection over the existing text-family runtime. It does not pretend to be the full AI SDK tool-loop/agent runtime. |
 | `streamText` / `StreamTextResult` | `packages/ai/src/generate-text/stream-text-result.ts` | Passive result/event carriers implemented; full runtime deferred | `TextStreamPart`, callback events, and stream options are importable, but a real multi-lane `StreamTextResult` needs an explicit Rust tee/backpressure/HTTP design. |
+| `createTextStreamResponse` / `pipeTextStreamToResponse` | `packages/ai/src/text-stream/create-text-stream-response.ts`, `packages/ai/src/text-stream/pipe-text-stream-to-response.ts` | Covered on the Axum server-adapter boundary | `siumai-extras::server::axum::to_text_stream_response(...)` and `to_text_stream_response_with_options(...)` provide the Rust equivalent for `ChatStream` -> `text/plain; charset=utf-8` streaming responses. A Node `ServerResponse` pipe helper remains intentionally outside Rust core. |
 | `AbstractChat` | `packages/ai/src/ui/chat.ts` | Intentionally deferred | This is the stateful browser/client chat controller above `ChatTransport`, not a passive data structure. Siumai should only add an equivalent after it owns a Rust runtime abstraction with matching state transitions. |
 | `callCompletionApi` | `packages/ai/src/ui/call-completion-api.ts` | Intentionally deferred | This helper owns browser `fetch`, abort-controller state, UI loading/error callbacks, and text/data stream consumption. Current Rust completion/text helpers cover provider execution, not browser hook transport state. |
 | `convertFileListToFileUIParts` | `packages/ai/src/ui/convert-file-list-to-file-ui-parts.ts` | Intentionally deferred | This helper depends on browser `FileList` and `FileReader`; Rust already has file/provider-reference carriers, but not a browser DOM file-list runtime. |

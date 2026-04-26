@@ -6,6 +6,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Added
 
+- AI SDK `text-stream` HTTP response helper parity now has a real Axum server boundary:
+  `siumai_extras::server::axum::{to_text_stream_response,
+  to_text_stream_response_with_options, TextStreamResponseOptions}` wraps `ChatStream` text output
+  as `text/plain; charset=utf-8`, matching the upstream `createTextStreamResponse` behavior on the
+  Rust server-adapter path without pretending Node `ServerResponse` exists in core.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,
@@ -861,9 +866,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 - AI SDK structural-alignment documentation now records the bounded root-export audit: `generateText`
   is covered by the single-step Rust projection, `streamText` remains passive-result parity until
-  a real Rust stream-result runtime exists, and browser UI / Vercel Gateway exports such as
-  `AbstractChat`, `callCompletionApi`, `convertFileListToFileUIParts`, `gateway`, and
-  `createGateway` are intentionally deferred instead of represented by fake root exports.
+  a real Rust stream-result runtime exists, AI SDK `text-stream` response helpers are covered by
+  the Axum extras adapter, and browser UI / Vercel Gateway exports such as `AbstractChat`,
+  `callCompletionApi`, `convertFileListToFileUIParts`, `gateway`, and `createGateway` are
+  intentionally deferred instead of represented by fake root exports.
 - OpenAI and Anthropic provider-owned `skills()` resources now consume the shared
   `SkillUploadRequest` / `SkillUploadResult` contract directly; the redundant public
   `OpenAiSkill*` / `AnthropicSkill*` wrapper types and bespoke `upload(...)` resource methods

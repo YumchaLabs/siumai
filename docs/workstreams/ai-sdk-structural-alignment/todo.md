@@ -19,6 +19,9 @@ Status legend:
   - `generateText` is now covered by the real single-step Rust `generate_text(...)` projection.
   - `streamText` is covered at the passive event/result-carrier layer, while the full multi-lane
     `StreamTextResult` runtime remains deferred until Rust owns the tee/backpressure design.
+  - `createTextStreamResponse` is covered on the real Rust HTTP server boundary by
+    `siumai-extras::server::axum::to_text_stream_response(...)`; Node `ServerResponse` piping
+    remains intentionally outside Rust core.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.
