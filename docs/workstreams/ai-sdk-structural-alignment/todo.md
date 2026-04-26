@@ -36,6 +36,8 @@ Status legend:
     secure prototype-property rejection and schema-validator variants.
   - `parseProviderOptions` is covered by a Rust helper that extracts and validates one
     provider-scoped `ProviderOptionsMap` entry through the existing `Schema` runtime validator.
+  - `resolveProviderReference` / `isProviderReference` are covered by Rust helpers over the
+    existing `ProviderReference` and `FilePartSource` carriers.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

@@ -539,6 +539,16 @@ fn public_surface_unified_imports_compile() {
             .expect("parse provider options"),
         Some("yes".to_string())
     );
+    let provider_reference = ProviderReference::from([("openai", "file-openai")]);
+    assert_eq!(
+        resolve_provider_reference(&provider_reference, "openai")
+            .expect("resolve provider reference"),
+        "file-openai"
+    );
+    assert!(resolve_provider_reference(&provider_reference, "anthropic").is_err());
+    assert!(is_provider_reference(
+        &FilePartSource::single_provider_reference("openai", "file-openai")
+    ));
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")

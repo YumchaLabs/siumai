@@ -95,6 +95,8 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/parse-json.ts`
 - `repo-ref/ai/packages/provider-utils/src/secure-json-parse.ts`
 - `repo-ref/ai/packages/provider-utils/src/parse-provider-options.ts`
+- `repo-ref/ai/packages/provider-utils/src/is-provider-reference.ts`
+- `repo-ref/ai/packages/provider-utils/src/resolve-provider-reference.ts`
 - `repo-ref/ai/packages/ai/src/util/job.ts`
 - `repo-ref/ai/packages/ai/src/util/serial-job-executor.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
@@ -370,6 +372,13 @@ validator lane. When a provider entry is absent or `null`, the helper returns `N
 upstream optional-provider-options contract. Rust does not pretend that a generic `T` can be
 type-asserted without a validator, so schemas without validators return an explicit
 `InvalidInput` error on this typed helper.
+
+Provider-reference utilities are also covered without new carrier types:
+`is_provider_reference` delegates to the existing `FilePartSource` source union, and
+`resolve_provider_reference` resolves a provider id from `ProviderReference` while returning the
+existing passive `NoSuchProviderReferenceError` carrier on misses. This matches the upstream
+provider-utils behavior while keeping provider-managed files as part of the stable prompt/file
+source model instead of inventing a parallel reference map.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

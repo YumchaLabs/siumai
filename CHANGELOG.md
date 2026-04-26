@@ -33,6 +33,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   upstream-style forbidden prototype-property rejection and explicit safe result carriers.
 - AI SDK provider-utils `parseProviderOptions` parity now exposes `parse_provider_options` for
   validating a provider-scoped `ProviderOptionsMap` entry with an existing Rust `Schema`.
+- AI SDK provider-utils provider-reference parity now exposes `resolve_provider_reference` and
+  `is_provider_reference`, backed by the existing `ProviderReference` / `FilePartSource` carriers.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,
