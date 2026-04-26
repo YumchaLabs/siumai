@@ -446,6 +446,8 @@ fn public_surface_unified_imports_compile() {
     let _ = convert_uint8_array_to_base64 as fn(&[u8]) -> String;
     let _ = convert_to_base64 as fn(&DataContent) -> String;
     let _ = convert_uint8_array_to_text as fn(&[u8]) -> String;
+    let _ = get_error_message::<str> as fn(Option<&str>) -> String;
+    let _ = get_runtime_environment_user_agent as fn() -> String;
     let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
     let _ = DEFAULT_MAX_DOWNLOAD_SIZE;
     let _ = DEFAULT_REASONING_BUDGET_PERCENTAGES;
@@ -567,6 +569,14 @@ fn public_surface_unified_imports_compile() {
         convert_to_base64(&DataContent::binary(b"hello".to_vec())),
         "aGVsbG8="
     );
+    assert_eq!(get_error_message::<str>(None), "unknown error");
+    assert_eq!(get_error_message(Some("public surface")), "public surface");
+    assert_eq!(
+        get_error_message(Some(&serde_json::json!({ "code": "FAIL" }))),
+        r#"{"code":"FAIL"}"#
+    );
+    assert_eq!(get_runtime_environment_user_agent(), "runtime/rust");
+    assert!(!VERSION.is_empty());
     assert_eq!(media_type_to_extension("audio/mpeg"), "mp3");
     assert_eq!(strip_file_extension("archive.tar.gz"), "archive");
     assert_eq!(
