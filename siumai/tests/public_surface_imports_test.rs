@@ -67,6 +67,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<RepairTextFuture>();
     let _ = size_of::<IdGenerator>();
     let _ = size_of::<IdGeneratorOptions>();
+    let _ = delay;
+    let _ = is_abort_error;
     let _ = size_of::<ExecutableTool>();
     let _ = size_of::<ExecutableTools>();
     let _ = size_of::<ProviderDefinedToolFactory>();

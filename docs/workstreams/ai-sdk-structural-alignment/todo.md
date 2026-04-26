@@ -30,9 +30,10 @@ Status legend:
   - Pure provider-utils HTTP/string helpers are covered by Rust utility functions for header
     normalization/combining, `user-agent` suffix appending, media-type extension mapping, file
     extension stripping, response-header extraction, and single trailing-slash removal.
-  - `getErrorMessage`, `getRuntimeEnvironmentUserAgent`, and `VERSION` are covered by Rust
-    display/runtime/crate-version helpers. Runtime detection intentionally reports `runtime/rust`
-    instead of pretending JavaScript host globals exist.
+  - `getErrorMessage`, `getRuntimeEnvironmentUserAgent`, `VERSION`, `delay`, and `isAbortError`
+    are covered by Rust display/runtime/crate-version/cancellation helpers. Runtime detection
+    intentionally reports `runtime/rust` instead of pretending JavaScript host globals exist, and
+    delay/abort semantics use Tokio plus the existing `CancelHandle`.
   - `injectJsonInstruction` / `injectJsonInstructionIntoMessages` are covered by Rust prompt
     helpers over `ModelMessage` with the same generic and schema instruction defaults.
   - `parseJSON` / `safeParseJSON` / `isParsableJson` are covered by Rust JSON helpers with

@@ -53,6 +53,7 @@ pub mod validate_types;
 pub mod vertex;
 
 // Re-exports for convenience
+pub use cancel::{delay, is_abort_error};
 pub use data::*;
 pub use download::*;
 pub use error_message::*;

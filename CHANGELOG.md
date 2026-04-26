@@ -26,8 +26,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `extract_response_headers`, `media_type_to_extension`, `strip_file_extension`, and
   `without_trailing_slash`.
 - AI SDK provider-utils runtime/error helper parity now exposes `VERSION`,
-  `get_runtime_environment_user_agent`, and `get_error_message`. The runtime user-agent helper
-  reports Rust truthfully as `runtime/rust` rather than emulating JavaScript host globals.
+  `get_runtime_environment_user_agent`, `get_error_message`, `delay`, and `is_abort_error`. The
+  runtime user-agent helper reports Rust truthfully as `runtime/rust` rather than emulating
+  JavaScript host globals, and delay/abort handling uses Tokio plus the existing `CancelHandle`
+  instead of modeling browser `AbortSignal` directly.
 - AI SDK provider-utils optional-value and setting-loader parity now exposes
   `Arrayable`, `as_array`, `is_non_nullable`, `filter_nullable`, `remove_undefined_entries`,
   `load_api_key`, `load_setting`, `load_optional_setting`, and their option structs. These map JS

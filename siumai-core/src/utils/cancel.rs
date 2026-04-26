@@ -2,8 +2,10 @@
 //!
 //! Provides first-class cancellation handles for streams and long-running operations.
 
+use crate::error::LlmError;
 pub use crate::types::CancelHandle;
 use std::future::Future;
+use std::time::Duration;
 
 // Stream-based cancellation is implemented via async_stream to avoid pin projection.
 
@@ -184,6 +186,75 @@ pub fn new_cancel_handle() -> CancelHandle {
     CancelHandle::new()
 }
 
+/// Wait for the requested delay, optionally observing a cancellation handle.
+///
+/// This is the Rust equivalent of provider-utils `delay(...)`: missing delays resolve
+/// immediately, and cancellation returns an abort-compatible timeout error.
+pub async fn delay(
+    delay_in_ms: Option<u64>,
+    abort_signal: Option<&CancelHandle>,
+) -> Result<(), LlmError> {
+    let Some(delay_in_ms) = delay_in_ms else {
+        return Ok(());
+    };
+
+    if let Some(abort_signal) = abort_signal {
+        if abort_signal.is_cancelled() {
+            return Err(delay_abort_error());
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(Duration::from_millis(delay_in_ms)) => Ok(()),
+            _ = abort_signal.cancelled() => Err(delay_abort_error()),
+        }
+    } else {
+        tokio::time::sleep(Duration::from_millis(delay_in_ms)).await;
+        Ok(())
+    }
+}
+
+/// Check whether an error is abort-compatible.
+///
+/// AI SDK treats `AbortError`, `ResponseAborted`, and `TimeoutError` as abort errors. Rust does
+/// not have browser `DOMException.name`, so this helper classifies native timeout errors directly
+/// and checks textual/provider error names for the same stable markers.
+pub fn is_abort_error(error: &LlmError) -> bool {
+    match error {
+        LlmError::TimeoutError(_) => true,
+        LlmError::HttpError(message)
+        | LlmError::StreamError(message)
+        | LlmError::ConnectionError(message)
+        | LlmError::Other(message) => contains_abort_error_name(message),
+        LlmError::ProviderError {
+            message,
+            error_code,
+            ..
+        } => {
+            error_code.as_deref().is_some_and(is_abort_error_name)
+                || contains_abort_error_name(message)
+        }
+        LlmError::ContextualError {
+            source_error: Some(source),
+            ..
+        } => is_abort_error(source),
+        _ => false,
+    }
+}
+
+fn delay_abort_error() -> LlmError {
+    LlmError::TimeoutError("Delay was aborted".to_string())
+}
+
+fn contains_abort_error_name(message: &str) -> bool {
+    message
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(is_abort_error_name)
+}
+
+fn is_abort_error_name(name: &str) -> bool {
+    matches!(name, "AbortError" | "ResponseAborted" | "TimeoutError")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +279,49 @@ mod tests {
             .expect("task ok");
 
         assert!(out.is_none());
+    }
+
+    #[tokio::test]
+    async fn delay_resolves_immediately_when_missing() {
+        delay(None, None)
+            .await
+            .expect("missing delay should resolve");
+    }
+
+    #[tokio::test]
+    async fn delay_waits_for_duration() {
+        let started = tokio::time::Instant::now();
+        delay(Some(5), None).await.expect("delay should resolve");
+        assert!(started.elapsed() >= std::time::Duration::from_millis(5));
+    }
+
+    #[tokio::test]
+    async fn delay_observes_cancel_handle() {
+        let cancel = new_cancel_handle();
+        cancel.cancel();
+
+        let err = delay(Some(1_000), Some(&cancel))
+            .await
+            .expect_err("cancelled delay should fail");
+
+        assert!(is_abort_error(&err));
+    }
+
+    #[test]
+    fn abort_error_detection_matches_ai_sdk_names() {
+        assert!(is_abort_error(&LlmError::TimeoutError(
+            "operation timed out".to_string(),
+        )));
+        assert!(is_abort_error(&LlmError::Other(
+            "DOMException AbortError: aborted".to_string(),
+        )));
+        assert!(is_abort_error(&LlmError::provider_error_with_code(
+            "next",
+            "response aborted",
+            "ResponseAborted",
+        )));
+        assert!(!is_abort_error(&LlmError::InvalidInput(
+            "AbortError is not an input error name".to_string(),
+        )));
     }
 }
