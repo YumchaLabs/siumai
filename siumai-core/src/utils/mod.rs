@@ -38,9 +38,11 @@ pub mod mime;
 pub mod model_alias;
 pub mod provider_options;
 pub mod provider_reference;
+pub mod reasoning;
 pub mod serial_job;
 pub mod url;
 pub mod utf8_decoder;
+pub mod validate_types;
 
 #[deprecated(since = "0.11.1", note = "Use `crate::auth::vertex` instead")]
 pub mod vertex;
@@ -56,9 +58,11 @@ pub use mime::*;
 pub use model_alias::*;
 pub use provider_options::*;
 pub use provider_reference::*;
+pub use reasoning::*;
 pub use serial_job::*;
 pub use url::*;
 pub use utf8_decoder::Utf8StreamDecoder;
+pub use validate_types::*;
 
 // Deprecated re-exports
 #[allow(deprecated)]

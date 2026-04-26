@@ -99,19 +99,23 @@ pub mod types {
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
 pub use siumai_core::hosted_tools;
 
+pub use siumai_core::standards::{ToolNameMapping, create_tool_name_mapping};
 /// AI SDK-style utility helpers.
 pub use siumai_core::utils::{
     DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX, DEFAULT_JSON_SCHEMA_PREFIX,
-    DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE, Download, DownloadOptions,
-    DownloadedFile, HeaderRecord, IdGenerator, IdGeneratorOptions, JsonInstructionMessageOptions,
-    JsonInstructionOptions, JsonParseResult, SerialJobExecutor, combine_headers, cosine_similarity,
-    create_download, create_id_generator, download_url, generate_id, get_text_from_data_url,
-    inject_json_instruction, inject_json_instruction_into_messages, is_deep_equal_data,
-    is_parsable_json, is_provider_reference, media_type_to_extension, normalize_header_map,
+    DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE, DEFAULT_REASONING_BUDGET_PERCENTAGES,
+    Download, DownloadOptions, DownloadedFile, HeaderRecord, IdGenerator, IdGeneratorOptions,
+    JsonInstructionMessageOptions, JsonInstructionOptions, JsonParseResult, ReasoningBudgetOptions,
+    ReasoningLevel, ReasoningLevelConversionError, SerialJobExecutor, TypeValidationResult,
+    combine_headers, cosine_similarity, create_download, create_id_generator, download_url,
+    extract_response_headers, generate_id, get_text_from_data_url, inject_json_instruction,
+    inject_json_instruction_into_messages, is_custom_reasoning, is_deep_equal_data,
+    is_parsable_json, is_provider_reference, map_reasoning_to_provider_budget,
+    map_reasoning_to_provider_effort, media_type_to_extension, normalize_header_map,
     normalize_headers, normalize_optional_headers, parse_json, parse_json_with_schema,
     parse_provider_options, read_response_with_size_limit, resolve_provider_reference,
-    safe_parse_json, safe_parse_json_with_schema, strip_file_extension, validate_download_url,
-    with_user_agent_suffix, without_trailing_slash,
+    safe_parse_json, safe_parse_json_with_schema, safe_validate_types, strip_file_extension,
+    validate_download_url, validate_types, with_user_agent_suffix, without_trailing_slash,
 };
 
 /// Protocol mapping facade (stable imports for protocol standards).
@@ -2095,16 +2099,20 @@ pub mod prelude {
         pub use crate::{
             DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX,
             DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE,
-            Download, DownloadOptions, DownloadedFile, HeaderRecord, IdGenerator,
-            IdGeneratorOptions, JsonInstructionMessageOptions, JsonInstructionOptions,
-            JsonParseResult, SerialJobExecutor, combine_headers, cosine_similarity,
-            create_download, create_id_generator, download_url, generate_id,
-            get_text_from_data_url, inject_json_instruction, inject_json_instruction_into_messages,
-            is_deep_equal_data, is_parsable_json, is_provider_reference, media_type_to_extension,
-            normalize_header_map, normalize_headers, normalize_optional_headers, parse_json,
-            parse_json_with_schema, parse_provider_options, read_response_with_size_limit,
-            resolve_provider_reference, safe_parse_json, safe_parse_json_with_schema,
-            strip_file_extension, validate_download_url, with_user_agent_suffix,
+            DEFAULT_REASONING_BUDGET_PERCENTAGES, Download, DownloadOptions, DownloadedFile,
+            HeaderRecord, IdGenerator, IdGeneratorOptions, JsonInstructionMessageOptions,
+            JsonInstructionOptions, JsonParseResult, ReasoningBudgetOptions, ReasoningLevel,
+            ReasoningLevelConversionError, SerialJobExecutor, ToolNameMapping,
+            TypeValidationResult, combine_headers, cosine_similarity, create_download,
+            create_id_generator, create_tool_name_mapping, download_url, extract_response_headers,
+            generate_id, get_text_from_data_url, inject_json_instruction,
+            inject_json_instruction_into_messages, is_custom_reasoning, is_deep_equal_data,
+            is_parsable_json, is_provider_reference, map_reasoning_to_provider_budget,
+            map_reasoning_to_provider_effort, media_type_to_extension, normalize_header_map,
+            normalize_headers, normalize_optional_headers, parse_json, parse_json_with_schema,
+            parse_provider_options, read_response_with_size_limit, resolve_provider_reference,
+            safe_parse_json, safe_parse_json_with_schema, safe_validate_types,
+            strip_file_extension, validate_download_url, validate_types, with_user_agent_suffix,
             without_trailing_slash,
         };
         pub use crate::{

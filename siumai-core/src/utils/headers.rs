@@ -61,6 +61,13 @@ pub fn normalize_header_map(headers: &HeaderMap) -> HeaderRecord {
         .collect()
 }
 
+/// Extract response headers into a lower-case plain record.
+///
+/// This is the Rust HTTP-boundary equivalent of AI SDK `extractResponseHeaders`.
+pub fn extract_response_headers(headers: &HeaderMap) -> HeaderRecord {
+    normalize_header_map(headers)
+}
+
 /// Combine multiple header records with later records overriding earlier ones.
 pub fn combine_headers<I, M, K, V>(header_maps: I) -> HeaderRecord
 where
@@ -148,6 +155,17 @@ mod tests {
 
         assert_eq!(normalized.get("x-ok"), Some(&"yes".to_string()));
         assert!(!normalized.contains_key("x-binary"));
+    }
+
+    #[test]
+    fn extract_response_headers_matches_header_map_normalization() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Trace", HeaderValue::from_static("abc"));
+
+        assert_eq!(
+            extract_response_headers(&headers),
+            normalize_header_map(&headers)
+        );
     }
 
     #[test]

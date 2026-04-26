@@ -23,7 +23,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK provider-utils HTTP/string helper parity now exposes real Rust utilities from the root
   facade and unified prelude: `normalize_headers`, `normalize_optional_headers`,
   `normalize_header_map`, `combine_headers`, `with_user_agent_suffix`,
-  `media_type_to_extension`, `strip_file_extension`, and `without_trailing_slash`.
+  `extract_response_headers`, `media_type_to_extension`, `strip_file_extension`, and
+  `without_trailing_slash`.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and
@@ -35,6 +36,15 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   validating a provider-scoped `ProviderOptionsMap` entry with an existing Rust `Schema`.
 - AI SDK provider-utils provider-reference parity now exposes `resolve_provider_reference` and
   `is_provider_reference`, backed by the existing `ProviderReference` / `FilePartSource` carriers.
+- AI SDK provider-utils reasoning mapper parity now exposes `ReasoningLevel`,
+  `ReasoningBudgetOptions`, `DEFAULT_REASONING_BUDGET_PERCENTAGES`,
+  `is_custom_reasoning`, `map_reasoning_to_provider_effort`, and
+  `map_reasoning_to_provider_budget`, using the existing shared `Warning` carrier for
+  unsupported/compatibility notices.
+- AI SDK provider-utils `validateTypes` parity now exposes `validate_types`,
+  `safe_validate_types`, and `TypeValidationResult` over the existing `Schema` and
+  `TypeValidationError` carriers. Schemas without a runtime validator fail explicitly instead of
+  pretending Rust can perform TypeScript-style unchecked generic casts.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,
@@ -48,6 +58,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `siumai::{tool, dynamic_tool, ToolExecutionOptions, ToolExecuteFunction, ToolSet}` and the same
   names in `prelude::unified` expose the existing runtime tool binding surface without merging
   Rust closures into the passive provider-facing `Tool` schema.
+- AI SDK provider-utils tool-name mapping parity is now importable from the stable facade:
+  `siumai::{create_tool_name_mapping, ToolNameMapping}` maps provider-defined custom tool names
+  to provider-native tool names and back using the existing portable `Tool` carrier.
 - AI SDK provider-utils `ToolCall` / `ToolResult` passive data structures now preserve the
   current output-side metadata fields: `providerMetadata`, `title`, invalid-tool `error`,
   `invalid`, and preliminary tool results. Their serialized output now also preserves the

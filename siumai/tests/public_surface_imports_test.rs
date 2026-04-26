@@ -28,6 +28,11 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<JsonInstructionOptions>();
     let _ = size_of::<JsonInstructionMessageOptions>();
     let _ = size_of::<JsonParseResult>();
+    let _ = size_of::<ReasoningBudgetOptions<'static>>();
+    let _ = size_of::<ReasoningLevel>();
+    let _ = size_of::<ReasoningLevelConversionError>();
+    let _ = size_of::<ToolNameMapping>();
+    let _ = size_of::<TypeValidationResult>();
     let _ = size_of::<ValidationResult>();
     let _ = size_of::<ModelCallResponseData>();
     let _ = size_of::<GenerateObjectOptions>();
@@ -431,6 +436,7 @@ fn public_surface_unified_imports_compile() {
     let _ = convert_uint8_array_to_text as fn(&[u8]) -> String;
     let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
     let _ = DEFAULT_MAX_DOWNLOAD_SIZE;
+    let _ = DEFAULT_REASONING_BUDGET_PERCENTAGES;
     let _ = create_download as fn(DownloadOptions) -> Download;
     let _ = validate_download_url as fn(&str) -> Result<(), DownloadError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
@@ -489,6 +495,7 @@ fn public_surface_unified_imports_compile() {
         Some("siumai/test ai-sdk/test")
     );
     let _ = normalize_header_map as fn(&reqwest::header::HeaderMap) -> HeaderRecord;
+    let _ = extract_response_headers as fn(&reqwest::header::HeaderMap) -> HeaderRecord;
     assert_eq!(media_type_to_extension("audio/mpeg"), "mp3");
     assert_eq!(strip_file_extension("archive.tar.gz"), "archive");
     assert_eq!(
@@ -532,6 +539,22 @@ fn public_surface_unified_imports_compile() {
         "yes"
     );
     assert!(safe_parse_json_with_schema(r#"{"answer":42}"#, &parse_schema).is_failure());
+    assert_eq!(
+        validate_types(
+            serde_json::json!({ "answer": "yes" }),
+            &parse_schema,
+            Some(TypeValidationContext {
+                field: Some("answer".to_string()),
+                entity_name: Some("response".to_string()),
+                entity_id: Some("public-surface".to_string()),
+            }),
+        )
+        .expect("validate types"),
+        "yes"
+    );
+    assert!(
+        safe_validate_types(serde_json::json!({ "answer": 42 }), &parse_schema, None).is_failure()
+    );
     let mut provider_options = ProviderOptionsMap::new();
     provider_options.insert("openai", serde_json::json!({ "answer": "yes" }));
     assert_eq!(
@@ -549,6 +572,38 @@ fn public_surface_unified_imports_compile() {
     assert!(is_provider_reference(
         &FilePartSource::single_provider_reference("openai", "file-openai")
     ));
+    let mapped_tools = [Tool::ProviderDefined(ProviderDefinedTool::new(
+        "openai.web_search",
+        "mySearch",
+    ))];
+    let mapping = create_tool_name_mapping(&mapped_tools, &[("openai.web_search", "web_search")]);
+    assert_eq!(mapping.to_provider_tool_name("mySearch"), "web_search");
+    assert_eq!(mapping.to_custom_tool_name("web_search"), "mySearch");
+    assert!(is_custom_reasoning(Some(&LanguageModelReasoning::None)));
+    assert_eq!(
+        ReasoningLevel::try_from(LanguageModelReasoning::High).expect("reasoning level"),
+        ReasoningLevel::High
+    );
+    let mut reasoning_warnings = Vec::new();
+    assert_eq!(
+        map_reasoning_to_provider_effort(
+            ReasoningLevel::Minimal,
+            &[(ReasoningLevel::Minimal, "low")],
+            &mut reasoning_warnings,
+        ),
+        Some("low")
+    );
+    assert!(matches!(
+        reasoning_warnings.first(),
+        Some(Warning::Compatibility { .. })
+    ));
+    assert_eq!(
+        map_reasoning_to_provider_budget(
+            ReasoningBudgetOptions::new(ReasoningLevel::Medium, 10_000, 8_000),
+            &mut reasoning_warnings,
+        ),
+        Some(3_000)
+    );
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")

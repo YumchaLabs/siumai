@@ -29,7 +29,7 @@ Status legend:
     jobs through a shared FIFO mutex and preserves each job's return value.
   - Pure provider-utils HTTP/string helpers are covered by Rust utility functions for header
     normalization/combining, `user-agent` suffix appending, media-type extension mapping, file
-    extension stripping, and single trailing-slash removal.
+    extension stripping, response-header extraction, and single trailing-slash removal.
   - `injectJsonInstruction` / `injectJsonInstructionIntoMessages` are covered by Rust prompt
     helpers over `ModelMessage` with the same generic and schema instruction defaults.
   - `parseJSON` / `safeParseJSON` / `isParsableJson` are covered by Rust JSON helpers with
@@ -38,6 +38,14 @@ Status legend:
     provider-scoped `ProviderOptionsMap` entry through the existing `Schema` runtime validator.
   - `resolveProviderReference` / `isProviderReference` are covered by Rust helpers over the
     existing `ProviderReference` and `FilePartSource` carriers.
+  - `createToolNameMapping` / `ToolNameMapping` are covered by the existing portable
+    provider-defined-tool mapping helper and are now available from the stable root/prelude facade.
+  - `isCustomReasoning`, `mapReasoningToProviderEffort`, and `mapReasoningToProviderBudget` are
+    covered by Rust helpers over `LanguageModelReasoning`, `ReasoningLevel`, and the shared
+    `Warning` carrier.
+  - `validateTypes` / `safeValidateTypes` are covered by Rust helpers over `Schema`,
+    `ValidationResult`, and `TypeValidationError`; unchecked TypeScript generic casts are
+    intentionally not replicated when a schema has no runtime validator.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

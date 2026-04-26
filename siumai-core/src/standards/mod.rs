@@ -6,3 +6,5 @@
 
 pub mod openai;
 pub mod tool_name_mapping;
+
+pub use tool_name_mapping::{ToolNameMapping, create_tool_name_mapping};
