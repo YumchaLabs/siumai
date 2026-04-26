@@ -1314,6 +1314,91 @@ impl GeneratedFile {
 /// AI SDK `DefaultGeneratedFile` export. Rust keeps the same value carrier as `GeneratedFile`.
 pub type DefaultGeneratedFile = GeneratedFile;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultGeneratedFileWithTypeMarker {
+    File,
+}
+
+impl Default for DefaultGeneratedFileWithTypeMarker {
+    fn default() -> Self {
+        Self::File
+    }
+}
+
+impl Serialize for DefaultGeneratedFileWithTypeMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("file")
+    }
+}
+
+impl<'de> Deserialize<'de> for DefaultGeneratedFileWithTypeMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "file" {
+            Ok(Self::File)
+        } else {
+            Err(serde::de::Error::custom("expected file type marker"))
+        }
+    }
+}
+
+/// Passive AI SDK `DefaultGeneratedFileWithType` carrier.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultGeneratedFileWithType {
+    #[serde(rename = "type", default)]
+    marker: DefaultGeneratedFileWithTypeMarker,
+    /// Generated file payload.
+    #[serde(flatten)]
+    pub file: GeneratedFile,
+}
+
+impl DefaultGeneratedFileWithType {
+    /// Create a generated file with the AI SDK `type: "file"` discriminator.
+    pub fn new(file: GeneratedFile) -> Self {
+        Self {
+            marker: DefaultGeneratedFileWithTypeMarker::File,
+            file,
+        }
+    }
+
+    /// Create a generated file from base64 content.
+    pub fn from_base64(base64: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self::new(GeneratedFile::from_base64(base64, media_type))
+    }
+
+    /// Create a generated file from bytes.
+    pub fn from_bytes(data: impl AsRef<[u8]>, media_type: impl Into<String>) -> Self {
+        Self::new(GeneratedFile::from_bytes(data, media_type))
+    }
+
+    /// Return the AI SDK output discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "file"
+    }
+
+    /// Return base64 content.
+    pub fn base64(&self) -> &str {
+        self.file.base64()
+    }
+
+    /// Return the generated file media type.
+    pub fn media_type(&self) -> &str {
+        self.file.media_type.as_str()
+    }
+
+    /// Decode the generated file into bytes.
+    pub fn uint8_array(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        self.file.uint8_array()
+    }
+}
+
 /// Backwards-compatible AI SDK `Experimental_GeneratedImage` export.
 #[allow(non_camel_case_types)]
 pub type Experimental_GeneratedImage = GeneratedFile;
@@ -1382,6 +1467,94 @@ impl GeneratedAudioFile {
     /// Decode the generated audio into bytes.
     pub fn uint8_array(&self) -> Result<Vec<u8>, base64::DecodeError> {
         self.file.uint8_array()
+    }
+}
+
+/// AI SDK `DefaultGeneratedAudioFile` export. Rust keeps the same value carrier as `GeneratedAudioFile`.
+pub type DefaultGeneratedAudioFile = GeneratedAudioFile;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DefaultGeneratedAudioFileWithTypeMarker {
+    Audio,
+}
+
+impl Default for DefaultGeneratedAudioFileWithTypeMarker {
+    fn default() -> Self {
+        Self::Audio
+    }
+}
+
+impl Serialize for DefaultGeneratedAudioFileWithTypeMarker {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str("audio")
+    }
+}
+
+impl<'de> Deserialize<'de> for DefaultGeneratedAudioFileWithTypeMarker {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        if value == "audio" {
+            Ok(Self::Audio)
+        } else {
+            Err(serde::de::Error::custom("expected audio type marker"))
+        }
+    }
+}
+
+/// Passive AI SDK `DefaultGeneratedAudioFileWithType` carrier.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DefaultGeneratedAudioFileWithType {
+    #[serde(rename = "type", default)]
+    marker: DefaultGeneratedAudioFileWithTypeMarker,
+    /// Generated audio payload.
+    #[serde(flatten)]
+    pub audio: GeneratedAudioFile,
+}
+
+impl DefaultGeneratedAudioFileWithType {
+    /// Create generated audio with the AI SDK `type: "audio"` discriminator.
+    pub fn new(audio: GeneratedAudioFile) -> Self {
+        Self {
+            marker: DefaultGeneratedAudioFileWithTypeMarker::Audio,
+            audio,
+        }
+    }
+
+    /// Create generated audio from base64 content, deriving the format from the media type.
+    pub fn from_base64(base64: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self::new(GeneratedAudioFile::from_base64(base64, media_type))
+    }
+
+    /// Create generated audio from bytes, deriving the format from the media type.
+    pub fn from_bytes(data: impl AsRef<[u8]>, media_type: impl Into<String>) -> Self {
+        Self::new(GeneratedAudioFile::from_bytes(data, media_type))
+    }
+
+    /// Return the AI SDK output discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "audio"
+    }
+
+    /// Return base64 content.
+    pub fn base64(&self) -> &str {
+        self.audio.base64()
+    }
+
+    /// Return the generated audio media type.
+    pub fn media_type(&self) -> &str {
+        self.audio.media_type()
+    }
+
+    /// Decode the generated audio into bytes.
+    pub fn uint8_array(&self) -> Result<Vec<u8>, base64::DecodeError> {
+        self.audio.uint8_array()
     }
 }
 
@@ -2874,6 +3047,10 @@ pub struct GenerateTextStepResult<NAME = String, INPUT = JSONValue, ToolOutput =
 
 /// AI SDK `StepResult` export. Rust keeps the same passive carrier as `GenerateTextStepResult`.
 pub type StepResult<NAME = String, INPUT = JSONValue, ToolOutput = ToolResultOutput> =
+    GenerateTextStepResult<NAME, INPUT, ToolOutput>;
+
+/// AI SDK `DefaultStepResult` export. Rust keeps the same passive carrier as `StepResult`.
+pub type DefaultStepResult<NAME = String, INPUT = JSONValue, ToolOutput = ToolResultOutput> =
     GenerateTextStepResult<NAME, INPUT, ToolOutput>;
 
 /// Passive AI SDK-style result envelope for a non-streaming `generateText` call.
@@ -8265,6 +8442,11 @@ pub fn create_null_language_model_usage() -> LanguageModelUsage {
     LanguageModelUsage::default()
 }
 
+/// AI SDK-style helper for projecting shared provider usage onto `LanguageModelUsage`.
+pub fn as_language_model_usage(usage: &Usage) -> LanguageModelUsage {
+    LanguageModelUsage::from(usage)
+}
+
 /// AI SDK-style helper for adding two language-model usage payloads.
 ///
 /// Raw provider usage is intentionally dropped on the aggregated result, matching the
@@ -10320,9 +10502,35 @@ mod tests {
         let _: GenerateVideoResult =
             serde_json::from_value(video_json).expect("deserialize video result");
 
+        let typed_file = DefaultGeneratedFileWithType::from_bytes(b"file", "text/plain");
+        let typed_file_json =
+            serde_json::to_value(&typed_file).expect("serialize generated file with type");
+        assert_eq!(typed_file_json["type"], serde_json::json!("file"));
+        assert_eq!(typed_file_json["base64"], serde_json::json!("ZmlsZQ=="));
+        assert_eq!(
+            typed_file_json["mediaType"],
+            serde_json::json!("text/plain")
+        );
+        let _: DefaultGeneratedFileWithType =
+            serde_json::from_value(typed_file_json).expect("deserialize generated file with type");
+
         let audio = GeneratedAudioFile::from_bytes(b"audio", "audio/mpeg");
         assert_eq!(audio.format, "mp3");
         assert_eq!(audio.base64(), "YXVkaW8=");
+        let default_audio: DefaultGeneratedAudioFile = audio.clone();
+        assert_eq!(default_audio.media_type(), "audio/mpeg");
+        let typed_audio = DefaultGeneratedAudioFileWithType::new(default_audio);
+        let typed_audio_json =
+            serde_json::to_value(&typed_audio).expect("serialize generated audio with type");
+        assert_eq!(typed_audio_json["type"], serde_json::json!("audio"));
+        assert_eq!(typed_audio_json["format"], serde_json::json!("mp3"));
+        assert_eq!(
+            typed_audio_json["mediaType"],
+            serde_json::json!("audio/mpeg")
+        );
+        let _: DefaultGeneratedAudioFileWithType = serde_json::from_value(typed_audio_json)
+            .expect("deserialize generated audio with type");
+
         let speech_response = SpeechModelResponseMetadata {
             timestamp: DateTime::parse_from_rfc3339("2026-04-21T09:01:00Z")
                 .expect("valid timestamp")
@@ -10722,6 +10930,21 @@ mod tests {
                 raw: Some(serde_json::Map::new()),
             },
         );
+        let projected_language = as_language_model_usage(
+            &Usage::builder()
+                .with_input_tokens(super::super::UsageInputTokens {
+                    total: Some(3),
+                    no_cache: Some(2),
+                    cache_read: Some(1),
+                    cache_write: None,
+                })
+                .with_output_tokens(super::super::UsageOutputTokens {
+                    total: Some(5),
+                    text: Some(4),
+                    reasoning: Some(1),
+                })
+                .build(),
+        );
 
         assert_eq!(embedding.tokens, 12);
         assert_eq!(image.input_tokens, Some(5));
@@ -10745,6 +10968,14 @@ mod tests {
         assert_eq!(added_language.output_tokens, Some(3));
         assert_eq!(added_language.total_tokens, Some(7));
         assert_eq!(added_language.raw, None);
+        assert_eq!(projected_language.input_tokens, Some(3));
+        assert_eq!(projected_language.output_tokens, Some(5));
+        assert_eq!(projected_language.total_tokens, Some(8));
+        assert_eq!(projected_language.cached_input_tokens, Some(1));
+        assert_eq!(
+            projected_language.output_token_details.reasoning_tokens,
+            Some(1)
+        );
     }
 
     #[test]

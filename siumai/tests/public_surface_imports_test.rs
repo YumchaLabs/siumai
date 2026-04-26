@@ -65,7 +65,11 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<Context>();
     let _ = size_of::<CreateUIMessage>();
     let _ = size_of::<DataContent>();
+    let _ = size_of::<DefaultGeneratedAudioFile>();
+    let _ = size_of::<DefaultGeneratedAudioFileWithType>();
     let _ = size_of::<DefaultGeneratedFile>();
+    let _ = size_of::<DefaultGeneratedFileWithType>();
+    let _ = size_of::<DefaultStepResult>();
     let _ = size_of::<CompletionRequest>();
     let _ = size_of::<CompletionRequestOptions>();
     let _ = size_of::<CompletionResponse>();
@@ -412,7 +416,11 @@ fn public_surface_unified_imports_compile() {
     let _ = add_language_model_usage
         as fn(&LanguageModelUsage, &LanguageModelUsage) -> LanguageModelUsage;
     let _ = add_image_model_usage as fn(&ImageModelUsage, &ImageModelUsage) -> ImageModelUsage;
+    let _ = as_language_model_usage as fn(&Usage) -> LanguageModelUsage;
     let _ = convert_data_content_to_base64_string as fn(&DataContent) -> String;
+    let _ = convert_data_content_to_uint8_array
+        as fn(&DataContent) -> Result<Vec<u8>, InvalidDataContentError>;
+    let _ = convert_uint8_array_to_text as fn(&[u8]) -> String;
     let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
     let _ = is_deep_equal_data as fn(&JSONValue, &JSONValue) -> bool;

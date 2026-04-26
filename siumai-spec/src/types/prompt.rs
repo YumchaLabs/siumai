@@ -121,6 +121,18 @@ pub fn convert_data_content_to_base64_string(content: &DataContent) -> String {
     content.as_base64()
 }
 
+/// Convert AI SDK-style data content into bytes.
+pub fn convert_data_content_to_uint8_array(
+    content: &DataContent,
+) -> Result<Vec<u8>, InvalidDataContentError> {
+    content.as_bytes()
+}
+
+/// Convert bytes into UTF-8 text.
+pub fn convert_uint8_array_to_text(uint8_array: &[u8]) -> String {
+    String::from_utf8_lossy(uint8_array).into_owned()
+}
+
 impl From<&DataContent> for MediaSource {
     fn from(value: &DataContent) -> Self {
         match value {
@@ -2359,7 +2371,11 @@ mod tests {
     fn data_content_helper_matches_ai_sdk_base64_projection() {
         let data = DataContent::binary([1_u8, 2, 3]);
         assert_eq!(convert_data_content_to_base64_string(&data), "AQID");
-        assert_eq!(data.as_bytes().expect("bytes"), vec![1, 2, 3]);
+        assert_eq!(
+            convert_data_content_to_uint8_array(&data).expect("bytes"),
+            vec![1, 2, 3]
+        );
+        assert_eq!(convert_uint8_array_to_text(b"hello"), "hello");
     }
 
     #[test]

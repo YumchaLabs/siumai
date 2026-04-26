@@ -32,15 +32,16 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `TextOutput`, `CustomOutput`, `FileOutput`, `GeneratedFile`, `ReasoningOutput`, and
   `ReasoningFileOutput`, preserving the upstream nested generated-file `base64` / `mediaType`
   shape plus provider metadata. `DefaultGeneratedFile` and the backwards-compatible
-  `Experimental_GeneratedImage` export are aliases over `GeneratedFile`. `GenerateTextContentPart`
-  now also provides the passive output-side content union without reusing prompt/runtime
-  `ContentPart`.
+  `Experimental_GeneratedImage` export are aliases over `GeneratedFile`, and
+  `DefaultGeneratedFileWithType` now covers the upstream `type: "file"` generated-file class
+  projection. `GenerateTextContentPart` now also provides the passive output-side content union
+  without reusing prompt/runtime `ContentPart`.
 - AI SDK `generateText` result envelopes now have passive Rust data structures:
   `ResponseMessage`, `GenerateTextResponseMetadata`, `GenerateTextModelInfo`,
   `GenerateTextReasoningPart`, `GenerateTextStepReasoningPart`, `GenerateTextStepResult`,
-  `StepResult`, and `GenerateTextResult`. Step reasoning intentionally uses the provider-utils
-  `data` / `mediaType` / `providerOptions` shape, while final result reasoning keeps the
-  output-side `file` / `providerMetadata` shape.
+  `StepResult`, `DefaultStepResult`, and `GenerateTextResult`. Step reasoning intentionally uses
+  the provider-utils `data` / `mediaType` / `providerOptions` shape, while final result reasoning
+  keeps the output-side `file` / `providerMetadata` shape.
 - AI SDK `streamText` output events now have a passive `TextStreamPart` union and named
   `TextStream*Part` structures matching `generate-text/stream-text-result.ts`, including the
   higher-level `text` reasoning/text deltas, `start-step` / `finish-step`, `finish.totalUsage`,
@@ -98,7 +99,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `EmbedResult`, `EmbedManyResult`, embed callback/model-call event payloads,
   `ModelCallResponseData`, `RerankResult`, `RerankRanking`, rerank callback/model-call event
   payloads, `GenerateImageResult`, `Experimental_GenerateImageResult`, `GeneratedAudioFile`,
-  `GenerateVideoResult`, `SpeechResult`, `Experimental_SpeechResult`, `TranscriptionResult`,
+  `DefaultGeneratedAudioFile`, `DefaultGeneratedAudioFileWithType`, `GenerateVideoResult`,
+  `SpeechResult`, `Experimental_SpeechResult`, `TranscriptionResult`,
   `Experimental_TranscriptionResult`, and `TranscriptionSegment`. These mirror the `embed`,
   `embedMany`, `rerank`, `generateImage`, `generateVideo`, `generateSpeech`, and `transcribe`
   result object shapes without changing the existing provider-owned runtime helpers. The previous
@@ -264,8 +266,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   now includes it, and this slice is tracked under
   `docs/workstreams/language-model-call-options-alignment/`.
 - Shared usage helpers now mirror the AI SDK `usage.ts` helper surface with Rust-style names:
-  `create_null_language_model_usage`, `add_language_model_usage`, and `add_image_model_usage`
-  are exported through the stable facade alongside `LanguageModelUsage` and `ImageModelUsage`.
+  `as_language_model_usage`, `create_null_language_model_usage`, `add_language_model_usage`, and
+  `add_image_model_usage` are exported through the stable facade alongside `LanguageModelUsage`
+  and `ImageModelUsage`.
 - The shared `Embedding` vector alias from the AI SDK `types/embedding-model.ts` surface is now
   available through `siumai::types::*` and `siumai::prelude::unified::*`.
 - The existing stable `EmbeddingModel` trait is now directly exported from
@@ -300,10 +303,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `ModelMessage`, `Prompt`, `StandardizedPrompt`, the prompt content-part structs, and explicit
   `ModelMessageConversionError` / `PromptValidationError` now live on `siumai::types::*` and
   `siumai::prelude::unified::*`; prompt-owned shared `DataContent` plus
-  `convert_data_content_to_base64_string(...)` now also mirror the AI SDK helper role, prompt
-  role/type discriminators now deserialize strictly instead of accepting mismatched wire values,
-  the shared conversion layer intentionally narrows richer `ChatMessage` / `ContentPart` values
-  instead of aliasing them directly, and this slice is tracked under
+  `convert_data_content_to_base64_string(...)`, `convert_data_content_to_uint8_array(...)`, and
+  `convert_uint8_array_to_text(...)` now also mirror the AI SDK helper role, prompt role/type
+  discriminators now deserialize strictly instead of accepting mismatched wire values, the shared
+  conversion layer intentionally narrows richer `ChatMessage` / `ContentPart` values instead of
+  aliasing them directly, and this slice is tracked under
   `docs/workstreams/prompt-model-message-surface-alignment/`.
 - Shared AI SDK-style type surface is now exposed on the stable Rust facade: `JSONSchema7`,
   `JSONValue`, `CallWarning`, `ProviderMetadata`, `ImageModelProviderMetadata`, `LanguageModelUsage`,
