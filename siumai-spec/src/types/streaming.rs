@@ -5,11 +5,39 @@ use super::chat::ChatResponse;
 use super::chat::SourcePart;
 use crate::error::LlmError;
 use crate::types::{FinishReason, ProviderMetadataMap, ResponseMetadata, Usage, Warning};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::HashMap;
 
 /// Provider metadata object keyed by provider name.
 pub type StreamProviderMetadata = ProviderMetadataMap;
+
+fn serialize_stream_non_null_json_value<S>(
+    value: &serde_json::Value,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if value.is_null() {
+        return Err(serde::ser::Error::custom("expected non-null JSON value"));
+    }
+
+    value.serialize(serializer)
+}
+
+fn deserialize_stream_non_null_json_value<'de, D>(
+    deserializer: D,
+) -> Result<serde_json::Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(serde::de::Error::custom("expected non-null JSON value"));
+    }
+
+    Ok(value)
+}
 
 /// Binary-or-base64 file payload used by stream parts.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -73,6 +101,10 @@ pub struct ChatStreamToolResult {
     pub tool_call_id: String,
     #[serde(rename = "toolName")]
     pub tool_name: String,
+    #[serde(
+        deserialize_with = "deserialize_stream_non_null_json_value",
+        serialize_with = "serialize_stream_non_null_json_value"
+    )]
     pub result: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "isError")]
     pub is_error: Option<bool>,
@@ -530,6 +562,29 @@ mod tests {
             value["providerMetadata"]["anthropic"]["startPageNumber"],
             serde_json::json!(1)
         );
+    }
+
+    #[test]
+    fn stream_tool_result_rejects_null_result_payload() {
+        let invalid = serde_json::json!({
+            "type": "tool-result",
+            "toolCallId": "call_1",
+            "toolName": "weather",
+            "result": null
+        });
+
+        assert!(serde_json::from_value::<ChatStreamPart>(invalid).is_err());
+
+        let part = ChatStreamPart::ToolResult(ChatStreamToolResult {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "weather".to_string(),
+            result: serde_json::Value::Null,
+            is_error: None,
+            preliminary: None,
+            dynamic: None,
+            provider_metadata: None,
+        });
+        assert!(serde_json::to_value(&part).is_err());
     }
 
     #[test]

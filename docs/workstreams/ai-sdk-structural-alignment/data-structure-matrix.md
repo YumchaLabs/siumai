@@ -444,7 +444,11 @@ The non-streaming provider result layer now has the same narrow overlay. `Langua
 models the upstream generated-content union separately from high-level `GenerateTextContentPart`,
 so provider-facing files use top-level `mediaType` + `data`, tool calls keep stringified JSON
 `input`, provider-executed tool results use `result` / `isError`, and approval requests carry
-`approvalId` plus `toolCallId` rather than the helper-level nested tool-call object.
+`approvalId` plus `toolCallId` rather than the helper-level nested tool-call object. Generated
+file and reasoning-file content now uses a generated-file-only `string | bytes` carrier instead of
+the wider prompt `LanguageModelV4DataContent` helper, because upstream output files are
+`string | Uint8Array` and do not accept URL objects. Provider-facing `tool-result.result` also
+rejects `null` at the serde boundary to match upstream `NonNullable<JSONValue>`.
 `LanguageModelV4GenerateResult` groups that content with V4 finish reason, V4 usage, provider
 metadata, request/response telemetry, and warnings; `LanguageModelV4StreamResult<STREAM>` keeps the
 same request/response envelope while leaving the Rust stream carrier generic instead of pretending
@@ -468,7 +472,9 @@ experimental stream payload helpers are named `LanguageModelV4StreamToolCall`,
 `LanguageModelV4ToolCall` could mean either a standalone provider-result part with a `type` field
 or an internally tagged stream payload that relies on the surrounding stream enum for the
 discriminator. The stream usage payload also now treats missing token counts as upstream
-`undefined` values by omitting those JSON fields rather than serializing `null`.
+`undefined` values by omitting those JSON fields rather than serializing `null`. Stream
+tool-result payloads now share the same non-null result constraint, and the OpenAI Responses
+custom-event bridge drops invalid null tool-result payloads before they become typed V4 parts.
 
 The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
 serializes provider tools as AI SDK `type: "provider"` while still accepting the old

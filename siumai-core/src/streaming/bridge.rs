@@ -64,6 +64,10 @@ impl OpenAiResponsesStreamPartsBridge {
     }
 
     fn bridge_v3_custom_event(&mut self, data: &serde_json::Value) -> Option<Vec<ChatStreamEvent>> {
+        if data.get("type").and_then(|value| value.as_str()) == Some("tool-result") {
+            return Some(self.bridge_tool_result_custom_event(data));
+        }
+
         let part = LanguageModelV3StreamPart::parse_loose_json(data)?;
 
         match part {
@@ -204,10 +208,9 @@ impl OpenAiResponsesStreamPartsBridge {
             });
         }
 
-        let result = data
-            .get("result")
-            .cloned()
-            .unwrap_or(serde_json::Value::Null);
+        let Some(result) = data.get("result").filter(|value| !value.is_null()).cloned() else {
+            return out;
+        };
         let is_error = data
             .get("isError")
             .and_then(|v| v.as_bool())
@@ -448,6 +451,31 @@ mod tests {
                 .and_then(|v| v.as_str()),
             Some("completed")
         );
+    }
+
+    #[test]
+    fn bridge_v3_tool_result_skips_null_result_payload() {
+        let mut bridge = OpenAiResponsesStreamPartsBridge::new();
+
+        let in_event = ChatStreamEvent::Custom {
+            event_type: "custom:any".to_string(),
+            data: serde_json::json!({
+                "type": "tool-result",
+                "toolCallId": "tc_2",
+                "toolName": "web_search",
+                "result": null
+            }),
+        };
+
+        let out = bridge.bridge_event(in_event);
+        assert_eq!(out.len(), 1);
+        assert!(matches!(
+            &out[0],
+            ChatStreamEvent::PartWithReplay {
+                part: ChatStreamPart::ToolCall(_),
+                ..
+            }
+        ));
     }
 
     #[test]

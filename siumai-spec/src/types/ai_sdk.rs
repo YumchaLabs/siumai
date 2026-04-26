@@ -25,6 +25,32 @@ use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 /// AI SDK-style JSON value alias.
 pub type JSONValue = serde_json::Value;
 
+fn serialize_ai_sdk_non_null_json_value<S>(
+    value: &JSONValue,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if value.is_null() {
+        return Err(serde::ser::Error::custom("expected non-null JSON value"));
+    }
+
+    value.serialize(serializer)
+}
+
+fn deserialize_ai_sdk_non_null_json_value<'de, D>(deserializer: D) -> Result<JSONValue, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = JSONValue::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(serde::de::Error::custom("expected non-null JSON value"));
+    }
+
+    Ok(value)
+}
+
 /// AI SDK-style JSON Schema draft-07 value alias.
 pub type JSONSchema7 = serde_json::Value;
 
@@ -8044,6 +8070,56 @@ impl From<&[u8]> for LanguageModelV4DataContent {
     }
 }
 
+/// AI SDK V4 generated file data.
+///
+/// Generated `file` and `reasoning-file` content intentionally accepts only
+/// base64/string payloads or raw bytes. Prompt data can also carry URL values;
+/// generated content cannot in the upstream provider contract.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum LanguageModelV4GeneratedFileData {
+    /// Base64 data or other provider-returned string payloads.
+    String(String),
+    /// Binary data.
+    Bytes(Vec<u8>),
+}
+
+impl LanguageModelV4GeneratedFileData {
+    /// Create string-backed generated file data.
+    pub fn string(value: impl Into<String>) -> Self {
+        Self::String(value.into())
+    }
+
+    /// Create binary generated file data.
+    pub fn bytes(value: impl Into<Vec<u8>>) -> Self {
+        Self::Bytes(value.into())
+    }
+}
+
+impl From<String> for LanguageModelV4GeneratedFileData {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+impl From<&str> for LanguageModelV4GeneratedFileData {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
+impl From<Vec<u8>> for LanguageModelV4GeneratedFileData {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Bytes(value)
+    }
+}
+
+impl From<&[u8]> for LanguageModelV4GeneratedFileData {
+    fn from(value: &[u8]) -> Self {
+        Self::Bytes(value.to_vec())
+    }
+}
+
 /// AI SDK V4 file-part data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -8716,8 +8792,8 @@ pub struct LanguageModelV4File {
     /// IANA media type of the generated file.
     #[serde(rename = "mediaType", alias = "media_type")]
     pub media_type: String,
-    /// Generated file data.
-    pub data: LanguageModelV4DataContent,
+    /// Generated file data as a base64/string payload or bytes.
+    pub data: LanguageModelV4GeneratedFileData,
     /// Additional provider-specific metadata for the file part.
     #[serde(
         rename = "providerMetadata",
@@ -8730,7 +8806,10 @@ pub struct LanguageModelV4File {
 
 impl LanguageModelV4File {
     /// Create generated file content.
-    pub fn new(data: impl Into<LanguageModelV4DataContent>, media_type: impl Into<String>) -> Self {
+    pub fn new(
+        data: impl Into<LanguageModelV4GeneratedFileData>,
+        media_type: impl Into<String>,
+    ) -> Self {
         Self {
             marker: LanguageModelV4FileMarker::Marker,
             media_type: media_type.into(),
@@ -8764,8 +8843,8 @@ pub struct LanguageModelV4ReasoningFile {
     /// IANA media type of the generated file.
     #[serde(rename = "mediaType", alias = "media_type")]
     pub media_type: String,
-    /// Generated file data.
-    pub data: LanguageModelV4DataContent,
+    /// Generated file data as a base64/string payload or bytes.
+    pub data: LanguageModelV4GeneratedFileData,
     /// Additional provider-specific metadata for the reasoning file part.
     #[serde(
         rename = "providerMetadata",
@@ -8778,7 +8857,10 @@ pub struct LanguageModelV4ReasoningFile {
 
 impl LanguageModelV4ReasoningFile {
     /// Create generated reasoning-file content.
-    pub fn new(data: impl Into<LanguageModelV4DataContent>, media_type: impl Into<String>) -> Self {
+    pub fn new(
+        data: impl Into<LanguageModelV4GeneratedFileData>,
+        media_type: impl Into<String>,
+    ) -> Self {
         Self {
             marker: LanguageModelV4ReasoningFileMarker::Marker,
             media_type: media_type.into(),
@@ -8904,7 +8986,11 @@ pub struct LanguageModelV4ToolResult {
     /// Tool name.
     #[serde(rename = "toolName")]
     pub tool_name: String,
-    /// JSON-serializable result payload.
+    /// JSON-serializable non-null result payload.
+    #[serde(
+        deserialize_with = "deserialize_ai_sdk_non_null_json_value",
+        serialize_with = "serialize_ai_sdk_non_null_json_value"
+    )]
     pub result: JSONValue,
     /// Whether the result represents an error.
     #[serde(
@@ -14568,6 +14654,45 @@ mod tests {
         let roundtrip: LanguageModelV4GenerateResult =
             serde_json::from_value(json).expect("deserialize V4 generate result");
         assert_eq!(roundtrip.content[3].r#type(), "tool-call");
+    }
+
+    #[test]
+    fn language_model_v4_generated_files_use_generated_file_data_shape() {
+        let file = LanguageModelV4File::new(
+            LanguageModelV4GeneratedFileData::string("ZmFrZQ=="),
+            "image/png",
+        );
+        let reasoning_file = LanguageModelV4ReasoningFile::new(
+            LanguageModelV4GeneratedFileData::bytes([1_u8, 2, 3]),
+            "application/octet-stream",
+        );
+
+        let file_json = serde_json::to_value(&file).expect("serialize generated file");
+        let reasoning_file_json =
+            serde_json::to_value(&reasoning_file).expect("serialize reasoning file");
+
+        assert_eq!(file_json["type"], serde_json::json!("file"));
+        assert_eq!(file_json["data"], serde_json::json!("ZmFrZQ=="));
+        assert_eq!(
+            reasoning_file_json["type"],
+            serde_json::json!("reasoning-file")
+        );
+        assert_eq!(reasoning_file_json["data"], serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn language_model_v4_tool_result_rejects_null_result_payload() {
+        let invalid = serde_json::json!({
+            "type": "tool-result",
+            "toolCallId": "call_1",
+            "toolName": "weather",
+            "result": null
+        });
+
+        assert!(serde_json::from_value::<LanguageModelV4ToolResult>(invalid).is_err());
+
+        let result = LanguageModelV4ToolResult::new("call_1", "weather", serde_json::Value::Null);
+        assert!(serde_json::to_value(&result).is_err());
     }
 
     #[test]

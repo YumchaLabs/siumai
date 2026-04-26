@@ -63,7 +63,10 @@ Status legend:
   - `LanguageModelV4Content`, `LanguageModelV4GenerateResult`, and
     `LanguageModelV4StreamResult` are covered by passive Rust overlays for the upstream
     model-facing result envelopes, including V4 file/reasoning-file/tool-call/tool-result/
-    approval-request parts, finish reason, usage, and response metadata.
+    approval-request parts, finish reason, usage, and response metadata. Output-side
+    file/reasoning-file data now uses a generated-file-only `string | bytes` carrier instead of
+    the wider prompt data-content type, and provider-facing `tool-result.result` rejects `null`
+    like upstream `NonNullable<JSONValue>`.
   - `LanguageModelV4Usage` now owns provider-facing `u64` token carriers instead of aliasing the
     stable Rust `UsageInputTokens` / `UsageOutputTokens` `u32` compatibility structs, so V4
     overlays match upstream `number | undefined` usage counts while stable runtime usage remains
@@ -106,6 +109,9 @@ Status legend:
     still deserialize for compatibility.
   - `LanguageModelV4StreamUsage` now also omits unknown token subfields instead of serializing
     `null`, matching upstream `number | undefined` behavior on streamed `finish.usage` payloads.
+  - `LanguageModelV4StreamPart` tool-result payloads now also reject `null` result values and the
+    OpenAI Responses bridge drops invalid null tool-result custom events rather than surfacing a
+    provider-facing part that violates upstream `NonNullable<JSONValue>`.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

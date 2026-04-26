@@ -18,7 +18,7 @@ use crate::types::{
     ChatStreamFinishInfo, ChatStreamPart, ChatStreamToolApprovalRequest, ChatStreamToolCall,
     ChatStreamToolResult,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Provider metadata object keyed by provider name.
 ///
@@ -28,6 +28,34 @@ pub type SharedV3ProviderMetadata = crate::types::ProviderMetadataMap;
 
 /// V4-capable provider-metadata alias kept alongside the historical V3 compatibility name.
 pub type SharedV4ProviderMetadata = SharedV3ProviderMetadata;
+
+fn serialize_stream_part_non_null_json_value<S>(
+    value: &serde_json::Value,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if value.is_null() {
+        return Err(serde::ser::Error::custom("expected non-null JSON value"));
+    }
+
+    value.serialize(serializer)
+}
+
+fn deserialize_stream_part_non_null_json_value<'de, D>(
+    deserializer: D,
+) -> Result<serde_json::Value, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    if value.is_null() {
+        return Err(serde::de::Error::custom("expected non-null JSON value"));
+    }
+
+    Ok(value)
+}
 
 /// Shared warning type (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -161,6 +189,10 @@ pub struct LanguageModelV3ToolResult {
     pub tool_call_id: String,
     #[serde(rename = "toolName")]
     pub tool_name: String,
+    #[serde(
+        deserialize_with = "deserialize_stream_part_non_null_json_value",
+        serialize_with = "serialize_stream_part_non_null_json_value"
+    )]
     pub result: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "isError")]
     pub is_error: Option<bool>,
@@ -1677,6 +1709,29 @@ mod tests {
             }
             other => panic!("unexpected part: {other:?}"),
         }
+    }
+
+    #[test]
+    fn stream_part_tool_result_rejects_null_result_payload() {
+        let invalid = serde_json::json!({
+            "type": "tool-result",
+            "toolCallId": "call_1",
+            "toolName": "weather",
+            "result": null
+        });
+
+        assert!(serde_json::from_value::<LanguageModelV3StreamPart>(invalid).is_err());
+
+        let part = LanguageModelV3StreamPart::ToolResult(LanguageModelV3ToolResult {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "weather".to_string(),
+            result: serde_json::Value::Null,
+            is_error: None,
+            preliminary: None,
+            dynamic: None,
+            provider_metadata: None,
+        });
+        assert!(serde_json::to_value(&part).is_err());
     }
 
     #[test]

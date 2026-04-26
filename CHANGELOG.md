@@ -59,6 +59,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK V4 call-options parity now also keeps `LanguageModelV4CallOptions.max_output_tokens` as a
   provider-facing `u64`, while the stable high-level settings structs retain their existing `u32`
   compatibility surface.
+- AI SDK V4 generated file/reasoning-file content now uses a dedicated generated-file data carrier
+  for `string | Uint8Array` output payloads instead of reusing prompt data content that can also
+  represent URLs.
+- AI SDK V4 provider `tool-result.result` payloads now reject `null` on the passive result and
+  stream overlays, matching upstream `NonNullable<JSONValue>` semantics.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and
