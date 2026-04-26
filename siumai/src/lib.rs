@@ -2102,7 +2102,7 @@ pub mod prelude {
             Experimental_LanguageModelStreamPart, Experimental_SpeechResult,
             Experimental_TranscriptionResult, ExperimentalLanguageModelStreamPart, FileOutput,
             FilePart, FilePartSource, FileUIPart, FinishReason, FlexibleSchema,
-            GenerateImageRequest, GenerateImageResult, GenerateObjectEndEvent,
+            GenerateImagePrompt, GenerateImageRequest, GenerateImageResult, GenerateObjectEndEvent,
             GenerateObjectOutputStrategy, GenerateObjectResponseMetadata, GenerateObjectStartEvent,
             GenerateObjectStepEndEvent, GenerateObjectStepStartEvent, GenerateTextContentPart,
             GenerateTextEndEvent, GenerateTextModelInfo, GenerateTextReasoningPart,

@@ -93,6 +93,106 @@ impl ImageGenerationRequest {
     }
 }
 
+/// High-level image prompt shape aligned with AI SDK `GenerateImagePrompt`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum GenerateImagePrompt {
+    /// Text-only image prompt.
+    Text(String),
+    /// Image edit/inpainting prompt with optional text and mask.
+    Images {
+        /// Input images for edit-style generation.
+        images: Vec<DataContent>,
+        /// Optional text description for the generated image.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        text: Option<String>,
+        /// Optional mask for inpainting-style generation.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        mask: Option<DataContent>,
+    },
+}
+
+impl GenerateImagePrompt {
+    /// Create a text-only prompt.
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text(text.into())
+    }
+
+    /// Create an image prompt without text.
+    pub fn images(images: impl Into<Vec<DataContent>>) -> Self {
+        Self::Images {
+            images: images.into(),
+            text: None,
+            mask: None,
+        }
+    }
+
+    /// Create an image prompt with accompanying text.
+    pub fn images_with_text(images: impl Into<Vec<DataContent>>, text: impl Into<String>) -> Self {
+        Self::Images {
+            images: images.into(),
+            text: Some(text.into()),
+            mask: None,
+        }
+    }
+
+    /// Attach or replace the optional mask for image prompts.
+    pub fn with_mask(mut self, mask: impl Into<DataContent>) -> Self {
+        if let Self::Images { mask: current, .. } = &mut self {
+            *current = Some(mask.into());
+        }
+        self
+    }
+
+    /// Return the text portion of the prompt when present.
+    pub fn text_part(&self) -> Option<&str> {
+        match self {
+            Self::Text(text) => Some(text.as_str()),
+            Self::Images { text, .. } => text.as_deref(),
+        }
+    }
+
+    /// Return the image inputs when present.
+    pub fn image_parts(&self) -> Option<&[DataContent]> {
+        match self {
+            Self::Text(_) => None,
+            Self::Images { images, .. } => Some(images.as_slice()),
+        }
+    }
+
+    /// Return the mask input when present.
+    pub fn mask_part(&self) -> Option<&DataContent> {
+        match self {
+            Self::Text(_) => None,
+            Self::Images { mask, .. } => mask.as_ref(),
+        }
+    }
+}
+
+impl From<String> for GenerateImagePrompt {
+    fn from(value: String) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<&str> for GenerateImagePrompt {
+    fn from(value: &str) -> Self {
+        Self::Text(value.to_string())
+    }
+}
+
+impl From<Vec<DataContent>> for GenerateImagePrompt {
+    fn from(value: Vec<DataContent>) -> Self {
+        Self::images(value)
+    }
+}
+
+impl<const N: usize> From<[DataContent; N]> for GenerateImagePrompt {
+    fn from(value: [DataContent; N]) -> Self {
+        Self::images(value)
+    }
+}
+
 /// AI SDK-style unified image request surface.
 ///
 /// This request bridges generation, editing, and variation creation through one
@@ -254,6 +354,40 @@ impl GenerateImageRequest {
 
 fn normalized_generate_image_prompt(prompt: String) -> Option<String> {
     (!prompt.trim().is_empty()).then_some(prompt)
+}
+
+fn is_url_like_prompt_content(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://") || value.starts_with("data:")
+}
+
+fn image_edit_input_from_prompt_content(content: DataContent) -> ImageEditInput {
+    match content {
+        DataContent::Base64(value) => {
+            if is_url_like_prompt_content(&value) {
+                ImageEditInput::url(value)
+            } else {
+                ImageEditInput::base64(value)
+            }
+        }
+        DataContent::Binary(value) => ImageEditInput::file(value),
+    }
+}
+
+impl From<GenerateImagePrompt> for GenerateImageRequest {
+    fn from(prompt: GenerateImagePrompt) -> Self {
+        match prompt {
+            GenerateImagePrompt::Text(text) => Self::new(text),
+            GenerateImagePrompt::Images { images, text, mask } => Self {
+                prompt: text,
+                files: images
+                    .into_iter()
+                    .map(image_edit_input_from_prompt_content)
+                    .collect(),
+                mask: mask.map(image_edit_input_from_prompt_content),
+                ..Self::default()
+            },
+        }
+    }
 }
 
 impl From<ImageGenerationRequest> for GenerateImageRequest {
@@ -938,6 +1072,76 @@ mod tests {
                 .as_bytes()
                 .expect("bytes"),
             vec![1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn test_generate_image_prompt_matches_ai_sdk_shape() {
+        let text_prompt = GenerateImagePrompt::text("draw a tea house");
+        let text_json = serde_json::to_value(&text_prompt).expect("serialize text prompt");
+        assert_eq!(text_json, serde_json::json!("draw a tea house"));
+
+        let image_prompt = GenerateImagePrompt::images_with_text(
+            vec![DataContent::base64("AQID")],
+            "make it watercolor",
+        )
+        .with_mask(DataContent::base64("BAUG"));
+        let image_json = serde_json::to_value(&image_prompt).expect("serialize image prompt");
+        assert_eq!(
+            image_json,
+            serde_json::json!({
+                "images": ["AQID"],
+                "text": "make it watercolor",
+                "mask": "BAUG"
+            })
+        );
+
+        let decoded: GenerateImagePrompt =
+            serde_json::from_value(image_json).expect("deserialize image prompt");
+        assert_eq!(decoded.text_part(), Some("make it watercolor"));
+        assert_eq!(
+            decoded
+                .image_parts()
+                .and_then(|images| images.first())
+                .map(DataContent::as_base64),
+            Some("AQID".to_string())
+        );
+        assert_eq!(
+            decoded.mask_part().map(DataContent::as_base64),
+            Some("BAUG".to_string())
+        );
+    }
+
+    #[test]
+    fn test_generate_image_prompt_converts_to_unified_request() {
+        let request = GenerateImageRequest::from(
+            GenerateImagePrompt::images_with_text(
+                [
+                    DataContent::base64("https://example.com/input.png"),
+                    DataContent::binary([1_u8, 2, 3]),
+                ],
+                "edit",
+            )
+            .with_mask("data:image/png;base64,BAUG"),
+        );
+
+        assert_eq!(request.prompt.as_deref(), Some("edit"));
+        assert_eq!(request.files.len(), 2);
+        assert_eq!(
+            request.files.first().and_then(ImageEditInput::as_url),
+            Some("https://example.com/input.png")
+        );
+        assert_eq!(
+            request
+                .files
+                .get(1)
+                .and_then(ImageEditInput::file_data)
+                .and_then(|data| data.as_bytes().ok()),
+            Some(vec![1, 2, 3])
+        );
+        assert_eq!(
+            request.mask.as_ref().and_then(ImageEditInput::as_url),
+            Some("data:image/png;base64,BAUG")
         );
     }
 }

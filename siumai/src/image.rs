@@ -17,8 +17,8 @@ use std::time::Duration;
 
 pub use siumai_core::image::{ImageModel, ImageModelV3, ImageModelV4};
 pub use siumai_core::types::{
-    GenerateImageRequest, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
-    ImageGenerationResponse, ImageVariationRequest,
+    GenerateImagePrompt, GenerateImageRequest, ImageEditInput, ImageEditRequest,
+    ImageGenerationRequest, ImageGenerationResponse, ImageVariationRequest,
 };
 
 /// Options for image-family helper calls.

@@ -102,6 +102,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   result object shapes without changing the existing provider-owned runtime helpers. The previous
   provider-level single rerank item is now named `RerankRankingEntry`, freeing `RerankResult` for
   the AI SDK-style result envelope.
+- AI SDK `GenerateImagePrompt` parity is now represented as an importable untagged Rust prompt
+  union over text-only prompts or `{ images, text?, mask? }` image prompts. It is exported from
+  `siumai::image` and `prelude::unified`, serializes to the upstream shape, and can be converted
+  into `GenerateImageRequest` without adding a fake image-generation runtime.
 - AI SDK text-output tool failure parts now have direct Rust data structures:
   `ToolError`, `ToolOutputDenied`, `StaticToolOutputDenied`, and `TypedToolOutputDenied`.
 - AI SDK provider-utils stream parsing parity now has a public Rust wrapper:

@@ -168,6 +168,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<FileOutput>();
     let _ = size_of::<GeneratedAudioFile>();
     let _ = size_of::<GeneratedFile>();
+    let _ = size_of::<GenerateImagePrompt>();
     let _ = size_of::<ImageModelProviderMetadata>();
     let _ = size_of::<ImageModelResponseMetadata>();
     let _ = size_of::<ImageModelUsage>();
@@ -998,8 +999,8 @@ fn public_family_helpers_compile_against_stable_family_models() {
         embedding::{self, BatchEmbeddingRequest, EmbeddingModel, EmbeddingRequest},
         extensions::ImageExtras,
         image::{
-            self, GenerateImageRequest, ImageEditInput, ImageEditRequest, ImageGenerationRequest,
-            ImageModel, ImageVariationRequest,
+            self, GenerateImagePrompt, GenerateImageRequest, ImageEditInput, ImageEditRequest,
+            ImageGenerationRequest, ImageModel, ImageVariationRequest,
         },
         prelude::unified::{
             ChatMessage, JSONValue, generate_array, generate_choice, generate_enum, generate_json,
@@ -1085,7 +1086,7 @@ fn public_family_helpers_compile_against_stable_family_models() {
         ));
         std::mem::drop(image::generate_image(
             model,
-            GenerateImageRequest::new("draw a robot"),
+            GenerateImageRequest::from(GenerateImagePrompt::text("draw a robot")),
             Default::default(),
         ));
         std::mem::drop(image::edit(
