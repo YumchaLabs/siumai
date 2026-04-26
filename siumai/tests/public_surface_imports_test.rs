@@ -70,6 +70,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<CompletionRequestOptions>();
     let _ = size_of::<CompletionResponse>();
     let _ = size_of::<CompletionStreamProtocol>();
+    let _ = size_of::<DownloadError>();
     let _ = size_of::<DynamicToolCall>();
     let _ = size_of::<DynamicToolError>();
     let _ = size_of::<DynamicToolResult>();

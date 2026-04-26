@@ -306,6 +306,72 @@ impl LoadSettingError {
     }
 }
 
+/// AI SDK provider-utils `DownloadError` passive error data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadError {
+    /// Human-readable error message.
+    pub message: String,
+    /// URL that failed to download.
+    pub url: String,
+    /// HTTP status code when the failure came from a response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    /// HTTP status text when the failure came from a response.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_text: Option<String>,
+    /// Provider/application cause payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cause: Option<JSONValue>,
+}
+
+impl DownloadError {
+    /// Create a `DownloadError` with the upstream default message.
+    pub fn new(
+        url: impl Into<String>,
+        status_code: Option<u16>,
+        status_text: Option<String>,
+        cause: Option<JSONValue>,
+    ) -> Self {
+        let url = url.into();
+        let message = match cause.as_ref() {
+            Some(cause) if !cause.is_null() => {
+                format!(
+                    "Failed to download {url}: {}",
+                    ai_sdk_error_message(Some(cause))
+                )
+            }
+            _ => {
+                let status_code = status_code.map(|code| code.to_string()).unwrap_or_default();
+                let status_text = status_text.as_deref().unwrap_or_default();
+                format!("Failed to download {url}: {status_code} {status_text}")
+            }
+        };
+
+        Self {
+            message,
+            url,
+            status_code,
+            status_text,
+            cause,
+        }
+    }
+
+    /// Create a `DownloadError` from an HTTP response status.
+    pub fn from_status(
+        url: impl Into<String>,
+        status_code: u16,
+        status_text: impl Into<String>,
+    ) -> Self {
+        Self::new(url, Some(status_code), Some(status_text.into()), None)
+    }
+
+    /// Create a `DownloadError` from a serializable cause payload.
+    pub fn from_cause(url: impl Into<String>, cause: JSONValue) -> Self {
+        Self::new(url, None, None, Some(cause))
+    }
+}
+
 /// AI SDK provider `NoContentGeneratedError` passive error data.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -10876,6 +10942,31 @@ mod tests {
                 .expect("serialize load setting error")["message"],
             serde_json::json!("missing setting")
         );
+
+        let download_status =
+            DownloadError::from_status("https://example.com/video.mp4", 404, "Not Found");
+        let download_status_json =
+            serde_json::to_value(&download_status).expect("serialize download status error");
+        assert_eq!(
+            download_status_json,
+            serde_json::json!({
+                "message": "Failed to download https://example.com/video.mp4: 404 Not Found",
+                "url": "https://example.com/video.mp4",
+                "statusCode": 404,
+                "statusText": "Not Found"
+            })
+        );
+
+        let download_cause =
+            DownloadError::from_cause("https://example.com/video.mp4", serde_json::json!("boom"));
+        let download_cause_json =
+            serde_json::to_value(&download_cause).expect("serialize download cause error");
+        assert_eq!(
+            download_cause_json["message"],
+            serde_json::json!("Failed to download https://example.com/video.mp4: boom")
+        );
+        assert_eq!(download_cause_json["cause"], serde_json::json!("boom"));
+
         assert_eq!(
             serde_json::to_value(NoContentGeneratedError::new())
                 .expect("serialize no content error")["message"],

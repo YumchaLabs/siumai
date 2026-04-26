@@ -73,6 +73,8 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `NoSuchModelError`, `NoSuchProviderReferenceError`, `TooManyEmbeddingValuesForCallError`,
   `TypeValidationContext`, `TypeValidationError`, and `UnsupportedFunctionalityError`. These are
   data-shape exports and do not replace Siumai's runtime error hierarchy.
+- AI SDK provider-utils `DownloadError` is now available as a passive error carrier with `url`,
+  `statusCode`, `statusText`, `cause`, and upstream-style default messages for failed downloads.
 - AI SDK registry `NoSuchProviderError` is now represented as a passive error carrier with
   `modelId`, `modelType`, `providerId`, and `availableProviders`, matching the public registry
   package's data shape without replacing Siumai's native registry handles.

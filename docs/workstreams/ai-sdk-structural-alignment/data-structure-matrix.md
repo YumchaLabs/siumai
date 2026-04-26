@@ -75,6 +75,7 @@ References:
 - `repo-ref/ai/packages/ai/src/generate-text/prepare-step.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-approval-configuration.ts`
 - `repo-ref/ai/packages/ai/src/generate-text/tool-call-repair-function.ts`
+- `repo-ref/ai/packages/provider-utils/src/download-error.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
 - `repo-ref/ai/packages/ai/src/util/data-url.ts`
 - `repo-ref/ai/packages/ai/src/util/is-deep-equal-data.ts`
@@ -268,7 +269,9 @@ error reason union. The provider-level error classes re-exported from `@ai-sdk/p
 covered too (`APICallError`, `InvalidPromptError`, `TypeValidationError`, model/reference
 resolution errors, and the simple load/content/unsupported-functionality errors). The registry
 package's `NoSuchProviderError` is now covered as the matching provider-aware extension of
-`NoSuchModelError` with `providerId` and `availableProviders`. These
+`NoSuchModelError` with `providerId` and `availableProviders`. The provider-utils
+`DownloadError` re-export is also covered as a passive carrier for `url`, `statusCode`,
+`statusText`, and serializable `cause` data. These
 intentionally mirror public error data fields and default messages without replacing Siumai's
 runtime `LlmError` hierarchy or pretending that TypeScript `AISDKError.isInstance(...)` markers
 exist in Rust.
