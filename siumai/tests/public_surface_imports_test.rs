@@ -265,6 +265,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LanguageModelV4FilePartData>();
     let _ = size_of::<LanguageModelV4FinishReason>();
     let _ = size_of::<LanguageModelV4FunctionTool>();
+    let _ = size_of::<LanguageModelV4FunctionToolInputExample>();
     let _ = size_of::<LanguageModelV4GenerateResponseMetadata>();
     let _ = size_of::<LanguageModelV4GenerateResult>();
     let _ = size_of::<LanguageModelV4InputTokens>();

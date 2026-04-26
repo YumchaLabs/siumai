@@ -49,7 +49,8 @@ Status legend:
     `{ type: ... }` object shape as a separate stable data structure.
   - `LanguageModelV4FunctionTool` / `LanguageModelV4ProviderTool` are covered by Rust projections
     from the wider stable `Tool` surface, so model-facing tool objects no longer need to carry
-    user/runtime metadata that upstream keeps outside the provider-call shape.
+    user/runtime metadata that upstream keeps outside the provider-call shape. V4 function-tool
+    `inputExamples` now use the explicit upstream `{ input: ... }` item shape.
   - `LanguageModelV4Prompt`, `LanguageModelV4Message`, and V4 prompt parts are covered by a Rust
     projection from stable `ModelMessage`, including image-to-file conversion, direct provider
     reference data maps, filtered assistant approval requests, provider-executed approval

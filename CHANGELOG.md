@@ -93,6 +93,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `LanguageModelV4ProviderTool` projections, keeping user-facing `Tool` metadata such as
   `outputSchema`, `title`, `isProviderExecuted`, and deferred-result hints off the narrower
   provider-call tool objects.
+- V4 function-tool `inputExamples` now use the explicit model-facing
+  `LanguageModelV4FunctionToolInputExample { input }` shape, while stable `ToolFunction` examples
+  still accept older raw-object values and project them into the upstream `{ input: ... }` form.
 - AI SDK model-facing prompt parity now exposes `LanguageModelV4Prompt`,
   `LanguageModelV4Message`, V4 prompt part overlays, and
   `prepare_language_model_v4_prompt(...)`, converting stable `ModelMessage` values to the

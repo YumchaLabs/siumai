@@ -602,9 +602,12 @@ fn language_model_v4_function_tool_projection_matches_model_facing_shape() {
         }),
     )
     .with_title("Weather tool")
-    .with_input_examples([serde_json::json!({
-        "input": { "city": "Tokyo" }
-    })])
+    .with_input_examples([
+        serde_json::json!({
+            "input": { "city": "Tokyo" }
+        }),
+        serde_json::json!({ "city": "Paris" }),
+    ])
     .with_strict(true)
     .with_provider_options_map(provider_options.clone());
 
@@ -628,6 +631,9 @@ fn language_model_v4_function_tool_projection_matches_model_facing_shape() {
             "inputExamples": [
                 {
                     "input": { "city": "Tokyo" }
+                },
+                {
+                    "input": { "city": "Paris" }
                 }
             ],
             "strict": true,
