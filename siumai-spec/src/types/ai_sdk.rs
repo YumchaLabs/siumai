@@ -6,12 +6,14 @@
 
 use super::chat::{ContentPart, SourcePart, UiMessage, UiMessagePart, UiMessageRole};
 use super::{
-    AssistantContent, AssistantContentPart, AssistantModelMessage, DataContent, EmbeddingUsage,
-    FinishReason, FlexibleSchema, HttpRequestInfo, HttpResponseInfo, LanguageModelV4Tool,
-    LanguageModelV4ToolChoice, ModelMessage, PromptInput, ProviderMetadataMap, ProviderOptionsMap,
-    ResponseFormat, ResponseMetadata, StandardizedPrompt, SystemPrompt, Tool, ToolChoice,
-    ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, UsageInputTokens,
-    UsageOutputTokens, Warning,
+    AssistantContent, AssistantContentPart, AssistantModelMessage, CustomPart, DataContent,
+    EmbeddingUsage, FilePart, FilePartSource, FinishReason, FlexibleSchema, HttpRequestInfo,
+    HttpResponseInfo, ImagePart, LanguageModelV4Tool, LanguageModelV4ToolChoice, MediaSource,
+    ModelMessage, PromptInput, ProviderMetadataMap, ProviderOptionsMap, ProviderReference,
+    ReasoningFilePart, ReasoningPart, ResponseFormat, ResponseMetadata, StandardizedPrompt,
+    SystemModelMessage, SystemPrompt, TextPart, Tool, ToolApprovalResponse, ToolCallPart,
+    ToolChoice, ToolContentPart, ToolModelMessage, ToolResultOutput, ToolResultPart, Usage,
+    UsageInputTokens, UsageOutputTokens, UserContent, UserContentPart, UserModelMessage, Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -7955,12 +7957,20 @@ fixed_language_model_v4_type_marker!(LanguageModelV4ReasoningFileMarker, "reason
 fixed_language_model_v4_type_marker!(LanguageModelV4ToolCallMarker, "tool-call");
 fixed_language_model_v4_type_marker!(LanguageModelV4ToolResultMarker, "tool-result");
 fixed_language_model_v4_type_marker!(
+    LanguageModelV4ToolApprovalResponseMarker,
+    "tool-approval-response"
+);
+fixed_language_model_v4_type_marker!(
     LanguageModelV4ToolApprovalRequestMarker,
     "tool-approval-request"
 );
+fixed_language_model_v4_type_marker!(LanguageModelV4SystemRoleMarker, "system");
+fixed_language_model_v4_type_marker!(LanguageModelV4UserRoleMarker, "user");
+fixed_language_model_v4_type_marker!(LanguageModelV4AssistantRoleMarker, "assistant");
+fixed_language_model_v4_type_marker!(LanguageModelV4ToolRoleMarker, "tool");
 
 /// AI SDK V4 model prompt.
-pub type LanguageModelV4Prompt = Vec<ModelMessage>;
+pub type LanguageModelV4Prompt = Vec<LanguageModelV4Message>;
 
 /// AI SDK V4 data content.
 ///
@@ -8032,6 +8042,642 @@ impl From<&[u8]> for LanguageModelV4DataContent {
     fn from(value: &[u8]) -> Self {
         Self::Bytes(value.to_vec())
     }
+}
+
+/// AI SDK V4 file-part data.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum LanguageModelV4FilePartData {
+    /// Inline data or URL string.
+    Data(LanguageModelV4DataContent),
+    /// Provider-managed file reference map.
+    ProviderReference(ProviderReference),
+}
+
+impl From<LanguageModelV4DataContent> for LanguageModelV4FilePartData {
+    fn from(value: LanguageModelV4DataContent) -> Self {
+        Self::Data(value)
+    }
+}
+
+impl From<ProviderReference> for LanguageModelV4FilePartData {
+    fn from(value: ProviderReference) -> Self {
+        Self::ProviderReference(value)
+    }
+}
+
+impl From<&FilePartSource> for LanguageModelV4FilePartData {
+    fn from(value: &FilePartSource) -> Self {
+        match value {
+            FilePartSource::Media(source) => Self::Data(language_model_v4_data_from_media(source)),
+            FilePartSource::ProviderReference { provider_reference } => {
+                Self::ProviderReference(provider_reference.clone())
+            }
+        }
+    }
+}
+
+impl From<FilePartSource> for LanguageModelV4FilePartData {
+    fn from(value: FilePartSource) -> Self {
+        Self::from(&value)
+    }
+}
+
+fn language_model_v4_data_from_media(source: &MediaSource) -> LanguageModelV4DataContent {
+    match source {
+        MediaSource::Url { url } => LanguageModelV4DataContent::url(url.clone()),
+        MediaSource::Base64 { data } => LanguageModelV4DataContent::string(data.clone()),
+        MediaSource::Binary { data } => LanguageModelV4DataContent::bytes(data.clone()),
+    }
+}
+
+/// AI SDK V4 prompt text part.
+pub type LanguageModelV4TextPart = TextPart;
+
+/// AI SDK V4 prompt reasoning part.
+pub type LanguageModelV4ReasoningPart = ReasoningPart;
+
+/// AI SDK V4 prompt custom part.
+pub type LanguageModelV4CustomPart = CustomPart;
+
+/// AI SDK V4 prompt tool-call part.
+pub type LanguageModelV4ToolCallPart = ToolCallPart;
+
+/// AI SDK V4 prompt tool-result part.
+pub type LanguageModelV4ToolResultPart = ToolResultPart;
+
+/// AI SDK V4 prompt file part.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4FilePart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4FileMarker,
+    /// Optional filename of the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+    /// File data or provider reference.
+    pub data: LanguageModelV4FilePartData,
+    /// IANA media type of the file.
+    #[serde(rename = "mediaType", alias = "media_type")]
+    pub media_type: String,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4FilePart {
+    /// Create a V4 file prompt part.
+    pub fn new(
+        data: impl Into<LanguageModelV4FilePartData>,
+        media_type: impl Into<String>,
+    ) -> Self {
+        Self {
+            marker: LanguageModelV4FileMarker::Marker,
+            filename: None,
+            data: data.into(),
+            media_type: media_type.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable file prompt part onto the V4 provider prompt shape.
+    pub fn from_file_part(part: &FilePart) -> Self {
+        Self {
+            marker: LanguageModelV4FileMarker::Marker,
+            filename: part.filename.clone(),
+            data: LanguageModelV4FilePartData::from(&part.data),
+            media_type: part.media_type.clone(),
+            provider_options: part.provider_options.clone(),
+        }
+    }
+
+    /// Project an image prompt part onto the V4 provider prompt file shape.
+    pub fn from_image_part(part: &ImagePart) -> Self {
+        Self {
+            marker: LanguageModelV4FileMarker::Marker,
+            filename: None,
+            data: LanguageModelV4FilePartData::from(&part.image),
+            media_type: part
+                .media_type
+                .clone()
+                .unwrap_or_else(|| "image/*".to_string()),
+            provider_options: part.provider_options.clone(),
+        }
+    }
+
+    /// Attach an optional filename.
+    pub fn with_filename(mut self, filename: impl Into<String>) -> Self {
+        self.filename = Some(filename.into());
+        self
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "file"
+    }
+}
+
+/// AI SDK V4 prompt reasoning-file part.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4ReasoningFilePart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ReasoningFileMarker,
+    /// Reasoning-file data.
+    pub data: LanguageModelV4DataContent,
+    /// IANA media type of the file.
+    #[serde(rename = "mediaType", alias = "media_type")]
+    pub media_type: String,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4ReasoningFilePart {
+    /// Create a V4 reasoning-file prompt part.
+    pub fn new(data: impl Into<LanguageModelV4DataContent>, media_type: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4ReasoningFileMarker::Marker,
+            data: data.into(),
+            media_type: media_type.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable reasoning-file prompt part onto the V4 provider prompt shape.
+    pub fn from_reasoning_file_part(part: &ReasoningFilePart) -> Self {
+        Self {
+            marker: LanguageModelV4ReasoningFileMarker::Marker,
+            data: language_model_v4_data_from_media(&part.data),
+            media_type: part.media_type.clone(),
+            provider_options: part.provider_options.clone(),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "reasoning-file"
+    }
+}
+
+/// AI SDK V4 prompt tool-approval-response part.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4ToolApprovalResponsePart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ToolApprovalResponseMarker,
+    /// Approval request id.
+    #[serde(rename = "approvalId")]
+    pub approval_id: String,
+    /// Whether the approval was granted.
+    pub approved: bool,
+    /// Optional reason for approval or denial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+impl LanguageModelV4ToolApprovalResponsePart {
+    /// Create a V4 tool approval response prompt part.
+    pub fn new(approval_id: impl Into<String>, approved: bool) -> Self {
+        Self {
+            marker: LanguageModelV4ToolApprovalResponseMarker::Marker,
+            approval_id: approval_id.into(),
+            approved,
+            reason: None,
+        }
+    }
+
+    /// Project a stable tool approval response onto the V4 provider prompt shape.
+    pub fn from_tool_approval_response(part: &ToolApprovalResponse) -> Self {
+        Self {
+            marker: LanguageModelV4ToolApprovalResponseMarker::Marker,
+            approval_id: part.approval_id.clone(),
+            approved: part.approved,
+            reason: part.reason.clone(),
+        }
+    }
+
+    /// Attach an optional reason.
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-approval-response"
+    }
+}
+
+/// AI SDK V4 user prompt content part.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum LanguageModelV4UserContentPart {
+    Text(LanguageModelV4TextPart),
+    File(LanguageModelV4FilePart),
+}
+
+impl LanguageModelV4UserContentPart {
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "text",
+            Self::File(part) => part.r#type(),
+        }
+    }
+}
+
+/// AI SDK V4 assistant prompt content part.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum LanguageModelV4AssistantContentPart {
+    Text(LanguageModelV4TextPart),
+    File(LanguageModelV4FilePart),
+    Custom(LanguageModelV4CustomPart),
+    Reasoning(LanguageModelV4ReasoningPart),
+    ReasoningFile(LanguageModelV4ReasoningFilePart),
+    ToolCall(LanguageModelV4ToolCallPart),
+    ToolResult(LanguageModelV4ToolResultPart),
+}
+
+impl LanguageModelV4AssistantContentPart {
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::Text(_) => "text",
+            Self::File(part) => part.r#type(),
+            Self::Custom(_) => "custom",
+            Self::Reasoning(_) => "reasoning",
+            Self::ReasoningFile(part) => part.r#type(),
+            Self::ToolCall(_) => "tool-call",
+            Self::ToolResult(_) => "tool-result",
+        }
+    }
+}
+
+/// AI SDK V4 tool prompt content part.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum LanguageModelV4ToolContentPart {
+    ToolResult(LanguageModelV4ToolResultPart),
+    ToolApprovalResponse(LanguageModelV4ToolApprovalResponsePart),
+}
+
+impl LanguageModelV4ToolContentPart {
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::ToolResult(_) => "tool-result",
+            Self::ToolApprovalResponse(part) => part.r#type(),
+        }
+    }
+}
+
+/// AI SDK V4 system prompt message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4SystemMessage {
+    #[serde(default)]
+    role: LanguageModelV4SystemRoleMarker,
+    /// System content.
+    pub content: String,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4SystemMessage {
+    /// Create a V4 system prompt message.
+    pub fn new(content: impl Into<String>) -> Self {
+        Self {
+            role: LanguageModelV4SystemRoleMarker::Marker,
+            content: content.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable system model message onto the V4 provider prompt shape.
+    pub fn from_system_message(message: &SystemModelMessage) -> Self {
+        Self {
+            role: LanguageModelV4SystemRoleMarker::Marker,
+            content: message.content.clone(),
+            provider_options: message.provider_options.clone(),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+}
+
+/// AI SDK V4 user prompt message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4UserMessage {
+    #[serde(default)]
+    role: LanguageModelV4UserRoleMarker,
+    /// User content parts.
+    pub content: Vec<LanguageModelV4UserContentPart>,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4UserMessage {
+    /// Create a V4 user prompt message.
+    pub fn new(content: Vec<LanguageModelV4UserContentPart>) -> Self {
+        Self {
+            role: LanguageModelV4UserRoleMarker::Marker,
+            content,
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable user model message onto the V4 provider prompt shape.
+    pub fn from_user_message(message: &UserModelMessage) -> Self {
+        let content = match &message.content {
+            UserContent::Text(text) => vec![LanguageModelV4UserContentPart::Text(TextPart::new(
+                text.clone(),
+            ))],
+            UserContent::Parts(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    UserContentPart::Text(part) if part.text.is_empty() => None,
+                    UserContentPart::Text(part) => {
+                        Some(LanguageModelV4UserContentPart::Text(part.clone()))
+                    }
+                    UserContentPart::Image(part) => Some(LanguageModelV4UserContentPart::File(
+                        LanguageModelV4FilePart::from_image_part(part),
+                    )),
+                    UserContentPart::File(part) => Some(LanguageModelV4UserContentPart::File(
+                        LanguageModelV4FilePart::from_file_part(part),
+                    )),
+                })
+                .collect(),
+        };
+
+        Self {
+            role: LanguageModelV4UserRoleMarker::Marker,
+            content,
+            provider_options: message.provider_options.clone(),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+}
+
+/// AI SDK V4 assistant prompt message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4AssistantMessage {
+    #[serde(default)]
+    role: LanguageModelV4AssistantRoleMarker,
+    /// Assistant content parts.
+    pub content: Vec<LanguageModelV4AssistantContentPart>,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4AssistantMessage {
+    /// Create a V4 assistant prompt message.
+    pub fn new(content: Vec<LanguageModelV4AssistantContentPart>) -> Self {
+        Self {
+            role: LanguageModelV4AssistantRoleMarker::Marker,
+            content,
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable assistant model message onto the V4 provider prompt shape.
+    pub fn from_assistant_message(message: &AssistantModelMessage) -> Self {
+        let content = match &message.content {
+            AssistantContent::Text(text) => {
+                vec![LanguageModelV4AssistantContentPart::Text(TextPart::new(
+                    text.clone(),
+                ))]
+            }
+            AssistantContent::Parts(parts) => parts
+                .iter()
+                .filter_map(|part| match part {
+                    AssistantContentPart::Text(part)
+                        if part.text.is_empty() && part.provider_options.is_empty() =>
+                    {
+                        None
+                    }
+                    AssistantContentPart::Text(part) => {
+                        Some(LanguageModelV4AssistantContentPart::Text(part.clone()))
+                    }
+                    AssistantContentPart::Custom(part) => {
+                        Some(LanguageModelV4AssistantContentPart::Custom(part.clone()))
+                    }
+                    AssistantContentPart::File(part) => {
+                        Some(LanguageModelV4AssistantContentPart::File(
+                            LanguageModelV4FilePart::from_file_part(part),
+                        ))
+                    }
+                    AssistantContentPart::Reasoning(part) => {
+                        Some(LanguageModelV4AssistantContentPart::Reasoning(part.clone()))
+                    }
+                    AssistantContentPart::ReasoningFile(part) => {
+                        Some(LanguageModelV4AssistantContentPart::ReasoningFile(
+                            LanguageModelV4ReasoningFilePart::from_reasoning_file_part(part),
+                        ))
+                    }
+                    AssistantContentPart::ToolCall(part) => {
+                        Some(LanguageModelV4AssistantContentPart::ToolCall(part.clone()))
+                    }
+                    AssistantContentPart::ToolResult(part) => Some(
+                        LanguageModelV4AssistantContentPart::ToolResult(part.clone()),
+                    ),
+                    AssistantContentPart::ToolApprovalRequest(_) => None,
+                })
+                .collect(),
+        };
+
+        Self {
+            role: LanguageModelV4AssistantRoleMarker::Marker,
+            content,
+            provider_options: message.provider_options.clone(),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+}
+
+/// AI SDK V4 tool prompt message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4ToolMessage {
+    #[serde(default)]
+    role: LanguageModelV4ToolRoleMarker,
+    /// Tool content parts.
+    pub content: Vec<LanguageModelV4ToolContentPart>,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4ToolMessage {
+    /// Create a V4 tool prompt message.
+    pub fn new(content: Vec<LanguageModelV4ToolContentPart>) -> Self {
+        Self {
+            role: LanguageModelV4ToolRoleMarker::Marker,
+            content,
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable tool model message onto the V4 provider prompt shape.
+    pub fn from_tool_message(message: &ToolModelMessage) -> Self {
+        let content = message
+            .content
+            .iter()
+            .filter_map(|part| match part {
+                ToolContentPart::ToolResult(part) => {
+                    Some(LanguageModelV4ToolContentPart::ToolResult(part.clone()))
+                }
+                ToolContentPart::ToolApprovalResponse(part)
+                    if part.provider_executed == Some(true) =>
+                {
+                    Some(LanguageModelV4ToolContentPart::ToolApprovalResponse(
+                        LanguageModelV4ToolApprovalResponsePart::from_tool_approval_response(part),
+                    ))
+                }
+                ToolContentPart::ToolApprovalResponse(_) => None,
+            })
+            .collect();
+
+        Self {
+            role: LanguageModelV4ToolRoleMarker::Marker,
+            content,
+            provider_options: message.provider_options.clone(),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+}
+
+/// AI SDK V4 prompt message.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum LanguageModelV4Message {
+    System(LanguageModelV4SystemMessage),
+    User(LanguageModelV4UserMessage),
+    Assistant(LanguageModelV4AssistantMessage),
+    Tool(LanguageModelV4ToolMessage),
+}
+
+impl LanguageModelV4Message {
+    /// Return the message role.
+    pub const fn role(&self) -> &'static str {
+        match self {
+            Self::System(_) => "system",
+            Self::User(_) => "user",
+            Self::Assistant(_) => "assistant",
+            Self::Tool(_) => "tool",
+        }
+    }
+}
+
+impl From<&ModelMessage> for LanguageModelV4Message {
+    fn from(value: &ModelMessage) -> Self {
+        match value {
+            ModelMessage::System(message) => {
+                Self::System(LanguageModelV4SystemMessage::from_system_message(message))
+            }
+            ModelMessage::User(message) => {
+                Self::User(LanguageModelV4UserMessage::from_user_message(message))
+            }
+            ModelMessage::Assistant(message) => Self::Assistant(
+                LanguageModelV4AssistantMessage::from_assistant_message(message),
+            ),
+            ModelMessage::Tool(message) => {
+                Self::Tool(LanguageModelV4ToolMessage::from_tool_message(message))
+            }
+        }
+    }
+}
+
+impl From<ModelMessage> for LanguageModelV4Message {
+    fn from(value: ModelMessage) -> Self {
+        Self::from(&value)
+    }
+}
+
+/// Project stable model messages onto the AI SDK V4 provider prompt shape.
+pub fn prepare_language_model_v4_prompt(
+    messages: impl IntoIterator<Item = ModelMessage>,
+) -> LanguageModelV4Prompt {
+    let mut prompt = Vec::new();
+
+    for message in messages {
+        match LanguageModelV4Message::from(message) {
+            LanguageModelV4Message::Tool(mut current) => {
+                if current.content.is_empty() {
+                    continue;
+                }
+
+                if let Some(LanguageModelV4Message::Tool(previous)) = prompt.last_mut() {
+                    previous.content.append(&mut current.content);
+                } else {
+                    prompt.push(LanguageModelV4Message::Tool(current));
+                }
+            }
+            projected => prompt.push(projected),
+        }
+    }
+
+    prompt
 }
 
 /// AI SDK V4 generated text content.
@@ -8783,6 +9429,11 @@ impl LanguageModelV4CallOptions {
             prompt,
             ..Self::default()
         }
+    }
+
+    /// Create call options by projecting stable model messages to the V4 provider prompt.
+    pub fn from_model_messages(messages: impl IntoIterator<Item = ModelMessage>) -> Self {
+        Self::new(prepare_language_model_v4_prompt(messages))
     }
 
     /// Attach already projected model-facing tools.
@@ -10520,8 +11171,10 @@ fn string_body_to_json_value(body: String) -> JSONValue {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        AssistantContent, ReasoningPart, SystemModelMessage, TextPart, ToolApprovalRequest,
-        ToolApprovalResponse, ToolCallPart, ToolResultPart, UiMessagePart, UiMessageRole,
+        AssistantContent, FilePart, FilePartSource, ImagePart, MediaSource, ProviderReference,
+        ReasoningFilePart, ReasoningPart, SystemModelMessage, TextPart, ToolApprovalRequest,
+        ToolApprovalResponse, ToolCallPart, ToolResultOutput, ToolResultPart, UiMessagePart,
+        UiMessageRole, UserContent, UserContentPart, UserModelMessage,
     };
     use super::*;
 
@@ -13583,7 +14236,8 @@ mod tests {
 
     #[test]
     fn language_model_v4_call_options_overlay_keeps_model_facing_fields_together() {
-        let prompt = vec![ModelMessage::System(SystemModelMessage::new("Be concise"))];
+        let stable_prompt = vec![ModelMessage::System(SystemModelMessage::new("Be concise"))];
+        let prompt = prepare_language_model_v4_prompt(stable_prompt.clone());
         let tool = Tool::function(
             "weather",
             "Get weather",
@@ -13595,7 +14249,7 @@ mod tests {
             }),
         );
 
-        let options = LanguageModelV4CallOptions::new(prompt.clone())
+        let options = LanguageModelV4CallOptions::from_model_messages(stable_prompt)
             .with_stable_tools(vec![tool])
             .with_tool_choice(ToolChoice::Required)
             .with_header("x-test", "1")
@@ -13617,6 +14271,88 @@ mod tests {
         assert_eq!(
             serde_json::to_value(&tools[0]).expect("serialize model-facing tool")["type"],
             serde_json::json!("function")
+        );
+    }
+
+    #[test]
+    fn language_model_v4_prompt_projection_matches_provider_prompt_shape() {
+        let user = UserModelMessage::new(UserContent::parts(vec![
+            UserContentPart::Text(TextPart::new("hello")),
+            UserContentPart::Image(ImagePart::new(FilePartSource::url(
+                "https://example.com/image.png",
+            ))),
+            UserContentPart::File(
+                FilePart::new(
+                    FilePartSource::provider_reference(ProviderReference::single(
+                        "openai", "file_1",
+                    )),
+                    "application/pdf",
+                )
+                .with_filename("paper.pdf"),
+            ),
+        ]));
+        let assistant = AssistantModelMessage::new(AssistantContent::parts(vec![
+            AssistantContentPart::Text(TextPart::new("")),
+            AssistantContentPart::ReasoningFile(ReasoningFilePart::new(
+                MediaSource::base64("cmVhc29u"),
+                "text/plain",
+            )),
+            AssistantContentPart::ToolApprovalRequest(ToolApprovalRequest::new(
+                "approval_1",
+                "call_1",
+            )),
+        ]));
+        let first_tool = ToolModelMessage::new(vec![ToolContentPart::ToolResult(
+            ToolResultPart::new("call_1", "weather", ToolResultOutput::text("sunny")),
+        )]);
+        let second_tool = ToolModelMessage::new(vec![ToolContentPart::ToolApprovalResponse(
+            ToolApprovalResponse::new("approval_2", true).with_provider_executed(true),
+        )]);
+
+        let prompt = prepare_language_model_v4_prompt(vec![
+            ModelMessage::User(user),
+            ModelMessage::Assistant(assistant),
+            ModelMessage::Tool(first_tool),
+            ModelMessage::Tool(second_tool),
+        ]);
+
+        let json = serde_json::to_value(&prompt).expect("serialize projected V4 prompt");
+        assert_eq!(json[0]["role"], serde_json::json!("user"));
+        assert_eq!(json[0]["content"][1]["type"], serde_json::json!("file"));
+        assert_eq!(
+            json[0]["content"][1]["mediaType"],
+            serde_json::json!("image/*")
+        );
+        assert_eq!(
+            json[0]["content"][1]["data"],
+            serde_json::json!("https://example.com/image.png")
+        );
+        assert_eq!(
+            json[0]["content"][2]["data"],
+            serde_json::json!({ "openai": "file_1" })
+        );
+        assert_eq!(
+            json[1]["content"],
+            serde_json::json!([
+                {
+                    "type": "reasoning-file",
+                    "data": "cmVhc29u",
+                    "mediaType": "text/plain"
+                }
+            ])
+        );
+        assert_eq!(json[2]["role"], serde_json::json!("tool"));
+        assert_eq!(
+            json[2]["content"].as_array().expect("tool content").len(),
+            2
+        );
+        assert_eq!(
+            json[2]["content"][1],
+            serde_json::json!({
+                "type": "tool-approval-response",
+                "approvalId": "approval_2",
+                "approved": true
+            })
         );
     }
 

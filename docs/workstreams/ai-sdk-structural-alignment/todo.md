@@ -50,6 +50,10 @@ Status legend:
   - `LanguageModelV4FunctionTool` / `LanguageModelV4ProviderTool` are covered by Rust projections
     from the wider stable `Tool` surface, so model-facing tool objects no longer need to carry
     user/runtime metadata that upstream keeps outside the provider-call shape.
+  - `LanguageModelV4Prompt`, `LanguageModelV4Message`, and V4 prompt parts are covered by a Rust
+    projection from stable `ModelMessage`, including image-to-file conversion, direct provider
+    reference data maps, filtered assistant approval requests, provider-executed approval
+    responses, and adjacent tool-message coalescing.
   - `LanguageModelV4CallOptions` / `LanguageModelV4Tool` are covered by a Rust overlay that
     groups prompt, projected model-facing tools, tool choice, headers, abort, reasoning, and
     provider options like the upstream provider-call contract while preserving the existing

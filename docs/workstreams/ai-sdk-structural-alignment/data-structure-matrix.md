@@ -420,6 +420,15 @@ projects from the wider `ToolFunction` while omitting user-facing `title` and `o
 leaking execution ownership, schema, provider options, or deferred-result metadata into the narrow
 provider-call object. The existing `Tool` carrier remains the stable user/runtime structure.
 
+The provider prompt layer now has an explicit narrow projection too. `LanguageModelV4Prompt` is no
+longer just a stable `ModelMessage` alias: `prepare_language_model_v4_prompt(...)` maps stable
+messages into V4 provider prompt messages, wraps user/assistant text into `text` parts, converts
+legacy image parts to V4 `file` parts with `image/*` fallback media type, serializes provider file
+references as direct `data` maps, filters assistant `tool-approval-request` parts, preserves only
+provider-executed tool approval responses, and coalesces adjacent tool messages. This keeps the
+ergonomic prompt model separate from the actual provider prompt object expected by
+`language-model-v4-prompt.ts`.
+
 `LanguageModelV4CallOptions` now gives Rust callers an explicit model-facing provider-call overlay
 too: it groups the standardized prompt, projected `LanguageModelV4Tool` union, V4 tool choice,
 headers, abort handle, raw-chunk intent, reasoning, response format, and provider options in the
