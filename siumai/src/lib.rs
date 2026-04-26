@@ -219,9 +219,11 @@ pub mod tooling;
 
 /// AI SDK-style tool runtime helpers.
 pub use siumai_core::tooling::{
-    ExecutableTool, ExecutableTools, ToolExecuteFunction, ToolExecutionOptions,
-    ToolExecutionResult, ToolExecutionStream, ToolModelOutputContext, ToolSet, dynamic_tool,
-    execute_tool, is_executable_tool, model_messages_from_chat_messages, tool,
+    ExecutableTool, ExecutableTools, ProviderDefinedToolFactory, ProviderExecutedToolFactory,
+    ToolExecuteFunction, ToolExecutionOptions, ToolExecutionResult, ToolExecutionStream,
+    ToolModelOutputContext, ToolSet, create_provider_defined_tool_factory,
+    create_provider_executed_tool_factory, dynamic_tool, execute_tool, is_executable_tool,
+    model_messages_from_chat_messages, tool,
 };
 
 /// AI SDK-style JSON event stream parser.
@@ -2130,8 +2132,10 @@ pub mod prelude {
             without_trailing_slash,
         };
         pub use crate::{
-            ExecutableTool, ExecutableTools, ToolExecuteFunction, ToolExecutionOptions,
+            ExecutableTool, ExecutableTools, ProviderDefinedToolFactory,
+            ProviderExecutedToolFactory, ToolExecuteFunction, ToolExecutionOptions,
             ToolExecutionResult, ToolExecutionStream, ToolModelOutputContext, ToolSet,
+            create_provider_defined_tool_factory, create_provider_executed_tool_factory,
             dynamic_tool, execute_tool, is_executable_tool, model_messages_from_chat_messages,
         };
         pub use crate::{assistant, conversation, conversation_with_system, messages, quick_chat};

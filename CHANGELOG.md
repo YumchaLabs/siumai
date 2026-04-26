@@ -81,6 +81,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK provider-utils tool-name mapping parity is now importable from the stable facade:
   `siumai::{create_tool_name_mapping, ToolNameMapping}` maps provider-defined custom tool names
   to provider-native tool names and back using the existing portable `Tool` carrier.
+- AI SDK provider-utils provider-tool factory parity now has a real Rust carrier/facade:
+  provider tools serialize as `type: "provider"` and preserve `isProviderExecuted`,
+  `inputSchema`, `outputSchema`, `args`, and `supportsDeferredResults`, while
+  `create_provider_defined_tool_factory` / `create_provider_executed_tool_factory` are available
+  from the root facade and unified prelude.
 - AI SDK provider-utils `ToolCall` / `ToolResult` passive data structures now preserve the
   current output-side metadata fields: `providerMetadata`, `title`, invalid-tool `error`,
   `invalid`, and preliminary tool results. Their serialized output now also preserves the

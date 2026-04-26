@@ -43,6 +43,10 @@ Status legend:
     existing `ProviderReference` and `FilePartSource` carriers.
   - `createToolNameMapping` / `ToolNameMapping` are covered by the existing portable
     provider-defined-tool mapping helper and are now available from the stable root/prelude facade.
+  - `createProviderDefinedToolFactory` / `createProviderExecutedToolFactory` are covered by Rust
+    factory facades over the shared `ProviderDefinedTool` carrier. The passive provider-tool shape
+    now preserves `type: "provider"`, `isProviderExecuted`, `inputSchema`, `outputSchema`, `args`,
+    and `supportsDeferredResults`, while local execution remains bound through `ExecutableTool`.
   - `isCustomReasoning`, `mapReasoningToProviderEffort`, and `mapReasoningToProviderBudget` are
     covered by Rust helpers over `LanguageModelReasoning`, `ReasoningLevel`, and the shared
     `Warning` carrier.

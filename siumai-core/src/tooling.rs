@@ -21,8 +21,8 @@ use serde_json::Value;
 
 use crate::error::LlmError;
 use crate::types::{
-    CancelHandle, ChatMessage, Context, ModelMessage, ModelMessageConversionError, Tool,
-    ToolResultOutput,
+    CancelHandle, ChatMessage, Context, ModelMessage, ModelMessageConversionError,
+    ProviderDefinedTool, Tool, ToolResultOutput,
 };
 
 /// Async execution function signature for tools.
@@ -377,6 +377,165 @@ impl ToolRuntimeMetadata {
             None => Ok(()),
         }
     }
+}
+
+/// Rust facade for AI SDK provider-utils `createProviderDefinedToolFactory`.
+///
+/// The produced tool is `type: "provider"` with `isProviderExecuted: false`; callers can bind a
+/// local executor by wrapping the returned `Tool` in `ExecutableTool`.
+#[derive(Debug, Clone)]
+pub struct ProviderDefinedToolFactory {
+    id: String,
+    name: String,
+    input_schema: Value,
+}
+
+impl ProviderDefinedToolFactory {
+    /// Create a provider-defined tool factory.
+    pub fn new(id: impl Into<String>, name: impl Into<String>, input_schema: Value) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            input_schema,
+        }
+    }
+
+    /// Tool id in `<provider>.<tool>` format.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Siumai tool-map name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Borrow the provider-defined input schema.
+    pub fn input_schema(&self) -> &Value {
+        &self.input_schema
+    }
+
+    /// Create a passive provider-defined tool.
+    pub fn create_tool(&self, args: Value) -> Tool {
+        Tool::ProviderDefined(
+            ProviderDefinedTool::provider_defined(self.id.clone(), self.name.clone())
+                .with_input_schema(self.input_schema.clone())
+                .with_args(args),
+        )
+    }
+
+    /// Create a passive provider-defined tool with an output schema.
+    pub fn create_tool_with_output_schema(&self, args: Value, output_schema: Value) -> Tool {
+        self.create_tool(args).with_output_schema(output_schema)
+    }
+
+    /// Create an executable wrapper around a provider-defined tool.
+    pub fn create_executable_tool(&self, args: Value) -> ExecutableTool {
+        ExecutableTool::new(self.create_tool(args))
+    }
+
+    /// Create an executable wrapper around a provider-defined tool with an output schema.
+    pub fn create_executable_tool_with_output_schema(
+        &self,
+        args: Value,
+        output_schema: Value,
+    ) -> ExecutableTool {
+        ExecutableTool::new(self.create_tool_with_output_schema(args, output_schema))
+    }
+}
+
+/// Create an AI SDK-style provider-defined tool factory.
+pub fn create_provider_defined_tool_factory(
+    id: impl Into<String>,
+    name: impl Into<String>,
+    input_schema: Value,
+) -> ProviderDefinedToolFactory {
+    ProviderDefinedToolFactory::new(id, name, input_schema)
+}
+
+/// Rust facade for AI SDK provider-utils `createProviderExecutedToolFactory`.
+///
+/// The produced tool is `type: "provider"` with `isProviderExecuted: true`.
+#[derive(Debug, Clone)]
+pub struct ProviderExecutedToolFactory {
+    id: String,
+    name: String,
+    input_schema: Value,
+    output_schema: Value,
+    supports_deferred_results: Option<bool>,
+}
+
+impl ProviderExecutedToolFactory {
+    /// Create a provider-executed tool factory.
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input_schema: Value,
+        output_schema: Value,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            input_schema,
+            output_schema,
+            supports_deferred_results: None,
+        }
+    }
+
+    /// Tool id in `<provider>.<tool>` format.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Siumai tool-map name.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Borrow the provider-defined input schema.
+    pub fn input_schema(&self) -> &Value {
+        &self.input_schema
+    }
+
+    /// Borrow the provider-defined output schema.
+    pub fn output_schema(&self) -> &Value {
+        &self.output_schema
+    }
+
+    /// Mark whether generated tools support deferred results.
+    pub fn with_supports_deferred_results(mut self, supports_deferred_results: bool) -> Self {
+        self.supports_deferred_results = Some(supports_deferred_results);
+        self
+    }
+
+    /// Create a passive provider-executed tool.
+    pub fn create_tool(&self, args: Value) -> Tool {
+        let mut tool = ProviderDefinedTool::provider_executed(self.id.clone(), self.name.clone())
+            .with_input_schema(self.input_schema.clone())
+            .with_output_schema(self.output_schema.clone())
+            .with_args(args);
+
+        if let Some(supports_deferred_results) = self.supports_deferred_results {
+            tool = tool.with_supports_deferred_results(supports_deferred_results);
+        }
+
+        Tool::ProviderDefined(tool)
+    }
+
+    /// Create an executable wrapper around a provider-executed tool.
+    pub fn create_executable_tool(&self, args: Value) -> ExecutableTool {
+        ExecutableTool::new(self.create_tool(args))
+    }
+}
+
+/// Create an AI SDK-style provider-executed tool factory.
+pub fn create_provider_executed_tool_factory(
+    id: impl Into<String>,
+    name: impl Into<String>,
+    input_schema: Value,
+    output_schema: Value,
+) -> ProviderExecutedToolFactory {
+    ProviderExecutedToolFactory::new(id, name, input_schema, output_schema)
 }
 
 /// A tool definition with an optional bound executor.
@@ -1238,6 +1397,55 @@ mod tests {
             output,
             ToolResultOutput::content(vec![crate::types::ToolResultContentPart::text("call_1:18")])
         );
+    }
+
+    #[test]
+    fn provider_tool_factories_preserve_execution_ownership() {
+        let input_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "query": { "type": "string" }
+            },
+            "required": ["query"]
+        });
+        let output_schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "answer": { "type": "string" }
+            },
+            "required": ["answer"]
+        });
+
+        let provider_defined =
+            create_provider_defined_tool_factory("acme.search", "search", input_schema.clone())
+                .create_tool_with_output_schema(
+                    serde_json::json!({ "region": "us" }),
+                    output_schema.clone(),
+                );
+
+        let Tool::ProviderDefined(provider_defined) = provider_defined else {
+            panic!("expected provider-defined tool");
+        };
+        assert!(!provider_defined.is_provider_executed());
+        assert_eq!(provider_defined.input_schema(), Some(&input_schema));
+        assert_eq!(provider_defined.output_schema(), Some(&output_schema));
+
+        let provider_executed = create_provider_executed_tool_factory(
+            "acme.hosted_search",
+            "hostedSearch",
+            input_schema.clone(),
+            output_schema.clone(),
+        )
+        .with_supports_deferred_results(true)
+        .create_tool(serde_json::json!({ "region": "eu" }));
+
+        let Tool::ProviderDefined(provider_executed) = provider_executed else {
+            panic!("expected provider-executed tool");
+        };
+        assert!(provider_executed.is_provider_executed());
+        assert_eq!(provider_executed.input_schema(), Some(&input_schema));
+        assert_eq!(provider_executed.output_schema(), Some(&output_schema));
+        assert_eq!(provider_executed.supports_deferred_results, Some(true));
     }
 
     #[tokio::test]

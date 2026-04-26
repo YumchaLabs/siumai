@@ -69,12 +69,25 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<IdGeneratorOptions>();
     let _ = size_of::<ExecutableTool>();
     let _ = size_of::<ExecutableTools>();
+    let _ = size_of::<ProviderDefinedToolFactory>();
+    let _ = size_of::<ProviderExecutedToolFactory>();
     let _ = size_of::<ToolExecuteFunction>();
     let _ = size_of::<ToolExecutionOptions>();
     let _ = size_of::<ToolExecutionResult>();
     let _ = size_of::<ToolExecutionStream>();
     let _ = size_of::<ToolModelOutputContext>();
     let _ = size_of::<ToolSet>();
+    let _ = create_provider_defined_tool_factory(
+        "acme.search",
+        "search",
+        serde_json::json!({ "type": "object" }),
+    );
+    let _ = create_provider_executed_tool_factory(
+        "acme.hosted_search",
+        "hostedSearch",
+        serde_json::json!({ "type": "object" }),
+        serde_json::json!({ "type": "object" }),
+    );
     let _ = size_of::<UITool>();
     let _ = size_of::<UIToolInvocation>();
     let _ = size_of::<UITools>();

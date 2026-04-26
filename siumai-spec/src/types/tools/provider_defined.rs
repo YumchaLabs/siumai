@@ -4,8 +4,9 @@ use super::Tool;
 
 /// Provider-defined tool configuration
 ///
-/// This represents a tool that is defined and executed by the provider,
-/// such as web search, file search, code execution, computer use, etc.
+/// This represents an AI SDK-style `type: "provider"` tool. Most built-in hosted tools are both
+/// defined and executed by the provider, but the shape can also represent tools whose schemas are
+/// provider-defined while execution is owned by the local runtime.
 ///
 /// # Format
 ///
@@ -52,6 +53,18 @@ pub struct ProviderDefinedTool {
     /// these options selectively.
     pub provider_options_map: crate::types::ProviderOptionsMap,
 
+    /// Optional provider-defined input schema.
+    pub input_schema: Option<serde_json::Value>,
+
+    /// Optional provider-defined output schema.
+    pub output_schema: Option<serde_json::Value>,
+
+    /// Whether this provider tool is executed by the provider.
+    ///
+    /// This mirrors AI SDK's `isProviderExecuted` flag. Legacy Siumai constructors default to
+    /// `true` because the historical provider-defined tool surface represented hosted tools.
+    pub is_provider_executed: bool,
+
     /// Provider-specific configuration arguments.
     ///
     /// This is aligned with Vercel AI SDK's `{ type: "provider", id, name, args }` shape.
@@ -65,15 +78,21 @@ pub struct ProviderDefinedTool {
     pub supports_deferred_results: Option<bool>,
 }
 
+const fn default_is_provider_executed() -> bool {
+    true
+}
+
 impl serde::Serialize for ProviderDefinedTool {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let field_count = 3
+        let field_count = 4
             + usize::from(self.title.is_some())
             + usize::from(!self.provider_options_map.is_empty())
+            + usize::from(self.input_schema.is_some())
+            + usize::from(self.output_schema.is_some())
             + usize::from(self.supports_deferred_results.is_some());
         let mut st = serializer.serialize_struct("ProviderDefinedTool", field_count)?;
         st.serialize_field("id", &self.id)?;
@@ -84,6 +103,13 @@ impl serde::Serialize for ProviderDefinedTool {
         if !self.provider_options_map.is_empty() {
             st.serialize_field("providerOptions", &self.provider_options_map)?;
         }
+        if let Some(input_schema) = &self.input_schema {
+            st.serialize_field("inputSchema", input_schema)?;
+        }
+        if let Some(output_schema) = &self.output_schema {
+            st.serialize_field("outputSchema", output_schema)?;
+        }
+        st.serialize_field("isProviderExecuted", &self.is_provider_executed)?;
         st.serialize_field("args", &self.args)?;
         if let Some(supports_deferred_results) = self.supports_deferred_results {
             st.serialize_field("supportsDeferredResults", &supports_deferred_results)?;
@@ -108,6 +134,16 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
             title: Option<String>,
             #[serde(default, rename = "providerOptions", alias = "provider_options")]
             provider_options_map: crate::types::ProviderOptionsMap,
+            #[serde(default, rename = "inputSchema", alias = "input_schema")]
+            input_schema: Option<serde_json::Value>,
+            #[serde(default, rename = "outputSchema", alias = "output_schema")]
+            output_schema: Option<serde_json::Value>,
+            #[serde(
+                default = "default_is_provider_executed",
+                rename = "isProviderExecuted",
+                alias = "is_provider_executed"
+            )]
+            is_provider_executed: bool,
             #[serde(default)]
             args: Option<serde_json::Value>,
             #[serde(
@@ -141,6 +177,9 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
             name: de.name,
             title: de.title,
             provider_options_map: de.provider_options_map,
+            input_schema: de.input_schema,
+            output_schema: de.output_schema,
+            is_provider_executed: de.is_provider_executed,
             args,
             supports_deferred_results: de.supports_deferred_results,
         })
@@ -148,7 +187,9 @@ impl<'de> serde::Deserialize<'de> for ProviderDefinedTool {
 }
 
 impl ProviderDefinedTool {
-    /// Create a new provider-defined tool
+    /// Create a new hosted provider tool.
+    ///
+    /// This is the legacy constructor and defaults `is_provider_executed` to `true`.
     ///
     /// # Arguments
     ///
@@ -168,9 +209,28 @@ impl ProviderDefinedTool {
             name: name.into(),
             title: None,
             provider_options_map: crate::types::ProviderOptionsMap::default(),
+            input_schema: None,
+            output_schema: None,
+            is_provider_executed: true,
             args: serde_json::Value::Object(Default::default()),
             supports_deferred_results: None,
         }
+    }
+
+    /// Create a tool whose input/output schemas are provider-defined but execution is local.
+    ///
+    /// This mirrors AI SDK provider-utils `createProviderDefinedToolFactory(...)`, which sets
+    /// `isProviderExecuted: false`.
+    pub fn provider_defined(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name).with_provider_executed(false)
+    }
+
+    /// Create a hosted tool that is executed by the provider.
+    ///
+    /// This mirrors AI SDK provider-utils `createProviderExecutedToolFactory(...)`, which sets
+    /// `isProviderExecuted: true`.
+    pub fn provider_executed(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self::new(id, name).with_provider_executed(true)
     }
 
     /// Optional display title.
@@ -195,6 +255,39 @@ impl ProviderDefinedTool {
         provider_options_map: crate::types::ProviderOptionsMap,
     ) -> Self {
         self.provider_options_map = provider_options_map;
+        self
+    }
+
+    /// Borrow the optional provider-defined input schema.
+    pub fn input_schema(&self) -> Option<&serde_json::Value> {
+        self.input_schema.as_ref()
+    }
+
+    /// Attach a provider-defined input schema.
+    pub fn with_input_schema(mut self, input_schema: serde_json::Value) -> Self {
+        self.input_schema = Some(input_schema);
+        self
+    }
+
+    /// Borrow the optional provider-defined output schema.
+    pub fn output_schema(&self) -> Option<&serde_json::Value> {
+        self.output_schema.as_ref()
+    }
+
+    /// Attach a provider-defined output schema.
+    pub fn with_output_schema(mut self, output_schema: serde_json::Value) -> Self {
+        self.output_schema = Some(output_schema);
+        self
+    }
+
+    /// Whether the provider executes this tool.
+    pub const fn is_provider_executed(&self) -> bool {
+        self.is_provider_executed
+    }
+
+    /// Set whether the provider executes this tool.
+    pub fn with_provider_executed(mut self, is_provider_executed: bool) -> Self {
+        self.is_provider_executed = is_provider_executed;
         self
     }
 

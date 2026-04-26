@@ -125,6 +125,7 @@ fn provider_defined_tool_new() {
     let tool = ProviderDefinedTool::new("openai.web_search", "web_search");
     assert_eq!(tool.id, "openai.web_search");
     assert_eq!(tool.name, "web_search");
+    assert!(tool.is_provider_executed);
     assert_eq!(tool.args, serde_json::json!({}));
 }
 
@@ -148,11 +149,48 @@ fn provider_defined_tool_supports_deferred_results_roundtrip() {
         .with_supports_deferred_results(true);
     let value = serde_json::to_value(&tool).expect("serialize provider-defined tool");
 
+    assert_eq!(value["isProviderExecuted"], serde_json::json!(true));
     assert_eq!(value["supportsDeferredResults"], serde_json::json!(true));
 
     let roundtrip: ProviderDefinedTool =
         serde_json::from_value(value).expect("deserialize provider-defined tool");
+    assert!(roundtrip.is_provider_executed);
     assert_eq!(roundtrip.supports_deferred_results, Some(true));
+}
+
+#[test]
+fn provider_defined_tool_preserves_ai_sdk_provider_shape() {
+    let input_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "query": { "type": "string" }
+        },
+        "required": ["query"]
+    });
+    let output_schema = serde_json::json!({
+        "type": "object",
+        "properties": {
+            "answer": { "type": "string" }
+        },
+        "required": ["answer"]
+    });
+
+    let tool = ProviderDefinedTool::provider_defined("acme.search", "search")
+        .with_input_schema(input_schema.clone())
+        .with_output_schema(output_schema.clone())
+        .with_args(serde_json::json!({ "region": "us" }));
+    let value = serde_json::to_value(&tool).expect("serialize provider-defined tool");
+
+    assert_eq!(value["isProviderExecuted"], serde_json::json!(false));
+    assert_eq!(value["inputSchema"], input_schema);
+    assert_eq!(value["outputSchema"], output_schema);
+
+    let roundtrip: ProviderDefinedTool =
+        serde_json::from_value(value).expect("deserialize provider-defined tool");
+    assert!(!roundtrip.is_provider_executed);
+    assert_eq!(roundtrip.input_schema(), Some(&input_schema));
+    assert_eq!(roundtrip.output_schema(), Some(&output_schema));
+    assert_eq!(roundtrip.args["region"], serde_json::json!("us"));
 }
 
 #[test]
@@ -188,6 +226,25 @@ fn provider_defined_tool_deserializes_supports_deferred_results_alias() {
     .expect("deserialize provider-defined tool");
 
     assert_eq!(tool.supports_deferred_results, Some(true));
+}
+
+#[test]
+fn provider_defined_tool_deserializes_ai_sdk_aliases() {
+    let input_schema = serde_json::json!({ "type": "object" });
+    let output_schema = serde_json::json!({ "type": "string" });
+    let tool: ProviderDefinedTool = serde_json::from_value(serde_json::json!({
+        "id": "acme.lookup",
+        "name": "lookup",
+        "input_schema": input_schema,
+        "output_schema": output_schema,
+        "is_provider_executed": false,
+        "args": {}
+    }))
+    .expect("deserialize provider-defined tool");
+
+    assert!(!tool.is_provider_executed);
+    assert_eq!(tool.input_schema(), Some(&input_schema));
+    assert_eq!(tool.output_schema(), Some(&output_schema));
 }
 
 #[test]
@@ -259,10 +316,7 @@ fn tool_enum_serialization() {
     let provider_tool = ProviderDefinedTool::new("openai.web_search", "web_search");
     let pd_tool = Tool::ProviderDefined(provider_tool);
     let json = serde_json::to_value(&pd_tool).unwrap();
-    assert_eq!(
-        json.get("type").and_then(|v| v.as_str()),
-        Some("provider-defined")
-    );
+    assert_eq!(json.get("type").and_then(|v| v.as_str()), Some("provider"));
     assert_eq!(
         json.get("id").and_then(|v| v.as_str()),
         Some("openai.web_search")
@@ -270,6 +324,10 @@ fn tool_enum_serialization() {
     assert_eq!(
         json.get("name").and_then(|v| v.as_str()),
         Some("web_search")
+    );
+    assert_eq!(
+        json.get("isProviderExecuted").and_then(|v| v.as_bool()),
+        Some(true)
     );
     assert_eq!(json.get("args"), Some(&serde_json::json!({})));
 }
@@ -280,6 +338,7 @@ fn provider_defined_tool_deserializes_vercel_shape() {
         "type": "provider",
         "id": "openai.web_search_preview",
         "name": "web_search_preview",
+        "isProviderExecuted": false,
         "args": {
             "search_context_size": "low"
         }
@@ -291,12 +350,25 @@ fn provider_defined_tool_deserializes_vercel_shape() {
     };
     assert_eq!(tool.id, "openai.web_search_preview");
     assert_eq!(tool.name, "web_search_preview");
+    assert!(!tool.is_provider_executed);
     assert_eq!(
         tool.args
             .get("search_context_size")
             .and_then(|v| v.as_str()),
         Some("low")
     );
+}
+
+#[test]
+fn tool_provider_schema_accessors_cover_provider_tools() {
+    let input_schema = serde_json::json!({ "type": "object" });
+    let output_schema = serde_json::json!({ "type": "string" });
+    let tool = Tool::provider_defined_with_schema("acme.lookup", "lookup", input_schema.clone())
+        .with_output_schema(output_schema.clone());
+
+    assert_eq!(tool.input_schema(), Some(&input_schema));
+    assert_eq!(tool.output_schema(), Some(&output_schema));
+    assert_eq!(tool.is_provider_executed(), Some(false));
 }
 
 #[test]

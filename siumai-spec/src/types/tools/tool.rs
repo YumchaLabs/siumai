@@ -49,8 +49,8 @@ pub enum Tool {
         function: ToolFunction,
     },
 
-    /// Provider-defined tool (web search, file search, code execution, etc.)
-    #[serde(rename = "provider-defined", alias = "provider")]
+    /// Provider-defined/provider-executed tool (web search, file search, code execution, etc.)
+    #[serde(rename = "provider", alias = "provider-defined")]
     ProviderDefined(ProviderDefinedTool),
 }
 
@@ -115,7 +115,11 @@ impl Tool {
         }
     }
 
-    /// Create a provider-defined tool
+    /// Create a hosted provider tool.
+    ///
+    /// This legacy constructor defaults to `isProviderExecuted: true`, matching the historical
+    /// Siumai hosted-tool surface. Use `provider_defined_with_schema` for AI SDK provider-defined
+    /// tools whose execution is local.
     ///
     /// # Example
     ///
@@ -129,6 +133,31 @@ impl Tool {
     /// ```
     pub fn provider_defined(id: impl Into<String>, name: impl Into<String>) -> Self {
         Self::ProviderDefined(ProviderDefinedTool::new(id, name))
+    }
+
+    /// Create an AI SDK-style provider-defined tool whose execution is local.
+    pub fn provider_defined_with_schema(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input_schema: serde_json::Value,
+    ) -> Self {
+        Self::ProviderDefined(
+            ProviderDefinedTool::provider_defined(id, name).with_input_schema(input_schema),
+        )
+    }
+
+    /// Create an AI SDK-style provider-executed tool with provider-defined schemas.
+    pub fn provider_executed_with_schema(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input_schema: serde_json::Value,
+        output_schema: serde_json::Value,
+    ) -> Self {
+        Self::ProviderDefined(
+            ProviderDefinedTool::provider_executed(id, name)
+                .with_input_schema(input_schema)
+                .with_output_schema(output_schema),
+        )
     }
 
     /// Create a provider-defined tool from a known tool id using a Vercel-aligned default name.
@@ -166,6 +195,24 @@ impl Tool {
         }
     }
 
+    /// Whether this is a provider tool that is executed by the provider.
+    pub fn is_provider_executed(&self) -> Option<bool> {
+        match self {
+            Self::ProviderDefined(tool) => Some(tool.is_provider_executed()),
+            Self::Function { .. } => None,
+        }
+    }
+
+    /// Set AI SDK-style provider execution ownership when this is a provider tool.
+    pub fn with_provider_executed(self, is_provider_executed: bool) -> Self {
+        match self {
+            Self::ProviderDefined(tool) => {
+                Self::ProviderDefined(tool.with_provider_executed(is_provider_executed))
+            }
+            other => other,
+        }
+    }
+
     /// Return the inner function schema when this is a function tool.
     pub const fn function_ref(&self) -> Option<&ToolFunction> {
         match self {
@@ -184,12 +231,18 @@ impl Tool {
 
     /// AI SDK-style view over the function input schema.
     pub fn input_schema(&self) -> Option<&serde_json::Value> {
-        self.function_ref().map(ToolFunction::input_schema)
+        match self {
+            Self::Function { function } => Some(function.input_schema()),
+            Self::ProviderDefined(tool) => tool.input_schema(),
+        }
     }
 
     /// Mutable AI SDK-style view over the function input schema.
     pub fn input_schema_mut(&mut self) -> Option<&mut serde_json::Value> {
-        self.function_mut().map(ToolFunction::input_schema_mut)
+        match self {
+            Self::Function { function } => Some(function.input_schema_mut()),
+            Self::ProviderDefined(tool) => tool.input_schema.as_mut(),
+        }
     }
 
     /// Replace the function input schema when this is a function tool.
@@ -198,13 +251,18 @@ impl Tool {
             Self::Function { function } => Self::Function {
                 function: function.with_input_schema(input_schema),
             },
-            other => other,
+            Self::ProviderDefined(tool) => {
+                Self::ProviderDefined(tool.with_input_schema(input_schema))
+            }
         }
     }
 
     /// Return the optional AI SDK-style function output schema.
     pub fn output_schema(&self) -> Option<&serde_json::Value> {
-        self.function_ref().and_then(ToolFunction::output_schema)
+        match self {
+            Self::Function { function } => function.output_schema(),
+            Self::ProviderDefined(tool) => tool.output_schema(),
+        }
     }
 
     /// Attach AI SDK-style function output schema metadata when this is a function tool.
@@ -213,7 +271,9 @@ impl Tool {
             Self::Function { function } => Self::Function {
                 function: function.with_output_schema(output_schema),
             },
-            other => other,
+            Self::ProviderDefined(tool) => {
+                Self::ProviderDefined(tool.with_output_schema(output_schema))
+            }
         }
     }
 

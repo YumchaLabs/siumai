@@ -89,6 +89,9 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/convert-image-model-file-to-data-uri.ts`
 - `repo-ref/ai/packages/provider-utils/src/streaming-tool-call-tracker.ts`
 - `repo-ref/ai/packages/provider-utils/src/create-tool-name-mapping.ts`
+- `repo-ref/ai/packages/provider-utils/src/provider-defined-tool-factory.ts`
+- `repo-ref/ai/packages/provider-utils/src/provider-executed-tool-factory.ts`
+- `repo-ref/ai/packages/provider-utils/src/types/tool.ts`
 - `repo-ref/ai/packages/provider-utils/src/extract-response-headers.ts`
 - `repo-ref/ai/packages/provider-utils/src/get-error-message.ts`
 - `repo-ref/ai/packages/provider-utils/src/get-runtime-environment-user-agent.ts`
@@ -396,6 +399,18 @@ Provider-reference utilities are also covered without new carrier types:
 existing passive `NoSuchProviderReferenceError` carrier on misses. This matches the upstream
 provider-utils behavior while keeping provider-managed files as part of the stable prompt/file
 source model instead of inventing a parallel reference map.
+
+The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
+serializes provider tools as AI SDK `type: "provider"` while still accepting the old
+`provider-defined` discriminator on input, and `ProviderDefinedTool` now carries
+`isProviderExecuted`, optional `inputSchema`, optional `outputSchema`, `args`, and
+`supportsDeferredResults`. Legacy hosted-tool constructors default to `isProviderExecuted: true`,
+but the new provider-defined/provider-executed constructors and
+`create_provider_defined_tool_factory(...)` / `create_provider_executed_tool_factory(...)` facades
+preserve the upstream distinction between provider-defined-local-execution tools and hosted
+provider-executed tools. This is a real structural carrier/factory mapping rather than a marker
+export: local executors are still bound through `ExecutableTool`, while provider ownership stays on
+the stable passive `Tool` shape.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now
