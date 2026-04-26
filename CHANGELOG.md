@@ -11,6 +11,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   to_text_stream_response_with_options, TextStreamResponseOptions}` wraps `ChatStream` text output
   as `text/plain; charset=utf-8`, matching the upstream `createTextStreamResponse` behavior on the
   Rust server-adapter path without pretending Node `ServerResponse` exists in core.
+- AI SDK util download parity now has real Rust helpers:
+  `siumai::{create_download, download_url, validate_download_url,
+  read_response_with_size_limit, DEFAULT_MAX_DOWNLOAD_SIZE}` and the same unified-prelude exports
+  mirror the upstream `createDownload` / `validateDownloadUrl` / size-limit behavior for
+  `http`, `https`, and inline `data:` URLs while returning the existing passive `DownloadError`
+  carrier.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,

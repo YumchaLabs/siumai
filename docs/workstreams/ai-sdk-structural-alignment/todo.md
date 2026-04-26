@@ -22,6 +22,9 @@ Status legend:
   - `createTextStreamResponse` is covered on the real Rust HTTP server boundary by
     `siumai-extras::server::axum::to_text_stream_response(...)`; Node `ServerResponse` piping
     remains intentionally outside Rust core.
+  - `createDownload` is covered by Rust utility helpers that validate safe download URLs, support
+    inline `data:` payloads, preserve media type, and enforce the upstream 2 GiB default size
+    limit.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

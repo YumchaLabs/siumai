@@ -74,7 +74,10 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<CompletionRequestOptions>();
     let _ = size_of::<CompletionResponse>();
     let _ = size_of::<CompletionStreamProtocol>();
+    let _ = size_of::<Download>();
     let _ = size_of::<DownloadError>();
+    let _ = size_of::<DownloadedFile>();
+    let _ = size_of::<DownloadOptions>();
     let _ = size_of::<DynamicToolCall>();
     let _ = size_of::<DynamicToolError>();
     let _ = size_of::<DynamicToolResult>();
@@ -422,6 +425,9 @@ fn public_surface_unified_imports_compile() {
         as fn(&DataContent) -> Result<Vec<u8>, InvalidDataContentError>;
     let _ = convert_uint8_array_to_text as fn(&[u8]) -> String;
     let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
+    let _ = DEFAULT_MAX_DOWNLOAD_SIZE;
+    let _ = create_download as fn(DownloadOptions) -> Download;
+    let _ = validate_download_url as fn(&str) -> Result<(), DownloadError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
     let _ = is_deep_equal_data as fn(&JSONValue, &JSONValue) -> bool;
     let _ = is_text_ui_part as fn(&UiMessagePart) -> bool;
