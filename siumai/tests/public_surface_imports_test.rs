@@ -1612,17 +1612,17 @@ fn public_surface_compat_prelude_imports_compile() {
 #[test]
 fn public_surface_streaming_aliases_compile() {
     use siumai::experimental::streaming::{
-        LanguageModelV3StreamPart, LanguageModelV4File, LanguageModelV4FinishReason,
-        LanguageModelV4StreamPart, LanguageModelV4ToolCall, LanguageModelV4Usage,
+        LanguageModelV3StreamPart, LanguageModelV4StreamFile, LanguageModelV4StreamFinishReason,
+        LanguageModelV4StreamPart, LanguageModelV4StreamToolCall, LanguageModelV4StreamUsage,
         SharedV4ProviderMetadata, SharedV4Warning,
     };
 
     let _ = size_of::<LanguageModelV3StreamPart>();
     let _ = size_of::<LanguageModelV4StreamPart>();
-    let _ = size_of::<LanguageModelV4ToolCall>();
-    let _ = size_of::<LanguageModelV4File>();
-    let _ = size_of::<LanguageModelV4Usage>();
-    let _ = size_of::<LanguageModelV4FinishReason>();
+    let _ = size_of::<LanguageModelV4StreamToolCall>();
+    let _ = size_of::<LanguageModelV4StreamFile>();
+    let _ = size_of::<LanguageModelV4StreamUsage>();
+    let _ = size_of::<LanguageModelV4StreamFinishReason>();
     let _ = size_of::<SharedV4ProviderMetadata>();
     let _ = size_of::<SharedV4Warning>();
 }

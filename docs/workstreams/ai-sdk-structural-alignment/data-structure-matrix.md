@@ -446,6 +446,14 @@ metadata, request/response telemetry, and warnings; `LanguageModelV4StreamResult
 same request/response envelope while leaving the Rust stream carrier generic instead of pretending
 to be JavaScript `ReadableStream`.
 
+The low-level stream module now keeps its payload aliases out of that standalone namespace:
+experimental stream payload helpers are named `LanguageModelV4StreamToolCall`,
+`LanguageModelV4StreamFile`, `LanguageModelV4StreamUsage`, and so on. This preserves the existing
+`LanguageModelV4StreamPart` enum while avoiding the previous ambiguity where
+`LanguageModelV4ToolCall` could mean either a standalone provider-result part with a `type` field
+or an internally tagged stream payload that relies on the surrounding stream enum for the
+discriminator.
+
 The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
 serializes provider tools as AI SDK `type: "provider"` while still accepting the old
 `provider-defined` discriminator on input, and `ProviderDefinedTool` now carries

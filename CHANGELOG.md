@@ -953,6 +953,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
+- Experimental streaming V4 payload aliases now use explicit `LanguageModelV4Stream*` names
+  (`LanguageModelV4StreamToolCall`, `LanguageModelV4StreamFile`, `LanguageModelV4StreamUsage`,
+  etc.) so they no longer collide with the standalone provider-result `LanguageModelV4*` data
+  structures exported from `siumai::types`.
 - AI SDK structural-alignment documentation now records the bounded root-export audit: `generateText`
   is covered by the single-step Rust projection, `streamText` remains passive-result parity until
   a real Rust stream-result runtime exists, AI SDK `text-stream` response helpers are covered by

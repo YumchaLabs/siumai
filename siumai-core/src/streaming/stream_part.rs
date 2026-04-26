@@ -63,8 +63,8 @@ pub struct LanguageModelV3FinishReason {
     pub raw: Option<String>,
 }
 
-/// V4-capable finish-reason alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4FinishReason = LanguageModelV3FinishReason;
+/// V4 stream finish-reason payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamFinishReason = LanguageModelV3FinishReason;
 
 /// Response metadata (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -77,8 +77,8 @@ pub struct LanguageModelV3ResponseMetadata {
     pub model_id: Option<String>,
 }
 
-/// V4-capable response-metadata alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4ResponseMetadata = LanguageModelV3ResponseMetadata;
+/// V4 stream response-metadata payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamResponseMetadata = LanguageModelV3ResponseMetadata;
 
 /// Usage (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,8 +91,8 @@ pub struct LanguageModelV3Usage {
     pub raw: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
-/// V4-capable usage alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4Usage = LanguageModelV3Usage;
+/// V4 stream usage payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamUsage = LanguageModelV3Usage;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LanguageModelV3InputTokens {
@@ -105,8 +105,8 @@ pub struct LanguageModelV3InputTokens {
     pub cache_write: Option<u64>,
 }
 
-/// V4-capable input-token alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4InputTokens = LanguageModelV3InputTokens;
+/// V4 stream input-token payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamInputTokens = LanguageModelV3InputTokens;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LanguageModelV3OutputTokens {
@@ -115,8 +115,8 @@ pub struct LanguageModelV3OutputTokens {
     pub reasoning: Option<u64>,
 }
 
-/// V4-capable output-token alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4OutputTokens = LanguageModelV3OutputTokens;
+/// V4 stream output-token payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamOutputTokens = LanguageModelV3OutputTokens;
 
 /// Tool call (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -143,8 +143,8 @@ pub struct LanguageModelV3ToolCall {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4-capable tool-call alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4ToolCall = LanguageModelV3ToolCall;
+/// V4 stream tool-call payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamToolCall = LanguageModelV3ToolCall;
 
 /// Tool result (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -168,8 +168,8 @@ pub struct LanguageModelV3ToolResult {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4-capable tool-result alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4ToolResult = LanguageModelV3ToolResult;
+/// V4 stream tool-result payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamToolResult = LanguageModelV3ToolResult;
 
 /// Tool approval request (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -186,8 +186,8 @@ pub struct LanguageModelV3ToolApprovalRequest {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4-capable tool-approval alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4ToolApprovalRequest = LanguageModelV3ToolApprovalRequest;
+/// V4 stream tool-approval payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamToolApprovalRequest = LanguageModelV3ToolApprovalRequest;
 
 /// File part (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -203,8 +203,8 @@ pub struct LanguageModelV3File {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4-capable file alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4File = LanguageModelV3File;
+/// V4 stream file payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamFile = LanguageModelV3File;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -213,8 +213,8 @@ pub enum LanguageModelV3FileData {
     Bytes(Vec<u8>),
 }
 
-/// V4-capable file-data alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4FileData = LanguageModelV3FileData;
+/// V4 stream file-data payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamFileData = LanguageModelV3FileData;
 
 /// Reasoning file part (Vercel AI SDK V4 aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -230,8 +230,8 @@ pub struct LanguageModelV3ReasoningFile {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4-capable reasoning-file alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4ReasoningFile = LanguageModelV3ReasoningFile;
+/// V4 stream reasoning-file payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamReasoningFile = LanguageModelV3ReasoningFile;
 
 /// Custom content part (Vercel AI SDK V4 aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -245,8 +245,8 @@ pub struct LanguageModelV3CustomContent {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4-capable custom-content alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4CustomContent = LanguageModelV3CustomContent;
+/// V4 stream custom-content payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamCustomContent = LanguageModelV3CustomContent;
 
 /// Source part (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -280,8 +280,8 @@ pub enum LanguageModelV3Source {
     },
 }
 
-/// V4-capable source alias kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4Source = LanguageModelV3Source;
+/// V4 stream source payload kept alongside the historical V3 compatibility name.
+pub type LanguageModelV4StreamSource = LanguageModelV3Source;
 
 /// Typed Vercel stream part union.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

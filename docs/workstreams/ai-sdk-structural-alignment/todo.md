@@ -62,6 +62,8 @@ Status legend:
     `LanguageModelV4StreamResult` are covered by passive Rust overlays for the upstream
     model-facing result envelopes, including V4 file/reasoning-file/tool-call/tool-result/
     approval-request parts, finish reason, usage, and response metadata.
+  - Experimental low-level stream payload aliases now use `LanguageModelV4Stream*` names, reserving
+    the unqualified `LanguageModelV4*` names for standalone upstream provider V4 shapes.
   - `createProviderDefinedToolFactory`,
     `createProviderDefinedToolFactoryWithOutputSchema`, and
     `createProviderExecutedToolFactory` are covered by Rust factory facades over the shared

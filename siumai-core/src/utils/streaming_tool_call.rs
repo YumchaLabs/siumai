@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::LlmError;
 use crate::streaming::{
-    LanguageModelV4StreamPart, LanguageModelV4ToolCall, SharedV4ProviderMetadata,
+    LanguageModelV4StreamPart, LanguageModelV4StreamToolCall, SharedV4ProviderMetadata,
 };
 use crate::types::JSONValue;
 
@@ -363,7 +363,7 @@ impl StreamingToolCallTracker {
                 build_provider_metadata(tool_call.metadata.as_ref())
             });
         enqueue(LanguageModelV4StreamPart::ToolCall(
-            LanguageModelV4ToolCall {
+            LanguageModelV4StreamToolCall {
                 tool_call_id: tool_call.id.clone(),
                 tool_name: tool_call.name.clone(),
                 input: tool_call.arguments.clone(),
