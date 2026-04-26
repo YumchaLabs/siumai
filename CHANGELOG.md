@@ -28,6 +28,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and
   first-system-message injection defaults for schema and generic JSON responses.
+- AI SDK provider-utils JSON parse parity now exposes `parse_json`, `safe_parse_json`,
+  `is_parsable_json`, `parse_json_with_schema`, and `safe_parse_json_with_schema`, including
+  upstream-style forbidden prototype-property rejection and explicit safe result carriers.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,

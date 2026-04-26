@@ -27,6 +27,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<HeaderRecord>();
     let _ = size_of::<JsonInstructionOptions>();
     let _ = size_of::<JsonInstructionMessageOptions>();
+    let _ = size_of::<JsonParseResult>();
     let _ = size_of::<ValidationResult>();
     let _ = size_of::<ModelCallResponseData>();
     let _ = size_of::<GenerateObjectOptions>();
@@ -509,6 +510,28 @@ fn public_surface_unified_imports_compile() {
         json_messages.first(),
         Some(ModelMessage::System(_))
     ));
+    assert_eq!(
+        parse_json(r#"{"answer":42}"#).expect("parse JSON")["answer"],
+        serde_json::json!(42)
+    );
+    assert!(safe_parse_json("{not json}").is_failure());
+    assert!(is_parsable_json(r#"{"ok":true}"#));
+    let parse_schema =
+        json_schema_with_validator(serde_json::json!({ "type": "object" }), |value| {
+            value
+                .get("answer")
+                .and_then(JSONValue::as_str)
+                .map(|answer| ValidationResult::success(answer.to_string()))
+                .unwrap_or_else(|| {
+                    ValidationResult::failure(LlmError::ParseError("missing answer".to_string()))
+                })
+        });
+    assert_eq!(
+        parse_json_with_schema(r#"{"answer":"yes"}"#, &parse_schema)
+            .expect("parse and validate JSON"),
+        "yes"
+    );
+    assert!(safe_parse_json_with_schema(r#"{"answer":42}"#, &parse_schema).is_failure());
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")

@@ -92,6 +92,8 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/strip-file-extension.ts`
 - `repo-ref/ai/packages/provider-utils/src/without-trailing-slash.ts`
 - `repo-ref/ai/packages/provider-utils/src/inject-json-instruction.ts`
+- `repo-ref/ai/packages/provider-utils/src/parse-json.ts`
+- `repo-ref/ai/packages/provider-utils/src/secure-json-parse.ts`
 - `repo-ref/ai/packages/ai/src/util/job.ts`
 - `repo-ref/ai/packages/ai/src/util/serial-job-executor.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
@@ -353,6 +355,13 @@ matches the upstream generic-vs-schema prompt construction defaults, while
 `inject_json_instruction_into_messages` rewrites the first `SystemModelMessage` or prepends one
 over the stable `ModelMessage` prompt layer. This keeps the helper at the data/prompt transform
 boundary and avoids coupling it to any one provider's structured-output transport mode.
+
+Provider-utils JSON parsing now has an honest Rust equivalent as well:
+`parse_json`, `safe_parse_json`, `is_parsable_json`, `parse_json_with_schema`, and
+`safe_parse_json_with_schema` mirror the AI SDK parse/safe-parse split and reuse the existing
+`Schema` runtime validator when a typed parse is requested. The Rust parser also rejects the same
+forbidden prototype-pollution keys as upstream `secureJsonParse`, even though Rust itself is not
+subject to JavaScript prototype mutation; this keeps the shared serialized data boundary aligned.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

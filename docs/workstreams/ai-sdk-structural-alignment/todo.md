@@ -32,6 +32,8 @@ Status legend:
     extension stripping, and single trailing-slash removal.
   - `injectJsonInstruction` / `injectJsonInstructionIntoMessages` are covered by Rust prompt
     helpers over `ModelMessage` with the same generic and schema instruction defaults.
+  - `parseJSON` / `safeParseJSON` / `isParsableJson` are covered by Rust JSON helpers with
+    secure prototype-property rejection and schema-validator variants.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.
