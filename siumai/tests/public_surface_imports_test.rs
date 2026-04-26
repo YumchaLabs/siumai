@@ -253,6 +253,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ExperimentalLanguageModelStreamPart>();
     let _ = size_of::<Experimental_LanguageModelStreamPart>();
     let _ = size_of::<LanguageModelUsage>();
+    let _ = size_of::<LanguageModelV4ToolChoice>();
     let _ = size_of::<LoadAPIKeyError>();
     let _ = size_of::<LoadSettingError>();
     let _ = size_of::<ProviderMetadata>();
@@ -458,6 +459,7 @@ fn public_surface_unified_imports_compile() {
     let _ = experimental_filter_active_tools::<String>
         as fn(Option<&[Tool]>, Option<&[String]>) -> Option<Vec<Tool>>;
     let _ = step_count_is as fn(usize) -> StopCondition;
+    let _ = prepare_tool_choice as fn(Option<&ToolChoice>) -> LanguageModelV4ToolChoice;
     let _ = prune_messages as fn(Vec<ModelMessage>, PruneMessagesOptions) -> Vec<ModelMessage>;
     let _ = create_null_language_model_usage as fn() -> LanguageModelUsage;
     let _ = add_language_model_usage

@@ -149,6 +149,11 @@ impl ToolChoice {
         }
     }
 
+    /// Project this high-level tool-choice input onto the model-facing V4 object shape.
+    pub fn to_language_model_v4(&self) -> LanguageModelV4ToolChoice {
+        self.into()
+    }
+
     fn from_json_value(value: serde_json::Value) -> Result<Self, String> {
         match value {
             serde_json::Value::String(value) => match value.as_str() {
@@ -182,9 +187,142 @@ impl ToolChoice {
     }
 }
 
+/// AI SDK V4 model-facing tool-choice shape.
+///
+/// AI SDK accepts high-level tool choices as strings, but `prepareToolChoice(...)` projects them
+/// onto this provider-facing object shape before model calls.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum LanguageModelV4ToolChoice {
+    /// The model may choose whether to call a tool.
+    #[default]
+    Auto,
+    /// The model must call at least one tool.
+    Required,
+    /// The model must not call a tool.
+    None,
+    /// The model must call the named tool.
+    Tool {
+        /// Name of the tool to call.
+        tool_name: String,
+    },
+}
+
+impl LanguageModelV4ToolChoice {
+    /// Create a model-facing tool choice that forces a specific tool.
+    pub fn tool(tool_name: impl Into<String>) -> Self {
+        Self::Tool {
+            tool_name: tool_name.into(),
+        }
+    }
+
+    /// Get the tool name if this is a Tool variant.
+    pub fn tool_name(&self) -> Option<&str> {
+        match self {
+            Self::Tool { tool_name } => Some(tool_name),
+            _ => None,
+        }
+    }
+
+    fn from_json_value(value: serde_json::Value) -> Result<Self, String> {
+        match value {
+            serde_json::Value::String(value) => match value.as_str() {
+                "auto" => Ok(Self::Auto),
+                "required" => Ok(Self::Required),
+                "none" => Ok(Self::None),
+                other => Err(format!("unsupported v4 tool choice string `{other}`")),
+            },
+            serde_json::Value::Object(mut object) => match object
+                .remove("type")
+                .and_then(|value| value.as_str().map(str::to_string))
+                .as_deref()
+            {
+                Some("auto") => Ok(Self::Auto),
+                Some("required") => Ok(Self::Required),
+                Some("none") => Ok(Self::None),
+                Some("tool") => {
+                    let tool_name = object
+                        .remove("toolName")
+                        .or_else(|| object.remove("tool_name"))
+                        .and_then(|value| value.as_str().map(str::to_string))
+                        .ok_or("v4 tool choice object is missing `toolName`")?;
+                    Ok(Self::tool(tool_name))
+                }
+                Some(other) => Err(format!("unsupported v4 tool choice type `{other}`")),
+                None => Err("v4 tool choice object is missing `type`".to_string()),
+            },
+            _ => Err("v4 tool choice must be an object or compatibility string".to_string()),
+        }
+    }
+}
+
+impl Serialize for LanguageModelV4ToolChoice {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Self::Auto => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("type", "auto")?;
+                map.end()
+            }
+            Self::Required => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("type", "required")?;
+                map.end()
+            }
+            Self::None => {
+                let mut map = serializer.serialize_map(Some(1))?;
+                map.serialize_entry("type", "none")?;
+                map.end()
+            }
+            Self::Tool { tool_name } => {
+                let mut map = serializer.serialize_map(Some(2))?;
+                map.serialize_entry("type", "tool")?;
+                map.serialize_entry("toolName", tool_name)?;
+                map.end()
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for LanguageModelV4ToolChoice {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Self::from_json_value(value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl From<&ToolChoice> for LanguageModelV4ToolChoice {
+    fn from(value: &ToolChoice) -> Self {
+        match value {
+            ToolChoice::Auto => Self::Auto,
+            ToolChoice::Required => Self::Required,
+            ToolChoice::None => Self::None,
+            ToolChoice::Tool { name } => Self::tool(name.clone()),
+        }
+    }
+}
+
+impl From<ToolChoice> for LanguageModelV4ToolChoice {
+    fn from(value: ToolChoice) -> Self {
+        Self::from(&value)
+    }
+}
+
+/// Project an optional high-level tool choice onto the AI SDK model-facing V4 shape.
+pub fn prepare_tool_choice(tool_choice: Option<&ToolChoice>) -> LanguageModelV4ToolChoice {
+    tool_choice
+        .map(LanguageModelV4ToolChoice::from)
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::ToolChoice;
+    use super::{LanguageModelV4ToolChoice, ToolChoice, prepare_tool_choice};
 
     #[test]
     fn tool_choice_tool_serializes_ai_sdk_shape() {
@@ -237,6 +375,63 @@ mod tests {
         assert_eq!(
             serde_json::from_value::<ToolChoice>(value).expect("legacy tool deserializes"),
             ToolChoice::tool("weather")
+        );
+    }
+
+    #[test]
+    fn language_model_v4_tool_choice_serializes_model_facing_objects() {
+        assert_eq!(
+            serde_json::to_value(LanguageModelV4ToolChoice::Auto).expect("serialize"),
+            serde_json::json!({ "type": "auto" })
+        );
+        assert_eq!(
+            serde_json::to_value(LanguageModelV4ToolChoice::Required).expect("serialize"),
+            serde_json::json!({ "type": "required" })
+        );
+        assert_eq!(
+            serde_json::to_value(LanguageModelV4ToolChoice::None).expect("serialize"),
+            serde_json::json!({ "type": "none" })
+        );
+        assert_eq!(
+            serde_json::to_value(LanguageModelV4ToolChoice::tool("weather")).expect("serialize"),
+            serde_json::json!({
+                "type": "tool",
+                "toolName": "weather"
+            })
+        );
+    }
+
+    #[test]
+    fn prepare_tool_choice_matches_ai_sdk_projection() {
+        assert_eq!(prepare_tool_choice(None), LanguageModelV4ToolChoice::Auto);
+        assert_eq!(
+            prepare_tool_choice(Some(&ToolChoice::Required)),
+            LanguageModelV4ToolChoice::Required
+        );
+        assert_eq!(
+            prepare_tool_choice(Some(&ToolChoice::None)),
+            LanguageModelV4ToolChoice::None
+        );
+        assert_eq!(
+            prepare_tool_choice(Some(&ToolChoice::tool("weather"))),
+            LanguageModelV4ToolChoice::tool("weather")
+        );
+    }
+
+    #[test]
+    fn language_model_v4_tool_choice_accepts_objects_and_compat_strings() {
+        assert_eq!(
+            serde_json::from_value::<LanguageModelV4ToolChoice>(serde_json::json!({
+                "type": "tool",
+                "toolName": "weather"
+            }))
+            .expect("object deserializes"),
+            LanguageModelV4ToolChoice::tool("weather")
+        );
+        assert_eq!(
+            serde_json::from_value::<LanguageModelV4ToolChoice>(serde_json::json!("none"))
+                .expect("compat string deserializes"),
+            LanguageModelV4ToolChoice::None
         );
     }
 }

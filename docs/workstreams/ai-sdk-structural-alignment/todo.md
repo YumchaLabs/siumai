@@ -44,6 +44,9 @@ Status legend:
     existing `ProviderReference` and `FilePartSource` carriers.
   - `createToolNameMapping` / `ToolNameMapping` are covered by the existing portable
     provider-defined-tool mapping helper and are now available from the stable root/prelude facade.
+  - `prepareToolChoice` / `LanguageModelV4ToolChoice` are covered by a Rust projection that keeps
+    the existing high-level `ToolChoice` input compatibility while exposing the AI SDK model-facing
+    `{ type: ... }` object shape as a separate stable data structure.
   - `createProviderDefinedToolFactory`,
     `createProviderDefinedToolFactoryWithOutputSchema`, and
     `createProviderExecutedToolFactory` are covered by Rust factory facades over the shared

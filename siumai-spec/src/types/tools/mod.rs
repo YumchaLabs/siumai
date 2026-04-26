@@ -13,7 +13,7 @@ mod openai_builtin;
 #[cfg(test)]
 mod tests;
 
-pub use choice::{ToolChoice, ToolType};
+pub use choice::{LanguageModelV4ToolChoice, ToolChoice, ToolType, prepare_tool_choice};
 pub use function::ToolFunction;
 pub use provider_defined::ProviderDefinedTool;
 pub use tool::Tool;

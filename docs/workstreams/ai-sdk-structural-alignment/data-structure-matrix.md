@@ -404,6 +404,13 @@ existing passive `NoSuchProviderReferenceError` carrier on misses. This matches 
 provider-utils behavior while keeping provider-managed files as part of the stable prompt/file
 source model instead of inventing a parallel reference map.
 
+The tool-choice surface now preserves the same two-layer shape as AI SDK. Existing Rust
+`ToolChoice` remains the high-level caller input and continues to support compatibility string
+serialization where provider wire adapters depend on it, while `LanguageModelV4ToolChoice` and
+`prepare_tool_choice(...)` model the provider-facing V4 object contract (`{ type: "auto" }`,
+`{ type: "none" }`, `{ type: "required" }`, or `{ type: "tool", toolName }`). This avoids a
+breaking wire-format change while closing the model-facing data-structure gap.
+
 The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
 serializes provider tools as AI SDK `type: "provider"` while still accepting the old
 `provider-defined` discriminator on input, and `ProviderDefinedTool` now carries
