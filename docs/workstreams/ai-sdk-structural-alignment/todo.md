@@ -94,6 +94,11 @@ Status legend:
   - `StreamingToolCallTracker` is covered by a Rust helper over OpenAI-compatible tool-call
     deltas, accumulating streamed JSON argument text and emitting typed V4 `tool-input-*` and
     final `tool-call` stream parts.
+  - `LanguageModelV4StreamPart` finish payloads now serialize `finishReason.unified` with the
+    upstream V4 union values (`tool-calls`, `content-filter`, etc.) rather than legacy
+    OpenAI-style underscore values; Siumai-specific `StopSequence` and provider-specific
+    `Other(...)` details are preserved through `finishReason.raw`, and legacy underscore inputs
+    still deserialize for compatibility.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

@@ -459,28 +459,67 @@ fn stream_metadata_to_hashmap(
     metadata
 }
 
-fn finish_reason_to_unified_string(reason: crate::types::FinishReason) -> String {
-    match reason {
-        crate::types::FinishReason::Stop => "stop".to_string(),
-        crate::types::FinishReason::Length => "length".to_string(),
-        crate::types::FinishReason::ToolCalls => "tool_calls".to_string(),
-        crate::types::FinishReason::ContentFilter => "content_filter".to_string(),
-        crate::types::FinishReason::StopSequence => "stop_sequence".to_string(),
-        crate::types::FinishReason::Error => "error".to_string(),
-        crate::types::FinishReason::Other(value) => value,
-        crate::types::FinishReason::Unknown => "unknown".to_string(),
+fn finish_reason_to_stream_payload(
+    finish_reason: ChatStreamFinishInfo,
+) -> LanguageModelV3FinishReason {
+    match finish_reason.unified {
+        crate::types::FinishReason::Stop => LanguageModelV3FinishReason {
+            unified: "stop".to_string(),
+            raw: finish_reason.raw,
+        },
+        crate::types::FinishReason::Length => LanguageModelV3FinishReason {
+            unified: "length".to_string(),
+            raw: finish_reason.raw,
+        },
+        crate::types::FinishReason::ToolCalls => LanguageModelV3FinishReason {
+            unified: "tool-calls".to_string(),
+            raw: finish_reason.raw,
+        },
+        crate::types::FinishReason::ContentFilter => LanguageModelV3FinishReason {
+            unified: "content-filter".to_string(),
+            raw: finish_reason.raw,
+        },
+        crate::types::FinishReason::StopSequence => LanguageModelV3FinishReason {
+            unified: "stop".to_string(),
+            raw: finish_reason
+                .raw
+                .or_else(|| Some("stop_sequence".to_string())),
+        },
+        crate::types::FinishReason::Error => LanguageModelV3FinishReason {
+            unified: "error".to_string(),
+            raw: finish_reason.raw,
+        },
+        crate::types::FinishReason::Other(value) => LanguageModelV3FinishReason {
+            unified: "other".to_string(),
+            raw: finish_reason.raw.or(Some(value)),
+        },
+        crate::types::FinishReason::Unknown => LanguageModelV3FinishReason {
+            unified: "other".to_string(),
+            raw: finish_reason.raw,
+        },
     }
 }
 
-fn finish_reason_from_unified_str(value: &str) -> crate::types::FinishReason {
-    match value {
+fn finish_reason_from_stream_payload(
+    finish_reason: &LanguageModelV3FinishReason,
+) -> crate::types::FinishReason {
+    match finish_reason.unified.as_str() {
+        "stop" if finish_reason.raw.as_deref() == Some("stop_sequence") => {
+            crate::types::FinishReason::StopSequence
+        }
         "stop" => crate::types::FinishReason::Stop,
         "length" => crate::types::FinishReason::Length,
-        "tool_calls" => crate::types::FinishReason::ToolCalls,
-        "content_filter" => crate::types::FinishReason::ContentFilter,
+        "tool-calls" | "tool_calls" => crate::types::FinishReason::ToolCalls,
+        "content-filter" | "content_filter" => crate::types::FinishReason::ContentFilter,
         "stop_sequence" => crate::types::FinishReason::StopSequence,
         "error" => crate::types::FinishReason::Error,
         "unknown" => crate::types::FinishReason::Unknown,
+        "other" => crate::types::FinishReason::Other(
+            finish_reason
+                .raw
+                .clone()
+                .unwrap_or_else(|| "other".to_string()),
+        ),
         other => crate::types::FinishReason::Other(other.to_string()),
     }
 }
@@ -809,10 +848,7 @@ impl LanguageModelV3StreamPart {
                         raw: usage.raw.clone(),
                     }
                 },
-                finish_reason: LanguageModelV3FinishReason {
-                    unified: finish_reason_to_unified_string(finish_reason.unified),
-                    raw: finish_reason.raw,
-                },
+                finish_reason: finish_reason_to_stream_payload(finish_reason),
                 provider_metadata: stream_metadata_from_hashmap(provider_metadata),
             },
             ChatStreamPart::Raw { raw_value } => Self::Raw { raw_value },
@@ -997,7 +1033,7 @@ impl LanguageModelV3StreamPart {
                     builder.build()
                 },
                 finish_reason: ChatStreamFinishInfo {
-                    unified: finish_reason_from_unified_str(&finish_reason.unified),
+                    unified: finish_reason_from_stream_payload(finish_reason),
                     raw: finish_reason.raw.clone(),
                 },
                 provider_metadata: stream_metadata_to_hashmap(provider_metadata.clone()),
@@ -1489,6 +1525,97 @@ mod tests {
                 assert_eq!(finish_reason.unified, "stop");
             }
             other => panic!("unexpected part: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_part_finish_reason_uses_ai_sdk_v4_unified_values() {
+        let usage = crate::types::Usage::unknown();
+        let part = LanguageModelV3StreamPart::from_runtime_part(ChatStreamPart::Finish {
+            usage,
+            finish_reason: ChatStreamFinishInfo {
+                unified: crate::types::FinishReason::ToolCalls,
+                raw: None,
+            },
+            provider_metadata: None,
+        });
+
+        let value = serde_json::to_value(&part).expect("serialize stream part");
+        assert_eq!(
+            value.pointer("/finishReason/unified"),
+            Some(&serde_json::json!("tool-calls"))
+        );
+    }
+
+    #[test]
+    fn stream_part_finish_reason_preserves_stop_sequence_as_raw() {
+        let usage = crate::types::Usage::unknown();
+        let part = LanguageModelV3StreamPart::from_runtime_part(ChatStreamPart::Finish {
+            usage,
+            finish_reason: ChatStreamFinishInfo {
+                unified: crate::types::FinishReason::StopSequence,
+                raw: None,
+            },
+            provider_metadata: None,
+        });
+
+        let value = serde_json::to_value(&part).expect("serialize stream part");
+        assert_eq!(
+            value.pointer("/finishReason/unified"),
+            Some(&serde_json::json!("stop"))
+        );
+        assert_eq!(
+            value.pointer("/finishReason/raw"),
+            Some(&serde_json::json!("stop_sequence"))
+        );
+
+        let runtime = part.to_runtime_part();
+        match runtime {
+            ChatStreamPart::Finish { finish_reason, .. } => {
+                assert_eq!(
+                    finish_reason.unified,
+                    crate::types::FinishReason::StopSequence
+                );
+                assert_eq!(finish_reason.raw.as_deref(), Some("stop_sequence"));
+            }
+            other => panic!("unexpected runtime part: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn stream_part_finish_reason_accepts_legacy_underscore_values() {
+        let part = LanguageModelV3StreamPart::Finish {
+            usage: LanguageModelV3Usage {
+                input_tokens: LanguageModelV3InputTokens {
+                    total: None,
+                    no_cache: None,
+                    cache_read: None,
+                    cache_write: None,
+                },
+                output_tokens: LanguageModelV3OutputTokens {
+                    total: None,
+                    text: None,
+                    reasoning: None,
+                },
+                raw: None,
+            },
+            finish_reason: LanguageModelV3FinishReason {
+                unified: "content_filter".to_string(),
+                raw: Some("safety".to_string()),
+            },
+            provider_metadata: None,
+        };
+
+        let runtime = part.to_runtime_part();
+        match runtime {
+            ChatStreamPart::Finish { finish_reason, .. } => {
+                assert_eq!(
+                    finish_reason.unified,
+                    crate::types::FinishReason::ContentFilter
+                );
+                assert_eq!(finish_reason.raw.as_deref(), Some("safety"));
+            }
+            other => panic!("unexpected runtime part: {other:?}"),
         }
     }
 

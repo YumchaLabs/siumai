@@ -47,6 +47,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `StreamingToolCallFunctionDelta`, `StreamingToolCallTrackerOptions`, and
   `StreamingToolCallTypeValidation`. The helper accumulates OpenAI-compatible streaming
   tool-call argument deltas and emits typed V4 `tool-input-*` plus final `tool-call` stream parts.
+- AI SDK V4 stream finish-reason parity now keeps typed low-level stream overlays on the upstream
+  `finishReason.unified` union values (`stop`, `length`, `content-filter`, `tool-calls`, `error`,
+  `other`) while preserving Siumai-specific `StopSequence` / provider-specific reasons in
+  `finishReason.raw` and still accepting legacy underscore values on input.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and
