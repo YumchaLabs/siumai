@@ -7,6 +7,9 @@ provider contracts in `repo-ref/ai`.
 
 References:
 
+- `repo-ref/ai/packages/ai/src/index.ts`
+- `repo-ref/ai/packages/gateway/src/index.ts`
+- `repo-ref/ai/packages/gateway/src/gateway-provider.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-prompt.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-stream-part.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-source.ts`
@@ -80,6 +83,9 @@ References:
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
 - `repo-ref/ai/packages/ai/src/util/data-url.ts`
 - `repo-ref/ai/packages/ai/src/util/is-deep-equal-data.ts`
+- `repo-ref/ai/packages/ai/src/ui/chat.ts`
+- `repo-ref/ai/packages/ai/src/ui/call-completion-api.ts`
+- `repo-ref/ai/packages/ai/src/ui/convert-file-list-to-file-ui-parts.ts`
 - `repo-ref/ai/packages/ai/src/ui-message-stream/ui-message-chunks.ts`
 - `repo-ref/ai/packages/ai/src/ui-message-stream/ui-message-stream-headers.ts`
 
@@ -265,6 +271,15 @@ passive `telemetry-options.ts` fields (`isEnabled`, `recordInputs`, `recordOutpu
 without claiming the callback-style `Telemetry` integration dispatcher. Runtime/function/type-level
 exports such as `smoothStream`, `StreamTextTransform`, callback aliases, `OutputInterface`, and
 infer helpers remain intentionally deferred until backed by real Rust behavior.
+
+The latest bounded root-export audit leaves only runtime-owned browser/Vercel surfaces as clear
+top-level gaps rather than missing passive data structures. `generateText` now has an honest
+single-step Rust projection, while `streamText` still has passive event/result-carrier parity but
+not the full multi-lane streaming result runtime. The remaining AI SDK root exports
+`AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` belong to the browser UI
+transport/state/FileList layer; `gateway` and `createGateway` belong to the separate Vercel
+Gateway provider package. Siumai should not add empty marker exports for these names until it owns
+the corresponding runtime contracts.
 
 The AI SDK `error/index.ts` passive import surface is now materially closer as well. Siumai exposes
 serializable carriers for the missing high-value error classes such as invalid argument/stream
@@ -650,6 +665,17 @@ The biggest remaining gaps are:
 | Gemini GenerateContent SSE | Green for `stream-start`, runtime-opt-in `raw`, non-tool `text-*`, `reasoning-*`, `file` / `reasoning-file`, `source`, provider-executed tool parts, top-level `error`, and successful `finish`; client function-call tool parts remain optional | Green enough for direct runtime `Part` replay on the audited text/file/reasoning/source/tool/finish/error lanes; `raw` intentionally remains runtime-only because Gemini wire does not have a native in-band raw frame | The audited Gemini parser now forwards request-scoped `includeRawChunks`, emits stable `error` parts for top-level `{"error": ...}` payloads and invalid JSON chunks without skipping `stream-start`, preserves `cachedContentTokenCount` / `trafficType`, counts reasoning inside total output usage, closes active text/reasoning lanes on EOF fallback, and emits stable `finish(unknown)` plus `StreamEnd` when Google omits a terminal finish reason. Remaining work is mostly broader fixture coverage and any future upstream stream hints rather than transport-shape drift |
 | Native Bedrock Converse JSON stream | Green | Green enough for direct runtime `Part` replay on the audited main chat lane | The Bedrock JSON converter now receives request-scoped `includeRawChunks`, default-model metadata, and warnings directly from the transformer boundary, so the first parsed chunk emits `stream-start`, stable `stream-start`, stable `response-metadata`, runtime-opt-in `raw`, then stable `text-*`, `reasoning-*`, `tool-input-*`, `tool-call`, and terminal `finish` parts in the same relative order as the upstream Bedrock provider semantics while still preserving legacy `ContentDelta` / `ThinkingDelta` / `ToolCallDelta` / `StreamEnd` compatibility events. First-chunk parse failures now keep that preamble before optional `raw` and the parse error, Bedrock provider error envelopes emit stable `error` parts instead of silently degrading, later valid chunks do not duplicate the preamble after an initial parse failure, finish parts now preserve cache-aware usage plus `trace` / `performanceConfig` / `serviceTier` / `cacheWriteInputTokens` / `cacheDetails` / `stopSequence` / `isJsonResponseFromTool`, streamed/non-stream responses now retain reasoning provider metadata, default-model identity, request warnings, and upstream-style Mistral tool-call-id normalization, and the audited request boundary now also keeps typed `reasoningConfig` / `anthropicBeta` / `serviceTier`, unknown top-level Bedrock passthrough fields, Anthropic `additionalModelResponseFieldPaths`, native `output_config.format` structured-output routing, message-level `cachePoint`, user `file -> document|image` conversion with typed citations, and tool-result `text` / `image-data` mapping aligned with the AI SDK Bedrock provider. The current AI SDK Bedrock `doStream()` reference does not define a native `source` or arbitrary `custom` stream-part lane, so those are no longer treated as known structural gaps on this audited stream path; remaining follow-up is broader provider coverage or any future upstream Bedrock stream semantics beyond the current text/reasoning/tool/raw/error/finish contract. |
 | OpenAI-compatible chat chunks | Amber for stable parts with legacy shadow compatibility | Green with explicit lossy fallback for unsupported V4-only parts | Parser-side lifecycle semantics now ride the direct `Part` lane for `stream-start`, `response-metadata`, `text-*`, `reasoning-*`, `finish`, the tool lifecycle, and URL `source` citations from `delta.annotations`, with stable-first emission plus first-source-wins deduplication preventing duplicate tool argument accumulation. The audited chat/text request path now also carries runtime-only `includeRawChunks`, compat parsing emits stable `raw` parts immediately after `stream-start` and before `response-metadata` on the first parsed chunk, same-chunk reasoning now opens/emits before text on the stable part lane, explicit top-level error payloads now emit stable `error` plus error `finish` / `StreamEnd`, and invalid JSON chunks now keep the same `stream-start -> raw? -> error -> finish` lifecycle instead of surfacing only transport parse failures. Explicit `finish_reason = "tool_calls"` chunks now also emit the missing stable tool suffix (`tool-input-end` / `tool-call`) for pending compat tool calls, including empty-input calls, without duplicating already-completed tool calls on later empty chunks. Compat EOF / `[DONE]` fallback now also emits the missing stable suffix (`text-end` / `reasoning-end`, unfinished `tool-input-end` / `tool-call`, and `finish`) instead of collapsing directly to a legacy `StreamEnd`. Stable URL `source` parts now also reserialize back into chat-completions `delta.annotations`, non-stream chat responses map `message.annotations` onto stable `source` content parts, and fixture/public-path coverage now pins both citation paths, upstream `text -> tool-call -> source` ordering, same-protocol `response-metadata` / streamed terminal `logprobs` / `acceptedPredictionTokens` / `rejectedPredictionTokens`, finish-time metadata-extractor merging, and terminal response-envelope `system_fingerprint` / `service_tier` fidelity. Azure model-router `prompt_filter_results` preludes with empty `id` / `model` plus `created = 0` no longer trigger premature response-metadata emission, compat response metadata is now adapter-owned rather than inferred by a shared whitelist, and the audited compat completion lane now also emits AI SDK-style stable `raw`/`finish` lifecycle parts, so the remaining work is mostly broader raw-hint cleanup rather than core semantic parity. |
+
+## Root export audit
+
+| AI SDK root export | AI SDK reference | Siumai decision | Notes |
+| --- | --- | --- | --- |
+| `generateText` | `packages/ai/src/generate-text/generate-text.ts`, `packages/ai/src/generate-text/generate-text-result.ts` | Implemented as `siumai::generate_text(...)` / `siumai::text::generate_text(...)` | Rust now owns an honest single-step projection over the existing text-family runtime. It does not pretend to be the full AI SDK tool-loop/agent runtime. |
+| `streamText` / `StreamTextResult` | `packages/ai/src/generate-text/stream-text-result.ts` | Passive result/event carriers implemented; full runtime deferred | `TextStreamPart`, callback events, and stream options are importable, but a real multi-lane `StreamTextResult` needs an explicit Rust tee/backpressure/HTTP design. |
+| `AbstractChat` | `packages/ai/src/ui/chat.ts` | Intentionally deferred | This is the stateful browser/client chat controller above `ChatTransport`, not a passive data structure. Siumai should only add an equivalent after it owns a Rust runtime abstraction with matching state transitions. |
+| `callCompletionApi` | `packages/ai/src/ui/call-completion-api.ts` | Intentionally deferred | This helper owns browser `fetch`, abort-controller state, UI loading/error callbacks, and text/data stream consumption. Current Rust completion/text helpers cover provider execution, not browser hook transport state. |
+| `convertFileListToFileUIParts` | `packages/ai/src/ui/convert-file-list-to-file-ui-parts.ts` | Intentionally deferred | This helper depends on browser `FileList` and `FileReader`; Rust already has file/provider-reference carriers, but not a browser DOM file-list runtime. |
+| `gateway` / `createGateway` / `GatewayModelId` | `packages/ai/src/index.ts`, `packages/gateway/src/index.ts`, `packages/gateway/src/gateway-provider.ts` | Intentionally deferred as a separate provider package boundary | AI SDK re-exports the Vercel Gateway provider package from root. Siumai should not add root-level fake exports; any future parity should be a real provider/gateway client with language, embedding, image, video, rerank, metadata, credits, spend, and generation-info behavior. |
 
 ## What is still not structurally complete
 

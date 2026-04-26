@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - TODO
 
-Last updated: 2026-04-22
+Last updated: 2026-04-26
 
 Status legend:
 
@@ -15,6 +15,16 @@ Status legend:
 - [x] Record the main AI SDK V4 provider reference files.
 - [x] Record the current Siumai anchor files for prompt/content/usage/stream semantics.
 - [x] Write down the current red/amber/green parity table.
+- [x] Record the bounded AI SDK root-export audit.
+  - `generateText` is now covered by the real single-step Rust `generate_text(...)` projection.
+  - `streamText` is covered at the passive event/result-carrier layer, while the full multi-lane
+    `StreamTextResult` runtime remains deferred until Rust owns the tee/backpressure design.
+  - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
+    deferred because they belong to the browser UI transport/state/FileList runtime rather than
+    core passive data structures.
+  - `gateway` / `createGateway` / `GatewayModelId` are intentionally deferred as a separate
+    Vercel Gateway provider-package boundary; Siumai should not add root-level fake exports for
+    them without a real provider/gateway client.
 - [x] Re-verify GitHub issue `YumchaLabs/siumai#17` against local main.
   - `siumai-protocol-anthropic` already preserves Anthropic extended usage roundtrips locally.
   - `cargo nextest run -p siumai-protocol-anthropic --features anthropic-standard --test anthropic_streaming_feature_surface_test`

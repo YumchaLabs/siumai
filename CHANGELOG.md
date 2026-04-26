@@ -859,6 +859,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 ### Changed
 
+- AI SDK structural-alignment documentation now records the bounded root-export audit: `generateText`
+  is covered by the single-step Rust projection, `streamText` remains passive-result parity until
+  a real Rust stream-result runtime exists, and browser UI / Vercel Gateway exports such as
+  `AbstractChat`, `callCompletionApi`, `convertFileListToFileUIParts`, `gateway`, and
+  `createGateway` are intentionally deferred instead of represented by fake root exports.
 - OpenAI and Anthropic provider-owned `skills()` resources now consume the shared
   `SkillUploadRequest` / `SkillUploadResult` contract directly; the redundant public
   `OpenAiSkill*` / `AnthropicSkill*` wrapper types and bespoke `upload(...)` resource methods
