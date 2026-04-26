@@ -34,6 +34,11 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ReasoningBudgetOptions<'static>>();
     let _ = size_of::<ReasoningLevel>();
     let _ = size_of::<ReasoningLevelConversionError>();
+    let _ = size_of::<StreamingToolCallDelta>();
+    let _ = size_of::<StreamingToolCallFunctionDelta>();
+    let _ = size_of::<StreamingToolCallTracker>();
+    let _ = size_of::<StreamingToolCallTrackerOptions>();
+    let _ = size_of::<StreamingToolCallTypeValidation>();
     let _ = size_of::<ToolNameMapping>();
     let _ = size_of::<TypeValidationResult>();
     let _ = size_of::<ValidationResult>();
@@ -651,6 +656,34 @@ fn public_surface_unified_imports_compile() {
         ),
         Some(3_000)
     );
+    let mut streaming_tool_call_tracker = StreamingToolCallTracker::new();
+    let mut streaming_tool_call_parts = Vec::new();
+    streaming_tool_call_tracker
+        .process_delta(
+            StreamingToolCallDelta::new(Some(0))
+                .with_id("call_public_surface")
+                .with_type("function")
+                .with_function_name("search")
+                .with_arguments("{}"),
+            |part| streaming_tool_call_parts.push(part),
+        )
+        .expect("streaming tool call delta");
+    assert!(matches!(
+        streaming_tool_call_parts.as_slice(),
+        [
+            LanguageModelV4StreamPart::ToolInputStart { id, tool_name, .. },
+            LanguageModelV4StreamPart::ToolInputDelta { id: delta_id, delta, .. },
+            LanguageModelV4StreamPart::ToolInputEnd { id: end_id, .. },
+            LanguageModelV4StreamPart::ToolCall(call)
+        ] if id == "call_public_surface"
+            && tool_name == "search"
+            && delta_id == "call_public_surface"
+            && delta == "{}"
+            && end_id == "call_public_surface"
+            && call.tool_call_id == "call_public_surface"
+            && call.tool_name == "search"
+            && call.input == "{}"
+    ));
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")

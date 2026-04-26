@@ -34,6 +34,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `convert_image_model_file_to_data_uri` over the existing `ImageEditInput` carrier, returning
   URL-backed inputs as-is and converting base64/binary image file inputs into data URIs when a
   media type is present.
+- AI SDK provider-utils streaming tool-call tracker parity now exposes
+  `StreamingToolCallTracker`, `StreamingToolCallDelta`,
+  `StreamingToolCallFunctionDelta`, `StreamingToolCallTrackerOptions`, and
+  `StreamingToolCallTypeValidation`. The helper accumulates OpenAI-compatible streaming
+  tool-call argument deltas and emits typed V4 `tool-input-*` plus final `tool-call` stream parts.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and

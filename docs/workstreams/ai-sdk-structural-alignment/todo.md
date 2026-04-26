@@ -52,6 +52,9 @@ Status legend:
     helpers over the existing passive error carriers.
   - `convertImageModelFileToDataUri` is covered by a Rust helper over the existing
     `ImageEditInput` carrier.
+  - `StreamingToolCallTracker` is covered by a Rust helper over OpenAI-compatible tool-call
+    deltas, accumulating streamed JSON argument text and emitting typed V4 `tool-input-*` and
+    final `tool-call` stream parts.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.
