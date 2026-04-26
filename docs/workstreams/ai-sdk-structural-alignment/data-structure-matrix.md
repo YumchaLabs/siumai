@@ -94,6 +94,7 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/inject-json-instruction.ts`
 - `repo-ref/ai/packages/provider-utils/src/parse-json.ts`
 - `repo-ref/ai/packages/provider-utils/src/secure-json-parse.ts`
+- `repo-ref/ai/packages/provider-utils/src/parse-provider-options.ts`
 - `repo-ref/ai/packages/ai/src/util/job.ts`
 - `repo-ref/ai/packages/ai/src/util/serial-job-executor.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
@@ -362,6 +363,13 @@ Provider-utils JSON parsing now has an honest Rust equivalent as well:
 `Schema` runtime validator when a typed parse is requested. The Rust parser also rejects the same
 forbidden prototype-pollution keys as upstream `secureJsonParse`, even though Rust itself is not
 subject to JavaScript prototype mutation; this keeps the shared serialized data boundary aligned.
+
+`parseProviderOptions` is now covered by `parse_provider_options`, which extracts one provider key
+from the stable `ProviderOptionsMap` root and validates it through the same `Schema` runtime
+validator lane. When a provider entry is absent or `null`, the helper returns `None`, matching the
+upstream optional-provider-options contract. Rust does not pretend that a generic `T` can be
+type-asserted without a validator, so schemas without validators return an explicit
+`InvalidInput` error on this typed helper.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

@@ -532,6 +532,13 @@ fn public_surface_unified_imports_compile() {
         "yes"
     );
     assert!(safe_parse_json_with_schema(r#"{"answer":42}"#, &parse_schema).is_failure());
+    let mut provider_options = ProviderOptionsMap::new();
+    provider_options.insert("openai", serde_json::json!({ "answer": "yes" }));
+    assert_eq!(
+        parse_provider_options("openai", Some(&provider_options), &parse_schema)
+            .expect("parse provider options"),
+        Some("yes".to_string())
+    );
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")

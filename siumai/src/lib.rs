@@ -108,9 +108,9 @@ pub use siumai_core::utils::{
     create_download, create_id_generator, download_url, generate_id, get_text_from_data_url,
     inject_json_instruction, inject_json_instruction_into_messages, is_deep_equal_data,
     is_parsable_json, media_type_to_extension, normalize_header_map, normalize_headers,
-    normalize_optional_headers, parse_json, parse_json_with_schema, read_response_with_size_limit,
-    safe_parse_json, safe_parse_json_with_schema, strip_file_extension, validate_download_url,
-    with_user_agent_suffix, without_trailing_slash,
+    normalize_optional_headers, parse_json, parse_json_with_schema, parse_provider_options,
+    read_response_with_size_limit, safe_parse_json, safe_parse_json_with_schema,
+    strip_file_extension, validate_download_url, with_user_agent_suffix, without_trailing_slash,
 };
 
 /// Protocol mapping facade (stable imports for protocol standards).
@@ -2101,9 +2101,9 @@ pub mod prelude {
             get_text_from_data_url, inject_json_instruction, inject_json_instruction_into_messages,
             is_deep_equal_data, is_parsable_json, media_type_to_extension, normalize_header_map,
             normalize_headers, normalize_optional_headers, parse_json, parse_json_with_schema,
-            read_response_with_size_limit, safe_parse_json, safe_parse_json_with_schema,
-            strip_file_extension, validate_download_url, with_user_agent_suffix,
-            without_trailing_slash,
+            parse_provider_options, read_response_with_size_limit, safe_parse_json,
+            safe_parse_json_with_schema, strip_file_extension, validate_download_url,
+            with_user_agent_suffix, without_trailing_slash,
         };
         pub use crate::{
             ExecutableTool, ExecutableTools, ToolExecuteFunction, ToolExecutionOptions,
