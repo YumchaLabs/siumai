@@ -91,6 +91,34 @@ pub fn guess_mime(bytes: Option<&[u8]>, path_or_url: Option<&str>) -> String {
     "application/octet-stream".to_string()
 }
 
+/// Map a media type to a file extension using AI SDK `mediaTypeToExtension` semantics.
+pub fn media_type_to_extension(media_type: &str) -> String {
+    let subtype = media_type
+        .to_ascii_lowercase()
+        .split_once('/')
+        .map(|(_, subtype)| subtype.to_string())
+        .unwrap_or_default();
+
+    match subtype.as_str() {
+        "mpeg" => "mp3".to_string(),
+        "x-wav" => "wav".to_string(),
+        "opus" => "ogg".to_string(),
+        "mp4" | "x-m4a" => "m4a".to_string(),
+        _ => subtype,
+    }
+}
+
+/// Strip every extension segment from the first dot onward.
+///
+/// This mirrors AI SDK `stripFileExtension`: `archive.tar.gz` becomes `archive`.
+pub fn strip_file_extension(filename: &str) -> String {
+    filename
+        .split_once('.')
+        .map(|(stem, _)| stem)
+        .unwrap_or(filename)
+        .to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +183,25 @@ mod tests {
         // Test with unknown extension
         let mime = guess_mime(None, Some("file.xyz"));
         assert_eq!(mime, "application/octet-stream");
+    }
+
+    #[test]
+    fn media_type_to_extension_matches_ai_sdk_mapping() {
+        assert_eq!(media_type_to_extension("audio/mpeg"), "mp3");
+        assert_eq!(media_type_to_extension("audio/x-wav"), "wav");
+        assert_eq!(media_type_to_extension("audio/opus"), "ogg");
+        assert_eq!(media_type_to_extension("audio/mp4"), "m4a");
+        assert_eq!(media_type_to_extension("audio/x-m4a"), "m4a");
+        assert_eq!(media_type_to_extension("image/png"), "png");
+        assert_eq!(media_type_to_extension("TEXT/PLAIN"), "plain");
+        assert_eq!(media_type_to_extension("invalid"), "");
+    }
+
+    #[test]
+    fn strip_file_extension_matches_ai_sdk_mapping() {
+        assert_eq!(strip_file_extension("report.pdf"), "report");
+        assert_eq!(strip_file_extension("archive.tar.gz"), "archive");
+        assert_eq!(strip_file_extension("filename"), "filename");
+        assert_eq!(strip_file_extension("report."), "report");
     }
 }

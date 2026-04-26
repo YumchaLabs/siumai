@@ -99,12 +99,15 @@ pub mod types {
 /// Hosted tools are part of the stable unified experience (Vercel-aligned).
 pub use siumai_core::hosted_tools;
 
-/// AI SDK-style ID generation helpers.
+/// AI SDK-style utility helpers.
 pub use siumai_core::utils::{
     DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_MAX_DOWNLOAD_SIZE, Download, DownloadOptions,
-    DownloadedFile, IdGenerator, IdGeneratorOptions, SerialJobExecutor, cosine_similarity,
-    create_download, create_id_generator, download_url, generate_id, get_text_from_data_url,
-    is_deep_equal_data, read_response_with_size_limit, validate_download_url,
+    DownloadedFile, HeaderRecord, IdGenerator, IdGeneratorOptions, SerialJobExecutor,
+    combine_headers, cosine_similarity, create_download, create_id_generator, download_url,
+    generate_id, get_text_from_data_url, is_deep_equal_data, media_type_to_extension,
+    normalize_header_map, normalize_headers, normalize_optional_headers,
+    read_response_with_size_limit, strip_file_extension, validate_download_url,
+    with_user_agent_suffix, without_trailing_slash,
 };
 
 /// Protocol mapping facade (stable imports for protocol standards).
@@ -2087,10 +2090,12 @@ pub mod prelude {
         pub use crate::video::experimental_generate_video;
         pub use crate::{
             DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_MAX_DOWNLOAD_SIZE, Download,
-            DownloadOptions, DownloadedFile, IdGenerator, IdGeneratorOptions, SerialJobExecutor,
-            cosine_similarity, create_download, create_id_generator, download_url, generate_id,
-            get_text_from_data_url, is_deep_equal_data, read_response_with_size_limit,
-            validate_download_url,
+            DownloadOptions, DownloadedFile, HeaderRecord, IdGenerator, IdGeneratorOptions,
+            SerialJobExecutor, combine_headers, cosine_similarity, create_download,
+            create_id_generator, download_url, generate_id, get_text_from_data_url,
+            is_deep_equal_data, media_type_to_extension, normalize_header_map, normalize_headers,
+            normalize_optional_headers, read_response_with_size_limit, strip_file_extension,
+            validate_download_url, with_user_agent_suffix, without_trailing_slash,
         };
         pub use crate::{
             ExecutableTool, ExecutableTools, ToolExecuteFunction, ToolExecutionOptions,

@@ -20,6 +20,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK util `SerialJobExecutor` parity is now available as `siumai::SerialJobExecutor` and in
   `prelude::unified`, providing a cloneable async executor that serializes concurrently submitted
   jobs while preserving each job's return value or error.
+- AI SDK provider-utils HTTP/string helper parity now exposes real Rust utilities from the root
+  facade and unified prelude: `normalize_headers`, `normalize_optional_headers`,
+  `normalize_header_map`, `combine_headers`, `with_user_agent_suffix`,
+  `media_type_to_extension`, `strip_file_extension`, and `without_trailing_slash`.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,

@@ -85,6 +85,12 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/download-error.ts`
 - `repo-ref/ai/packages/provider-utils/src/read-response-with-size-limit.ts`
 - `repo-ref/ai/packages/provider-utils/src/validate-download-url.ts`
+- `repo-ref/ai/packages/provider-utils/src/combine-headers.ts`
+- `repo-ref/ai/packages/provider-utils/src/normalize-headers.ts`
+- `repo-ref/ai/packages/provider-utils/src/with-user-agent-suffix.ts`
+- `repo-ref/ai/packages/provider-utils/src/media-type-to-extension.ts`
+- `repo-ref/ai/packages/provider-utils/src/strip-file-extension.ts`
+- `repo-ref/ai/packages/provider-utils/src/without-trailing-slash.ts`
 - `repo-ref/ai/packages/ai/src/util/job.ts`
 - `repo-ref/ai/packages/ai/src/util/serial-job-executor.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
@@ -331,6 +337,15 @@ The low-level data utility surface is also less ad hoc now: the root facade and 
 expose `cosine_similarity`, `get_text_from_data_url`, and `is_deep_equal_data`, matching the
 audited AI SDK helper semantics while using Rust `Result` errors instead of thrown
 `InvalidArgumentError` / generic JavaScript errors.
+
+Pure provider-utils HTTP/string helpers now have the same treatment where Rust can represent the
+behavior honestly: `HeaderRecord`, `normalize_headers`, `normalize_optional_headers`,
+`normalize_header_map`, `combine_headers`, `with_user_agent_suffix`,
+`media_type_to_extension`, `strip_file_extension`, and `without_trailing_slash` cover the audited
+header normalization/merge, user-agent suffix, media-type extension, filename stem, and trailing
+slash helpers. `isUrlSupported` remains deferred because its upstream contract accepts live
+JavaScript `RegExp` values, so a Rust surface should be introduced only when a real provider URL
+support table needs a typed matcher rather than a fake direct export.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

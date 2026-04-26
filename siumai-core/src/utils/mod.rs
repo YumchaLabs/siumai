@@ -30,6 +30,7 @@ pub mod cancel;
 pub mod chat_request;
 pub mod data;
 pub mod download;
+pub mod headers;
 pub mod id;
 pub mod mime;
 pub mod model_alias;
@@ -43,6 +44,7 @@ pub mod vertex;
 // Re-exports for convenience
 pub use data::*;
 pub use download::*;
+pub use headers::*;
 pub use id::*;
 pub use mime::*;
 pub use model_alias::*;

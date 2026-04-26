@@ -91,6 +91,14 @@ pub fn with_query_params(url: &str, query_params: &BTreeMap<String, String>) -> 
     parsed.to_string()
 }
 
+/// Remove a single trailing slash from an optional URL string.
+///
+/// This mirrors AI SDK `withoutTrailingSlash`: missing input stays missing, and only one final
+/// slash is removed.
+pub fn without_trailing_slash(url: Option<&str>) -> Option<String> {
+    url.map(|url| url.strip_suffix('/').unwrap_or(url).to_string())
+}
+
 /// Join multiple URL segments safely
 ///
 /// # Examples
@@ -316,5 +324,22 @@ mod tests {
             ),
             "https://api.example.com/v1/chat/completions?api-version=2025-04-01&tenant=acme"
         );
+    }
+
+    #[test]
+    fn test_without_trailing_slash_matches_ai_sdk_semantics() {
+        assert_eq!(
+            without_trailing_slash(Some("https://api.example.com/")),
+            Some("https://api.example.com".to_string())
+        );
+        assert_eq!(
+            without_trailing_slash(Some("https://api.example.com//")),
+            Some("https://api.example.com/".to_string())
+        );
+        assert_eq!(
+            without_trailing_slash(Some("https://api.example.com")),
+            Some("https://api.example.com".to_string())
+        );
+        assert_eq!(without_trailing_slash(None), None);
     }
 }

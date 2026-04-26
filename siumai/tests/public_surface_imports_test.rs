@@ -24,6 +24,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LazySchema>();
     let _ = size_of::<FlexibleSchema>();
     let _ = size_of::<SerialJobExecutor>();
+    let _ = size_of::<HeaderRecord>();
     let _ = size_of::<ValidationResult>();
     let _ = size_of::<ModelCallResponseData>();
     let _ = size_of::<GenerateObjectOptions>();
@@ -469,6 +470,28 @@ fn public_surface_unified_imports_compile() {
         PartialJsonParseState::RepairedParse
     );
     let _ = partial_json_value_stream as fn(ChatStream) -> PartialJsonValueStream;
+    let normalized = normalize_headers([("X-Test", "1")]);
+    assert_eq!(normalized.get("x-test").map(String::as_str), Some("1"));
+    let optional = normalize_optional_headers([("X-Keep", Some("yes")), ("X-Drop", None)]);
+    assert_eq!(optional.get("x-keep").map(String::as_str), Some("yes"));
+    assert!(!optional.contains_key("x-drop"));
+    let combined = combine_headers([
+        normalized.clone(),
+        HeaderRecord::from([("X-Test".to_string(), "2".to_string())]),
+    ]);
+    assert_eq!(combined.get("x-test").map(String::as_str), Some("2"));
+    let headers = with_user_agent_suffix([("User-Agent", "siumai/test")], ["ai-sdk/test"]);
+    assert_eq!(
+        headers.get("user-agent").map(String::as_str),
+        Some("siumai/test ai-sdk/test")
+    );
+    let _ = normalize_header_map as fn(&reqwest::header::HeaderMap) -> HeaderRecord;
+    assert_eq!(media_type_to_extension("audio/mpeg"), "mp3");
+    assert_eq!(strip_file_extension("archive.tar.gz"), "archive");
+    assert_eq!(
+        without_trailing_slash(Some("https://example.com/")).as_deref(),
+        Some("https://example.com")
+    );
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")
