@@ -2159,7 +2159,9 @@ pub mod prelude {
         pub use siumai_core::rerank::RerankingModel;
         pub use siumai_core::speech::SpeechModel;
         pub use siumai_core::streaming::*;
-        pub use siumai_core::text::LanguageModel;
+        pub use siumai_core::text::{
+            LanguageModel, LanguageModelV4, LanguageModelV4DoStreamResult, LanguageModelV4Stream,
+        };
         pub use siumai_core::traits::{
             ChatCapability, CompletionCapability, EmbeddingCapability, EmbeddingExtensions,
             ImageGenerationCapability, ModelMetadata, ProviderCapabilities, RerankCapability,

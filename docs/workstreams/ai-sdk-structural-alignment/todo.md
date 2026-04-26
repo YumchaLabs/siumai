@@ -64,6 +64,9 @@ Status legend:
     approval-request parts, finish reason, usage, and response metadata.
   - Experimental low-level stream payload aliases now use `LanguageModelV4Stream*` names, reserving
     the unqualified `LanguageModelV4*` names for standalone upstream provider V4 shapes.
+  - `LanguageModelV4` is now represented as a provider-facing Rust trait over `supported_urls`,
+    `do_generate`, and `do_stream`, using the V4 call/result overlays while leaving the stable
+    high-level `LanguageModel` runtime as the ergonomic Rust text-family contract.
   - `createProviderDefinedToolFactory`,
     `createProviderDefinedToolFactoryWithOutputSchema`, and
     `createProviderExecutedToolFactory` are covered by Rust factory facades over the shared
@@ -851,8 +854,9 @@ Status legend:
     bridges/gateways can move explicitly between the typed overlay and stable runtime
     `ChatStreamPart` contract without round-tripping through provider-prefixed custom JSON
   - [x] unit coverage now locks that dual adapter on runtime tool-call roundtrips
-- [x] Expose AI SDK-aligned `LanguageModelV4*` public aliases for the upgraded typed stream-part
-  overlay so new code no longer has to use the historical `LanguageModelV3*` names.
+- [x] Expose explicit `LanguageModelV4Stream*` public payload aliases for the upgraded typed
+  stream-part overlay so new code no longer has to use the historical `LanguageModelV3*` names or
+  collide with standalone provider-result `LanguageModelV4*` structures.
 - [x] Ensure bridge/gateway serializers use that stronger stream-part contract where appropriate.
   - [x] extras Axum SSE adapters now surface direct runtime `Part` / `PartWithReplay` as explicit
     `event: part` frames instead of dropping the upgraded semantic lane

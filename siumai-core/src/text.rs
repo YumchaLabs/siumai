@@ -1,4 +1,4 @@
-//! Text model family (V3).
+//! Text model family contracts.
 //!
 //! This module provides a Rust-first, family-oriented abstraction for text generation
 //! and streaming. In V3-M2 it is intentionally implemented as an adapter over the
@@ -6,12 +6,18 @@
 //! towards a fully decoupled “text-first” foundation.
 
 use async_trait::async_trait;
+use futures::Stream;
+use std::pin::Pin;
 
 use crate::error::LlmError;
-use crate::streaming::{ChatStream, ChatStreamHandle};
+use crate::streaming::{ChatStream, ChatStreamHandle, LanguageModelV4StreamPart};
 use crate::traits::ChatCapability;
 use crate::traits::ModelMetadata;
-use crate::types::{ChatRequest, ChatResponse};
+use crate::types::{
+    ChatRequest, ChatResponse, LanguageModelV4CallOptions, LanguageModelV4GenerateResult,
+    LanguageModelV4StreamResult,
+};
+use crate::utils::SupportedUrlMap;
 
 /// Canonical request type for the text family.
 ///
@@ -27,6 +33,17 @@ pub type TextStream = ChatStream;
 
 /// Canonical stream handle type for the text family.
 pub type TextStreamHandle = ChatStreamHandle;
+
+/// Canonical Rust stream carrier for AI SDK V4 provider stream parts.
+///
+/// AI SDK models return a JavaScript `ReadableStream<LanguageModelV4StreamPart>`. Rust keeps the
+/// stream transport explicit and uses `Result` for transport/runtime errors while still allowing
+/// providers to emit V4 `error` parts as data when they are part of the model stream.
+pub type LanguageModelV4Stream =
+    Pin<Box<dyn Stream<Item = Result<LanguageModelV4StreamPart, LlmError>> + Send + 'static>>;
+
+/// Concrete Rust return type for `LanguageModelV4::do_stream`.
+pub type LanguageModelV4DoStreamResult = LanguageModelV4StreamResult<LanguageModelV4Stream>;
 
 /// V3 interface for text generation models.
 #[async_trait]
@@ -48,6 +65,44 @@ pub trait TextModelV3: Send + Sync {
 pub trait LanguageModel: TextModelV3 + ModelMetadata + Send + Sync {}
 
 impl<T> LanguageModel for T where T: TextModelV3 + ModelMetadata + Send + Sync + ?Sized {}
+
+/// AI SDK V4 provider-facing language-model contract.
+///
+/// This mirrors `LanguageModelV4` from `@ai-sdk/provider`: model identity plus supported URL
+/// patterns and the raw provider `doGenerate` / `doStream` calls over V4 call/result structures.
+/// It intentionally does not replace the stable Rust `LanguageModel` helper trait, which remains
+/// the ergonomic text-family runtime used by high-level helpers.
+#[async_trait]
+pub trait LanguageModelV4: ModelMetadata + Send + Sync {
+    /// AI SDK provider interface version implemented by this model.
+    ///
+    /// This method avoids the `ModelMetadata::specification_version()` name because that existing
+    /// Rust method tracks Siumai's model-family trait version, not the upstream provider contract.
+    fn language_model_v4_specification_version(&self) -> &'static str {
+        "v4"
+    }
+
+    /// Supported URL patterns by media type for native provider-side fetch support.
+    ///
+    /// Providers that do not advertise native URL handling should return an empty map. The map uses
+    /// the same media-type wildcard semantics as AI SDK `supportedUrls` and is checked with
+    /// `is_url_supported(...)`.
+    async fn supported_urls(&self) -> Result<SupportedUrlMap, LlmError> {
+        Ok(SupportedUrlMap::new())
+    }
+
+    /// Generate a non-streaming V4 provider result.
+    async fn do_generate(
+        &self,
+        options: LanguageModelV4CallOptions,
+    ) -> Result<LanguageModelV4GenerateResult, LlmError>;
+
+    /// Generate a streaming V4 provider result.
+    async fn do_stream(
+        &self,
+        options: LanguageModelV4CallOptions,
+    ) -> Result<LanguageModelV4DoStreamResult, LlmError>;
+}
 
 /// Adapter: any `ChatCapability` can be used as a `TextModelV3`.
 #[async_trait]
@@ -73,7 +128,11 @@ mod tests {
     use super::*;
     use crate::streaming::ChatStream;
     use crate::traits::ModelSpecVersion;
-    use crate::types::{ChatMessage, ChatStreamEvent, MessageContent};
+    use crate::types::{
+        ChatMessage, ChatStreamEvent, FinishReason, LanguageModelV4Text, LanguageModelV4Usage,
+        MessageContent,
+    };
+    use crate::utils::UrlSupportRegex;
     use async_trait::async_trait;
     use futures::StreamExt;
 
@@ -181,5 +240,81 @@ mod tests {
 
         let model = FakeChat;
         assert_language_model(&model);
+    }
+
+    struct FakeLanguageModelV4;
+
+    impl crate::traits::ModelMetadata for FakeLanguageModelV4 {
+        fn provider_id(&self) -> &str {
+            "fake"
+        }
+
+        fn model_id(&self) -> &str {
+            "fake-v4"
+        }
+    }
+
+    #[async_trait]
+    impl LanguageModelV4 for FakeLanguageModelV4 {
+        async fn supported_urls(&self) -> Result<SupportedUrlMap, LlmError> {
+            Ok(SupportedUrlMap::from([(
+                "image/*".to_string(),
+                vec![UrlSupportRegex::new(r"^https://images\.example\.com/").unwrap()],
+            )]))
+        }
+
+        async fn do_generate(
+            &self,
+            _options: LanguageModelV4CallOptions,
+        ) -> Result<LanguageModelV4GenerateResult, LlmError> {
+            Ok(LanguageModelV4GenerateResult::new(
+                vec![LanguageModelV4Text::new("ok").into()],
+                FinishReason::Stop,
+                LanguageModelV4Usage::default(),
+            ))
+        }
+
+        async fn do_stream(
+            &self,
+            _options: LanguageModelV4CallOptions,
+        ) -> Result<LanguageModelV4DoStreamResult, LlmError> {
+            Ok(LanguageModelV4StreamResult::new(
+                Box::pin(futures::stream::empty()) as LanguageModelV4Stream,
+            ))
+        }
+    }
+
+    #[tokio::test]
+    async fn language_model_v4_trait_exposes_provider_contract() {
+        let model = FakeLanguageModelV4;
+        let dyn_model: &dyn LanguageModelV4 = &model;
+
+        assert_eq!(dyn_model.language_model_v4_specification_version(), "v4");
+        assert_eq!(dyn_model.provider_id(), "fake");
+        assert_eq!(dyn_model.model_id(), "fake-v4");
+        assert_eq!(
+            dyn_model
+                .supported_urls()
+                .await
+                .expect("supported urls")
+                .len(),
+            1
+        );
+
+        let options = LanguageModelV4CallOptions::from_model_messages(vec![
+            ChatMessage::user("hi")
+                .build()
+                .try_into()
+                .expect("model message"),
+        ]);
+        let result = dyn_model
+            .do_generate(options.clone())
+            .await
+            .expect("generate");
+        assert_eq!(result.content.len(), 1);
+
+        let stream_result = dyn_model.do_stream(options).await.expect("stream");
+        let parts = stream_result.stream.collect::<Vec<_>>().await;
+        assert!(parts.is_empty());
     }
 }

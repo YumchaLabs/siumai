@@ -107,6 +107,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `LanguageModelV4GenerateResult`, `LanguageModelV4StreamResult`, V4 file/reasoning-file/tool
   content parts, V4 finish/usage/response metadata, and `LanguageModelV4DataContent`, preserving
   the narrower upstream provider result shape separately from high-level `GenerateTextContentPart`.
+- AI SDK provider-facing language-model interface parity now exposes `LanguageModelV4`,
+  `LanguageModelV4Stream`, and `LanguageModelV4DoStreamResult` from the Rust text-family surface.
+  The trait mirrors the upstream `supportedUrls`, `doGenerate`, and `doStream` provider contract
+  over V4 call/result overlays without replacing the stable high-level `LanguageModel` runtime.
 - AI SDK provider-utils provider-tool factory parity now has a real Rust carrier/facade:
   provider tools serialize as `type: "provider"` and preserve `isProviderExecuted`,
   `inputSchema`, `outputSchema`, `args`, and `supportsDeferredResults`, while

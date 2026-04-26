@@ -16,7 +16,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 pub use siumai_core::text::{
-    LanguageModel, TextModelV3, TextRequest, TextResponse, TextStream, TextStreamHandle,
+    LanguageModel, LanguageModelV4, LanguageModelV4DoStreamResult, LanguageModelV4Stream,
+    TextModelV3, TextRequest, TextResponse, TextStream, TextStreamHandle,
 };
 pub use siumai_core::types::StreamRequestOptions;
 use siumai_core::types::{
