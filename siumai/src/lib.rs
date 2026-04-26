@@ -101,11 +101,13 @@ pub use siumai_core::hosted_tools;
 
 /// AI SDK-style utility helpers.
 pub use siumai_core::utils::{
-    DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_MAX_DOWNLOAD_SIZE, Download, DownloadOptions,
-    DownloadedFile, HeaderRecord, IdGenerator, IdGeneratorOptions, SerialJobExecutor,
-    combine_headers, cosine_similarity, create_download, create_id_generator, download_url,
-    generate_id, get_text_from_data_url, is_deep_equal_data, media_type_to_extension,
-    normalize_header_map, normalize_headers, normalize_optional_headers,
+    DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX, DEFAULT_JSON_SCHEMA_PREFIX,
+    DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE, Download, DownloadOptions,
+    DownloadedFile, HeaderRecord, IdGenerator, IdGeneratorOptions, JsonInstructionMessageOptions,
+    JsonInstructionOptions, SerialJobExecutor, combine_headers, cosine_similarity, create_download,
+    create_id_generator, download_url, generate_id, get_text_from_data_url,
+    inject_json_instruction, inject_json_instruction_into_messages, is_deep_equal_data,
+    media_type_to_extension, normalize_header_map, normalize_headers, normalize_optional_headers,
     read_response_with_size_limit, strip_file_extension, validate_download_url,
     with_user_agent_suffix, without_trailing_slash,
 };
@@ -2089,11 +2091,14 @@ pub mod prelude {
         #[allow(deprecated)]
         pub use crate::video::experimental_generate_video;
         pub use crate::{
-            DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_MAX_DOWNLOAD_SIZE, Download,
-            DownloadOptions, DownloadedFile, HeaderRecord, IdGenerator, IdGeneratorOptions,
+            DEFAULT_ID_ALPHABET, DEFAULT_ID_SIZE, DEFAULT_JSON_GENERIC_SUFFIX,
+            DEFAULT_JSON_SCHEMA_PREFIX, DEFAULT_JSON_SCHEMA_SUFFIX, DEFAULT_MAX_DOWNLOAD_SIZE,
+            Download, DownloadOptions, DownloadedFile, HeaderRecord, IdGenerator,
+            IdGeneratorOptions, JsonInstructionMessageOptions, JsonInstructionOptions,
             SerialJobExecutor, combine_headers, cosine_similarity, create_download,
             create_id_generator, download_url, generate_id, get_text_from_data_url,
-            is_deep_equal_data, media_type_to_extension, normalize_header_map, normalize_headers,
+            inject_json_instruction, inject_json_instruction_into_messages, is_deep_equal_data,
+            media_type_to_extension, normalize_header_map, normalize_headers,
             normalize_optional_headers, read_response_with_size_limit, strip_file_extension,
             validate_download_url, with_user_agent_suffix, without_trailing_slash,
         };

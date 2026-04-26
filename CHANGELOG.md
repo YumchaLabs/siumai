@@ -24,6 +24,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   facade and unified prelude: `normalize_headers`, `normalize_optional_headers`,
   `normalize_header_map`, `combine_headers`, `with_user_agent_suffix`,
   `media_type_to_extension`, `strip_file_extension`, and `without_trailing_slash`.
+- AI SDK provider-utils JSON instruction parity now exposes
+  `inject_json_instruction`, `inject_json_instruction_into_messages`,
+  `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and
+  first-system-message injection defaults for schema and generic JSON responses.
 - AI SDK provider-utils schema parity now has an honest Rust surface:
   `siumai::types` and `prelude::unified` expose `Schema`, `ValidationResult`, `FlexibleSchema`,
   `LazySchema`, `json_schema`, `json_schema_with_validator`, `lazy_schema`, `as_schema`,

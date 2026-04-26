@@ -91,6 +91,7 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/media-type-to-extension.ts`
 - `repo-ref/ai/packages/provider-utils/src/strip-file-extension.ts`
 - `repo-ref/ai/packages/provider-utils/src/without-trailing-slash.ts`
+- `repo-ref/ai/packages/provider-utils/src/inject-json-instruction.ts`
 - `repo-ref/ai/packages/ai/src/util/job.ts`
 - `repo-ref/ai/packages/ai/src/util/serial-job-executor.ts`
 - `repo-ref/ai/packages/ai/src/util/cosine-similarity.ts`
@@ -346,6 +347,12 @@ header normalization/merge, user-agent suffix, media-type extension, filename st
 slash helpers. `isUrlSupported` remains deferred because its upstream contract accepts live
 JavaScript `RegExp` values, so a Rust surface should be introduced only when a real provider URL
 support table needs a typed matcher rather than a fake direct export.
+
+The pure provider-utils JSON instruction helper is now covered too. `inject_json_instruction`
+matches the upstream generic-vs-schema prompt construction defaults, while
+`inject_json_instruction_into_messages` rewrites the first `SystemModelMessage` or prepends one
+over the stable `ModelMessage` prompt layer. This keeps the helper at the data/prompt transform
+boundary and avoids coupling it to any one provider's structured-output transport mode.
 
 The OpenAI Responses MCP fixture lane also needed a final parity refresh after the shared
 provider-executed approval split stabilized: local `tool-approval-response` request fixtures now

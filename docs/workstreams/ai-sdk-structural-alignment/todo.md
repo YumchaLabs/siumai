@@ -30,6 +30,8 @@ Status legend:
   - Pure provider-utils HTTP/string helpers are covered by Rust utility functions for header
     normalization/combining, `user-agent` suffix appending, media-type extension mapping, file
     extension stripping, and single trailing-slash removal.
+  - `injectJsonInstruction` / `injectJsonInstructionIntoMessages` are covered by Rust prompt
+    helpers over `ModelMessage` with the same generic and schema instruction defaults.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

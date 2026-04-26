@@ -25,6 +25,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<FlexibleSchema>();
     let _ = size_of::<SerialJobExecutor>();
     let _ = size_of::<HeaderRecord>();
+    let _ = size_of::<JsonInstructionOptions>();
+    let _ = size_of::<JsonInstructionMessageOptions>();
     let _ = size_of::<ValidationResult>();
     let _ = size_of::<ModelCallResponseData>();
     let _ = size_of::<GenerateObjectOptions>();
@@ -492,6 +494,21 @@ fn public_surface_unified_imports_compile() {
         without_trailing_slash(Some("https://example.com/")).as_deref(),
         Some("https://example.com")
     );
+    assert_eq!(DEFAULT_JSON_SCHEMA_PREFIX, "JSON schema:");
+    assert_eq!(
+        inject_json_instruction(JsonInstructionOptions::new().with_prompt("Return data")),
+        "Return data\n\nYou MUST answer with JSON."
+    );
+    let json_messages = inject_json_instruction_into_messages(
+        vec![ModelMessage::User(UserModelMessage::new(
+            UserContent::text("Question"),
+        ))],
+        JsonInstructionMessageOptions::new(),
+    );
+    assert!(matches!(
+        json_messages.first(),
+        Some(ModelMessage::System(_))
+    ));
     let object_options = GenerateObjectOptions::new()
         .with_schema_name("answer")
         .with_schema_description("Answer payload")
