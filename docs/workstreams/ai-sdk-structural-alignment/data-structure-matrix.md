@@ -417,10 +417,12 @@ breaking wire-format change while closing the model-facing data-structure gap.
 The model-facing tool object layer now follows the same split. `LanguageModelV4FunctionTool`
 projects from the wider `ToolFunction` while omitting user-facing `title` and `outputSchema`; its
 `inputExamples` now use the upstream `{ input: ... }` item shape even when stable tools store
-compatibility raw-object examples. `LanguageModelV4ProviderTool` projects provider tools down to
+compatibility raw-object examples, and the provider-facing item input is now object-only like
+upstream `JSONObject`. `LanguageModelV4ProviderTool` projects provider tools down to
 `{ type, id, name, args }` without leaking execution ownership, schema, provider options, or
-deferred-result metadata into the narrow provider-call object. The existing `Tool` carrier remains
-the stable user/runtime structure.
+deferred-result metadata into the narrow provider-call object; its `args` carrier is now object-only
+like upstream `Record<string, unknown>`. The existing `Tool` carrier remains the stable
+user/runtime structure.
 
 The provider prompt layer now has an explicit narrow projection too. `LanguageModelV4Prompt` is no
 longer just a stable `ModelMessage` alias: `prepare_language_model_v4_prompt(...)` maps stable

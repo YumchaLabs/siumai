@@ -64,6 +64,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   represent URLs.
 - AI SDK V4 provider `tool-result.result` payloads now reject `null` on the passive result and
   stream overlays, matching upstream `NonNullable<JSONValue>` semantics.
+- AI SDK V4 model-facing tools now keep `provider.args` and function-tool `inputExamples[].input`
+  as JSON objects on the provider overlay, matching upstream `Record<string, unknown>` /
+  `JSONObject` boundaries while leaving the wider stable tool input layer compatible.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and

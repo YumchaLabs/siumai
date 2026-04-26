@@ -38,7 +38,10 @@ pub struct LanguageModelV4FunctionTool {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
     /// Tool-level provider options.
-    #[serde(skip_serializing_if = "crate::types::ProviderOptionsMap::is_empty")]
+    #[serde(
+        default,
+        skip_serializing_if = "crate::types::ProviderOptionsMap::is_empty"
+    )]
     pub provider_options: crate::types::ProviderOptionsMap,
 }
 
@@ -60,34 +63,42 @@ impl LanguageModelV4FunctionTool {
 /// AI SDK V4 model-facing function-tool input example.
 ///
 /// Upstream models this as `{ input: JSONObject }`. The input is kept as JSON so callers can
-/// preserve provider-compatible object payloads, while `ToolFunction` may still store either this
+/// preserve provider-compatible object payloads, while `ToolFunction` may still store either the
 /// wrapped shape or a raw object for compatibility with older provider shapers.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LanguageModelV4FunctionToolInputExample {
     /// Example tool input object.
-    pub input: serde_json::Value,
+    pub input: serde_json::Map<String, serde_json::Value>,
 }
 
 impl LanguageModelV4FunctionToolInputExample {
     /// Create a model-facing input example.
-    pub fn new(input: serde_json::Value) -> Self {
+    pub fn new(input: serde_json::Map<String, serde_json::Value>) -> Self {
         Self { input }
     }
 
+    /// Try to create a model-facing input example from a JSON value.
+    pub fn try_from_value(input: serde_json::Value) -> Result<Self, serde_json::Value> {
+        match input {
+            serde_json::Value::Object(input) => Ok(Self { input }),
+            other => Err(other),
+        }
+    }
+
     /// Project a stable example value onto the V4 `{ input: ... }` shape.
-    pub fn from_stable_example(value: &serde_json::Value) -> Self {
+    pub fn from_stable_example(value: &serde_json::Value) -> Option<Self> {
         let input = value
             .as_object()
             .and_then(|object| {
                 if object.len() == 1 {
-                    object.get("input").cloned()
+                    object.get("input")
                 } else {
                     None
                 }
             })
-            .unwrap_or_else(|| value.clone());
+            .unwrap_or(value);
 
-        Self { input }
+        Self::try_from_value(input.clone()).ok()
     }
 }
 
@@ -274,11 +285,13 @@ impl From<&ToolFunction> for LanguageModelV4FunctionTool {
                 Some(value.description.clone())
             },
             input_schema: value.parameters.clone(),
-            input_examples: value.input_examples.as_ref().map(|input_examples| {
-                input_examples
+            input_examples: value.input_examples.as_ref().and_then(|input_examples| {
+                let input_examples = input_examples
                     .iter()
-                    .map(LanguageModelV4FunctionToolInputExample::from_stable_example)
-                    .collect()
+                    .filter_map(LanguageModelV4FunctionToolInputExample::from_stable_example)
+                    .collect::<Vec<_>>();
+
+                (!input_examples.is_empty()).then_some(input_examples)
             }),
             strict: value.strict,
             provider_options: value.provider_options_map.clone(),

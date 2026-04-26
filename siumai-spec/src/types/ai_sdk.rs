@@ -25,6 +25,9 @@ use tokio_util::sync::{CancellationToken, WaitForCancellationFuture};
 /// AI SDK-style JSON value alias.
 pub type JSONValue = serde_json::Value;
 
+/// AI SDK-style JSON object alias.
+pub type JSONObject = serde_json::Map<String, JSONValue>;
+
 fn serialize_ai_sdk_non_null_json_value<S>(
     value: &JSONValue,
     serializer: S,

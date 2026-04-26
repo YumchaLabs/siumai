@@ -29,17 +29,33 @@ pub struct LanguageModelV4ProviderTool {
     /// Tool name unique within this model call.
     pub name: String,
     /// Provider-owned tool configuration arguments.
-    pub args: serde_json::Value,
+    pub args: serde_json::Map<String, serde_json::Value>,
 }
 
 impl LanguageModelV4ProviderTool {
     /// Create a model-facing provider tool.
-    pub fn new(id: impl Into<String>, name: impl Into<String>, args: serde_json::Value) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        args: serde_json::Map<String, serde_json::Value>,
+    ) -> Self {
         Self {
             marker: ProviderToolType::Provider,
             id: id.into(),
             name: name.into(),
             args,
+        }
+    }
+
+    /// Try to create a model-facing provider tool from JSON configuration arguments.
+    pub fn try_new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        args: serde_json::Value,
+    ) -> Result<Self, serde_json::Value> {
+        match args {
+            serde_json::Value::Object(args) => Ok(Self::new(id, name, args)),
+            other => Err(other),
         }
     }
 }
@@ -411,7 +427,10 @@ impl From<&ProviderDefinedTool> for LanguageModelV4ProviderTool {
             marker: ProviderToolType::Provider,
             id: value.id.clone(),
             name: value.name.clone(),
-            args: value.args.clone(),
+            args: match &value.args {
+                serde_json::Value::Object(args) => args.clone(),
+                _ => serde_json::Map::new(),
+            },
         }
     }
 }

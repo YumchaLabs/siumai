@@ -50,7 +50,9 @@ Status legend:
   - `LanguageModelV4FunctionTool` / `LanguageModelV4ProviderTool` are covered by Rust projections
     from the wider stable `Tool` surface, so model-facing tool objects no longer need to carry
     user/runtime metadata that upstream keeps outside the provider-call shape. V4 function-tool
-    `inputExamples` now use the explicit upstream `{ input: ... }` item shape.
+    `inputExamples` now use the explicit upstream `{ input: ... }` item shape, and the
+    provider-facing overlay keeps `inputExamples[].input` plus provider-tool `args` object-only
+    like upstream `JSONObject` / `Record<string, unknown>`.
   - `LanguageModelV4Prompt`, `LanguageModelV4Message`, and V4 prompt parts are covered by a Rust
     projection from stable `ModelMessage`, including image-to-file conversion, direct provider
     reference data maps, filtered assistant approval requests, provider-executed approval

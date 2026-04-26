@@ -682,6 +682,112 @@ fn language_model_v4_provider_tool_projection_matches_model_facing_shape() {
 }
 
 #[test]
+fn language_model_v4_provider_tool_rejects_non_object_args() {
+    let err = serde_json::from_value::<LanguageModelV4ProviderTool>(serde_json::json!({
+        "type": "provider",
+        "id": "openai.web_search",
+        "name": "web_search",
+        "args": "invalid"
+    }))
+    .expect_err("provider-facing args must be a JSON object");
+
+    assert!(err.to_string().contains("invalid type"));
+}
+
+#[test]
+fn language_model_v4_provider_tool_projection_omits_non_object_stable_args() {
+    let tool = Tool::provider_defined("acme.scalar", "scalar").with_args(serde_json::json!("bad"));
+
+    let projected = tool
+        .to_language_model_v4_provider_tool()
+        .expect("provider tool projection");
+
+    assert!(projected.args.is_empty());
+    assert_eq!(
+        serde_json::to_value(projected).expect("serialize model-facing provider tool")["args"],
+        serde_json::json!({})
+    );
+}
+
+#[test]
+fn language_model_v4_function_tool_deserializes_optional_provider_options() {
+    let tool = serde_json::from_value::<LanguageModelV4FunctionTool>(serde_json::json!({
+        "type": "function",
+        "name": "weather",
+        "inputSchema": { "type": "object" },
+        "inputExamples": [
+            {
+                "input": { "city": "Tokyo" }
+            }
+        ]
+    }))
+    .expect("deserialize model-facing function tool");
+
+    assert!(tool.provider_options.is_empty());
+    assert_eq!(
+        tool.input_examples
+            .as_ref()
+            .and_then(|examples| examples.first())
+            .and_then(|example| example.input.get("city"))
+            .and_then(|city| city.as_str()),
+        Some("Tokyo")
+    );
+}
+
+#[test]
+fn language_model_v4_function_tool_rejects_non_object_input_examples() {
+    let err = serde_json::from_value::<LanguageModelV4FunctionTool>(serde_json::json!({
+        "type": "function",
+        "name": "weather",
+        "inputSchema": { "type": "object" },
+        "inputExamples": [
+            {
+                "input": "Tokyo"
+            }
+        ]
+    }))
+    .expect_err("provider-facing input example input must be a JSON object");
+
+    assert!(err.to_string().contains("invalid type"));
+}
+
+#[test]
+fn language_model_v4_function_tool_projection_drops_non_object_examples() {
+    let tool = Tool::function(
+        "weather",
+        "Get weather",
+        serde_json::json!({ "type": "object" }),
+    )
+    .with_input_examples([
+        serde_json::json!({
+            "input": { "city": "Tokyo" }
+        }),
+        serde_json::json!({
+            "input": "not-an-object"
+        }),
+        serde_json::json!("not-an-object"),
+        serde_json::json!({ "city": "Paris" }),
+    ]);
+
+    let projected = tool
+        .to_language_model_v4_function_tool()
+        .expect("function tool projection");
+    let value = serde_json::to_value(projected).expect("serialize model-facing function tool");
+
+    assert_eq!(
+        value["inputExamples"],
+        serde_json::json!([
+            {
+                "input": { "city": "Tokyo" }
+            },
+            {
+                "input": { "city": "Paris" }
+            }
+        ])
+    );
+}
+
+#[test]
 fn provider_defined_tool_roundtrips_optional_title() {
     let tool = Tool::provider_defined("openai.web_search", "web_search").with_title("Search");
     let value = serde_json::to_value(&tool).expect("serialize tool");
