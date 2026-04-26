@@ -443,6 +443,8 @@ fn public_surface_unified_imports_compile() {
     let _ = create_download as fn(DownloadOptions) -> Download;
     let _ = validate_download_url as fn(&str) -> Result<(), DownloadError>;
     let _ = get_text_from_data_url as fn(&str) -> Result<String, LlmError>;
+    let _ = convert_image_model_file_to_data_uri
+        as fn(&siumai::types::ImageEditInput) -> Result<String, LlmError>;
     let _ = is_deep_equal_data as fn(&JSONValue, &JSONValue) -> bool;
     let _ = is_text_ui_part as fn(&UiMessagePart) -> bool;
     let _ = is_custom_content_ui_part as fn(&UiMessagePart) -> bool;
@@ -533,6 +535,13 @@ fn public_surface_unified_imports_compile() {
                 .with_setting_value("explicit-optional")
         ),
         Some("explicit-optional".to_string())
+    );
+    assert_eq!(
+        convert_image_model_file_to_data_uri(
+            &siumai::types::ImageEditInput::base64_with_media_type("aGVsbG8=", "image/png")
+        )
+        .expect("image file data uri"),
+        "data:image/png;base64,aGVsbG8="
     );
     assert_eq!(media_type_to_extension("audio/mpeg"), "mp3");
     assert_eq!(strip_file_extension("archive.tar.gz"), "archive");

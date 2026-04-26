@@ -1,6 +1,7 @@
 //! AI SDK-style data utility helpers.
 
 use crate::error::LlmError;
+use crate::types::ImageEditInput;
 use base64::{Engine, engine::general_purpose::STANDARD};
 
 /// Calculate cosine similarity between two numeric vectors.
@@ -67,6 +68,28 @@ pub fn get_text_from_data_url(data_url: &str) -> Result<String, LlmError> {
         .map_err(|error| LlmError::InvalidInput(format!("Decoded data URL is not UTF-8: {error}")))
 }
 
+/// Convert an image-model file input to either a URL or a data URI.
+///
+/// This mirrors AI SDK `convertImageModelFileToDataUri` over Siumai's
+/// `ImageEditInput` carrier. URL-backed inputs are returned as-is; file-backed
+/// inputs require a media type and are returned as `data:<mediaType>;base64,...`.
+pub fn convert_image_model_file_to_data_uri(file: &ImageEditInput) -> Result<String, LlmError> {
+    match file {
+        ImageEditInput::Url { url, .. } => Ok(url.clone()),
+        ImageEditInput::File {
+            data, media_type, ..
+        } => {
+            let media_type = media_type.as_deref().ok_or_else(|| {
+                LlmError::InvalidInput(
+                    "Image model file input requires a media type for data URI conversion"
+                        .to_string(),
+                )
+            })?;
+            Ok(format!("data:{media_type};base64,{}", data.as_base64()))
+        }
+    }
+}
+
 /// Deep-equal comparison for JSON data.
 ///
 /// Serde JSON value equality is the Rust equivalent for AI SDK `isDeepEqualData` on parsed JSON
@@ -118,5 +141,36 @@ mod tests {
             &serde_json::json!({ "a": [1, 2] }),
             &serde_json::json!({ "a": [2, 1] })
         ));
+    }
+
+    #[test]
+    fn converts_image_model_file_to_data_uri() {
+        assert_eq!(
+            convert_image_model_file_to_data_uri(&ImageEditInput::url("https://example.com/a.png"))
+                .expect("url image"),
+            "https://example.com/a.png"
+        );
+
+        assert_eq!(
+            convert_image_model_file_to_data_uri(&ImageEditInput::base64_with_media_type(
+                "aGVsbG8=",
+                "image/png",
+            ))
+            .expect("base64 image"),
+            "data:image/png;base64,aGVsbG8="
+        );
+
+        assert_eq!(
+            convert_image_model_file_to_data_uri(&ImageEditInput::file_with_media_type(
+                b"hello".to_vec(),
+                "image/png",
+            ))
+            .expect("binary image"),
+            "data:image/png;base64,aGVsbG8="
+        );
+
+        assert!(
+            convert_image_model_file_to_data_uri(&ImageEditInput::file(b"hello".to_vec())).is_err()
+        );
     }
 }

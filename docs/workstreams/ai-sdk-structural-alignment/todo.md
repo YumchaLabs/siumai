@@ -50,6 +50,8 @@ Status legend:
     helpers.
   - `loadApiKey`, `loadSetting`, and `loadOptionalSetting` are covered by Rust environment-loader
     helpers over the existing passive error carriers.
+  - `convertImageModelFileToDataUri` is covered by a Rust helper over the existing
+    `ImageEditInput` carrier.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.

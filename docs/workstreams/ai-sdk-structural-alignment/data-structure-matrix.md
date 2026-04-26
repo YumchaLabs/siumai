@@ -86,6 +86,7 @@ References:
 - `repo-ref/ai/packages/provider-utils/src/read-response-with-size-limit.ts`
 - `repo-ref/ai/packages/provider-utils/src/validate-download-url.ts`
 - `repo-ref/ai/packages/provider-utils/src/combine-headers.ts`
+- `repo-ref/ai/packages/provider-utils/src/convert-image-model-file-to-data-uri.ts`
 - `repo-ref/ai/packages/provider-utils/src/create-tool-name-mapping.ts`
 - `repo-ref/ai/packages/provider-utils/src/extract-response-headers.ts`
 - `repo-ref/ai/packages/provider-utils/src/filter-nullable.ts`
