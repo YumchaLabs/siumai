@@ -1,7 +1,7 @@
 //! AI SDK-style data utility helpers.
 
 use crate::error::LlmError;
-use crate::types::ImageEditInput;
+use crate::types::{DataContent, ImageEditInput};
 use base64::{Engine, engine::general_purpose::STANDARD};
 
 /// Calculate cosine similarity between two numeric vectors.
@@ -66,6 +66,43 @@ pub fn get_text_from_data_url(data_url: &str) -> Result<String, LlmError> {
 
     String::from_utf8(bytes)
         .map_err(|error| LlmError::InvalidInput(format!("Decoded data URL is not UTF-8: {error}")))
+}
+
+/// Decode a standard or URL-safe base64 string into bytes.
+///
+/// This mirrors AI SDK `convertBase64ToUint8Array`, including URL-safe `-` and `_`
+/// normalization before decoding.
+pub fn convert_base64_to_uint8_array(base64_string: &str) -> Result<Vec<u8>, LlmError> {
+    let mut normalized = base64_string.replace('-', "+").replace('_', "/");
+    match normalized.len() % 4 {
+        0 => {}
+        2 => normalized.push_str("=="),
+        3 => normalized.push('='),
+        _ => {
+            return Err(LlmError::InvalidInput(
+                "Invalid base64 string length".to_string(),
+            ));
+        }
+    }
+
+    STANDARD
+        .decode(normalized)
+        .map_err(|error| LlmError::InvalidInput(format!("Invalid base64 string: {error}")))
+}
+
+/// Encode bytes as a standard base64 string.
+///
+/// This mirrors AI SDK `convertUint8ArrayToBase64`.
+pub fn convert_uint8_array_to_base64(array: &[u8]) -> String {
+    STANDARD.encode(array)
+}
+
+/// Convert AI SDK-style string-or-bytes content into base64.
+///
+/// This mirrors AI SDK `convertToBase64`, using [`DataContent::Base64`] for the
+/// string branch and [`DataContent::Binary`] for the byte branch.
+pub fn convert_to_base64(value: &DataContent) -> String {
+    value.as_base64()
 }
 
 /// Convert an image-model file input to either a URL or a data URI.
@@ -141,6 +178,28 @@ mod tests {
             &serde_json::json!({ "a": [1, 2] }),
             &serde_json::json!({ "a": [2, 1] })
         ));
+    }
+
+    #[test]
+    fn uint8_base64_helpers_match_ai_sdk_shape() {
+        assert_eq!(
+            convert_base64_to_uint8_array("aGVsbG8=").expect("decode base64"),
+            b"hello"
+        );
+        assert_eq!(
+            convert_base64_to_uint8_array("-_8").expect("decode base64url"),
+            vec![251, 255]
+        );
+        assert!(convert_base64_to_uint8_array("x").is_err());
+        assert_eq!(convert_uint8_array_to_base64(&[251, 255]), "+/8=");
+        assert_eq!(
+            convert_to_base64(&DataContent::binary(b"hello".to_vec())),
+            "aGVsbG8="
+        );
+        assert_eq!(
+            convert_to_base64(&DataContent::base64("already-base64")),
+            "already-base64"
+        );
     }
 
     #[test]

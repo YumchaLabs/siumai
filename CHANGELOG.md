@@ -26,10 +26,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `extract_response_headers`, `media_type_to_extension`, `strip_file_extension`, and
   `without_trailing_slash`.
 - AI SDK provider-utils optional-value and setting-loader parity now exposes
-  `is_non_nullable`, `filter_nullable`, `remove_undefined_entries`, `load_api_key`,
-  `load_setting`, `load_optional_setting`, and their option structs. These map JS nullish values
-  to Rust `Option` and use Rust's typed string environment semantics instead of modeling
-  JavaScript-only non-string branches.
+  `Arrayable`, `as_array`, `is_non_nullable`, `filter_nullable`, `remove_undefined_entries`,
+  `load_api_key`, `load_setting`, `load_optional_setting`, and their option structs. These map JS
+  nullish values to Rust `Option` / `Arrayable` and use Rust's typed string environment semantics
+  instead of modeling JavaScript-only non-string branches.
+- AI SDK provider-utils `uint8-utils` parity now exposes
+  `convert_base64_to_uint8_array`, `convert_uint8_array_to_base64`, and `convert_to_base64`,
+  including URL-safe base64 input normalization.
 - AI SDK provider-utils image-file conversion parity now exposes
   `convert_image_model_file_to_data_uri` over the existing `ImageEditInput` carrier, returning
   URL-backed inputs as-is and converting base64/binary image file inputs into data URIs when a

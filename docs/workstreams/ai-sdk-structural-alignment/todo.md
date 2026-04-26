@@ -46,8 +46,10 @@ Status legend:
   - `validateTypes` / `safeValidateTypes` are covered by Rust helpers over `Schema`,
     `ValidationResult`, and `TypeValidationError`; unchecked TypeScript generic casts are
     intentionally not replicated when a schema has no runtime validator.
-  - `filterNullable`, `isNonNullable`, and `removeUndefinedEntries` are covered by Rust `Option`
-    helpers.
+  - `asArray` / `Arrayable`, `filterNullable`, `isNonNullable`, and `removeUndefinedEntries` are
+    covered by Rust `Arrayable` / `Option` helpers.
+  - `convertBase64ToUint8Array`, `convertUint8ArrayToBase64`, and `convertToBase64` are covered by
+    Rust byte/base64 helpers, including URL-safe base64 normalization.
   - `loadApiKey`, `loadSetting`, and `loadOptionalSetting` are covered by Rust environment-loader
     helpers over the existing passive error carriers.
   - `convertImageModelFileToDataUri` is covered by a Rust helper over the existing

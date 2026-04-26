@@ -2,6 +2,92 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
+
+/// Value that can be provided as no value, one value, or many values.
+///
+/// This is the Rust data carrier for AI SDK `Arrayable<T>`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum Arrayable<T> {
+    /// Multiple values.
+    Array(Vec<T>),
+    /// A single value.
+    Single(T),
+    /// No value, equivalent to JavaScript `undefined` in `asArray`.
+    None,
+}
+
+impl<T> Default for Arrayable<T> {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl<T> Arrayable<T> {
+    /// Create an empty `Arrayable`.
+    pub const fn none() -> Self {
+        Self::None
+    }
+
+    /// Create a single-value `Arrayable`.
+    pub fn single(value: T) -> Self {
+        Self::Single(value)
+    }
+
+    /// Create a multi-value `Arrayable`.
+    pub fn array(values: impl Into<Vec<T>>) -> Self {
+        Self::Array(values.into())
+    }
+
+    /// Normalize into a vector.
+    pub fn into_vec(self) -> Vec<T> {
+        match self {
+            Self::None => Vec::new(),
+            Self::Single(value) => vec![value],
+            Self::Array(values) => values,
+        }
+    }
+}
+
+impl<T> From<Vec<T>> for Arrayable<T> {
+    fn from(value: Vec<T>) -> Self {
+        Self::Array(value)
+    }
+}
+
+impl<T: Clone> From<&[T]> for Arrayable<T> {
+    fn from(value: &[T]) -> Self {
+        Self::Array(value.to_vec())
+    }
+}
+
+impl<T> From<Option<T>> for Arrayable<T> {
+    fn from(value: Option<T>) -> Self {
+        match value {
+            Some(value) => Self::Single(value),
+            None => Self::None,
+        }
+    }
+}
+
+impl<T> From<Option<Vec<T>>> for Arrayable<T> {
+    fn from(value: Option<Vec<T>>) -> Self {
+        match value {
+            Some(value) => Self::Array(value),
+            None => Self::None,
+        }
+    }
+}
+
+/// Normalize a missing, single, or multi-value input into a vector.
+///
+/// This mirrors AI SDK `asArray`, with [`Arrayable::None`] representing
+/// JavaScript `undefined`.
+pub fn as_array<T>(value: Arrayable<T>) -> Vec<T> {
+    value.into_vec()
+}
+
 /// Return whether an optional value is present.
 ///
 /// This is the Rust `Option` equivalent of AI SDK `isNonNullable`.
@@ -35,6 +121,23 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn normalizes_arrayable_values() {
+        assert!(as_array::<&str>(Arrayable::none()).is_empty());
+        assert_eq!(as_array(Arrayable::single("a")), vec!["a"]);
+        assert_eq!(as_array(Arrayable::array(["a", "b"])), vec!["a", "b"]);
+        assert_eq!(as_array(Arrayable::from(Some("a"))), vec!["a"]);
+        assert_eq!(as_array(Arrayable::from(vec!["a", "b"])), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn arrayable_deserializes_arrays_before_single_json_values() {
+        let parsed: Arrayable<serde_json::Value> =
+            serde_json::from_value(serde_json::json!(["a", "b"])).expect("arrayable array");
+
+        assert!(matches!(parsed, Arrayable::Array(values) if values.len() == 2));
+    }
 
     #[test]
     fn detects_present_option_values() {

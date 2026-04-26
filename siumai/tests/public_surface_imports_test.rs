@@ -23,6 +23,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<Schema>();
     let _ = size_of::<LazySchema>();
     let _ = size_of::<FlexibleSchema>();
+    let _ = size_of::<Arrayable<String>>();
     let _ = size_of::<SerialJobExecutor>();
     let _ = size_of::<HeaderRecord>();
     let _ = size_of::<JsonInstructionOptions>();
@@ -441,6 +442,9 @@ fn public_surface_unified_imports_compile() {
     let _ = convert_data_content_to_base64_string as fn(&DataContent) -> String;
     let _ = convert_data_content_to_uint8_array
         as fn(&DataContent) -> Result<Vec<u8>, InvalidDataContentError>;
+    let _ = convert_base64_to_uint8_array as fn(&str) -> Result<Vec<u8>, LlmError>;
+    let _ = convert_uint8_array_to_base64 as fn(&[u8]) -> String;
+    let _ = convert_to_base64 as fn(&DataContent) -> String;
     let _ = convert_uint8_array_to_text as fn(&[u8]) -> String;
     let _ = cosine_similarity::<f32, f32> as fn(&[f32], &[f32]) -> Result<f64, LlmError>;
     let _ = DEFAULT_MAX_DOWNLOAD_SIZE;
@@ -511,6 +515,12 @@ fn public_surface_unified_imports_compile() {
         filter_nullable([Some("a"), None, Some("b")]),
         vec!["a", "b"]
     );
+    assert!(as_array::<&str>(Arrayable::none()).is_empty());
+    assert_eq!(as_array(Arrayable::single("one")), vec!["one"]);
+    assert_eq!(
+        as_array(Arrayable::from(vec!["one", "two"])),
+        vec!["one", "two"]
+    );
     let filtered_entries = remove_undefined_entries([
         ("keep", Some("yes")),
         ("drop", None),
@@ -547,6 +557,15 @@ fn public_surface_unified_imports_compile() {
         )
         .expect("image file data uri"),
         "data:image/png;base64,aGVsbG8="
+    );
+    assert_eq!(
+        convert_base64_to_uint8_array("-_8").expect("base64url bytes"),
+        vec![251, 255]
+    );
+    assert_eq!(convert_uint8_array_to_base64(&[251, 255]), "+/8=");
+    assert_eq!(
+        convert_to_base64(&DataContent::binary(b"hello".to_vec())),
+        "aGVsbG8="
     );
     assert_eq!(media_type_to_extension("audio/mpeg"), "mp3");
     assert_eq!(strip_file_extension("archive.tar.gz"), "archive");
