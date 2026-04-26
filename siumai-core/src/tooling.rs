@@ -453,6 +453,73 @@ pub fn create_provider_defined_tool_factory(
     ProviderDefinedToolFactory::new(id, name, input_schema)
 }
 
+/// Rust facade for AI SDK provider-utils
+/// `createProviderDefinedToolFactoryWithOutputSchema`.
+///
+/// The produced tool is `type: "provider"` with `isProviderExecuted: false` and a fixed output
+/// schema captured by the factory.
+#[derive(Debug, Clone)]
+pub struct ProviderDefinedToolFactoryWithOutputSchema {
+    factory: ProviderDefinedToolFactory,
+    output_schema: Value,
+}
+
+impl ProviderDefinedToolFactoryWithOutputSchema {
+    /// Create a provider-defined tool factory with a fixed output schema.
+    pub fn new(
+        id: impl Into<String>,
+        name: impl Into<String>,
+        input_schema: Value,
+        output_schema: Value,
+    ) -> Self {
+        Self {
+            factory: ProviderDefinedToolFactory::new(id, name, input_schema),
+            output_schema,
+        }
+    }
+
+    /// Tool id in `<provider>.<tool>` format.
+    pub fn id(&self) -> &str {
+        self.factory.id()
+    }
+
+    /// Siumai tool-map name.
+    pub fn name(&self) -> &str {
+        self.factory.name()
+    }
+
+    /// Borrow the provider-defined input schema.
+    pub fn input_schema(&self) -> &Value {
+        self.factory.input_schema()
+    }
+
+    /// Borrow the provider-defined output schema.
+    pub fn output_schema(&self) -> &Value {
+        &self.output_schema
+    }
+
+    /// Create a passive provider-defined tool with the fixed output schema.
+    pub fn create_tool(&self, args: Value) -> Tool {
+        self.factory
+            .create_tool_with_output_schema(args, self.output_schema.clone())
+    }
+
+    /// Create an executable wrapper around a provider-defined tool with the fixed output schema.
+    pub fn create_executable_tool(&self, args: Value) -> ExecutableTool {
+        ExecutableTool::new(self.create_tool(args))
+    }
+}
+
+/// Create an AI SDK-style provider-defined tool factory with a fixed output schema.
+pub fn create_provider_defined_tool_factory_with_output_schema(
+    id: impl Into<String>,
+    name: impl Into<String>,
+    input_schema: Value,
+    output_schema: Value,
+) -> ProviderDefinedToolFactoryWithOutputSchema {
+    ProviderDefinedToolFactoryWithOutputSchema::new(id, name, input_schema, output_schema)
+}
+
 /// Rust facade for AI SDK provider-utils `createProviderExecutedToolFactory`.
 ///
 /// The produced tool is `type: "provider"` with `isProviderExecuted: true`.
@@ -1429,6 +1496,28 @@ mod tests {
         assert!(!provider_defined.is_provider_executed());
         assert_eq!(provider_defined.input_schema(), Some(&input_schema));
         assert_eq!(provider_defined.output_schema(), Some(&output_schema));
+
+        let provider_defined_with_output = create_provider_defined_tool_factory_with_output_schema(
+            "acme.summarize",
+            "summarize",
+            input_schema.clone(),
+            output_schema.clone(),
+        )
+        .create_tool(serde_json::json!({ "format": "short" }));
+
+        let Tool::ProviderDefined(provider_defined_with_output) = provider_defined_with_output
+        else {
+            panic!("expected provider-defined tool with fixed output schema");
+        };
+        assert!(!provider_defined_with_output.is_provider_executed());
+        assert_eq!(
+            provider_defined_with_output.input_schema(),
+            Some(&input_schema)
+        );
+        assert_eq!(
+            provider_defined_with_output.output_schema(),
+            Some(&output_schema)
+        );
 
         let provider_executed = create_provider_executed_tool_factory(
             "acme.hosted_search",

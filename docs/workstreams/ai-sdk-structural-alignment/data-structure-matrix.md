@@ -410,8 +410,10 @@ serializes provider tools as AI SDK `type: "provider"` while still accepting the
 `isProviderExecuted`, optional `inputSchema`, optional `outputSchema`, `args`, and
 `supportsDeferredResults`. Legacy hosted-tool constructors default to `isProviderExecuted: true`,
 but the new provider-defined/provider-executed constructors and
-`create_provider_defined_tool_factory(...)` / `create_provider_executed_tool_factory(...)` facades
-preserve the upstream distinction between provider-defined-local-execution tools and hosted
+`create_provider_defined_tool_factory(...)`,
+`create_provider_defined_tool_factory_with_output_schema(...)`, and
+`create_provider_executed_tool_factory(...)` facades preserve the upstream distinction between
+provider-defined-local-execution tools with per-call or fixed output schemas and hosted
 provider-executed tools. This is a real structural carrier/factory mapping rather than a marker
 export: local executors are still bound through `ExecutableTool`, while provider ownership stays on
 the stable passive `Tool` shape.

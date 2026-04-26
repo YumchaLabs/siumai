@@ -75,6 +75,7 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<ExecutableTool>();
     let _ = size_of::<ExecutableTools>();
     let _ = size_of::<ProviderDefinedToolFactory>();
+    let _ = size_of::<ProviderDefinedToolFactoryWithOutputSchema>();
     let _ = size_of::<ProviderExecutedToolFactory>();
     let _ = size_of::<ToolExecuteFunction>();
     let _ = size_of::<ToolExecutionOptions>();
@@ -85,6 +86,12 @@ fn public_surface_unified_imports_compile() {
     let _ = create_provider_defined_tool_factory(
         "acme.search",
         "search",
+        serde_json::json!({ "type": "object" }),
+    );
+    let _ = create_provider_defined_tool_factory_with_output_schema(
+        "acme.summarize",
+        "summarize",
+        serde_json::json!({ "type": "object" }),
         serde_json::json!({ "type": "object" }),
     );
     let _ = create_provider_executed_tool_factory(
