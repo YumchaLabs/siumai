@@ -168,6 +168,31 @@ pub mod ui;
 /// Task-oriented video generation family helpers.
 pub mod video;
 
+/// Upload a file through the high-level AI SDK-style helper surface.
+pub async fn upload_file<A, D>(
+    api: &A,
+    data: D,
+    options: files::UploadFileOptions,
+) -> Result<files::UploadFileResult, siumai_core::error::LlmError>
+where
+    A: files::UploadFileApi + ?Sized,
+    D: Into<siumai_core::types::DataContent>,
+{
+    files::upload(api, data, options).await
+}
+
+/// Upload a skill through the high-level AI SDK-style helper surface.
+pub async fn upload_skill<A>(
+    api: &A,
+    files: Vec<skills::UploadSkillFile>,
+    options: skills::UploadSkillOptions,
+) -> Result<skills::UploadSkillResult, siumai_core::error::LlmError>
+where
+    A: skills::UploadSkillApi + ?Sized,
+{
+    skills::upload(api, files, options).await
+}
+
 /// Tool runtime (schema + execution binding).
 pub mod tooling;
 
@@ -2065,6 +2090,7 @@ pub mod prelude {
             transcription, video,
         };
         pub use crate::{system, tool, user, user_with_image};
+        pub use crate::{upload_file, upload_skill};
         pub use siumai_core::completion::CompletionModel;
         pub use siumai_core::error::{ErrorCategory, LlmError};
         pub use siumai_core::execution::middleware::LanguageModelMiddleware;

@@ -393,10 +393,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   registry `completion_model(...)` handles, and facade `siumai::completion::{complete, stream,
   stream_with_cancel}` are now public.
 - Stable high-level file upload support aligned with AI SDK `uploadFile()`:
-  `siumai::files::upload(...)` now exposes public `UploadFileOptions`, `UploadFileResult`, and
-  `UploadFileProviderMetadata`, auto-detects request media types from bytes, rejects URL inputs,
-  returns canonical `providerReference`, accepts shared `DataContent` plus direct byte/string
-  carriers, and ships built-in adapters for the current file-capable unified/provider clients.
+  `siumai::upload_file(...)` and `siumai::files::upload(...)` now expose public
+  `UploadFileOptions`, `UploadFileResult`, and `UploadFileProviderMetadata`, auto-detect request
+  media types from bytes, reject URL inputs, return canonical `providerReference`, accept shared
+  `DataContent` plus direct byte/string carriers, and ship built-in adapters for the current
+  file-capable unified/provider clients.
 - Stable high-level file uploads now also expose canonical `providerOptions` like AI SDK
   `FilesV4`: shared `FileUploadRequest` plus `UploadFileOptions` carry provider-owned upload
   knobs, OpenAI/Azure honor provider-scoped `purpose` / `expiresAfter`, and Gemini honors
@@ -408,10 +409,11 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   wrapper layer has been removed. This slice is tracked under
   `docs/workstreams/anthropic-files-shared-contract-alignment/`.
 - Stable high-level skill upload support aligned with AI SDK `uploadSkill()`:
-  `siumai::skills::upload(...)` now exposes public `UploadSkillFile`, `UploadSkillOptions`,
-  `UploadSkillResult`, and `UploadSkillProviderMetadata`; a shared `SkillsCapability` now also
-  bridges `Siumai`, `LanguageModelHandle`, and provider clients/resources through one stable
-  upload interface; Anthropic also resolves latest-version metadata via
+  `siumai::upload_skill(...)` and `siumai::skills::upload(...)` now expose public
+  `UploadSkillFile`, `UploadSkillOptions`, `UploadSkillResult`, and
+  `UploadSkillProviderMetadata`; a shared `SkillsCapability` now also bridges `Siumai`,
+  `LanguageModelHandle`, and provider clients/resources through one stable upload interface;
+  Anthropic also resolves latest-version metadata via
   `/skills/{id}/versions/{version}`, and OpenAI mirrors the audited
   `unsupported { feature: "displayTitle" }` warning behavior.
 - Stable AI SDK-style UI-message support is now available on the public Rust surface:

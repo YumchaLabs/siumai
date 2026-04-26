@@ -602,6 +602,8 @@ fn public_surface_unified_imports_compile() {
 
     let upload_data: DataContent = vec![1, 2, 3].into();
     assert_eq!(upload_data.as_bytes().expect("upload bytes"), vec![1, 2, 3]);
+    let _ = upload_file::<dyn UploadFileApi, Vec<u8>>;
+    let _ = upload_skill::<dyn UploadSkillApi>;
 
     let upload_data_str: DataContent = "AQID".into();
     assert_eq!(
