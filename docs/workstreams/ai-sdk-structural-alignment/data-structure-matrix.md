@@ -417,6 +417,13 @@ projects from the wider `ToolFunction` while omitting user-facing `title` and `o
 leaking execution ownership, schema, provider options, or deferred-result metadata into the narrow
 provider-call object. The existing `Tool` carrier remains the stable user/runtime structure.
 
+`LanguageModelV4CallOptions` now gives Rust callers an explicit model-facing provider-call overlay
+too: it groups the standardized prompt, projected `LanguageModelV4Tool` union, V4 tool choice,
+headers, abort handle, raw-chunk intent, reasoning, response format, and provider options in the
+same conceptual object as the upstream provider interface. Runtime APIs can keep using the more
+ergonomic `LanguageModelCallOptions` / `RequestOptions` split without pretending that split is the
+actual provider V4 call object.
+
 The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
 serializes provider tools as AI SDK `type: "provider"` while still accepting the old
 `provider-defined` discriminator on input, and `ProviderDefinedTool` now carries

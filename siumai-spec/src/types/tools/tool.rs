@@ -6,6 +6,33 @@ use super::{
     LanguageModelV4FunctionTool, LanguageModelV4ProviderTool, ProviderDefinedTool, ToolFunction,
 };
 
+/// AI SDK V4 model-facing tool union.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum LanguageModelV4Tool {
+    Function(LanguageModelV4FunctionTool),
+    Provider(LanguageModelV4ProviderTool),
+}
+
+impl From<&Tool> for LanguageModelV4Tool {
+    fn from(value: &Tool) -> Self {
+        match value {
+            Tool::Function { function } => {
+                LanguageModelV4Tool::Function(LanguageModelV4FunctionTool::from(function))
+            }
+            Tool::ProviderDefined(tool) => {
+                LanguageModelV4Tool::Provider(LanguageModelV4ProviderTool::from(tool))
+            }
+        }
+    }
+}
+
+impl From<Tool> for LanguageModelV4Tool {
+    fn from(value: Tool) -> Self {
+        Self::from(&value)
+    }
+}
+
 /// Tool definition for function calling
 ///
 /// This enum represents different types of tools that can be used with LLMs:
@@ -347,5 +374,10 @@ impl Tool {
             Self::ProviderDefined(tool) => Some(LanguageModelV4ProviderTool::from(tool)),
             Self::Function { .. } => None,
         }
+    }
+
+    /// Project this tool onto the AI SDK V4 model-facing tool union.
+    pub fn to_language_model_v4_tool(&self) -> LanguageModelV4Tool {
+        self.into()
     }
 }

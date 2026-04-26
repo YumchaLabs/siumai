@@ -7,9 +7,10 @@
 use super::chat::{ContentPart, SourcePart, UiMessage, UiMessagePart, UiMessageRole};
 use super::{
     AssistantContent, AssistantContentPart, AssistantModelMessage, DataContent, EmbeddingUsage,
-    FinishReason, FlexibleSchema, HttpRequestInfo, HttpResponseInfo, ModelMessage, PromptInput,
-    ProviderMetadataMap, ProviderOptionsMap, ResponseMetadata, StandardizedPrompt, SystemPrompt,
-    Tool, ToolChoice, ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, Warning,
+    FinishReason, FlexibleSchema, HttpRequestInfo, HttpResponseInfo, LanguageModelV4Tool,
+    LanguageModelV4ToolChoice, ModelMessage, PromptInput, ProviderMetadataMap, ProviderOptionsMap,
+    ResponseFormat, ResponseMetadata, StandardizedPrompt, SystemPrompt, Tool, ToolChoice,
+    ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -7907,6 +7908,96 @@ pub fn get_tool_timeout_ms(timeout: Option<&TimeoutConfiguration>, tool_name: &s
     timeout.and_then(|timeout| timeout.tool_timeout_ms(tool_name))
 }
 
+/// AI SDK V4 model-facing language-model call options.
+///
+/// This keeps the upstream provider-call shape as a single overlay while the ergonomic Rust API
+/// may still expose `LanguageModelCallOptions` and `RequestOptions` as separate reusable pieces.
+#[derive(Debug, Clone, Default)]
+pub struct LanguageModelV4CallOptions {
+    /// Standardized model prompt.
+    pub prompt: Vec<ModelMessage>,
+    /// Maximum output tokens requested by the caller.
+    pub max_output_tokens: Option<u32>,
+    /// Sampling temperature.
+    pub temperature: Option<f64>,
+    /// Stop sequences.
+    pub stop_sequences: Option<Vec<String>>,
+    /// Nucleus sampling.
+    pub top_p: Option<f64>,
+    /// Top-k sampling.
+    pub top_k: Option<f64>,
+    /// Presence penalty.
+    pub presence_penalty: Option<f64>,
+    /// Frequency penalty.
+    pub frequency_penalty: Option<f64>,
+    /// Response format hint.
+    pub response_format: Option<ResponseFormat>,
+    /// Deterministic seed.
+    pub seed: Option<u64>,
+    /// Model-facing tool definitions.
+    pub tools: Option<Vec<LanguageModelV4Tool>>,
+    /// Model-facing tool-choice object.
+    pub tool_choice: Option<LanguageModelV4ToolChoice>,
+    /// Include raw stream chunks when supported.
+    pub include_raw_chunks: Option<bool>,
+    /// Request-scoped abort signal.
+    pub abort_signal: Option<CancelHandle>,
+    /// Additional HTTP headers. `None` represents an explicitly undefined header.
+    pub headers: HashMap<String, Option<String>>,
+    /// Cross-provider reasoning level.
+    pub reasoning: Option<LanguageModelReasoning>,
+    /// Provider-specific options.
+    pub provider_options: Option<ProviderOptions>,
+}
+
+impl LanguageModelV4CallOptions {
+    /// Create call options for a standardized prompt.
+    pub fn new(prompt: Vec<ModelMessage>) -> Self {
+        Self {
+            prompt,
+            ..Self::default()
+        }
+    }
+
+    /// Attach already projected model-facing tools.
+    pub fn with_tools(mut self, tools: Vec<LanguageModelV4Tool>) -> Self {
+        self.tools = Some(tools);
+        self
+    }
+
+    /// Attach stable tools by projecting them to the model-facing V4 tool union.
+    pub fn with_stable_tools(mut self, tools: impl IntoIterator<Item = Tool>) -> Self {
+        self.tools = Some(tools.into_iter().map(LanguageModelV4Tool::from).collect());
+        self
+    }
+
+    /// Attach a model-facing tool-choice object.
+    pub fn with_tool_choice(mut self, tool_choice: impl Into<LanguageModelV4ToolChoice>) -> Self {
+        self.tool_choice = Some(tool_choice.into());
+        self
+    }
+
+    /// Set a request header.
+    pub fn with_header(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), Some(value.into()));
+        self
+    }
+
+    /// Mark a header as intentionally undefined.
+    pub fn without_header(mut self, key: impl Into<String>) -> Self {
+        self.headers.insert(key.into(), None);
+        self
+    }
+
+    /// Materialize only concrete headers.
+    pub fn effective_headers(&self) -> HashMap<String, String> {
+        self.headers
+            .iter()
+            .filter_map(|(key, value)| value.clone().map(|value| (key.clone(), value)))
+            .collect()
+    }
+}
+
 /// AI SDK-style request-facing transport controls.
 #[derive(Debug, Clone, Default)]
 pub struct RequestOptions {
@@ -9603,8 +9694,8 @@ fn string_body_to_json_value(body: String) -> JSONValue {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        AssistantContent, ReasoningPart, TextPart, ToolApprovalRequest, ToolApprovalResponse,
-        ToolCallPart, ToolResultPart, UiMessagePart, UiMessageRole,
+        AssistantContent, ReasoningPart, SystemModelMessage, TextPart, ToolApprovalRequest,
+        ToolApprovalResponse, ToolCallPart, ToolResultPart, UiMessagePart, UiMessageRole,
     };
     use super::*;
 
@@ -12662,6 +12753,45 @@ mod tests {
             }
         });
         assert!(serde_json::from_value::<ToolApprovalRequestOutput>(wrong_type).is_err());
+    }
+
+    #[test]
+    fn language_model_v4_call_options_overlay_keeps_model_facing_fields_together() {
+        let prompt = vec![ModelMessage::System(SystemModelMessage::new("Be concise"))];
+        let tool = Tool::function(
+            "weather",
+            "Get weather",
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "city": { "type": "string" }
+                }
+            }),
+        );
+
+        let options = LanguageModelV4CallOptions::new(prompt.clone())
+            .with_stable_tools(vec![tool])
+            .with_tool_choice(ToolChoice::Required)
+            .with_header("x-test", "1")
+            .without_header("x-drop");
+
+        assert_eq!(options.prompt, prompt);
+        assert_eq!(
+            options.tool_choice,
+            Some(LanguageModelV4ToolChoice::Required)
+        );
+        assert_eq!(
+            options.effective_headers().get("x-test"),
+            Some(&"1".to_string())
+        );
+        assert!(!options.effective_headers().contains_key("x-drop"));
+
+        let tools = options.tools.expect("tools are projected");
+        assert!(matches!(tools[0], LanguageModelV4Tool::Function(_)));
+        assert_eq!(
+            serde_json::to_value(&tools[0]).expect("serialize model-facing tool")["type"],
+            serde_json::json!("function")
+        );
     }
 
     #[test]
