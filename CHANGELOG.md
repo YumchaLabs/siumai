@@ -67,6 +67,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK V4 model-facing tools now keep `provider.args` and function-tool `inputExamples[].input`
   as JSON objects on the provider overlay, matching upstream `Record<string, unknown>` /
   `JSONObject` boundaries while leaving the wider stable tool input layer compatible.
+- AI SDK V4 prompt tool-result outputs now use a dedicated provider-facing overlay for canonical
+  `content` parts, mapping stable image/file reference variants to upstream `file-*` shapes and
+  falling back to valid JSON output for legacy content that V4 cannot express directly.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and

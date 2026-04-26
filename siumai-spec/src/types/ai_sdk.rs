@@ -12,8 +12,9 @@ use super::{
     ModelMessage, PromptInput, ProviderMetadataMap, ProviderOptionsMap, ProviderReference,
     ReasoningFilePart, ReasoningPart, ResponseFormat, ResponseMetadata, StandardizedPrompt,
     SystemModelMessage, SystemPrompt, TextPart, Tool, ToolApprovalResponse, ToolCallPart,
-    ToolChoice, ToolContentPart, ToolModelMessage, ToolResultOutput, ToolResultPart, Usage,
-    UsageInputTokens, UsageOutputTokens, UserContent, UserContentPart, UserModelMessage, Warning,
+    ToolChoice, ToolContentPart, ToolModelMessage, ToolResultContentPart, ToolResultFileId,
+    ToolResultOutput, ToolResultPart, Usage, UsageInputTokens, UsageOutputTokens, UserContent,
+    UserContentPart, UserModelMessage, Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -8182,8 +8183,517 @@ pub type LanguageModelV4CustomPart = CustomPart;
 /// AI SDK V4 prompt tool-call part.
 pub type LanguageModelV4ToolCallPart = ToolCallPart;
 
+/// AI SDK V4 prompt tool-result output.
+///
+/// This is narrower than the stable `ToolResultOutput` compatibility type. AI SDK V4 only accepts
+/// canonical content parts inside `type: "content"` outputs, so legacy stable parts are projected
+/// before they reach provider-facing prompts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LanguageModelV4ToolResultOutput {
+    /// Text tool output that should be sent directly to the API.
+    Text {
+        value: String,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// JSON tool output.
+    Json {
+        value: JSONValue,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// Output used when execution was denied.
+    ExecutionDenied {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// Text error output.
+    ErrorText {
+        value: String,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// JSON error output.
+    ErrorJson {
+        value: JSONValue,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// Multimodal content output using only AI SDK V4 canonical content variants.
+    Content {
+        value: Vec<LanguageModelV4ToolResultContentPart>,
+    },
+}
+
+impl LanguageModelV4ToolResultOutput {
+    /// Create a V4 text tool output.
+    pub fn text(value: impl Into<String>) -> Self {
+        Self::Text {
+            value: value.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 JSON tool output.
+    pub fn json(value: impl Into<JSONValue>) -> Self {
+        Self::Json {
+            value: value.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 execution-denied tool output.
+    pub fn execution_denied(reason: Option<String>) -> Self {
+        Self::ExecutionDenied {
+            reason,
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 text error tool output.
+    pub fn error_text(value: impl Into<String>) -> Self {
+        Self::ErrorText {
+            value: value.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 JSON error tool output.
+    pub fn error_json(value: impl Into<JSONValue>) -> Self {
+        Self::ErrorJson {
+            value: value.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 content tool output.
+    pub fn content(value: Vec<LanguageModelV4ToolResultContentPart>) -> Self {
+        Self::Content { value }
+    }
+
+    /// Project a stable tool-result output onto the AI SDK V4 prompt shape.
+    pub fn from_tool_result_output(output: &ToolResultOutput) -> Self {
+        match output {
+            ToolResultOutput::Text {
+                value,
+                provider_options,
+            } => Self::Text {
+                value: value.clone(),
+                provider_options: provider_options.clone(),
+            },
+            ToolResultOutput::Json {
+                value,
+                provider_options,
+            } => Self::Json {
+                value: value.clone(),
+                provider_options: provider_options.clone(),
+            },
+            ToolResultOutput::ExecutionDenied {
+                reason,
+                provider_options,
+            } => Self::ExecutionDenied {
+                reason: reason.clone(),
+                provider_options: provider_options.clone(),
+            },
+            ToolResultOutput::ErrorText {
+                value,
+                provider_options,
+            } => Self::ErrorText {
+                value: value.clone(),
+                provider_options: provider_options.clone(),
+            },
+            ToolResultOutput::ErrorJson {
+                value,
+                provider_options,
+            } => Self::ErrorJson {
+                value: value.clone(),
+                provider_options: provider_options.clone(),
+            },
+            ToolResultOutput::Content {
+                value,
+                provider_options,
+            } => {
+                if !provider_options.is_empty() {
+                    return Self::Json {
+                        value: output.to_json_value(),
+                        provider_options: provider_options.clone(),
+                    };
+                }
+
+                let mut projected = Vec::with_capacity(value.len());
+                for part in value {
+                    let Some(part) =
+                        LanguageModelV4ToolResultContentPart::from_stable_content_part(part)
+                    else {
+                        return Self::Json {
+                            value: output.to_json_value(),
+                            provider_options: ProviderOptionsMap::default(),
+                        };
+                    };
+                    projected.push(part);
+                }
+
+                Self::Content { value: projected }
+            }
+        }
+    }
+
+    /// Get provider options for variants that support output-level provider options.
+    pub fn provider_options(&self) -> Option<&ProviderOptionsMap> {
+        match self {
+            Self::Text {
+                provider_options, ..
+            }
+            | Self::Json {
+                provider_options, ..
+            }
+            | Self::ExecutionDenied {
+                provider_options, ..
+            }
+            | Self::ErrorText {
+                provider_options, ..
+            }
+            | Self::ErrorJson {
+                provider_options, ..
+            } => Some(provider_options),
+            Self::Content { .. } => None,
+        }
+    }
+}
+
+impl From<&ToolResultOutput> for LanguageModelV4ToolResultOutput {
+    fn from(value: &ToolResultOutput) -> Self {
+        Self::from_tool_result_output(value)
+    }
+}
+
+impl From<ToolResultOutput> for LanguageModelV4ToolResultOutput {
+    fn from(value: ToolResultOutput) -> Self {
+        Self::from(&value)
+    }
+}
+
+/// AI SDK V4 prompt tool-result content part.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LanguageModelV4ToolResultContentPart {
+    /// Text content.
+    Text {
+        text: String,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// File content encoded inline as base64 data.
+    FileData {
+        data: String,
+        #[serde(rename = "mediaType", alias = "media_type")]
+        media_type: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// File content referenced by URL.
+    FileUrl {
+        url: String,
+        #[serde(rename = "mediaType", alias = "media_type")]
+        media_type: String,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// File content referenced by provider-owned file reference.
+    FileReference {
+        #[serde(rename = "providerReference", alias = "provider_reference")]
+        provider_reference: ProviderReference,
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+    /// Provider-specific custom content.
+    Custom {
+        #[serde(
+            rename = "providerOptions",
+            alias = "provider_options",
+            default,
+            skip_serializing_if = "ProviderOptionsMap::is_empty"
+        )]
+        provider_options: ProviderOptionsMap,
+    },
+}
+
+impl LanguageModelV4ToolResultContentPart {
+    /// Create a V4 text tool-result content part.
+    pub fn text(text: impl Into<String>) -> Self {
+        Self::Text {
+            text: text.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 file-data tool-result content part.
+    pub fn file_data(
+        data: impl Into<String>,
+        media_type: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        Self::FileData {
+            data: data.into(),
+            media_type: media_type.into(),
+            filename,
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 file-url tool-result content part.
+    pub fn file_url(url: impl Into<String>, media_type: impl Into<String>) -> Self {
+        Self::FileUrl {
+            url: url.into(),
+            media_type: media_type.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 file-reference tool-result content part.
+    pub fn file_reference(provider_reference: impl Into<ProviderReference>) -> Self {
+        Self::FileReference {
+            provider_reference: provider_reference.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 custom tool-result content part.
+    pub fn custom() -> Self {
+        Self::Custom {
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    fn from_stable_content_part(part: &ToolResultContentPart) -> Option<Self> {
+        match part {
+            ToolResultContentPart::Text {
+                text,
+                provider_options,
+            } => Some(Self::Text {
+                text: text.clone(),
+                provider_options: provider_options.clone(),
+            }),
+            ToolResultContentPart::FileData {
+                data,
+                media_type,
+                filename,
+                provider_options,
+            } => Some(Self::FileData {
+                data: data.clone(),
+                media_type: media_type.clone(),
+                filename: filename.clone(),
+                provider_options: provider_options.clone(),
+            }),
+            ToolResultContentPart::ImageData {
+                data,
+                media_type,
+                provider_options,
+            } => Some(Self::FileData {
+                data: data.clone(),
+                media_type: media_type.clone(),
+                filename: None,
+                provider_options: provider_options.clone(),
+            }),
+            ToolResultContentPart::FileUrl {
+                url,
+                media_type,
+                provider_options,
+            } => media_type.as_ref().map(|media_type| Self::FileUrl {
+                url: url.clone(),
+                media_type: media_type.clone(),
+                provider_options: provider_options.clone(),
+            }),
+            ToolResultContentPart::ImageUrl {
+                url,
+                provider_options,
+            } => Some(Self::FileUrl {
+                url: url.clone(),
+                media_type: "image/*".to_string(),
+                provider_options: provider_options.clone(),
+            }),
+            ToolResultContentPart::FileReference {
+                provider_reference,
+                provider_options,
+            }
+            | ToolResultContentPart::ImageFileReference {
+                provider_reference,
+                provider_options,
+            } => Some(Self::FileReference {
+                provider_reference: provider_reference.clone(),
+                provider_options: provider_options.clone(),
+            }),
+            ToolResultContentPart::FileId {
+                file_id,
+                provider_options,
+            }
+            | ToolResultContentPart::ImageFileId {
+                file_id,
+                provider_options,
+            } => Some(Self::FileReference {
+                provider_reference: language_model_v4_provider_reference_from_file_id(file_id)?,
+                provider_options: provider_options.clone(),
+            }),
+            ToolResultContentPart::Custom { provider_options } => Some(Self::Custom {
+                provider_options: provider_options.clone(),
+            }),
+        }
+    }
+
+    /// Get provider options for this content part.
+    pub fn provider_options(&self) -> &ProviderOptionsMap {
+        match self {
+            Self::Text {
+                provider_options, ..
+            }
+            | Self::FileData {
+                provider_options, ..
+            }
+            | Self::FileUrl {
+                provider_options, ..
+            }
+            | Self::FileReference {
+                provider_options, ..
+            }
+            | Self::Custom {
+                provider_options, ..
+            } => provider_options,
+        }
+    }
+}
+
+fn language_model_v4_provider_reference_from_file_id(
+    file_id: &ToolResultFileId,
+) -> Option<ProviderReference> {
+    match file_id {
+        ToolResultFileId::Single(_) => None,
+        ToolResultFileId::PerProvider(values) => Some(ProviderReference::from(values.clone())),
+    }
+}
+
 /// AI SDK V4 prompt tool-result part.
-pub type LanguageModelV4ToolResultPart = ToolResultPart;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4ToolResultPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ToolResultMarker,
+    /// Tool-call id associated with this result.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Tool name.
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    /// Tool result output.
+    pub output: LanguageModelV4ToolResultOutput,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4ToolResultPart {
+    /// Create a V4 tool-result prompt part.
+    pub fn new(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        output: impl Into<LanguageModelV4ToolResultOutput>,
+    ) -> Self {
+        Self {
+            marker: LanguageModelV4ToolResultMarker::Marker,
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+            output: output.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable tool-result prompt part onto the AI SDK V4 provider prompt shape.
+    pub fn from_tool_result_part(part: &ToolResultPart) -> Self {
+        Self {
+            marker: LanguageModelV4ToolResultMarker::Marker,
+            tool_call_id: part.tool_call_id.clone(),
+            tool_name: part.tool_name.clone(),
+            output: LanguageModelV4ToolResultOutput::from_tool_result_output(&part.output),
+            provider_options: part.provider_options.clone(),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-result"
+    }
+}
+
+impl From<&ToolResultPart> for LanguageModelV4ToolResultPart {
+    fn from(value: &ToolResultPart) -> Self {
+        Self::from_tool_result_part(value)
+    }
+}
+
+impl From<ToolResultPart> for LanguageModelV4ToolResultPart {
+    fn from(value: ToolResultPart) -> Self {
+        Self::from(&value)
+    }
+}
 
 /// AI SDK V4 prompt file part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -8619,9 +9129,11 @@ impl LanguageModelV4AssistantMessage {
                     AssistantContentPart::ToolCall(part) => {
                         Some(LanguageModelV4AssistantContentPart::ToolCall(part.clone()))
                     }
-                    AssistantContentPart::ToolResult(part) => Some(
-                        LanguageModelV4AssistantContentPart::ToolResult(part.clone()),
-                    ),
+                    AssistantContentPart::ToolResult(part) => {
+                        Some(LanguageModelV4AssistantContentPart::ToolResult(
+                            LanguageModelV4ToolResultPart::from_tool_result_part(part),
+                        ))
+                    }
                     AssistantContentPart::ToolApprovalRequest(_) => None,
                 })
                 .collect(),
@@ -8675,7 +9187,9 @@ impl LanguageModelV4ToolMessage {
             .iter()
             .filter_map(|part| match part {
                 ToolContentPart::ToolResult(part) => {
-                    Some(LanguageModelV4ToolContentPart::ToolResult(part.clone()))
+                    Some(LanguageModelV4ToolContentPart::ToolResult(
+                        LanguageModelV4ToolResultPart::from_tool_result_part(part),
+                    ))
                 }
                 ToolContentPart::ToolApprovalResponse(part)
                     if part.provider_executed == Some(true) =>
@@ -11365,8 +11879,9 @@ mod tests {
     use super::super::{
         AssistantContent, FilePart, FilePartSource, ImagePart, MediaSource, ProviderReference,
         ReasoningFilePart, ReasoningPart, SystemModelMessage, TextPart, ToolApprovalRequest,
-        ToolApprovalResponse, ToolCallPart, ToolResultOutput, ToolResultPart, UiMessagePart,
-        UiMessageRole, UserContent, UserContentPart, UserModelMessage,
+        ToolApprovalResponse, ToolCallPart, ToolResultContentPart, ToolResultOutput,
+        ToolResultPart, UiMessagePart, UiMessageRole, UserContent, UserContentPart,
+        UserModelMessage,
     };
     use super::*;
 
@@ -14557,6 +15072,103 @@ mod tests {
                     }
                 }
             })
+        );
+    }
+
+    #[test]
+    fn language_model_v4_tool_result_output_canonicalizes_content_parts() {
+        let output = ToolResultOutput::content(vec![
+            ToolResultContentPart::text("ok"),
+            ToolResultContentPart::image_data("aGVsbG8=", "image/png"),
+            ToolResultContentPart::image_url("https://example.com/image.png"),
+            ToolResultContentPart::file_reference(ProviderReference::single("openai", "file_1")),
+            ToolResultContentPart::file_id(HashMap::from([(
+                "anthropic".to_string(),
+                "file_ant".to_string(),
+            )])),
+            ToolResultContentPart::custom()
+                .with_provider_option("anthropic", serde_json::json!({ "type": "tool-reference" })),
+        ]);
+
+        let projected = LanguageModelV4ToolResultOutput::from_tool_result_output(&output);
+        let json = serde_json::to_value(&projected).expect("serialize V4 tool output");
+
+        assert_eq!(json["type"], serde_json::json!("content"));
+        assert_eq!(json["value"][0]["type"], serde_json::json!("text"));
+        assert_eq!(json["value"][1]["type"], serde_json::json!("file-data"));
+        assert_eq!(
+            json["value"][1]["mediaType"],
+            serde_json::json!("image/png")
+        );
+        assert_eq!(json["value"][2]["type"], serde_json::json!("file-url"));
+        assert_eq!(json["value"][2]["mediaType"], serde_json::json!("image/*"));
+        assert_eq!(
+            json["value"][3]["type"],
+            serde_json::json!("file-reference")
+        );
+        assert_eq!(
+            json["value"][3]["providerReference"]["openai"],
+            serde_json::json!("file_1")
+        );
+        assert_eq!(
+            json["value"][4]["type"],
+            serde_json::json!("file-reference")
+        );
+        assert_eq!(
+            json["value"][4]["providerReference"]["anthropic"],
+            serde_json::json!("file_ant")
+        );
+        assert_eq!(json["value"][5]["type"], serde_json::json!("custom"));
+        assert_eq!(
+            json["value"][5]["providerOptions"]["anthropic"]["type"],
+            serde_json::json!("tool-reference")
+        );
+    }
+
+    #[test]
+    fn language_model_v4_tool_result_output_falls_back_for_unrepresentable_legacy_content() {
+        let output = ToolResultOutput::content(vec![
+            ToolResultContentPart::file_id("file_without_provider"),
+            ToolResultContentPart::file_url("https://example.com/report.pdf"),
+        ]);
+
+        let projected = LanguageModelV4ToolResultOutput::from_tool_result_output(&output);
+        let json = serde_json::to_value(&projected).expect("serialize V4 tool output");
+
+        assert_eq!(json["type"], serde_json::json!("json"));
+        assert_eq!(json["value"][0]["type"], serde_json::json!("file-id"));
+        assert_eq!(
+            json["value"][0]["fileId"],
+            serde_json::json!("file_without_provider")
+        );
+        assert_eq!(json["value"][1]["type"], serde_json::json!("file-url"));
+        assert!(json["providerOptions"].is_null());
+    }
+
+    #[test]
+    fn language_model_v4_prompt_projection_uses_canonical_tool_result_output() {
+        let tool = ToolModelMessage::new(vec![ToolContentPart::ToolResult(ToolResultPart::new(
+            "call_1",
+            "vision",
+            ToolResultOutput::content(vec![ToolResultContentPart::image_url(
+                "https://example.com/image.png",
+            )]),
+        ))]);
+
+        let prompt = prepare_language_model_v4_prompt(vec![ModelMessage::Tool(tool)]);
+        let json = serde_json::to_value(&prompt).expect("serialize projected V4 prompt");
+
+        assert_eq!(
+            json[0]["content"][0]["output"]["type"],
+            serde_json::json!("content")
+        );
+        assert_eq!(
+            json[0]["content"][0]["output"]["value"][0]["type"],
+            serde_json::json!("file-url")
+        );
+        assert_eq!(
+            json[0]["content"][0]["output"]["value"][0]["mediaType"],
+            serde_json::json!("image/*")
         );
     }
 

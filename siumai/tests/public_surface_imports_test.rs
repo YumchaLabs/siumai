@@ -294,6 +294,8 @@ fn public_surface_unified_imports_compile() {
     let _ = size_of::<LanguageModelV4ToolContentPart>();
     let _ = size_of::<LanguageModelV4ToolMessage>();
     let _ = size_of::<LanguageModelV4ToolResult>();
+    let _ = size_of::<LanguageModelV4ToolResultContentPart>();
+    let _ = size_of::<LanguageModelV4ToolResultOutput>();
     let _ = size_of::<LanguageModelV4ToolResultPart>();
     let _ = size_of::<LanguageModelV4Usage>();
     let _ = size_of::<LanguageModelV4UserContentPart>();
