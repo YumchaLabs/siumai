@@ -439,6 +439,7 @@ fn public_surface_unified_imports_compile() {
     let _ = get_tool_or_dynamic_tool_name as for<'a> fn(&'a UiMessagePart) -> Option<&'a str>;
     let _ = last_assistant_message_is_complete_with_tool_calls as fn(&[UiMessage]) -> bool;
     let _ = last_assistant_message_is_complete_with_approval_responses as fn(&[UiMessage]) -> bool;
+    let _ = generate_text::<dyn LanguageModel>;
     let _ = experimental_generate_speech::<dyn SpeechModel>;
     let _ = experimental_generate_video::<dyn VideoModelV4>;
     let _ = experimental_transcribe::<dyn TranscriptionModel>;

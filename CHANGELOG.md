@@ -42,6 +42,12 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `StepResult`, `DefaultStepResult`, and `GenerateTextResult`. Step reasoning intentionally uses
   the provider-utils `data` / `mediaType` / `providerOptions` shape, while final result reasoning
   keeps the output-side `file` / `providerMetadata` shape.
+- AI SDK-style `generateText` now has a real Rust helper projection via
+  `siumai::generate_text(...)` / `siumai::text::generate_text(...)`. It calls the existing
+  text-family model once, then projects `ChatResponse` into a single-step `GenerateTextResult`
+  with content, reasoning, source, tool-call, tool-result, usage, finish reason, response metadata,
+  and provider metadata fields. Full AI SDK agent/tool-loop execution remains intentionally
+  separate from this single-step projection.
 - AI SDK `streamText` output events now have a passive `TextStreamPart` union and named
   `TextStream*Part` structures matching `generate-text/stream-text-result.ts`, including the
   higher-level `text` reasoning/text deltas, `start-step` / `finish-step`, `finish.totalUsage`,

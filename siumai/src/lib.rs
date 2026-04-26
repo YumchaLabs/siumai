@@ -162,6 +162,7 @@ pub use structured_output::{
     generate_enum, generate_json, generate_object, parse_partial_json, partial_json_value_stream,
 };
 pub mod text;
+pub use text::generate_text;
 pub mod transcription;
 /// AI SDK-style `UIMessage` validation and conversion helpers.
 pub mod ui;
@@ -2097,8 +2098,8 @@ pub mod prelude {
             completion, embedding, files, image, rerank, skills, speech, structured_output, text,
             transcription, video,
         };
+        pub use crate::{generate_text, upload_file, upload_skill};
         pub use crate::{system, tool, user, user_with_image};
-        pub use crate::{upload_file, upload_skill};
         pub use siumai_core::completion::CompletionModel;
         pub use siumai_core::error::{ErrorCategory, LlmError};
         pub use siumai_core::execution::middleware::LanguageModelMiddleware;
