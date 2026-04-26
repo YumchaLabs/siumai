@@ -12,7 +12,7 @@ fn sum_option(target: &mut Option<u32>, source: Option<u32>) {
 }
 
 /// AI SDK v4-compatible input token accounting.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UsageInputTokens {
     /// Total input tokens, including cache hits and cache writes when billed.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,7 +73,7 @@ impl UsageInputTokens {
 }
 
 /// AI SDK v4-compatible output token accounting.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct UsageOutputTokens {
     /// Total output tokens.
     #[serde(skip_serializing_if = "Option::is_none")]

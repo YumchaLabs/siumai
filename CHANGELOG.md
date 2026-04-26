@@ -97,6 +97,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   `LanguageModelV4Tool`, keeping prompt, V4-projected tools, tool choice, headers, abort handle,
   reasoning, and provider options together in the same provider-call overlay without replacing the
   existing reusable `LanguageModelCallOptions` / `RequestOptions` split.
+- AI SDK model-facing generate-result parity now exposes `LanguageModelV4Content`,
+  `LanguageModelV4GenerateResult`, `LanguageModelV4StreamResult`, V4 file/reasoning-file/tool
+  content parts, V4 finish/usage/response metadata, and `LanguageModelV4DataContent`, preserving
+  the narrower upstream provider result shape separately from high-level `GenerateTextContentPart`.
 - AI SDK provider-utils provider-tool factory parity now has a real Rust carrier/facade:
   provider tools serialize as `type: "provider"` and preserve `isProviderExecuted`,
   `inputSchema`, `outputSchema`, `args`, and `supportsDeferredResults`, while

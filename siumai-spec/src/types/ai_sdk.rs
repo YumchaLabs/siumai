@@ -10,7 +10,8 @@ use super::{
     FinishReason, FlexibleSchema, HttpRequestInfo, HttpResponseInfo, LanguageModelV4Tool,
     LanguageModelV4ToolChoice, ModelMessage, PromptInput, ProviderMetadataMap, ProviderOptionsMap,
     ResponseFormat, ResponseMetadata, StandardizedPrompt, SystemPrompt, Tool, ToolChoice,
-    ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, Warning,
+    ToolContentPart, ToolModelMessage, ToolResultOutput, Usage, UsageInputTokens,
+    UsageOutputTokens, Warning,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use chrono::{DateTime, Utc};
@@ -7908,6 +7909,831 @@ pub fn get_tool_timeout_ms(timeout: Option<&TimeoutConfiguration>, tool_name: &s
     timeout.and_then(|timeout| timeout.tool_timeout_ms(tool_name))
 }
 
+macro_rules! fixed_language_model_v4_type_marker {
+    ($name:ident, $value:literal) => {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        enum $name {
+            Marker,
+        }
+
+        impl Default for $name {
+            fn default() -> Self {
+                Self::Marker
+            }
+        }
+
+        impl Serialize for $name {
+            fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+            where
+                S: Serializer,
+            {
+                serializer.serialize_str($value)
+            }
+        }
+
+        impl<'de> Deserialize<'de> for $name {
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+            where
+                D: Deserializer<'de>,
+            {
+                let value = String::deserialize(deserializer)?;
+                if value == $value {
+                    Ok(Self::Marker)
+                } else {
+                    Err(serde::de::Error::custom(format!(
+                        "expected AI SDK V4 type marker `{}`, got `{value}`",
+                        $value
+                    )))
+                }
+            }
+        }
+    };
+}
+
+fixed_language_model_v4_type_marker!(LanguageModelV4FileMarker, "file");
+fixed_language_model_v4_type_marker!(LanguageModelV4ReasoningFileMarker, "reasoning-file");
+fixed_language_model_v4_type_marker!(LanguageModelV4ToolCallMarker, "tool-call");
+fixed_language_model_v4_type_marker!(LanguageModelV4ToolResultMarker, "tool-result");
+fixed_language_model_v4_type_marker!(
+    LanguageModelV4ToolApprovalRequestMarker,
+    "tool-approval-request"
+);
+
+/// AI SDK V4 model prompt.
+pub type LanguageModelV4Prompt = Vec<ModelMessage>;
+
+/// AI SDK V4 data content.
+///
+/// JavaScript's `Uint8Array | string | URL` contract is represented as bytes or a string payload.
+/// URL values should be passed as their string form.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum LanguageModelV4DataContent {
+    /// Base64 data, URL strings, or other provider-accepted string payloads.
+    String(String),
+    /// Binary data.
+    Bytes(Vec<u8>),
+}
+
+impl LanguageModelV4DataContent {
+    /// Create string-backed data content.
+    pub fn string(value: impl Into<String>) -> Self {
+        Self::String(value.into())
+    }
+
+    /// Create URL-backed data content.
+    pub fn url(value: impl Into<String>) -> Self {
+        Self::String(value.into())
+    }
+
+    /// Create binary data content.
+    pub fn bytes(value: impl Into<Vec<u8>>) -> Self {
+        Self::Bytes(value.into())
+    }
+}
+
+impl From<DataContent> for LanguageModelV4DataContent {
+    fn from(value: DataContent) -> Self {
+        match value {
+            DataContent::Base64(value) => Self::String(value),
+            DataContent::Binary(value) => Self::Bytes(value),
+        }
+    }
+}
+
+impl From<&DataContent> for LanguageModelV4DataContent {
+    fn from(value: &DataContent) -> Self {
+        match value {
+            DataContent::Base64(value) => Self::String(value.clone()),
+            DataContent::Binary(value) => Self::Bytes(value.clone()),
+        }
+    }
+}
+
+impl From<String> for LanguageModelV4DataContent {
+    fn from(value: String) -> Self {
+        Self::String(value)
+    }
+}
+
+impl From<&str> for LanguageModelV4DataContent {
+    fn from(value: &str) -> Self {
+        Self::String(value.to_string())
+    }
+}
+
+impl From<Vec<u8>> for LanguageModelV4DataContent {
+    fn from(value: Vec<u8>) -> Self {
+        Self::Bytes(value)
+    }
+}
+
+impl From<&[u8]> for LanguageModelV4DataContent {
+    fn from(value: &[u8]) -> Self {
+        Self::Bytes(value.to_vec())
+    }
+}
+
+/// AI SDK V4 generated text content.
+pub type LanguageModelV4Text = TextOutput;
+
+/// AI SDK V4 generated reasoning content.
+pub type LanguageModelV4Reasoning = ReasoningOutput;
+
+/// AI SDK V4 provider-specific content.
+pub type LanguageModelV4CustomContent = CustomOutput;
+
+/// AI SDK V4 generated source citation.
+pub type LanguageModelV4Source = Source;
+
+/// AI SDK V4 generated file content.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4File {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4FileMarker,
+    /// IANA media type of the generated file.
+    #[serde(rename = "mediaType", alias = "media_type")]
+    pub media_type: String,
+    /// Generated file data.
+    pub data: LanguageModelV4DataContent,
+    /// Additional provider-specific metadata for the file part.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4File {
+    /// Create generated file content.
+    pub fn new(data: impl Into<LanguageModelV4DataContent>, media_type: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4FileMarker::Marker,
+            media_type: media_type.into(),
+            data: data.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Project a high-level generated file onto the model-facing V4 file shape.
+    pub fn from_generated_file(file: GeneratedFile) -> Self {
+        Self::new(file.base64, file.media_type)
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "file"
+    }
+}
+
+/// AI SDK V4 generated reasoning-file content.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4ReasoningFile {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ReasoningFileMarker,
+    /// IANA media type of the generated file.
+    #[serde(rename = "mediaType", alias = "media_type")]
+    pub media_type: String,
+    /// Generated file data.
+    pub data: LanguageModelV4DataContent,
+    /// Additional provider-specific metadata for the reasoning file part.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4ReasoningFile {
+    /// Create generated reasoning-file content.
+    pub fn new(data: impl Into<LanguageModelV4DataContent>, media_type: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4ReasoningFileMarker::Marker,
+            media_type: media_type.into(),
+            data: data.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Project a high-level generated file onto the model-facing V4 reasoning-file shape.
+    pub fn from_generated_file(file: GeneratedFile) -> Self {
+        Self::new(file.base64, file.media_type)
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "reasoning-file"
+    }
+}
+
+/// AI SDK V4 generated tool call.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4ToolCall {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ToolCallMarker,
+    /// Unique tool-call id.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Tool name.
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    /// Stringified JSON object with tool call arguments.
+    pub input: String,
+    /// Whether the tool call will be executed by the provider.
+    #[serde(
+        rename = "providerExecuted",
+        alias = "provider_executed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_executed: Option<bool>,
+    /// Whether the tool is dynamic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4ToolCall {
+    /// Create a model-facing tool call from already stringified JSON arguments.
+    pub fn new(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        input: impl Into<String>,
+    ) -> Self {
+        Self {
+            marker: LanguageModelV4ToolCallMarker::Marker,
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+            input: input.into(),
+            provider_executed: None,
+            dynamic: None,
+            provider_metadata: None,
+        }
+    }
+
+    /// Create a model-facing tool call by stringifying JSON-serializable input.
+    pub fn from_json_input(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        input: impl Serialize,
+    ) -> Result<Self, serde_json::Error> {
+        Ok(Self::new(
+            tool_call_id,
+            tool_name,
+            serde_json::to_string(&input)?,
+        ))
+    }
+
+    /// Mark whether the tool call will be executed by the provider.
+    pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Mark whether the tool is dynamic.
+    pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
+        self.dynamic = Some(dynamic);
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-call"
+    }
+}
+
+/// AI SDK V4 provider-executed tool result.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4ToolResult {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ToolResultMarker,
+    /// Tool-call id associated with this result.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Tool name.
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    /// JSON-serializable result payload.
+    pub result: JSONValue,
+    /// Whether the result represents an error.
+    #[serde(
+        rename = "isError",
+        alias = "is_error",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub is_error: Option<bool>,
+    /// Whether the result is preliminary.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preliminary: Option<bool>,
+    /// Whether the tool is dynamic.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4ToolResult {
+    /// Create a model-facing provider-executed tool result.
+    pub fn new(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        result: impl Into<JSONValue>,
+    ) -> Self {
+        Self {
+            marker: LanguageModelV4ToolResultMarker::Marker,
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+            result: result.into(),
+            is_error: None,
+            preliminary: None,
+            dynamic: None,
+            provider_metadata: None,
+        }
+    }
+
+    /// Mark whether the result represents an error.
+    pub const fn with_is_error(mut self, is_error: bool) -> Self {
+        self.is_error = Some(is_error);
+        self
+    }
+
+    /// Mark whether the result is preliminary.
+    pub const fn with_preliminary(mut self, preliminary: bool) -> Self {
+        self.preliminary = Some(preliminary);
+        self
+    }
+
+    /// Mark whether the tool is dynamic.
+    pub const fn with_dynamic(mut self, dynamic: bool) -> Self {
+        self.dynamic = Some(dynamic);
+        self
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-result"
+    }
+}
+
+/// AI SDK V4 provider-emitted tool approval request.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4ToolApprovalRequest {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ToolApprovalRequestMarker,
+    /// Approval request id.
+    #[serde(rename = "approvalId")]
+    pub approval_id: String,
+    /// Tool-call id associated with this approval request.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4ToolApprovalRequest {
+    /// Create a provider-emitted tool approval request.
+    pub fn new(approval_id: impl Into<String>, tool_call_id: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4ToolApprovalRequestMarker::Marker,
+            approval_id: approval_id.into(),
+            tool_call_id: tool_call_id.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-approval-request"
+    }
+}
+
+/// AI SDK V4 generated content union.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(untagged)]
+pub enum LanguageModelV4Content {
+    Text(LanguageModelV4Text),
+    Reasoning(LanguageModelV4Reasoning),
+    Custom(LanguageModelV4CustomContent),
+    ReasoningFile(LanguageModelV4ReasoningFile),
+    File(LanguageModelV4File),
+    ToolApprovalRequest(LanguageModelV4ToolApprovalRequest),
+    Source(LanguageModelV4Source),
+    ToolCall(LanguageModelV4ToolCall),
+    ToolResult(LanguageModelV4ToolResult),
+}
+
+impl LanguageModelV4Content {
+    /// Return the AI SDK V4 content discriminator.
+    pub fn r#type(&self) -> &'static str {
+        match self {
+            Self::Text(part) => part.r#type(),
+            Self::Reasoning(part) => part.r#type(),
+            Self::Custom(part) => part.r#type(),
+            Self::ReasoningFile(part) => part.r#type(),
+            Self::File(part) => part.r#type(),
+            Self::ToolApprovalRequest(part) => part.r#type(),
+            Self::Source(part) => part.r#type(),
+            Self::ToolCall(part) => part.r#type(),
+            Self::ToolResult(part) => part.r#type(),
+        }
+    }
+}
+
+impl From<LanguageModelV4Text> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4Text) -> Self {
+        Self::Text(value)
+    }
+}
+
+impl From<LanguageModelV4Reasoning> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4Reasoning) -> Self {
+        Self::Reasoning(value)
+    }
+}
+
+impl From<LanguageModelV4CustomContent> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4CustomContent) -> Self {
+        Self::Custom(value)
+    }
+}
+
+impl From<LanguageModelV4ReasoningFile> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4ReasoningFile) -> Self {
+        Self::ReasoningFile(value)
+    }
+}
+
+impl From<LanguageModelV4File> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4File) -> Self {
+        Self::File(value)
+    }
+}
+
+impl From<LanguageModelV4ToolApprovalRequest> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4ToolApprovalRequest) -> Self {
+        Self::ToolApprovalRequest(value)
+    }
+}
+
+impl From<LanguageModelV4Source> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4Source) -> Self {
+        Self::Source(value)
+    }
+}
+
+impl From<LanguageModelV4ToolCall> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4ToolCall) -> Self {
+        Self::ToolCall(value)
+    }
+}
+
+impl From<LanguageModelV4ToolResult> for LanguageModelV4Content {
+    fn from(value: LanguageModelV4ToolResult) -> Self {
+        Self::ToolResult(value)
+    }
+}
+
+/// AI SDK V4 language-model finish reason.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4FinishReason {
+    /// Unified finish reason.
+    pub unified: FinishReason,
+    /// Raw provider finish reason.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<String>,
+}
+
+impl LanguageModelV4FinishReason {
+    /// Create a finish reason.
+    pub fn new(unified: FinishReason, raw: Option<String>) -> Self {
+        Self { unified, raw }
+    }
+
+    /// Create a finish reason without raw provider detail.
+    pub fn unified(unified: FinishReason) -> Self {
+        Self::new(unified, None)
+    }
+}
+
+impl From<FinishReason> for LanguageModelV4FinishReason {
+    fn from(value: FinishReason) -> Self {
+        Self::unified(value)
+    }
+}
+
+/// AI SDK V4 input-token accounting.
+pub type LanguageModelV4InputTokens = UsageInputTokens;
+
+/// AI SDK V4 output-token accounting.
+pub type LanguageModelV4OutputTokens = UsageOutputTokens;
+
+/// AI SDK V4 language-model usage payload.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct LanguageModelV4Usage {
+    /// Input token accounting.
+    #[serde(rename = "inputTokens")]
+    pub input_tokens: LanguageModelV4InputTokens,
+    /// Output token accounting.
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: LanguageModelV4OutputTokens,
+    /// Raw provider usage payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw: Option<serde_json::Map<String, JSONValue>>,
+}
+
+impl LanguageModelV4Usage {
+    /// Create a V4 usage payload.
+    pub fn new(
+        input_tokens: LanguageModelV4InputTokens,
+        output_tokens: LanguageModelV4OutputTokens,
+    ) -> Self {
+        Self {
+            input_tokens,
+            output_tokens,
+            raw: None,
+        }
+    }
+
+    /// Attach raw provider usage.
+    pub fn with_raw(mut self, raw: serde_json::Map<String, JSONValue>) -> Self {
+        self.raw = Some(raw);
+        self
+    }
+}
+
+impl From<&Usage> for LanguageModelV4Usage {
+    fn from(value: &Usage) -> Self {
+        Self {
+            input_tokens: value.input_tokens.clone(),
+            output_tokens: value.output_tokens.clone(),
+            raw: value.raw.clone(),
+        }
+    }
+}
+
+impl From<Usage> for LanguageModelV4Usage {
+    fn from(value: Usage) -> Self {
+        Self::from(&value)
+    }
+}
+
+/// AI SDK V4 request metadata.
+pub type LanguageModelV4RequestMetadata = LanguageModelRequestMetadata;
+
+/// AI SDK V4 response metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LanguageModelV4ResponseMetadata {
+    /// Response id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Response start timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
+    /// Model id used for the response.
+    #[serde(
+        rename = "modelId",
+        alias = "model_id",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_id: Option<String>,
+}
+
+impl From<&ResponseMetadata> for LanguageModelV4ResponseMetadata {
+    fn from(value: &ResponseMetadata) -> Self {
+        Self {
+            id: value.id.clone(),
+            timestamp: value.created,
+            model_id: value.model.clone(),
+        }
+    }
+}
+
+impl From<ResponseMetadata> for LanguageModelV4ResponseMetadata {
+    fn from(value: ResponseMetadata) -> Self {
+        Self::from(&value)
+    }
+}
+
+/// AI SDK V4 non-streaming response metadata with transport details.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct LanguageModelV4GenerateResponseMetadata {
+    /// Response id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Response start timestamp.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
+    /// Model id used for the response.
+    #[serde(
+        rename = "modelId",
+        alias = "model_id",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub model_id: Option<String>,
+    /// Response headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+    /// Response HTTP body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<JSONValue>,
+}
+
+impl LanguageModelV4GenerateResponseMetadata {
+    /// Attach a response body.
+    pub fn with_body(mut self, body: impl Into<JSONValue>) -> Self {
+        self.body = Some(body.into());
+        self
+    }
+}
+
+impl From<&ResponseMetadata> for LanguageModelV4GenerateResponseMetadata {
+    fn from(value: &ResponseMetadata) -> Self {
+        Self {
+            id: value.id.clone(),
+            timestamp: value.created,
+            model_id: value.model.clone(),
+            headers: value.headers.clone(),
+            body: None,
+        }
+    }
+}
+
+impl From<ResponseMetadata> for LanguageModelV4GenerateResponseMetadata {
+    fn from(value: ResponseMetadata) -> Self {
+        Self::from(&value)
+    }
+}
+
+/// AI SDK V4 streaming response metadata with transport details.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct LanguageModelV4StreamResponseMetadata {
+    /// Response headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<HashMap<String, String>>,
+}
+
+/// AI SDK V4 language-model generate result.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModelV4GenerateResult {
+    /// Ordered content generated by the model.
+    pub content: Vec<LanguageModelV4Content>,
+    /// Finish reason.
+    pub finish_reason: LanguageModelV4FinishReason,
+    /// Usage information.
+    pub usage: LanguageModelV4Usage,
+    /// Provider-specific metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_metadata: Option<ProviderMetadata>,
+    /// Optional request information.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<LanguageModelV4RequestMetadata>,
+    /// Optional response information.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<LanguageModelV4GenerateResponseMetadata>,
+    /// Warnings for the call.
+    pub warnings: Vec<CallWarning>,
+}
+
+impl LanguageModelV4GenerateResult {
+    /// Create a V4 generate result.
+    pub fn new(
+        content: Vec<LanguageModelV4Content>,
+        finish_reason: impl Into<LanguageModelV4FinishReason>,
+        usage: impl Into<LanguageModelV4Usage>,
+    ) -> Self {
+        Self {
+            content,
+            finish_reason: finish_reason.into(),
+            usage: usage.into(),
+            provider_metadata: None,
+            request: None,
+            response: None,
+            warnings: Vec::new(),
+        }
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Attach request metadata.
+    pub fn with_request(mut self, request: LanguageModelV4RequestMetadata) -> Self {
+        self.request = Some(request);
+        self
+    }
+
+    /// Attach response metadata.
+    pub fn with_response(mut self, response: LanguageModelV4GenerateResponseMetadata) -> Self {
+        self.response = Some(response);
+        self
+    }
+
+    /// Attach warnings.
+    pub fn with_warnings(mut self, warnings: Vec<CallWarning>) -> Self {
+        self.warnings = warnings;
+        self
+    }
+}
+
+/// AI SDK V4 language-model stream result envelope.
+///
+/// The stream carrier is generic because Rust runtimes use concrete stream types instead of the
+/// JavaScript `ReadableStream` object.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageModelV4StreamResult<STREAM = ()> {
+    /// Stream of `LanguageModelV4StreamPart`-compatible values.
+    pub stream: STREAM,
+    /// Optional request information.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request: Option<LanguageModelV4RequestMetadata>,
+    /// Optional response information.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<LanguageModelV4StreamResponseMetadata>,
+}
+
+impl<STREAM> LanguageModelV4StreamResult<STREAM> {
+    /// Create a stream result envelope.
+    pub fn new(stream: STREAM) -> Self {
+        Self {
+            stream,
+            request: None,
+            response: None,
+        }
+    }
+
+    /// Attach request metadata.
+    pub fn with_request(mut self, request: LanguageModelV4RequestMetadata) -> Self {
+        self.request = Some(request);
+        self
+    }
+
+    /// Attach response metadata.
+    pub fn with_response(mut self, response: LanguageModelV4StreamResponseMetadata) -> Self {
+        self.response = Some(response);
+        self
+    }
+}
+
 /// AI SDK V4 model-facing language-model call options.
 ///
 /// This keeps the upstream provider-call shape as a single overlay while the ergonomic Rust API
@@ -7915,7 +8741,7 @@ pub fn get_tool_timeout_ms(timeout: Option<&TimeoutConfiguration>, tool_name: &s
 #[derive(Debug, Clone, Default)]
 pub struct LanguageModelV4CallOptions {
     /// Standardized model prompt.
-    pub prompt: Vec<ModelMessage>,
+    pub prompt: LanguageModelV4Prompt,
     /// Maximum output tokens requested by the caller.
     pub max_output_tokens: Option<u32>,
     /// Sampling temperature.
@@ -7952,7 +8778,7 @@ pub struct LanguageModelV4CallOptions {
 
 impl LanguageModelV4CallOptions {
     /// Create call options for a standardized prompt.
-    pub fn new(prompt: Vec<ModelMessage>) -> Self {
+    pub fn new(prompt: LanguageModelV4Prompt) -> Self {
         Self {
             prompt,
             ..Self::default()
@@ -12792,6 +13618,105 @@ mod tests {
             serde_json::to_value(&tools[0]).expect("serialize model-facing tool")["type"],
             serde_json::json!("function")
         );
+    }
+
+    #[test]
+    fn language_model_v4_generate_result_matches_provider_content_shape() {
+        let tool_call = LanguageModelV4ToolCall::from_json_input(
+            "call_1",
+            "weather",
+            serde_json::json!({ "city": "Paris" }),
+        )
+        .expect("stringify tool input")
+        .with_provider_executed(true);
+        let usage = LanguageModelV4Usage::new(
+            LanguageModelV4InputTokens {
+                total: Some(10),
+                no_cache: Some(7),
+                cache_read: Some(3),
+                cache_write: None,
+            },
+            LanguageModelV4OutputTokens {
+                total: Some(4),
+                text: Some(2),
+                reasoning: Some(2),
+            },
+        );
+        let response = LanguageModelV4GenerateResponseMetadata {
+            id: Some("resp_1".to_string()),
+            timestamp: None,
+            model_id: Some("model-1".to_string()),
+            headers: Some(HashMap::from([(
+                "x-request-id".to_string(),
+                "req_1".to_string(),
+            )])),
+            body: Some(serde_json::json!({ "raw": true })),
+        };
+
+        let result = LanguageModelV4GenerateResult::new(
+            vec![
+                LanguageModelV4Text::new("hello").into(),
+                LanguageModelV4ReasoningFile::new("cmVhc29u", "text/plain").into(),
+                LanguageModelV4File::new(vec![1_u8, 2, 3], "application/octet-stream").into(),
+                tool_call.into(),
+                LanguageModelV4ToolResult::new(
+                    "call_1",
+                    "weather",
+                    serde_json::json!({ "temperature": 21 }),
+                )
+                .with_preliminary(true)
+                .into(),
+                LanguageModelV4ToolApprovalRequest::new("approval_1", "call_2").into(),
+            ],
+            LanguageModelV4FinishReason::new(FinishReason::ToolCalls, Some("tool_calls".into())),
+            usage,
+        )
+        .with_response(response);
+
+        let json = serde_json::to_value(&result).expect("serialize V4 generate result");
+        assert_eq!(
+            json["finishReason"]["unified"],
+            serde_json::json!("tool-calls")
+        );
+        assert_eq!(json["finishReason"]["raw"], serde_json::json!("tool_calls"));
+        assert_eq!(
+            json["usage"]["inputTokens"]["cacheRead"],
+            serde_json::json!(3)
+        );
+        assert_eq!(json["response"]["modelId"], serde_json::json!("model-1"));
+        assert_eq!(json["content"][0]["type"], serde_json::json!("text"));
+        assert_eq!(
+            json["content"][1]["type"],
+            serde_json::json!("reasoning-file")
+        );
+        assert_eq!(json["content"][1]["data"], serde_json::json!("cmVhc29u"));
+        assert_eq!(json["content"][2]["type"], serde_json::json!("file"));
+        assert_eq!(
+            json["content"][2]["data"],
+            serde_json::json!([1_u8, 2_u8, 3_u8])
+        );
+        assert_eq!(json["content"][3]["type"], serde_json::json!("tool-call"));
+        assert_eq!(
+            json["content"][3]["input"],
+            serde_json::json!(r#"{"city":"Paris"}"#)
+        );
+        assert_eq!(json["content"][4]["type"], serde_json::json!("tool-result"));
+        assert_eq!(
+            json["content"][4]["result"],
+            serde_json::json!({ "temperature": 21 })
+        );
+        assert_eq!(
+            json["content"][5],
+            serde_json::json!({
+                "type": "tool-approval-request",
+                "approvalId": "approval_1",
+                "toolCallId": "call_2"
+            })
+        );
+
+        let roundtrip: LanguageModelV4GenerateResult =
+            serde_json::from_value(json).expect("deserialize V4 generate result");
+        assert_eq!(roundtrip.content[3].r#type(), "tool-call");
     }
 
     #[test]

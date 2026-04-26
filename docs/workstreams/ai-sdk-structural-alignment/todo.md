@@ -54,6 +54,10 @@ Status legend:
     groups prompt, projected model-facing tools, tool choice, headers, abort, reasoning, and
     provider options like the upstream provider-call contract while preserving the existing
     reusable Rust split for runtime APIs.
+  - `LanguageModelV4Content`, `LanguageModelV4GenerateResult`, and
+    `LanguageModelV4StreamResult` are covered by passive Rust overlays for the upstream
+    model-facing result envelopes, including V4 file/reasoning-file/tool-call/tool-result/
+    approval-request parts, finish reason, usage, and response metadata.
   - `createProviderDefinedToolFactory`,
     `createProviderDefinedToolFactoryWithOutputSchema`, and
     `createProviderExecutedToolFactory` are covered by Rust factory facades over the shared

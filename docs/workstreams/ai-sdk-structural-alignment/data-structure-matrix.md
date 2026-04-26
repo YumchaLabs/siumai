@@ -11,6 +11,9 @@ References:
 - `repo-ref/ai/packages/gateway/src/index.ts`
 - `repo-ref/ai/packages/gateway/src/gateway-provider.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-prompt.ts`
+- `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-content.ts`
+- `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-generate-result.ts`
+- `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-stream-result.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-stream-part.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-source.ts`
 - `repo-ref/ai/packages/provider/src/language-model/v4/language-model-v4-usage.ts`
@@ -423,6 +426,16 @@ headers, abort handle, raw-chunk intent, reasoning, response format, and provide
 same conceptual object as the upstream provider interface. Runtime APIs can keep using the more
 ergonomic `LanguageModelCallOptions` / `RequestOptions` split without pretending that split is the
 actual provider V4 call object.
+
+The non-streaming provider result layer now has the same narrow overlay. `LanguageModelV4Content`
+models the upstream generated-content union separately from high-level `GenerateTextContentPart`,
+so provider-facing files use top-level `mediaType` + `data`, tool calls keep stringified JSON
+`input`, provider-executed tool results use `result` / `isError`, and approval requests carry
+`approvalId` plus `toolCallId` rather than the helper-level nested tool-call object.
+`LanguageModelV4GenerateResult` groups that content with V4 finish reason, V4 usage, provider
+metadata, request/response telemetry, and warnings; `LanguageModelV4StreamResult<STREAM>` keeps the
+same request/response envelope while leaving the Rust stream carrier generic instead of pretending
+to be JavaScript `ReadableStream`.
 
 The provider-tool ownership gap is now closed at the shared data-structure layer. `Tool` now
 serializes provider tools as AI SDK `type: "provider"` while still accepting the old
