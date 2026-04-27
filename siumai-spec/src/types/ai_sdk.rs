@@ -8337,6 +8337,64 @@ where
     Ok(provider_options)
 }
 
+fn language_model_v4_provider_metadata_from_stable(
+    provider_metadata: &Option<ProviderMetadata>,
+) -> Option<ProviderMetadata> {
+    let projected: ProviderMetadata = provider_metadata
+        .as_ref()?
+        .iter()
+        .filter_map(|(provider_id, value)| {
+            value
+                .is_object()
+                .then(|| (provider_id.clone(), value.clone()))
+        })
+        .collect();
+
+    (!projected.is_empty()).then_some(projected)
+}
+
+fn language_model_v4_provider_metadata_are_object_shaped(
+    provider_metadata: &ProviderMetadata,
+) -> bool {
+    provider_metadata.values().all(serde_json::Value::is_object)
+}
+
+fn serialize_optional_language_model_v4_provider_metadata<S>(
+    provider_metadata: &Option<ProviderMetadata>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if let Some(provider_metadata) = provider_metadata {
+        if !language_model_v4_provider_metadata_are_object_shaped(provider_metadata) {
+            return Err(serde::ser::Error::custom(
+                "expected AI SDK V4 providerMetadata values to be JSON objects",
+            ));
+        }
+    }
+
+    provider_metadata.serialize(serializer)
+}
+
+fn deserialize_optional_language_model_v4_provider_metadata<'de, D>(
+    deserializer: D,
+) -> Result<Option<ProviderMetadata>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let provider_metadata = Option::<ProviderMetadata>::deserialize(deserializer)?;
+    if let Some(provider_metadata) = &provider_metadata {
+        if !language_model_v4_provider_metadata_are_object_shaped(provider_metadata) {
+            return Err(serde::de::Error::custom(
+                "expected AI SDK V4 providerMetadata values to be JSON objects",
+            ));
+        }
+    }
+
+    Ok(provider_metadata)
+}
+
 fn is_language_model_v4_custom_kind(kind: &str) -> bool {
     kind.split_once('.')
         .is_some_and(|(provider, custom_type)| !provider.is_empty() && !custom_type.is_empty())
@@ -9792,10 +9850,132 @@ pub fn prepare_language_model_v4_prompt(
 }
 
 /// AI SDK V4 generated text content.
-pub type LanguageModelV4Text = TextOutput;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4Text {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4TextMarker,
+    /// Generated text.
+    pub text: String,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4Text {
+    /// Create generated text content.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4TextMarker::Marker,
+            text: text.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Project a stable text output onto the V4 provider content shape.
+    pub fn from_text_output(output: &TextOutput) -> Self {
+        Self {
+            marker: LanguageModelV4TextMarker::Marker,
+            text: output.text.clone(),
+            provider_metadata: language_model_v4_provider_metadata_from_stable(
+                &output.provider_metadata,
+            ),
+        }
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "text"
+    }
+}
+
+impl From<TextOutput> for LanguageModelV4Text {
+    fn from(value: TextOutput) -> Self {
+        Self::from_text_output(&value)
+    }
+}
+
+impl From<&TextOutput> for LanguageModelV4Text {
+    fn from(value: &TextOutput) -> Self {
+        Self::from_text_output(value)
+    }
+}
 
 /// AI SDK V4 generated reasoning content.
-pub type LanguageModelV4Reasoning = ReasoningOutput;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4Reasoning {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ReasoningMarker,
+    /// Reasoning text.
+    pub text: String,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4Reasoning {
+    /// Create generated reasoning content.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4ReasoningMarker::Marker,
+            text: text.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Project a stable reasoning output onto the V4 provider content shape.
+    pub fn from_reasoning_output(output: &ReasoningOutput) -> Self {
+        Self {
+            marker: LanguageModelV4ReasoningMarker::Marker,
+            text: output.text.clone(),
+            provider_metadata: language_model_v4_provider_metadata_from_stable(
+                &output.provider_metadata,
+            ),
+        }
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "reasoning"
+    }
+}
+
+impl From<ReasoningOutput> for LanguageModelV4Reasoning {
+    fn from(value: ReasoningOutput) -> Self {
+        Self::from_reasoning_output(&value)
+    }
+}
+
+impl From<&ReasoningOutput> for LanguageModelV4Reasoning {
+    fn from(value: &ReasoningOutput) -> Self {
+        Self::from_reasoning_output(value)
+    }
+}
 
 /// AI SDK V4 provider-specific content.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -9813,7 +9993,9 @@ pub struct LanguageModelV4CustomContent {
         rename = "providerMetadata",
         alias = "provider_metadata",
         default,
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
     )]
     pub provider_metadata: Option<ProviderMetadata>,
 }
@@ -9842,7 +10024,9 @@ impl LanguageModelV4CustomContent {
         Some(Self {
             marker: LanguageModelV4CustomMarker::Marker,
             kind: is_language_model_v4_custom_kind(&output.kind).then(|| output.kind.clone())?,
-            provider_metadata: output.provider_metadata.clone(),
+            provider_metadata: language_model_v4_provider_metadata_from_stable(
+                &output.provider_metadata,
+            ),
         })
     }
 
@@ -9859,7 +10043,129 @@ impl LanguageModelV4CustomContent {
 }
 
 /// AI SDK V4 generated source citation.
-pub type LanguageModelV4Source = Source;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4Source {
+    /// Fixed AI SDK type marker. Serialized as `type: "source"`.
+    #[serde(rename = "type", default)]
+    kind: SourceMarker,
+    /// Source id.
+    pub id: String,
+    /// Strict URL/document source union.
+    #[serde(flatten)]
+    pub source: SourcePart,
+    /// Additional provider metadata for the source.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4Source {
+    /// Create a URL-backed source without a title.
+    pub fn url(id: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: id.into(),
+            source: SourcePart::Url {
+                url: url.into(),
+                title: None,
+            },
+            provider_metadata: None,
+        }
+    }
+
+    /// Create a URL-backed source with a title.
+    pub fn url_with_title(
+        id: impl Into<String>,
+        url: impl Into<String>,
+        title: impl Into<String>,
+    ) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: id.into(),
+            source: SourcePart::Url {
+                url: url.into(),
+                title: Some(title.into()),
+            },
+            provider_metadata: None,
+        }
+    }
+
+    /// Create a document-backed source.
+    pub fn document(
+        id: impl Into<String>,
+        media_type: impl Into<String>,
+        title: impl Into<String>,
+        filename: Option<String>,
+    ) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: id.into(),
+            source: SourcePart::Document {
+                media_type: media_type.into(),
+                title: title.into(),
+                filename,
+            },
+            provider_metadata: None,
+        }
+    }
+
+    /// Project a stable source onto the V4 provider content shape.
+    pub fn from_source(source: &Source) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: source.id.clone(),
+            source: source.source.clone(),
+            provider_metadata: language_model_v4_provider_metadata_from_stable(
+                &source.provider_metadata,
+            ),
+        }
+    }
+
+    /// Return the AI SDK V4 source marker.
+    pub const fn r#type(&self) -> &'static str {
+        "source"
+    }
+
+    /// Return the source-type discriminator.
+    pub fn source_type(&self) -> &'static str {
+        self.source.source_type()
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+}
+
+impl From<Source> for LanguageModelV4Source {
+    fn from(value: Source) -> Self {
+        Self::from_source(&value)
+    }
+}
+
+impl From<&Source> for LanguageModelV4Source {
+    fn from(value: &Source) -> Self {
+        Self::from_source(value)
+    }
+}
+
+impl From<LanguageModelV4Source> for Source {
+    fn from(value: LanguageModelV4Source) -> Self {
+        Self {
+            kind: SourceMarker::Source,
+            id: value.id,
+            source: value.source,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
 
 /// AI SDK V4 generated file content.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -9876,7 +10182,9 @@ pub struct LanguageModelV4File {
         rename = "providerMetadata",
         alias = "provider_metadata",
         default,
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
     )]
     pub provider_metadata: Option<ProviderMetadata>,
 }
@@ -9900,6 +10208,14 @@ impl LanguageModelV4File {
         Self::new(file.base64, file.media_type)
     }
 
+    /// Project a stable file output onto the V4 provider content shape.
+    pub fn from_file_output(output: &FileOutput) -> Self {
+        let mut content = Self::from_generated_file(output.file.clone());
+        content.provider_metadata =
+            language_model_v4_provider_metadata_from_stable(&output.provider_metadata);
+        content
+    }
+
     /// Attach provider metadata.
     pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
         self.provider_metadata = Some(provider_metadata);
@@ -9909,6 +10225,18 @@ impl LanguageModelV4File {
     /// Return the AI SDK V4 content discriminator.
     pub const fn r#type(&self) -> &'static str {
         "file"
+    }
+}
+
+impl From<FileOutput> for LanguageModelV4File {
+    fn from(value: FileOutput) -> Self {
+        Self::from_file_output(&value)
+    }
+}
+
+impl From<&FileOutput> for LanguageModelV4File {
+    fn from(value: &FileOutput) -> Self {
+        Self::from_file_output(value)
     }
 }
 
@@ -9927,7 +10255,9 @@ pub struct LanguageModelV4ReasoningFile {
         rename = "providerMetadata",
         alias = "provider_metadata",
         default,
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
     )]
     pub provider_metadata: Option<ProviderMetadata>,
 }
@@ -9951,6 +10281,14 @@ impl LanguageModelV4ReasoningFile {
         Self::new(file.base64, file.media_type)
     }
 
+    /// Project a stable reasoning-file output onto the V4 provider content shape.
+    pub fn from_reasoning_file_output(output: &ReasoningFileOutput) -> Self {
+        let mut content = Self::from_generated_file(output.file.clone());
+        content.provider_metadata =
+            language_model_v4_provider_metadata_from_stable(&output.provider_metadata);
+        content
+    }
+
     /// Attach provider metadata.
     pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
         self.provider_metadata = Some(provider_metadata);
@@ -9960,6 +10298,18 @@ impl LanguageModelV4ReasoningFile {
     /// Return the AI SDK V4 content discriminator.
     pub const fn r#type(&self) -> &'static str {
         "reasoning-file"
+    }
+}
+
+impl From<ReasoningFileOutput> for LanguageModelV4ReasoningFile {
+    fn from(value: ReasoningFileOutput) -> Self {
+        Self::from_reasoning_file_output(&value)
+    }
+}
+
+impl From<&ReasoningFileOutput> for LanguageModelV4ReasoningFile {
+    fn from(value: &ReasoningFileOutput) -> Self {
+        Self::from_reasoning_file_output(value)
     }
 }
 
@@ -9992,7 +10342,9 @@ pub struct LanguageModelV4ToolCall {
         rename = "providerMetadata",
         alias = "provider_metadata",
         default,
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
     )]
     pub provider_metadata: Option<ProviderMetadata>,
 }
@@ -10026,6 +10378,26 @@ impl LanguageModelV4ToolCall {
             tool_name,
             serde_json::to_string(&input)?,
         ))
+    }
+
+    /// Project a stable tool call onto the V4 provider content shape.
+    pub fn from_tool_call<NAME, INPUT>(
+        tool_call: &ToolCall<NAME, INPUT>,
+    ) -> Result<Self, serde_json::Error>
+    where
+        NAME: ToString,
+        INPUT: Serialize,
+    {
+        let mut content = Self::from_json_input(
+            tool_call.tool_call_id.clone(),
+            tool_call.tool_name.to_string(),
+            &tool_call.input,
+        )?;
+        content.provider_executed = tool_call.provider_executed;
+        content.dynamic = tool_call.dynamic;
+        content.provider_metadata =
+            language_model_v4_provider_metadata_from_stable(&tool_call.provider_metadata);
+        Ok(content)
     }
 
     /// Mark whether the tool call will be executed by the provider.
@@ -10088,7 +10460,9 @@ pub struct LanguageModelV4ToolResult {
         rename = "providerMetadata",
         alias = "provider_metadata",
         default,
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
     )]
     pub provider_metadata: Option<ProviderMetadata>,
 }
@@ -10110,6 +10484,41 @@ impl LanguageModelV4ToolResult {
             dynamic: None,
             provider_metadata: None,
         }
+    }
+
+    /// Project a stable provider-executed tool result onto the V4 provider content shape.
+    pub fn from_tool_result<NAME, INPUT, OUTPUT>(
+        tool_result: &ToolResult<NAME, INPUT, OUTPUT>,
+    ) -> Option<Self>
+    where
+        NAME: ToString,
+        OUTPUT: Clone + Into<ToolResultOutput>,
+    {
+        let output = tool_result.output.clone().into();
+        let (result, is_error) = match output {
+            ToolResultOutput::Json { value, .. } => (value, false),
+            ToolResultOutput::Text { value, .. } => (serde_json::Value::String(value), false),
+            ToolResultOutput::ErrorText { value, .. } => (serde_json::Value::String(value), true),
+            ToolResultOutput::ErrorJson { value, .. } => (value, true),
+            ToolResultOutput::Content { .. } | ToolResultOutput::ExecutionDenied { .. } => {
+                return None;
+            }
+        };
+        if result.is_null() {
+            return None;
+        }
+
+        let mut content = Self::new(
+            tool_result.tool_call_id.clone(),
+            tool_result.tool_name.to_string(),
+            result,
+        );
+        content.is_error = is_error.then_some(true);
+        content.preliminary = tool_result.preliminary;
+        content.dynamic = tool_result.dynamic;
+        content.provider_metadata =
+            language_model_v4_provider_metadata_from_stable(&tool_result.provider_metadata);
+        Some(content)
     }
 
     /// Mark whether the result represents an error.
@@ -10158,7 +10567,9 @@ pub struct LanguageModelV4ToolApprovalRequest {
         rename = "providerMetadata",
         alias = "provider_metadata",
         default,
-        skip_serializing_if = "Option::is_none"
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
     )]
     pub provider_metadata: Option<ProviderMetadata>,
 }
@@ -10224,9 +10635,33 @@ impl From<LanguageModelV4Text> for LanguageModelV4Content {
     }
 }
 
+impl From<TextOutput> for LanguageModelV4Content {
+    fn from(value: TextOutput) -> Self {
+        Self::Text(LanguageModelV4Text::from(value))
+    }
+}
+
+impl From<&TextOutput> for LanguageModelV4Content {
+    fn from(value: &TextOutput) -> Self {
+        Self::Text(LanguageModelV4Text::from(value))
+    }
+}
+
 impl From<LanguageModelV4Reasoning> for LanguageModelV4Content {
     fn from(value: LanguageModelV4Reasoning) -> Self {
         Self::Reasoning(value)
+    }
+}
+
+impl From<ReasoningOutput> for LanguageModelV4Content {
+    fn from(value: ReasoningOutput) -> Self {
+        Self::Reasoning(LanguageModelV4Reasoning::from(value))
+    }
+}
+
+impl From<&ReasoningOutput> for LanguageModelV4Content {
+    fn from(value: &ReasoningOutput) -> Self {
+        Self::Reasoning(LanguageModelV4Reasoning::from(value))
     }
 }
 
@@ -10242,9 +10677,33 @@ impl From<LanguageModelV4ReasoningFile> for LanguageModelV4Content {
     }
 }
 
+impl From<ReasoningFileOutput> for LanguageModelV4Content {
+    fn from(value: ReasoningFileOutput) -> Self {
+        Self::ReasoningFile(LanguageModelV4ReasoningFile::from(value))
+    }
+}
+
+impl From<&ReasoningFileOutput> for LanguageModelV4Content {
+    fn from(value: &ReasoningFileOutput) -> Self {
+        Self::ReasoningFile(LanguageModelV4ReasoningFile::from(value))
+    }
+}
+
 impl From<LanguageModelV4File> for LanguageModelV4Content {
     fn from(value: LanguageModelV4File) -> Self {
         Self::File(value)
+    }
+}
+
+impl From<FileOutput> for LanguageModelV4Content {
+    fn from(value: FileOutput) -> Self {
+        Self::File(LanguageModelV4File::from(value))
+    }
+}
+
+impl From<&FileOutput> for LanguageModelV4Content {
+    fn from(value: &FileOutput) -> Self {
+        Self::File(LanguageModelV4File::from(value))
     }
 }
 
@@ -10257,6 +10716,18 @@ impl From<LanguageModelV4ToolApprovalRequest> for LanguageModelV4Content {
 impl From<LanguageModelV4Source> for LanguageModelV4Content {
     fn from(value: LanguageModelV4Source) -> Self {
         Self::Source(value)
+    }
+}
+
+impl From<Source> for LanguageModelV4Content {
+    fn from(value: Source) -> Self {
+        Self::Source(LanguageModelV4Source::from(value))
+    }
+}
+
+impl From<&Source> for LanguageModelV4Content {
+    fn from(value: &Source) -> Self {
+        Self::Source(LanguageModelV4Source::from(value))
     }
 }
 
@@ -10545,7 +11016,12 @@ pub struct LanguageModelV4GenerateResult {
     /// Usage information.
     pub usage: LanguageModelV4Usage,
     /// Provider-specific metadata.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_language_model_v4_provider_metadata",
+        serialize_with = "serialize_optional_language_model_v4_provider_metadata"
+    )]
     pub provider_metadata: Option<ProviderMetadata>,
     /// Optional request information.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -15775,6 +16251,114 @@ mod tests {
             })
         );
         assert!(json["value"][0]["providerOptions"].get("legacy").is_none());
+    }
+
+    #[test]
+    fn language_model_v4_provider_metadata_requires_object_values() {
+        assert!(
+            serde_json::from_value::<LanguageModelV4Text>(serde_json::json!({
+                "type": "text",
+                "text": "hello",
+                "providerMetadata": {
+                    "openai": "not-an-object"
+                }
+            }))
+            .is_err()
+        );
+
+        let invalid_provider_metadata =
+            ProviderMetadata::from([("openai".to_string(), serde_json::json!("not-an-object"))]);
+        let invalid_content =
+            LanguageModelV4Text::new("hello").with_provider_metadata(invalid_provider_metadata);
+        assert!(serde_json::to_value(&invalid_content).is_err());
+
+        let invalid_result = serde_json::json!({
+            "content": [
+                {
+                    "type": "text",
+                    "text": "hello"
+                }
+            ],
+            "finishReason": {
+                "unified": "stop"
+            },
+            "usage": {
+                "inputTokens": {},
+                "outputTokens": {}
+            },
+            "providerMetadata": {
+                "openai": 42
+            },
+            "warnings": []
+        });
+        assert!(serde_json::from_value::<LanguageModelV4GenerateResult>(invalid_result).is_err());
+
+        let valid_json = serde_json::json!({
+            "type": "text",
+            "text": "hello",
+            "providerMetadata": {
+                "openai": {
+                    "itemId": "msg_1"
+                }
+            }
+        });
+        let valid_content: LanguageModelV4Text =
+            serde_json::from_value(valid_json.clone()).expect("deserialize V4 text metadata");
+        assert_eq!(
+            serde_json::to_value(&valid_content).expect("serialize V4 text metadata"),
+            valid_json
+        );
+    }
+
+    #[test]
+    fn language_model_v4_content_projection_filters_non_object_provider_metadata() {
+        let provider_metadata = ProviderMetadata::from([
+            (
+                "openai".to_string(),
+                serde_json::json!({ "itemId": "msg_1" }),
+            ),
+            ("legacy".to_string(), serde_json::json!("drop")),
+        ]);
+
+        let text = TextOutput::new("hello").with_provider_metadata(provider_metadata.clone());
+        let projected_text = LanguageModelV4Text::from_text_output(&text);
+        let text_json = serde_json::to_value(&projected_text).expect("serialize projected text");
+        assert_eq!(
+            text_json["providerMetadata"],
+            serde_json::json!({
+                "openai": {
+                    "itemId": "msg_1"
+                }
+            })
+        );
+        assert!(text_json["providerMetadata"].get("legacy").is_none());
+
+        let source = Source::url("src_1", "https://example.com")
+            .with_provider_metadata(provider_metadata.clone());
+        let projected_source = LanguageModelV4Source::from_source(&source);
+        let source_json =
+            serde_json::to_value(&projected_source).expect("serialize projected source");
+        assert_eq!(
+            source_json["providerMetadata"]["openai"]["itemId"],
+            serde_json::json!("msg_1")
+        );
+        assert!(source_json["providerMetadata"].get("legacy").is_none());
+
+        let custom = CustomOutput::new("openai.compaction")
+            .with_provider_metadata(provider_metadata.clone());
+        let projected_custom = LanguageModelV4CustomContent::try_from_custom_output(&custom)
+            .expect("valid custom output");
+        let custom_json =
+            serde_json::to_value(&projected_custom).expect("serialize projected custom output");
+        assert_eq!(
+            custom_json["providerMetadata"]["openai"]["itemId"],
+            serde_json::json!("msg_1")
+        );
+        assert!(custom_json["providerMetadata"].get("legacy").is_none());
+
+        let content: LanguageModelV4Content = text.into();
+        let content_json = serde_json::to_value(&content).expect("serialize projected content");
+        assert!(content_json["providerMetadata"].get("legacy").is_none());
     }
 
     #[test]

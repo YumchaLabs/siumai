@@ -75,7 +75,9 @@ Status legend:
     like upstream `NonNullable<JSONValue>`. AI SDK-facing `CallWarning` payloads now also use the
     strict shared V4 warning union, with stable legacy warning variants normalized during result
     projection. V4 custom generated content now validates the upstream `{provider}.{provider-type}`
-    `kind` boundary separately from stable custom output compatibility.
+    `kind` boundary separately from stable custom output compatibility. V4 generated content and
+    generate-result `providerMetadata` now also enforce upstream `SharedV4ProviderMetadata`
+    object-only provider values while filtering wider stable metadata during projection.
   - `LanguageModelV4Usage` now owns provider-facing `u64` token carriers instead of aliasing the
     stable Rust `UsageInputTokens` / `UsageOutputTokens` `u32` compatibility structs, so V4
     overlays match upstream `number | undefined` usage counts while stable runtime usage remains
@@ -1308,6 +1310,7 @@ This branch now has a clearer baseline than the first draft of the workstream:
 - first-class V4 `custom` and `reasoning-file`
 - explicit V4 tool-result content modeling
 - object-only V4 provider-facing `providerOptions` overlays
+- object-only V4 provider-facing `providerMetadata` overlays for generated content/results
 - a V4-capable typed stream-part overlay with `custom` / `reasoning-file`
 - a first-class runtime `ChatStreamEvent::Part(ChatStreamPart)` semantic channel
 - partial but explicit provider coverage for those new stable parts

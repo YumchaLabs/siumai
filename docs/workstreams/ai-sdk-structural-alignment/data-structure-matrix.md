@@ -455,10 +455,14 @@ the wider prompt `LanguageModelV4DataContent` helper, because upstream output fi
 rejects `null` at the serde boundary to match upstream `NonNullable<JSONValue>`. Provider-facing
 custom prompt/output overlays also validate the upstream `{provider}.{provider-type}` `kind`
 shape instead of inheriting the stable custom layer's arbitrary string compatibility.
-`LanguageModelV4GenerateResult` groups that content with V4 finish reason, V4 usage, provider
-metadata, request/response telemetry, and strict shared V4 `CallWarning` payloads; stable legacy
-warning variants normalize to canonical `unsupported { feature, details }` before reaching this
-AI SDK result layer. `LanguageModelV4StreamResult<STREAM>` keeps the same request/response envelope
+Generated `LanguageModelV4Text`, `LanguageModelV4Reasoning`, and `LanguageModelV4Source` now own
+dedicated V4 overlays instead of aliasing the wider stable output/source structs, so
+provider-facing `providerMetadata` can enforce upstream `SharedV4ProviderMetadata =
+Record<string, JSONObject>` while stable `ProviderMetadataMap` remains compatible with wider JSON
+values. `LanguageModelV4GenerateResult` groups that content with V4 finish reason, V4 usage,
+provider metadata, request/response telemetry, and strict shared V4 `CallWarning` payloads; stable
+legacy warning variants normalize to canonical `unsupported { feature, details }` before reaching
+this AI SDK result layer. `LanguageModelV4StreamResult<STREAM>` keeps the same request/response envelope
 while leaving the Rust stream carrier generic instead of pretending to be JavaScript
 `ReadableStream`. The provider-facing `LanguageModelV4Usage` token carriers are
 now independent `u64` structs rather than aliases to the stable `Usage` layer's `u32`

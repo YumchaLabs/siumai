@@ -79,6 +79,10 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK V4 prompt `providerOptions` now use a provider-facing object-only overlay matching
   upstream `SharedV4ProviderOptions = Record<string, JSONObject>`; stable prompt/tool-result
   projections filter non-object provider option entries instead of emitting invalid V4 shapes.
+- AI SDK V4 generated content/result `providerMetadata` now use a provider-facing object-only
+  overlay matching upstream `SharedV4ProviderMetadata = Record<string, JSONObject>`; stable
+  output/source projections filter non-object metadata entries while the wider stable
+  `ProviderMetadataMap` remains backward-compatible.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and
