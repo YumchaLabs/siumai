@@ -83,6 +83,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
   overlay matching upstream `SharedV4ProviderMetadata = Record<string, JSONObject>`; stable
   output/source projections filter non-object metadata entries while the wider stable
   `ProviderMetadataMap` remains backward-compatible.
+- AI SDK V4 stream parts now use a dedicated provider-facing stream overlay instead of aliasing
+  the historical V3 stream union, so streamed `providerMetadata` follows the same object-only V4
+  boundary while V3 compatibility parsing remains permissive.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and

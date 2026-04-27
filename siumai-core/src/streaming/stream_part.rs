@@ -26,7 +26,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// to preserve metadata for forward compatibility.
 pub type SharedV3ProviderMetadata = crate::types::ProviderMetadataMap;
 
-/// V4-capable provider-metadata alias kept alongside the historical V3 compatibility name.
+/// Provider-facing V4 metadata root.
+///
+/// The Rust carrier stays compatible with the shared stable map, but V4 serde/projection helpers
+/// enforce AI SDK `SharedV4ProviderMetadata = Record<string, JSONObject>` at provider boundaries.
 pub type SharedV4ProviderMetadata = SharedV3ProviderMetadata;
 
 fn serialize_stream_part_non_null_json_value<S>(
@@ -55,6 +58,94 @@ where
     }
 
     Ok(value)
+}
+
+fn stream_v4_provider_metadata_from_stable(
+    metadata: Option<crate::types::ProviderMetadataMap>,
+) -> Option<SharedV4ProviderMetadata> {
+    let projected: SharedV4ProviderMetadata = metadata?
+        .into_iter()
+        .filter(|(_, value)| value.is_object())
+        .collect();
+
+    (!projected.is_empty()).then_some(projected)
+}
+
+fn stream_v4_provider_metadata_are_object_shaped(metadata: &SharedV4ProviderMetadata) -> bool {
+    metadata.values().all(serde_json::Value::is_object)
+}
+
+fn serialize_optional_stream_v4_provider_metadata<S>(
+    metadata: &Option<SharedV4ProviderMetadata>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if let Some(metadata) = metadata {
+        if !stream_v4_provider_metadata_are_object_shaped(metadata) {
+            return Err(serde::ser::Error::custom(
+                "expected AI SDK V4 providerMetadata values to be JSON objects",
+            ));
+        }
+    }
+
+    metadata.serialize(serializer)
+}
+
+fn deserialize_optional_stream_v4_provider_metadata<'de, D>(
+    deserializer: D,
+) -> Result<Option<SharedV4ProviderMetadata>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let metadata = Option::<SharedV4ProviderMetadata>::deserialize(deserializer)?;
+    if let Some(metadata) = &metadata {
+        if !stream_v4_provider_metadata_are_object_shaped(metadata) {
+            return Err(serde::de::Error::custom(
+                "expected AI SDK V4 providerMetadata values to be JSON objects",
+            ));
+        }
+    }
+
+    Ok(metadata)
+}
+
+fn is_language_model_v4_stream_custom_kind(kind: &str) -> bool {
+    kind.split_once('.')
+        .is_some_and(|(provider, custom_type)| !provider.is_empty() && !custom_type.is_empty())
+}
+
+fn serialize_language_model_v4_stream_custom_kind<S>(
+    kind: &str,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if !is_language_model_v4_stream_custom_kind(kind) {
+        return Err(serde::ser::Error::custom(
+            "expected AI SDK V4 custom kind in `{provider}.{provider-type}` format",
+        ));
+    }
+
+    serializer.serialize_str(kind)
+}
+
+fn deserialize_language_model_v4_stream_custom_kind<'de, D>(
+    deserializer: D,
+) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let kind = String::deserialize(deserializer)?;
+    if !is_language_model_v4_stream_custom_kind(&kind) {
+        return Err(serde::de::Error::custom(
+            "expected AI SDK V4 custom kind in `{provider}.{provider-type}` format",
+        ));
+    }
+
+    Ok(kind)
 }
 
 /// Shared warning type (Vercel-aligned).
@@ -179,8 +270,32 @@ pub struct LanguageModelV3ToolCall {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4 stream tool-call payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamToolCall = LanguageModelV3ToolCall;
+/// V4 stream tool-call payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4StreamToolCall {
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    /// Stringified JSON tool arguments (Vercel expects a JSON string).
+    pub input: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerExecuted"
+    )]
+    pub provider_executed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata",
+        deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+        serialize_with = "serialize_optional_stream_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<SharedV4ProviderMetadata>,
+}
 
 /// Tool result (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -208,8 +323,33 @@ pub struct LanguageModelV3ToolResult {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4 stream tool-result payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamToolResult = LanguageModelV3ToolResult;
+/// V4 stream tool-result payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4StreamToolResult {
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    #[serde(
+        deserialize_with = "deserialize_stream_part_non_null_json_value",
+        serialize_with = "serialize_stream_part_non_null_json_value"
+    )]
+    pub result: serde_json::Value,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "isError")]
+    pub is_error: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preliminary: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dynamic: Option<bool>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata",
+        deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+        serialize_with = "serialize_optional_stream_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<SharedV4ProviderMetadata>,
+}
 
 /// Tool approval request (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -226,8 +366,22 @@ pub struct LanguageModelV3ToolApprovalRequest {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4 stream tool-approval payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamToolApprovalRequest = LanguageModelV3ToolApprovalRequest;
+/// V4 stream tool-approval payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4StreamToolApprovalRequest {
+    #[serde(rename = "approvalId")]
+    pub approval_id: String,
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata",
+        deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+        serialize_with = "serialize_optional_stream_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<SharedV4ProviderMetadata>,
+}
 
 /// File part (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -243,8 +397,21 @@ pub struct LanguageModelV3File {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4 stream file payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamFile = LanguageModelV3File;
+/// V4 stream file payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4StreamFile {
+    #[serde(rename = "mediaType")]
+    pub media_type: String,
+    pub data: LanguageModelV4StreamFileData,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata",
+        deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+        serialize_with = "serialize_optional_stream_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<SharedV4ProviderMetadata>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
@@ -270,8 +437,21 @@ pub struct LanguageModelV3ReasoningFile {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4 stream reasoning-file payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamReasoningFile = LanguageModelV3ReasoningFile;
+/// V4 stream reasoning-file payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4StreamReasoningFile {
+    #[serde(rename = "mediaType")]
+    pub media_type: String,
+    pub data: LanguageModelV4StreamFileData,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata",
+        deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+        serialize_with = "serialize_optional_stream_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<SharedV4ProviderMetadata>,
+}
 
 /// Custom content part (Vercel AI SDK V4 aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -285,8 +465,23 @@ pub struct LanguageModelV3CustomContent {
     pub provider_metadata: Option<SharedV3ProviderMetadata>,
 }
 
-/// V4 stream custom-content payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamCustomContent = LanguageModelV3CustomContent;
+/// V4 stream custom-content payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4StreamCustomContent {
+    #[serde(
+        deserialize_with = "deserialize_language_model_v4_stream_custom_kind",
+        serialize_with = "serialize_language_model_v4_stream_custom_kind"
+    )]
+    pub kind: String,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        rename = "providerMetadata",
+        deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+        serialize_with = "serialize_optional_stream_v4_provider_metadata"
+    )]
+    pub provider_metadata: Option<SharedV4ProviderMetadata>,
+}
 
 /// Source part (Vercel-aligned).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -320,8 +515,41 @@ pub enum LanguageModelV3Source {
     },
 }
 
-/// V4 stream source payload kept alongside the historical V3 compatibility name.
-pub type LanguageModelV4StreamSource = LanguageModelV3Source;
+/// V4 stream source payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "sourceType", rename_all = "lowercase")]
+pub enum LanguageModelV4StreamSource {
+    Url {
+        id: String,
+        url: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+    Document {
+        id: String,
+        #[serde(rename = "mediaType")]
+        media_type: String,
+        title: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        filename: Option<String>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+}
 
 /// Typed Vercel stream part union.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -462,11 +690,164 @@ pub enum LanguageModelV3StreamPart {
     },
 }
 
-/// Public V4-capable alias over the upgraded historical stream-part overlay.
-///
-/// This keeps the existing `LanguageModelV3StreamPart` name available for compatibility while
-/// giving callers a less confusing AI SDK-aligned name for new code.
-pub type LanguageModelV4StreamPart = LanguageModelV3StreamPart;
+/// Provider-facing AI SDK V4 stream part union.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum LanguageModelV4StreamPart {
+    TextStart {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+    TextDelta {
+        id: String,
+        delta: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+    TextEnd {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+
+    ReasoningStart {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+    ReasoningDelta {
+        id: String,
+        delta: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+    ReasoningEnd {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+
+    ToolInputStart {
+        id: String,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerExecuted"
+        )]
+        provider_executed: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dynamic: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+    },
+    ToolInputDelta {
+        id: String,
+        delta: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+    ToolInputEnd {
+        id: String,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+
+    ToolApprovalRequest(LanguageModelV4StreamToolApprovalRequest),
+    ToolCall(LanguageModelV4StreamToolCall),
+    ToolResult(LanguageModelV4StreamToolResult),
+    Custom(LanguageModelV4StreamCustomContent),
+    File(LanguageModelV4StreamFile),
+    ReasoningFile(LanguageModelV4StreamReasoningFile),
+    Source(LanguageModelV4StreamSource),
+
+    StreamStart {
+        warnings: Vec<SharedV4Warning>,
+    },
+
+    ResponseMetadata(LanguageModelV4StreamResponseMetadata),
+
+    Finish {
+        usage: LanguageModelV4StreamUsage,
+        #[serde(rename = "finishReason")]
+        finish_reason: LanguageModelV4StreamFinishReason,
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            rename = "providerMetadata",
+            deserialize_with = "deserialize_optional_stream_v4_provider_metadata",
+            serialize_with = "serialize_optional_stream_v4_provider_metadata"
+        )]
+        provider_metadata: Option<SharedV4ProviderMetadata>,
+    },
+
+    Raw {
+        #[serde(rename = "rawValue")]
+        raw_value: serde_json::Value,
+    },
+
+    Error {
+        error: serde_json::Value,
+    },
+}
 
 /// Target namespace used when formatting a stream part into provider-specific custom events.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -710,6 +1091,416 @@ impl From<LanguageModelV3ReasoningFile> for ChatStreamFilePart {
             media_type: value.media_type,
             data: value.data.into(),
             provider_metadata: stream_metadata_to_hashmap(value.provider_metadata),
+        }
+    }
+}
+
+impl From<LanguageModelV3ToolApprovalRequest> for LanguageModelV4StreamToolApprovalRequest {
+    fn from(value: LanguageModelV3ToolApprovalRequest) -> Self {
+        Self {
+            approval_id: value.approval_id,
+            tool_call_id: value.tool_call_id,
+            provider_metadata: stream_v4_provider_metadata_from_stable(value.provider_metadata),
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamToolApprovalRequest> for LanguageModelV3ToolApprovalRequest {
+    fn from(value: LanguageModelV4StreamToolApprovalRequest) -> Self {
+        Self {
+            approval_id: value.approval_id,
+            tool_call_id: value.tool_call_id,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
+
+impl From<LanguageModelV3ToolCall> for LanguageModelV4StreamToolCall {
+    fn from(value: LanguageModelV3ToolCall) -> Self {
+        Self {
+            tool_call_id: value.tool_call_id,
+            tool_name: value.tool_name,
+            input: value.input,
+            provider_executed: value.provider_executed,
+            dynamic: value.dynamic,
+            provider_metadata: stream_v4_provider_metadata_from_stable(value.provider_metadata),
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamToolCall> for LanguageModelV3ToolCall {
+    fn from(value: LanguageModelV4StreamToolCall) -> Self {
+        Self {
+            tool_call_id: value.tool_call_id,
+            tool_name: value.tool_name,
+            input: value.input,
+            provider_executed: value.provider_executed,
+            dynamic: value.dynamic,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
+
+impl From<LanguageModelV3ToolResult> for LanguageModelV4StreamToolResult {
+    fn from(value: LanguageModelV3ToolResult) -> Self {
+        Self {
+            tool_call_id: value.tool_call_id,
+            tool_name: value.tool_name,
+            result: value.result,
+            is_error: value.is_error,
+            preliminary: value.preliminary,
+            dynamic: value.dynamic,
+            provider_metadata: stream_v4_provider_metadata_from_stable(value.provider_metadata),
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamToolResult> for LanguageModelV3ToolResult {
+    fn from(value: LanguageModelV4StreamToolResult) -> Self {
+        Self {
+            tool_call_id: value.tool_call_id,
+            tool_name: value.tool_name,
+            result: value.result,
+            is_error: value.is_error,
+            preliminary: value.preliminary,
+            dynamic: value.dynamic,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
+
+impl From<LanguageModelV3CustomContent> for LanguageModelV4StreamCustomContent {
+    fn from(value: LanguageModelV3CustomContent) -> Self {
+        Self {
+            kind: value.kind,
+            provider_metadata: stream_v4_provider_metadata_from_stable(value.provider_metadata),
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamCustomContent> for LanguageModelV3CustomContent {
+    fn from(value: LanguageModelV4StreamCustomContent) -> Self {
+        Self {
+            kind: value.kind,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
+
+impl From<LanguageModelV3File> for LanguageModelV4StreamFile {
+    fn from(value: LanguageModelV3File) -> Self {
+        Self {
+            media_type: value.media_type,
+            data: value.data,
+            provider_metadata: stream_v4_provider_metadata_from_stable(value.provider_metadata),
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamFile> for LanguageModelV3File {
+    fn from(value: LanguageModelV4StreamFile) -> Self {
+        Self {
+            media_type: value.media_type,
+            data: value.data,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
+
+impl From<LanguageModelV3ReasoningFile> for LanguageModelV4StreamReasoningFile {
+    fn from(value: LanguageModelV3ReasoningFile) -> Self {
+        Self {
+            media_type: value.media_type,
+            data: value.data,
+            provider_metadata: stream_v4_provider_metadata_from_stable(value.provider_metadata),
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamReasoningFile> for LanguageModelV3ReasoningFile {
+    fn from(value: LanguageModelV4StreamReasoningFile) -> Self {
+        Self {
+            media_type: value.media_type,
+            data: value.data,
+            provider_metadata: value.provider_metadata,
+        }
+    }
+}
+
+impl From<LanguageModelV3Source> for LanguageModelV4StreamSource {
+    fn from(value: LanguageModelV3Source) -> Self {
+        match value {
+            LanguageModelV3Source::Url {
+                id,
+                url,
+                title,
+                provider_metadata,
+            } => Self::Url {
+                id,
+                url,
+                title,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3Source::Document {
+                id,
+                media_type,
+                title,
+                filename,
+                provider_metadata,
+            } => Self::Document {
+                id,
+                media_type,
+                title,
+                filename,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamSource> for LanguageModelV3Source {
+    fn from(value: LanguageModelV4StreamSource) -> Self {
+        match value {
+            LanguageModelV4StreamSource::Url {
+                id,
+                url,
+                title,
+                provider_metadata,
+            } => Self::Url {
+                id,
+                url,
+                title,
+                provider_metadata,
+            },
+            LanguageModelV4StreamSource::Document {
+                id,
+                media_type,
+                title,
+                filename,
+                provider_metadata,
+            } => Self::Document {
+                id,
+                media_type,
+                title,
+                filename,
+                provider_metadata,
+            },
+        }
+    }
+}
+
+impl From<LanguageModelV3StreamPart> for LanguageModelV4StreamPart {
+    fn from(value: LanguageModelV3StreamPart) -> Self {
+        match value {
+            LanguageModelV3StreamPart::TextStart {
+                id,
+                provider_metadata,
+            } => Self::TextStart {
+                id,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::TextDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => Self::TextDelta {
+                id,
+                delta,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::TextEnd {
+                id,
+                provider_metadata,
+            } => Self::TextEnd {
+                id,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::ReasoningStart {
+                id,
+                provider_metadata,
+            } => Self::ReasoningStart {
+                id,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::ReasoningDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => Self::ReasoningDelta {
+                id,
+                delta,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::ReasoningEnd {
+                id,
+                provider_metadata,
+            } => Self::ReasoningEnd {
+                id,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::ToolInputStart {
+                id,
+                tool_name,
+                provider_metadata,
+                provider_executed,
+                dynamic,
+                title,
+            } => Self::ToolInputStart {
+                id,
+                tool_name,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+                provider_executed,
+                dynamic,
+                title,
+            },
+            LanguageModelV3StreamPart::ToolInputDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => Self::ToolInputDelta {
+                id,
+                delta,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::ToolInputEnd {
+                id,
+                provider_metadata,
+            } => Self::ToolInputEnd {
+                id,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::ToolApprovalRequest(request) => {
+                Self::ToolApprovalRequest(request.into())
+            }
+            LanguageModelV3StreamPart::ToolCall(call) => Self::ToolCall(call.into()),
+            LanguageModelV3StreamPart::ToolResult(result) => Self::ToolResult(result.into()),
+            LanguageModelV3StreamPart::Custom(custom) => Self::Custom(custom.into()),
+            LanguageModelV3StreamPart::File(file) => Self::File(file.into()),
+            LanguageModelV3StreamPart::ReasoningFile(file) => Self::ReasoningFile(file.into()),
+            LanguageModelV3StreamPart::Source(source) => Self::Source(source.into()),
+            LanguageModelV3StreamPart::StreamStart { warnings } => Self::StreamStart { warnings },
+            LanguageModelV3StreamPart::ResponseMetadata(metadata) => {
+                Self::ResponseMetadata(metadata)
+            }
+            LanguageModelV3StreamPart::Finish {
+                usage,
+                finish_reason,
+                provider_metadata,
+            } => Self::Finish {
+                usage,
+                finish_reason,
+                provider_metadata: stream_v4_provider_metadata_from_stable(provider_metadata),
+            },
+            LanguageModelV3StreamPart::Raw { raw_value } => Self::Raw { raw_value },
+            LanguageModelV3StreamPart::Error { error } => Self::Error { error },
+        }
+    }
+}
+
+impl From<LanguageModelV4StreamPart> for LanguageModelV3StreamPart {
+    fn from(value: LanguageModelV4StreamPart) -> Self {
+        match value {
+            LanguageModelV4StreamPart::TextStart {
+                id,
+                provider_metadata,
+            } => Self::TextStart {
+                id,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::TextDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => Self::TextDelta {
+                id,
+                delta,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::TextEnd {
+                id,
+                provider_metadata,
+            } => Self::TextEnd {
+                id,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::ReasoningStart {
+                id,
+                provider_metadata,
+            } => Self::ReasoningStart {
+                id,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::ReasoningDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => Self::ReasoningDelta {
+                id,
+                delta,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::ReasoningEnd {
+                id,
+                provider_metadata,
+            } => Self::ReasoningEnd {
+                id,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::ToolInputStart {
+                id,
+                tool_name,
+                provider_metadata,
+                provider_executed,
+                dynamic,
+                title,
+            } => Self::ToolInputStart {
+                id,
+                tool_name,
+                provider_metadata,
+                provider_executed,
+                dynamic,
+                title,
+            },
+            LanguageModelV4StreamPart::ToolInputDelta {
+                id,
+                delta,
+                provider_metadata,
+            } => Self::ToolInputDelta {
+                id,
+                delta,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::ToolInputEnd {
+                id,
+                provider_metadata,
+            } => Self::ToolInputEnd {
+                id,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::ToolApprovalRequest(request) => {
+                Self::ToolApprovalRequest(request.into())
+            }
+            LanguageModelV4StreamPart::ToolCall(call) => Self::ToolCall(call.into()),
+            LanguageModelV4StreamPart::ToolResult(result) => Self::ToolResult(result.into()),
+            LanguageModelV4StreamPart::Custom(custom) => Self::Custom(custom.into()),
+            LanguageModelV4StreamPart::File(file) => Self::File(file.into()),
+            LanguageModelV4StreamPart::ReasoningFile(file) => Self::ReasoningFile(file.into()),
+            LanguageModelV4StreamPart::Source(source) => Self::Source(source.into()),
+            LanguageModelV4StreamPart::StreamStart { warnings } => Self::StreamStart { warnings },
+            LanguageModelV4StreamPart::ResponseMetadata(metadata) => {
+                Self::ResponseMetadata(metadata)
+            }
+            LanguageModelV4StreamPart::Finish {
+                usage,
+                finish_reason,
+                provider_metadata,
+            } => Self::Finish {
+                usage,
+                finish_reason,
+                provider_metadata,
+            },
+            LanguageModelV4StreamPart::Raw { raw_value } => Self::Raw { raw_value },
+            LanguageModelV4StreamPart::Error { error } => Self::Error { error },
         }
     }
 }
@@ -1379,6 +2170,121 @@ impl LanguageModelV3StreamPart {
     }
 }
 
+impl LanguageModelV4StreamPart {
+    /// Convert a stable runtime semantic part into the provider-facing V4 overlay.
+    pub fn from_runtime_part(part: ChatStreamPart) -> Self {
+        LanguageModelV3StreamPart::from_runtime_part(part).into()
+    }
+
+    /// Convert this V4 stream part into the stable runtime semantic part.
+    pub fn to_runtime_part(&self) -> ChatStreamPart {
+        let v3: LanguageModelV3StreamPart = self.clone().into();
+        v3.to_runtime_part()
+    }
+
+    /// Best-effort parse a V4 stream part from JSON while preserving V4 serde validation.
+    pub fn parse_loose_json(value: &serde_json::Value) -> Option<Self> {
+        let mut v = value.clone();
+
+        fn normalize_in_place(v: &mut serde_json::Value) {
+            let Some(obj) = v.as_object_mut() else {
+                return;
+            };
+            let Some(tpe) = obj.get("type").and_then(|v| v.as_str()) else {
+                return;
+            };
+
+            match tpe {
+                "tool-call" => {
+                    if let Some(input) = obj.get_mut("input")
+                        && !matches!(input, serde_json::Value::String(_))
+                        && let Ok(s) = serde_json::to_string(input)
+                    {
+                        *input = serde_json::Value::String(s);
+                    }
+                }
+                "finish" => {
+                    if let Some(fr) = obj.get_mut("finishReason")
+                        && let serde_json::Value::String(s) = fr
+                    {
+                        *fr = serde_json::json!({ "unified": s, "raw": serde_json::Value::Null });
+                    }
+                }
+                "source" => {
+                    if obj.get("sourceType").is_none()
+                        && let Some(st) = obj.remove("source_type")
+                    {
+                        obj.insert("sourceType".to_string(), st);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        normalize_in_place(&mut v);
+        serde_json::from_value::<LanguageModelV4StreamPart>(v).ok()
+    }
+
+    /// Best-effort parse from a `ChatStreamEvent`.
+    pub fn try_from_chat_event(ev: &ChatStreamEvent) -> Option<Self> {
+        match ev {
+            ChatStreamEvent::Part { part } => Some(Self::from_runtime_part(part.clone())),
+            ChatStreamEvent::PartWithReplay { part, .. } => {
+                Some(Self::from_runtime_part(part.clone()))
+            }
+            ChatStreamEvent::Custom { data, .. } => Self::parse_loose_json(data),
+            ChatStreamEvent::Error { error } => Some(Self::Error {
+                error: serde_json::json!(error),
+            }),
+            _ => None,
+        }
+    }
+
+    /// Format as a provider-specific protocol-side `ChatStreamEvent::Custom` (best-effort).
+    pub fn to_protocol_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
+        let data = serde_json::to_value(self).ok()?;
+        let v3: LanguageModelV3StreamPart = self.clone().into();
+        let ChatStreamEvent::Custom { event_type, .. } = v3.to_protocol_custom_event(ns)? else {
+            return None;
+        };
+
+        Some(ChatStreamEvent::Custom { event_type, data })
+    }
+
+    /// Legacy compatibility alias for provider protocol serializers.
+    #[inline]
+    pub fn to_custom_event(&self, ns: StreamPartNamespace) -> Option<ChatStreamEvent> {
+        self.to_protocol_custom_event(ns)
+    }
+
+    /// Convert this typed stream part into a first-class runtime stream part event.
+    pub fn to_part_event(&self) -> ChatStreamEvent {
+        ChatStreamEvent::Part {
+            part: self.to_runtime_part(),
+        }
+    }
+
+    /// Encode this stream part as an SSE `data: ...\n\n` frame.
+    pub fn to_data_sse_bytes(&self) -> Result<Vec<u8>, LlmError> {
+        let json = serde_json::to_string(self).map_err(|e| {
+            LlmError::ParseError(format!("Failed to serialize stream part JSON: {e}"))
+        })?;
+        Ok(format!("data: {json}\n\n").into_bytes())
+    }
+
+    /// Convert this typed stream part into best-effort `ChatStreamEvent`s.
+    pub fn to_best_effort_chat_events(&self) -> Vec<ChatStreamEvent> {
+        let v3: LanguageModelV3StreamPart = self.clone().into();
+        v3.to_best_effort_chat_events()
+    }
+
+    /// Convert a V4 stream part into a lossy text representation.
+    pub fn to_lossy_text(&self) -> Option<String> {
+        let v3: LanguageModelV3StreamPart = self.clone().into();
+        v3.to_lossy_text()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1709,6 +2615,93 @@ mod tests {
             }
             other => panic!("unexpected part: {other:?}"),
         }
+    }
+
+    #[test]
+    fn language_model_v4_stream_provider_metadata_requires_object_values() {
+        let invalid = serde_json::json!({
+            "type": "text-start",
+            "id": "0",
+            "providerMetadata": {
+                "openai": "not-an-object"
+            }
+        });
+        assert!(serde_json::from_value::<LanguageModelV4StreamPart>(invalid.clone()).is_err());
+        assert!(serde_json::from_value::<LanguageModelV3StreamPart>(invalid).is_ok());
+
+        let invalid_part = LanguageModelV4StreamPart::ToolCall(LanguageModelV4StreamToolCall {
+            tool_call_id: "call_1".to_string(),
+            tool_name: "weather".to_string(),
+            input: "{}".to_string(),
+            provider_executed: None,
+            dynamic: None,
+            provider_metadata: Some(std::collections::HashMap::from([(
+                "openai".to_string(),
+                serde_json::json!(false),
+            )])),
+        });
+        assert!(serde_json::to_value(&invalid_part).is_err());
+        assert!(
+            invalid_part
+                .to_protocol_custom_event(StreamPartNamespace::OpenAi)
+                .is_none()
+        );
+
+        let invalid_custom =
+            LanguageModelV4StreamPart::Custom(LanguageModelV4StreamCustomContent {
+                kind: "compaction".to_string(),
+                provider_metadata: None,
+            });
+        assert!(serde_json::to_value(&invalid_custom).is_err());
+        assert!(
+            invalid_custom
+                .to_protocol_custom_event(StreamPartNamespace::OpenAi)
+                .is_none()
+        );
+
+        let valid = serde_json::json!({
+            "type": "tool-call",
+            "toolCallId": "call_1",
+            "toolName": "weather",
+            "input": "{}",
+            "providerMetadata": {
+                "openai": {
+                    "itemId": "fc_1"
+                }
+            }
+        });
+        let part: LanguageModelV4StreamPart =
+            serde_json::from_value(valid.clone()).expect("deserialize V4 stream part");
+        assert_eq!(
+            serde_json::to_value(&part).expect("serialize V4 stream part"),
+            valid
+        );
+    }
+
+    #[test]
+    fn language_model_v4_stream_projection_filters_non_object_provider_metadata() {
+        let metadata = std::collections::HashMap::from([
+            (
+                "openai".to_string(),
+                serde_json::json!({ "itemId": "msg_1" }),
+            ),
+            ("legacy".to_string(), serde_json::json!("drop")),
+        ]);
+        let part = LanguageModelV4StreamPart::from_runtime_part(ChatStreamPart::TextStart {
+            id: "0".to_string(),
+            provider_metadata: Some(metadata),
+        });
+        let value = serde_json::to_value(&part).expect("serialize projected V4 stream part");
+
+        assert_eq!(
+            value["providerMetadata"],
+            serde_json::json!({
+                "openai": {
+                    "itemId": "msg_1"
+                }
+            })
+        );
+        assert!(value["providerMetadata"].get("legacy").is_none());
     }
 
     #[test]

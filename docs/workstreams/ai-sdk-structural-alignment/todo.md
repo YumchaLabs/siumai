@@ -123,6 +123,10 @@ Status legend:
   - `LanguageModelV4StreamPart` tool-result payloads now also reject `null` result values and the
     OpenAI Responses bridge drops invalid null tool-result custom events rather than surfacing a
     provider-facing part that violates upstream `NonNullable<JSONValue>`.
+  - `LanguageModelV4StreamPart` now owns a dedicated V4 provider-facing stream union instead of
+    aliasing `LanguageModelV3StreamPart`, so streamed `providerMetadata` enforces upstream
+    `SharedV4ProviderMetadata` object-only provider values while V3 compatibility parsing stays
+    permissive.
   - `AbstractChat`, `callCompletionApi`, and `convertFileListToFileUIParts` are intentionally
     deferred because they belong to the browser UI transport/state/FileList runtime rather than
     core passive data structures.
@@ -1311,7 +1315,8 @@ This branch now has a clearer baseline than the first draft of the workstream:
 - explicit V4 tool-result content modeling
 - object-only V4 provider-facing `providerOptions` overlays
 - object-only V4 provider-facing `providerMetadata` overlays for generated content/results
-- a V4-capable typed stream-part overlay with `custom` / `reasoning-file`
+- a dedicated V4 typed stream-part overlay with `custom` / `reasoning-file` and object-only
+  `providerMetadata`
 - a first-class runtime `ChatStreamEvent::Part(ChatStreamPart)` semantic channel
 - partial but explicit provider coverage for those new stable parts
 - OpenAI-compatible stable tool lifecycle emission plus first-source-wins mixed-stream deduplication
