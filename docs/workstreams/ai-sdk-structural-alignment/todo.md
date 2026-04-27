@@ -1,6 +1,6 @@
 # AI SDK Structural Alignment - TODO
 
-Last updated: 2026-04-26
+Last updated: 2026-04-27
 
 Status legend:
 
@@ -58,7 +58,9 @@ Status legend:
     reference data maps, filtered assistant approval requests, provider-executed approval
     responses with `providerOptions`, canonical V4 tool-result output content parts, JSON fallback
     for stable legacy content that V4 cannot express directly, V4 custom kind validation, and
-    adjacent tool-message coalescing.
+    adjacent tool-message coalescing. The provider-facing V4 overlay now also enforces
+    `providerOptions` values as JSON objects while filtering wider stable entries that upstream
+    `SharedV4ProviderOptions` cannot represent.
   - `LanguageModelV4CallOptions` / `LanguageModelV4Tool` are covered by a Rust overlay that
     groups prompt, projected model-facing tools, tool choice, headers, abort, reasoning, and
     provider options like the upstream provider-call contract while preserving the existing
@@ -741,6 +743,8 @@ Status legend:
     `type: "file-reference" | "image-file-reference"` with `providerReference`
 - [x] Add `providerOptions` support to tool-result output/content shapes where AI SDK prompt types
   allow them.
+- [x] Tighten V4 prompt `providerOptions` to the upstream object-only
+  `SharedV4ProviderOptions` shape while keeping stable `ProviderOptionsMap` backward compatible.
 - [x] Promote first-class `providerReference` on user `file` / `image` prompt parts.
   - stable prompt/content now models provider-owned file/image references directly through
     `FilePartSource::ProviderReference` and shared `ProviderReference`
@@ -1303,6 +1307,7 @@ This branch now has a clearer baseline than the first draft of the workstream:
 - first-class request-side `providerOptions`
 - first-class V4 `custom` and `reasoning-file`
 - explicit V4 tool-result content modeling
+- object-only V4 provider-facing `providerOptions` overlays
 - a V4-capable typed stream-part overlay with `custom` / `reasoning-file`
 - a first-class runtime `ChatStreamEvent::Part(ChatStreamPart)` semantic channel
 - partial but explicit provider coverage for those new stable parts

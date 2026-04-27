@@ -8094,6 +8094,8 @@ macro_rules! fixed_language_model_v4_type_marker {
 
 fixed_language_model_v4_type_marker!(LanguageModelV4FileMarker, "file");
 fixed_language_model_v4_type_marker!(LanguageModelV4CustomMarker, "custom");
+fixed_language_model_v4_type_marker!(LanguageModelV4TextMarker, "text");
+fixed_language_model_v4_type_marker!(LanguageModelV4ReasoningMarker, "reasoning");
 fixed_language_model_v4_type_marker!(LanguageModelV4ReasoningFileMarker, "reasoning-file");
 fixed_language_model_v4_type_marker!(LanguageModelV4ToolCallMarker, "tool-call");
 fixed_language_model_v4_type_marker!(LanguageModelV4ToolResultMarker, "tool-result");
@@ -8282,6 +8284,59 @@ fn language_model_v4_data_from_media(source: &MediaSource) -> LanguageModelV4Dat
     }
 }
 
+fn language_model_v4_provider_options_from_stable(
+    provider_options: &ProviderOptionsMap,
+) -> ProviderOptionsMap {
+    let mut projected = ProviderOptionsMap::default();
+    for (provider_id, value) in &provider_options.0 {
+        if value.is_object() {
+            projected.insert(provider_id, value.clone());
+        }
+    }
+    projected
+}
+
+fn language_model_v4_provider_options_are_object_shaped(
+    provider_options: &ProviderOptionsMap,
+) -> bool {
+    provider_options
+        .0
+        .values()
+        .all(serde_json::Value::is_object)
+}
+
+fn serialize_language_model_v4_provider_options_map<S>(
+    provider_options: &ProviderOptionsMap,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if !language_model_v4_provider_options_are_object_shaped(provider_options) {
+        return Err(serde::ser::Error::custom(
+            "expected AI SDK V4 providerOptions values to be JSON objects",
+        ));
+    }
+
+    provider_options.serialize(serializer)
+}
+
+fn deserialize_language_model_v4_provider_options_map<'de, D>(
+    deserializer: D,
+) -> Result<ProviderOptionsMap, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let provider_options = ProviderOptionsMap::deserialize(deserializer)?;
+    if !language_model_v4_provider_options_are_object_shaped(&provider_options) {
+        return Err(serde::de::Error::custom(
+            "expected AI SDK V4 providerOptions values to be JSON objects",
+        ));
+    }
+
+    Ok(provider_options)
+}
+
 fn is_language_model_v4_custom_kind(kind: &str) -> bool {
     kind.split_once('.')
         .is_some_and(|(provider, custom_type)| !provider.is_empty() && !custom_type.is_empty())
@@ -8315,10 +8370,108 @@ where
 }
 
 /// AI SDK V4 prompt text part.
-pub type LanguageModelV4TextPart = TextPart;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4TextPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4TextMarker,
+    /// Text content.
+    pub text: String,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4TextPart {
+    /// Create a V4 text prompt part.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4TextMarker::Marker,
+            text: text.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable text prompt part onto the V4 provider prompt shape.
+    pub fn from_text_part(part: &TextPart) -> Self {
+        Self {
+            marker: LanguageModelV4TextMarker::Marker,
+            text: part.text.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "text"
+    }
+}
 
 /// AI SDK V4 prompt reasoning part.
-pub type LanguageModelV4ReasoningPart = ReasoningPart;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4ReasoningPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ReasoningMarker,
+    /// Reasoning text.
+    pub text: String,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4ReasoningPart {
+    /// Create a V4 reasoning prompt part.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4ReasoningMarker::Marker,
+            text: text.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable reasoning prompt part onto the V4 provider prompt shape.
+    pub fn from_reasoning_part(part: &ReasoningPart) -> Self {
+        Self {
+            marker: LanguageModelV4ReasoningMarker::Marker,
+            text: part.text.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
+        }
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "reasoning"
+    }
+}
 
 /// AI SDK V4 prompt custom part.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -8336,7 +8489,9 @@ pub struct LanguageModelV4CustomPart {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -8365,7 +8520,9 @@ impl LanguageModelV4CustomPart {
         Some(Self {
             marker: LanguageModelV4CustomMarker::Marker,
             kind: is_language_model_v4_custom_kind(&part.kind).then(|| part.kind.clone())?,
-            provider_options: part.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
         })
     }
 
@@ -8382,7 +8539,86 @@ impl LanguageModelV4CustomPart {
 }
 
 /// AI SDK V4 prompt tool-call part.
-pub type LanguageModelV4ToolCallPart = ToolCallPart;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4ToolCallPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4ToolCallMarker,
+    /// Tool-call id.
+    #[serde(rename = "toolCallId")]
+    pub tool_call_id: String,
+    /// Tool name.
+    #[serde(rename = "toolName")]
+    pub tool_name: String,
+    /// JSON-serializable tool input.
+    pub input: JSONValue,
+    /// Whether this tool call will be executed by the provider.
+    #[serde(
+        rename = "providerExecuted",
+        alias = "provider_executed",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_executed: Option<bool>,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4ToolCallPart {
+    /// Create a V4 prompt tool-call part.
+    pub fn new(
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        input: impl Into<JSONValue>,
+    ) -> Self {
+        Self {
+            marker: LanguageModelV4ToolCallMarker::Marker,
+            tool_call_id: tool_call_id.into(),
+            tool_name: tool_name.into(),
+            input: input.into(),
+            provider_executed: None,
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Project a stable tool-call prompt part onto the V4 provider prompt shape.
+    pub fn from_tool_call_part(part: &ToolCallPart) -> Self {
+        Self {
+            marker: LanguageModelV4ToolCallMarker::Marker,
+            tool_call_id: part.tool_call_id.clone(),
+            tool_name: part.tool_name.clone(),
+            input: part.input.clone(),
+            provider_executed: part.provider_executed,
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
+        }
+    }
+
+    /// Mark whether this tool call will be executed by the provider.
+    pub const fn with_provider_executed(mut self, provider_executed: bool) -> Self {
+        self.provider_executed = Some(provider_executed);
+        self
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "tool-call"
+    }
+}
 
 /// AI SDK V4 prompt tool-result output.
 ///
@@ -8399,7 +8635,9 @@ pub enum LanguageModelV4ToolResultOutput {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8410,7 +8648,9 @@ pub enum LanguageModelV4ToolResultOutput {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8422,7 +8662,9 @@ pub enum LanguageModelV4ToolResultOutput {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8433,7 +8675,9 @@ pub enum LanguageModelV4ToolResultOutput {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8444,7 +8688,9 @@ pub enum LanguageModelV4ToolResultOutput {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8508,44 +8754,46 @@ impl LanguageModelV4ToolResultOutput {
                 provider_options,
             } => Self::Text {
                 value: value.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             },
             ToolResultOutput::Json {
                 value,
                 provider_options,
             } => Self::Json {
                 value: value.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             },
             ToolResultOutput::ExecutionDenied {
                 reason,
                 provider_options,
             } => Self::ExecutionDenied {
                 reason: reason.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             },
             ToolResultOutput::ErrorText {
                 value,
                 provider_options,
             } => Self::ErrorText {
                 value: value.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             },
             ToolResultOutput::ErrorJson {
                 value,
                 provider_options,
             } => Self::ErrorJson {
                 value: value.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             },
             ToolResultOutput::Content {
                 value,
                 provider_options,
             } => {
+                let provider_options =
+                    language_model_v4_provider_options_from_stable(provider_options);
                 if !provider_options.is_empty() {
                     return Self::Json {
                         value: output.to_json_value(),
-                        provider_options: provider_options.clone(),
+                        provider_options,
                     };
                 }
 
@@ -8613,7 +8861,9 @@ pub enum LanguageModelV4ToolResultContentPart {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8628,7 +8878,9 @@ pub enum LanguageModelV4ToolResultContentPart {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8641,7 +8893,9 @@ pub enum LanguageModelV4ToolResultContentPart {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8653,7 +8907,9 @@ pub enum LanguageModelV4ToolResultContentPart {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8663,7 +8919,9 @@ pub enum LanguageModelV4ToolResultContentPart {
             rename = "providerOptions",
             alias = "provider_options",
             default,
-            skip_serializing_if = "ProviderOptionsMap::is_empty"
+            skip_serializing_if = "ProviderOptionsMap::is_empty",
+            deserialize_with = "deserialize_language_model_v4_provider_options_map",
+            serialize_with = "serialize_language_model_v4_provider_options_map"
         )]
         provider_options: ProviderOptionsMap,
     },
@@ -8723,7 +8981,7 @@ impl LanguageModelV4ToolResultContentPart {
                 provider_options,
             } => Some(Self::Text {
                 text: text.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
             ToolResultContentPart::FileData {
                 data,
@@ -8734,7 +8992,7 @@ impl LanguageModelV4ToolResultContentPart {
                 data: data.clone(),
                 media_type: media_type.clone(),
                 filename: filename.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
             ToolResultContentPart::ImageData {
                 data,
@@ -8744,7 +9002,7 @@ impl LanguageModelV4ToolResultContentPart {
                 data: data.clone(),
                 media_type: media_type.clone(),
                 filename: None,
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
             ToolResultContentPart::FileUrl {
                 url,
@@ -8753,7 +9011,7 @@ impl LanguageModelV4ToolResultContentPart {
             } => media_type.as_ref().map(|media_type| Self::FileUrl {
                 url: url.clone(),
                 media_type: media_type.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
             ToolResultContentPart::ImageUrl {
                 url,
@@ -8761,7 +9019,7 @@ impl LanguageModelV4ToolResultContentPart {
             } => Some(Self::FileUrl {
                 url: url.clone(),
                 media_type: "image/*".to_string(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
             ToolResultContentPart::FileReference {
                 provider_reference,
@@ -8772,7 +9030,7 @@ impl LanguageModelV4ToolResultContentPart {
                 provider_options,
             } => Some(Self::FileReference {
                 provider_reference: provider_reference.clone(),
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
             ToolResultContentPart::FileId {
                 file_id,
@@ -8783,10 +9041,10 @@ impl LanguageModelV4ToolResultContentPart {
                 provider_options,
             } => Some(Self::FileReference {
                 provider_reference: language_model_v4_provider_reference_from_file_id(file_id)?,
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
             ToolResultContentPart::Custom { provider_options } => Some(Self::Custom {
-                provider_options: provider_options.clone(),
+                provider_options: language_model_v4_provider_options_from_stable(provider_options),
             }),
         }
     }
@@ -8840,7 +9098,9 @@ pub struct LanguageModelV4ToolResultPart {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -8868,7 +9128,9 @@ impl LanguageModelV4ToolResultPart {
             tool_call_id: part.tool_call_id.clone(),
             tool_name: part.tool_name.clone(),
             output: LanguageModelV4ToolResultOutput::from_tool_result_output(&part.output),
-            provider_options: part.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
         }
     }
 
@@ -8914,7 +9176,9 @@ pub struct LanguageModelV4FilePart {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -8941,7 +9205,9 @@ impl LanguageModelV4FilePart {
             filename: part.filename.clone(),
             data: LanguageModelV4FilePartData::from(&part.data),
             media_type: part.media_type.clone(),
-            provider_options: part.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
         }
     }
 
@@ -8955,7 +9221,9 @@ impl LanguageModelV4FilePart {
                 .media_type
                 .clone()
                 .unwrap_or_else(|| "image/*".to_string()),
-            provider_options: part.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
         }
     }
 
@@ -8992,7 +9260,9 @@ pub struct LanguageModelV4ReasoningFilePart {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -9014,7 +9284,9 @@ impl LanguageModelV4ReasoningFilePart {
             marker: LanguageModelV4ReasoningFileMarker::Marker,
             data: language_model_v4_data_from_media(&part.data),
             media_type: part.media_type.clone(),
-            provider_options: part.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
         }
     }
 
@@ -9048,7 +9320,9 @@ pub struct LanguageModelV4ToolApprovalResponsePart {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -9072,7 +9346,9 @@ impl LanguageModelV4ToolApprovalResponsePart {
             approval_id: part.approval_id.clone(),
             approved: part.approved,
             reason: part.reason.clone(),
-            provider_options: part.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &part.provider_options,
+            ),
         }
     }
 
@@ -9170,7 +9446,9 @@ pub struct LanguageModelV4SystemMessage {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -9190,7 +9468,9 @@ impl LanguageModelV4SystemMessage {
         Self {
             role: LanguageModelV4SystemRoleMarker::Marker,
             content: message.content.clone(),
-            provider_options: message.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &message.provider_options,
+            ),
         }
     }
 
@@ -9213,7 +9493,9 @@ pub struct LanguageModelV4UserMessage {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -9231,16 +9513,18 @@ impl LanguageModelV4UserMessage {
     /// Project a stable user model message onto the V4 provider prompt shape.
     pub fn from_user_message(message: &UserModelMessage) -> Self {
         let content = match &message.content {
-            UserContent::Text(text) => vec![LanguageModelV4UserContentPart::Text(TextPart::new(
-                text.clone(),
-            ))],
+            UserContent::Text(text) => {
+                vec![LanguageModelV4UserContentPart::Text(
+                    LanguageModelV4TextPart::new(text.clone()),
+                )]
+            }
             UserContent::Parts(parts) => parts
                 .iter()
                 .filter_map(|part| match part {
                     UserContentPart::Text(part) if part.text.is_empty() => None,
-                    UserContentPart::Text(part) => {
-                        Some(LanguageModelV4UserContentPart::Text(part.clone()))
-                    }
+                    UserContentPart::Text(part) => Some(LanguageModelV4UserContentPart::Text(
+                        LanguageModelV4TextPart::from_text_part(part),
+                    )),
                     UserContentPart::Image(part) => Some(LanguageModelV4UserContentPart::File(
                         LanguageModelV4FilePart::from_image_part(part),
                     )),
@@ -9254,7 +9538,9 @@ impl LanguageModelV4UserMessage {
         Self {
             role: LanguageModelV4UserRoleMarker::Marker,
             content,
-            provider_options: message.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &message.provider_options,
+            ),
         }
     }
 
@@ -9277,7 +9563,9 @@ pub struct LanguageModelV4AssistantMessage {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -9296,9 +9584,9 @@ impl LanguageModelV4AssistantMessage {
     pub fn from_assistant_message(message: &AssistantModelMessage) -> Self {
         let content = match &message.content {
             AssistantContent::Text(text) => {
-                vec![LanguageModelV4AssistantContentPart::Text(TextPart::new(
-                    text.clone(),
-                ))]
+                vec![LanguageModelV4AssistantContentPart::Text(
+                    LanguageModelV4TextPart::new(text.clone()),
+                )]
             }
             AssistantContent::Parts(parts) => parts
                 .iter()
@@ -9309,7 +9597,9 @@ impl LanguageModelV4AssistantMessage {
                         None
                     }
                     AssistantContentPart::Text(part) => {
-                        Some(LanguageModelV4AssistantContentPart::Text(part.clone()))
+                        Some(LanguageModelV4AssistantContentPart::Text(
+                            LanguageModelV4TextPart::from_text_part(part),
+                        ))
                     }
                     AssistantContentPart::Custom(part) => {
                         LanguageModelV4CustomPart::try_from_custom_part(part)
@@ -9321,7 +9611,9 @@ impl LanguageModelV4AssistantMessage {
                         ))
                     }
                     AssistantContentPart::Reasoning(part) => {
-                        Some(LanguageModelV4AssistantContentPart::Reasoning(part.clone()))
+                        Some(LanguageModelV4AssistantContentPart::Reasoning(
+                            LanguageModelV4ReasoningPart::from_reasoning_part(part),
+                        ))
                     }
                     AssistantContentPart::ReasoningFile(part) => {
                         Some(LanguageModelV4AssistantContentPart::ReasoningFile(
@@ -9329,7 +9621,9 @@ impl LanguageModelV4AssistantMessage {
                         ))
                     }
                     AssistantContentPart::ToolCall(part) => {
-                        Some(LanguageModelV4AssistantContentPart::ToolCall(part.clone()))
+                        Some(LanguageModelV4AssistantContentPart::ToolCall(
+                            LanguageModelV4ToolCallPart::from_tool_call_part(part),
+                        ))
                     }
                     AssistantContentPart::ToolResult(part) => {
                         Some(LanguageModelV4AssistantContentPart::ToolResult(
@@ -9344,7 +9638,9 @@ impl LanguageModelV4AssistantMessage {
         Self {
             role: LanguageModelV4AssistantRoleMarker::Marker,
             content,
-            provider_options: message.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &message.provider_options,
+            ),
         }
     }
 
@@ -9367,7 +9663,9 @@ pub struct LanguageModelV4ToolMessage {
         rename = "providerOptions",
         alias = "provider_options",
         default,
-        skip_serializing_if = "ProviderOptionsMap::is_empty"
+        skip_serializing_if = "ProviderOptionsMap::is_empty",
+        deserialize_with = "deserialize_language_model_v4_provider_options_map",
+        serialize_with = "serialize_language_model_v4_provider_options_map"
     )]
     pub provider_options: ProviderOptionsMap,
 }
@@ -9407,7 +9705,9 @@ impl LanguageModelV4ToolMessage {
         Self {
             role: LanguageModelV4ToolRoleMarker::Marker,
             content,
-            provider_options: message.provider_options.clone(),
+            provider_options: language_model_v4_provider_options_from_stable(
+                &message.provider_options,
+            ),
         }
     }
 
@@ -15352,6 +15652,129 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn language_model_v4_provider_options_require_object_values() {
+        assert!(
+            serde_json::from_value::<LanguageModelV4TextPart>(serde_json::json!({
+                "type": "text",
+                "text": "hello",
+                "providerOptions": {
+                    "openai": "not-an-object"
+                }
+            }))
+            .is_err()
+        );
+
+        let mut invalid_provider_options = ProviderOptionsMap::default();
+        invalid_provider_options.insert("openai", serde_json::json!("not-an-object"));
+        let invalid_part = LanguageModelV4TextPart::new("hello")
+            .with_provider_options_map(invalid_provider_options);
+        assert!(serde_json::to_value(&invalid_part).is_err());
+
+        let valid_json = serde_json::json!({
+            "type": "text",
+            "text": "hello",
+            "providerOptions": {
+                "openai": {
+                    "cacheControl": {
+                        "type": "ephemeral"
+                    }
+                }
+            }
+        });
+        let valid_part: LanguageModelV4TextPart = serde_json::from_value(valid_json.clone())
+            .expect("deserialize V4 text provider options");
+        assert_eq!(
+            serde_json::to_value(&valid_part).expect("serialize V4 text provider options"),
+            valid_json
+        );
+    }
+
+    #[test]
+    fn language_model_v4_prompt_projection_filters_non_object_provider_options() {
+        let mut message_provider_options = ProviderOptionsMap::default();
+        message_provider_options.insert("openai", serde_json::json!({ "store": false }));
+        message_provider_options.insert("legacy", serde_json::json!("drop"));
+
+        let mut text_provider_options = ProviderOptionsMap::default();
+        text_provider_options.insert(
+            "anthropic",
+            serde_json::json!({ "cacheControl": { "type": "ephemeral" } }),
+        );
+        text_provider_options.insert("legacy", serde_json::json!(true));
+
+        let user = UserModelMessage::new(UserContent::parts(vec![UserContentPart::Text(
+            TextPart::new("hello").with_provider_options_map(text_provider_options),
+        )]))
+        .with_provider_options_map(message_provider_options);
+
+        let prompt = prepare_language_model_v4_prompt(vec![ModelMessage::User(user)]);
+        let json = serde_json::to_value(&prompt).expect("serialize projected V4 prompt");
+
+        assert_eq!(
+            json[0]["providerOptions"],
+            serde_json::json!({
+                "openai": {
+                    "store": false
+                }
+            })
+        );
+        assert!(json[0]["providerOptions"].get("legacy").is_none());
+        assert_eq!(
+            json[0]["content"][0]["providerOptions"],
+            serde_json::json!({
+                "anthropic": {
+                    "cacheControl": {
+                        "type": "ephemeral"
+                    }
+                }
+            })
+        );
+        assert!(
+            json[0]["content"][0]["providerOptions"]
+                .get("legacy")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn language_model_v4_tool_result_projection_filters_non_object_provider_options() {
+        let output = ToolResultOutput::text("ok")
+            .with_provider_option("openai", serde_json::json!({ "store": false }))
+            .with_provider_option("legacy", serde_json::json!(false));
+        let projected = LanguageModelV4ToolResultOutput::from_tool_result_output(&output);
+        let json = serde_json::to_value(&projected).expect("serialize V4 tool output");
+
+        assert_eq!(
+            json["providerOptions"],
+            serde_json::json!({
+                "openai": {
+                    "store": false
+                }
+            })
+        );
+        assert!(json["providerOptions"].get("legacy").is_none());
+
+        let content_output = ToolResultOutput::content(vec![
+            ToolResultContentPart::text("ok")
+                .with_provider_option("anthropic", serde_json::json!({ "type": "tool-reference" }))
+                .with_provider_option("legacy", serde_json::json!(null)),
+        ]);
+        let projected = LanguageModelV4ToolResultOutput::from_tool_result_output(&content_output);
+        let json = serde_json::to_value(&projected).expect("serialize V4 content tool output");
+
+        assert_eq!(json["type"], serde_json::json!("content"));
+        assert_eq!(
+            json["value"][0]["providerOptions"],
+            serde_json::json!({
+                "anthropic": {
+                    "type": "tool-reference"
+                }
+            })
+        );
+        assert!(json["value"][0]["providerOptions"].get("legacy").is_none());
     }
 
     #[test]

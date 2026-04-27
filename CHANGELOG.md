@@ -76,6 +76,9 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - AI SDK V4 custom prompt/output overlays now enforce the upstream `{provider}.{provider-type}`
   custom kind shape while leaving stable `CustomPart` / `CustomOutput` compatible with older
   arbitrary string values.
+- AI SDK V4 prompt `providerOptions` now use a provider-facing object-only overlay matching
+  upstream `SharedV4ProviderOptions = Record<string, JSONObject>`; stable prompt/tool-result
+  projections filter non-object provider option entries instead of emitting invalid V4 shapes.
 - AI SDK provider-utils JSON instruction parity now exposes
   `inject_json_instruction`, `inject_json_instruction_into_messages`,
   `JsonInstructionOptions`, and `JsonInstructionMessageOptions`, matching the upstream prompt and
