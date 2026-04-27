@@ -289,6 +289,24 @@ impl FilesTransformer for OpenAiFilesTransformerWithProviderId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use http_body_util::BodyExt as _;
+
+    fn multipart_body_text(form: reqwest::multipart::Form) -> String {
+        let client = reqwest::Client::new();
+        let mut request = client
+            .post("http://example.invalid")
+            .multipart(form)
+            .build()
+            .expect("build multipart request");
+        let body = request.body_mut().take().expect("multipart body");
+        let bytes = futures::executor::block_on(async move {
+            body.collect()
+                .await
+                .expect("collect multipart body")
+                .to_bytes()
+        });
+        String::from_utf8(bytes.to_vec()).expect("multipart body utf8")
+    }
 
     #[test]
     fn test_openai_files_endpoints() {
@@ -360,6 +378,80 @@ mod tests {
         assert_eq!(lr.files.len(), 1);
         assert_eq!(lr.files[0].status, "uploaded");
         assert!(!lr.has_more);
+    }
+
+    #[test]
+    fn upload_provider_options_override_purpose_and_expires_after() {
+        let tx = OpenAiFilesTransformer;
+        let mut provider_options = crate::types::ProviderOptionsMap::default();
+        provider_options.insert(
+            "openai",
+            serde_json::json!({
+                "purpose": "batch",
+                "expiresAfter": 3600
+            }),
+        );
+        let req = crate::types::FileUploadRequest {
+            content: b"hello".to_vec(),
+            filename: Some("hello.txt".to_string()),
+            mime_type: Some("text/plain".to_string()),
+            purpose: "assistants".to_string(),
+            metadata: std::collections::HashMap::new(),
+            provider_options,
+            http_config: None,
+        };
+
+        let body = match tx.build_upload_body(&req).unwrap() {
+            FilesHttpBody::Multipart(form) => multipart_body_text(form),
+            _ => panic!("expected multipart form for OpenAI upload"),
+        };
+
+        assert!(body.contains("name=\"purpose\""));
+        assert!(body.contains("\r\n\r\nbatch\r\n"));
+        assert!(body.contains("name=\"expires_after\""));
+        assert!(body.contains("\r\n\r\n3600\r\n"));
+        assert!(!body.contains("\r\n\r\nassistants\r\n"));
+    }
+
+    #[test]
+    fn azure_files_upload_reads_azure_options_before_openai_fallback() {
+        let tx = OpenAiFilesTransformerWithProviderId::new("azure");
+        let mut provider_options = crate::types::ProviderOptionsMap::default();
+        provider_options.insert(
+            "openai",
+            serde_json::json!({
+                "purpose": "assistants",
+                "expires_after": 120
+            }),
+        );
+        provider_options.insert(
+            "azure",
+            serde_json::json!({
+                "purpose": "batch",
+                "expiresAfter": 3600
+            }),
+        );
+        let req = crate::types::FileUploadRequest {
+            content: b"hello".to_vec(),
+            filename: Some("hello.txt".to_string()),
+            mime_type: Some("text/plain".to_string()),
+            purpose: "fine-tune".to_string(),
+            metadata: std::collections::HashMap::new(),
+            provider_options,
+            http_config: None,
+        };
+
+        let body = match tx.build_upload_body(&req).unwrap() {
+            FilesHttpBody::Multipart(form) => multipart_body_text(form),
+            _ => panic!("expected multipart form for Azure OpenAI upload"),
+        };
+
+        assert!(body.contains("name=\"purpose\""));
+        assert!(body.contains("\r\n\r\nbatch\r\n"));
+        assert!(body.contains("name=\"expires_after\""));
+        assert!(body.contains("\r\n\r\n3600\r\n"));
+        assert!(!body.contains("\r\n\r\nassistants\r\n"));
+        assert!(!body.contains("\r\n\r\n120\r\n"));
     }
 
     #[test]

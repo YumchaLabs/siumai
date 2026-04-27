@@ -483,6 +483,20 @@ impl ProviderSpec for AzureOpenAiSpec {
                 AzureChatMode::Responses => {
                     if let Some(ref fmt) = request_response_format {
                         match fmt {
+                            crate::types::chat::ResponseFormat::JsonObject { .. } => {
+                                if let Some(text_obj) = out.get_mut("text") {
+                                    if let Some(map) = text_obj.as_object_mut() {
+                                        map.insert(
+                                            "format".to_string(),
+                                            serde_json::json!({ "type": "json_object" }),
+                                        );
+                                    }
+                                } else {
+                                    out["text"] = serde_json::json!({
+                                        "format": { "type": "json_object" }
+                                    });
+                                }
+                            }
                             crate::types::chat::ResponseFormat::Json {
                                 schema,
                                 name,

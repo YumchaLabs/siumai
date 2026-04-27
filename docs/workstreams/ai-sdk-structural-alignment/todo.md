@@ -1268,6 +1268,9 @@ Status legend:
     file-management clients/resources, and Anthropic beta files clients
   - public regression coverage now locks media-type detection, URL rejection, omitted filename
     behavior, provider-owned metadata passthrough, and explicit MiniMaxi purpose requirements
+  - OpenAI/Azure/xAI file uploads now also merge builder/config default `ProviderOptionsMap`
+    values into `FileUploadRequest.providerOptions`, so provider-owned file options follow the
+    same default-overridden-by-request rule as the other non-chat families
 - [x] Audit the remaining high-level AI SDK helper gaps after `uploadFile`.
   - `uploadSkill` now exists as `siumai::skills::upload(...)`, with public
     `UploadSkillFile` / `UploadSkillOptions` / `UploadSkillResult`, shared `SkillsCapability`,
@@ -1280,8 +1283,9 @@ Status legend:
     types
   - `uploadFile` now also matches the AI SDK file-helper call surface more closely:
     shared `FileUploadRequest` and high-level `UploadFileOptions` carry canonical
-    `providerOptions`, OpenAI/Azure honor provider-scoped `purpose` / `expiresAfter`, and Gemini
-    now honors `displayName` plus poll interval/timeout provider options on the upload path
+    `providerOptions`, OpenAI/Azure honor provider-scoped `purpose` / `expiresAfter` from both
+    request-level and default provider options, and Gemini now honors `displayName` plus poll
+    interval/timeout provider options on the upload path
   - Anthropic provider-owned `files()` now also converges on that same shared file-management
     contract: `AnthropicFiles` / `AnthropicClient` implement `FileManagementCapability`,
     upload/list/retrieve/delete reuse shared file-management structs directly, and the old

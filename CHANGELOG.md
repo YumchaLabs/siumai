@@ -1071,6 +1071,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 - OpenAI-family speech request shaping now actually lowers shared `TtsRequest.language` into the
   JSON body when a provider's audited defaults opt into that field, so the stable typed speech
   surface no longer carries a dead `language` knob on those paths.
+- OpenAI/Azure/xAI file uploads now merge builder/config default `ProviderOptionsMap` values into
+  `FileUploadRequest.provider_options`, so default provider-owned file knobs such as OpenAI
+  `purpose` / `expiresAfter` and xAI file path options no longer work for other non-chat families
+  while being silently skipped on files.
+- Azure Responses request shaping now handles schema-less `ResponseFormat::JsonObject` on
+  reasoning-model requests, restoring exhaustive provider-crate compilation and matching the
+  OpenAI Responses `text.format = { type: "json_object" }` lowering.
 - The built-in OpenAI-compatible `groq` preset now defaults `supportsStructuredOutputs = true`,
   matching the audited AI SDK package behavior so Groq JSON Schema requests no longer degrade to
   `response_format = { "type": "json_object" }` by default.

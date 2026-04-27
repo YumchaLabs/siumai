@@ -248,6 +248,13 @@ impl AzureOpenAiClient {
         builder.build()
     }
 
+    fn prepare_file_upload_request(&self, mut request: FileUploadRequest) -> FileUploadRequest {
+        let mut merged = self.config.provider_options_map.clone();
+        merged.merge_overrides(std::mem::take(&mut request.provider_options));
+        request.provider_options = merged;
+        request
+    }
+
     fn prepare_chat_request(
         &self,
         mut request: ChatRequest,
@@ -477,6 +484,7 @@ impl AudioCapability for AzureOpenAiClient {
 #[async_trait]
 impl FileManagementCapability for AzureOpenAiClient {
     async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
+        let request = self.prepare_file_upload_request(request);
         let exec = self.build_files_executor();
         FilesExecutor::upload(&*exec, request).await
     }

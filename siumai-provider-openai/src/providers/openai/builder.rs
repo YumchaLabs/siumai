@@ -350,7 +350,10 @@ impl OpenAiBuilder {
 
     /// Insert a single default header into the canonical HTTP config.
     pub fn header<K: Into<String>, V: Into<String>>(mut self, name: K, value: V) -> Self {
-        self.core.http_config.headers.insert(name.into(), value.into());
+        self.core
+            .http_config
+            .headers
+            .insert(name.into(), value.into());
         self
     }
 

@@ -112,10 +112,10 @@ impl AzureOpenAIProviderSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use async_trait::async_trait;
     use crate::execution::http::transport::{
         HttpTransportGetRequest, HttpTransportRequest, HttpTransportResponse,
     };
+    use async_trait::async_trait;
     use reqwest::header::HeaderMap;
 
     #[derive(Clone, Default)]

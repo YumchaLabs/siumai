@@ -90,10 +90,10 @@ pub use crate::providers::openai::ext::OpenAiSttRequestExt;
 pub use builder::OpenAiBuilder;
 pub use client::OpenAiClient;
 pub use config::OpenAiConfig;
-pub use settings::OpenAIProviderSettings;
 #[cfg(feature = "openai-websocket")]
 pub use incremental_session::OpenAiIncrementalWebSocketSession;
 pub use middleware::OpenAiResponsesInputWarningsMiddleware;
+pub use settings::OpenAIProviderSettings;
 pub use types::*;
 #[cfg(feature = "openai-websocket")]
 pub use websocket_session::{OpenAiWebSocketRecoveryConfig, OpenAiWebSocketSession};

@@ -118,8 +118,16 @@ impl OpenAiFiles {
         //
         // Let the provider return the authoritative error when inputs are invalid.
 
-        // Validate purpose is non-empty
-        if request.purpose.trim().is_empty() {
+        // Validate effective purpose is non-empty. Provider options can override the legacy
+        // top-level request field, matching the AI SDK OpenAI files option boundary.
+        let provider_purpose = request
+            .provider_options
+            .get_object("openai")
+            .and_then(|options| options.get("purpose"))
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|purpose| !purpose.is_empty());
+        if provider_purpose.is_none() && request.purpose.trim().is_empty() {
             return Err(LlmError::InvalidInput(
                 "File purpose cannot be empty".to_string(),
             ));
@@ -135,6 +143,12 @@ impl OpenAiFiles {
         }
 
         Ok(())
+    }
+
+    fn merge_default_provider_options(&self, request: &mut FileUploadRequest) {
+        let mut merged = self.config.provider_options_map.clone();
+        merged.merge_overrides(std::mem::take(&mut request.provider_options));
+        request.provider_options = merged;
     }
 
     fn build_context(&self) -> crate::core::ProviderContext {
@@ -190,7 +204,9 @@ impl std::fmt::Debug for OpenAiFiles {
 #[async_trait]
 impl FileManagementCapability for OpenAiFiles {
     /// Upload a file to OpenAI's storage.
-    async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
+    async fn upload_file(&self, mut request: FileUploadRequest) -> Result<FileObject, LlmError> {
+        self.merge_default_provider_options(&mut request);
+
         // Validate request
         self.validate_upload_request(&request)?;
 
@@ -225,5 +241,122 @@ impl FileManagementCapability for OpenAiFiles {
         use crate::execution::executors::files::FilesExecutor;
         let exec = self.build_files_executor();
         FilesExecutor::get_content(&*exec, file_id).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::execution::http::transport::{
+        HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
+    };
+    use async_trait::async_trait;
+    use reqwest::header::HeaderMap;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone)]
+    struct CaptureTransport {
+        multipart_requests: Arc<Mutex<Vec<HttpTransportMultipartRequest>>>,
+        response: Arc<Mutex<Option<HttpTransportResponse>>>,
+    }
+
+    impl CaptureTransport {
+        fn new(response: HttpTransportResponse) -> Self {
+            Self {
+                multipart_requests: Arc::new(Mutex::new(Vec::new())),
+                response: Arc::new(Mutex::new(Some(response))),
+            }
+        }
+
+        fn take_multipart_requests(&self) -> Vec<HttpTransportMultipartRequest> {
+            std::mem::take(&mut *self.multipart_requests.lock().expect("multipart lock"))
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for CaptureTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "json transport should not be used in OpenAI files tests".to_string(),
+            ))
+        }
+
+        async fn execute_multipart(
+            &self,
+            request: HttpTransportMultipartRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            self.multipart_requests
+                .lock()
+                .expect("multipart lock")
+                .push(request);
+            self.response
+                .lock()
+                .expect("response lock")
+                .take()
+                .ok_or_else(|| LlmError::HttpError("missing multipart response".to_string()))
+        }
+    }
+
+    fn make_file_response() -> HttpTransportResponse {
+        HttpTransportResponse {
+            status: 200,
+            headers: HeaderMap::new(),
+            body: serde_json::to_vec(&serde_json::json!({
+                "id": "file-default-options",
+                "object": "file",
+                "bytes": 5,
+                "created_at": 1710000000u64,
+                "filename": "hello.txt",
+                "purpose": "batch",
+                "status": "uploaded",
+                "status_details": null
+            }))
+            .expect("serialize response"),
+        }
+    }
+
+    fn make_upload_request() -> FileUploadRequest {
+        FileUploadRequest {
+            content: b"hello".to_vec(),
+            filename: Some("hello.txt".to_string()),
+            mime_type: Some("text/plain".to_string()),
+            purpose: String::new(),
+            metadata: HashMap::new(),
+            provider_options: Default::default(),
+            http_config: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn upload_merges_default_file_provider_options_into_multipart() {
+        let transport = Arc::new(CaptureTransport::new(make_file_response()));
+        let config = OpenAiConfig::new("test-api-key")
+            .with_base_url("https://api.openai.test/v1")
+            .with_provider_options(serde_json::json!({
+                "purpose": "batch",
+                "expiresAfter": 3600
+            }))
+            .with_http_transport(transport.clone());
+        let files = OpenAiFiles::new(config, reqwest::Client::new(), Vec::new(), None);
+
+        let result = files
+            .upload_file(make_upload_request())
+            .await
+            .expect("upload result");
+        assert_eq!(result.id, "file-default-options");
+
+        let requests = transport.take_multipart_requests();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].url, "https://api.openai.test/v1/files");
+
+        let body = String::from_utf8_lossy(&requests[0].body);
+        assert!(body.contains("name=\"purpose\""));
+        assert!(body.contains("\r\n\r\nbatch\r\n"));
+        assert!(body.contains("name=\"expires_after\""));
+        assert!(body.contains("\r\n\r\n3600\r\n"));
     }
 }

@@ -139,8 +139,8 @@ impl crate::traits::ModelMetadata for XaiClient {
 mod tests {
     use super::*;
     use crate::execution::http::transport::{
-        HttpTransport, HttpTransportRequest, HttpTransportResponse, HttpTransportStreamBody,
-        HttpTransportStreamResponse,
+        HttpTransport, HttpTransportMultipartRequest, HttpTransportRequest, HttpTransportResponse,
+        HttpTransportStreamBody, HttpTransportStreamResponse,
     };
     use crate::provider_metadata::xai::XaiChatResponseExt;
     use crate::provider_options::{
@@ -223,6 +223,51 @@ mod tests {
         }
     }
 
+    #[derive(Clone, Default)]
+    struct MultipartResponseTransport {
+        last: Arc<Mutex<Option<HttpTransportMultipartRequest>>>,
+    }
+
+    impl MultipartResponseTransport {
+        fn take(&self) -> Option<HttpTransportMultipartRequest> {
+            self.last.lock().unwrap().take()
+        }
+    }
+
+    #[async_trait]
+    impl HttpTransport for MultipartResponseTransport {
+        async fn execute_json(
+            &self,
+            _request: HttpTransportRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            Err(LlmError::UnsupportedOperation(
+                "json transport should not be used in xAI file upload tests".to_string(),
+            ))
+        }
+
+        async fn execute_multipart(
+            &self,
+            request: HttpTransportMultipartRequest,
+        ) -> Result<HttpTransportResponse, LlmError> {
+            *self.last.lock().unwrap() = Some(request);
+
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
+            Ok(HttpTransportResponse {
+                status: 200,
+                headers,
+                body: serde_json::to_vec(&serde_json::json!({
+                    "id": "file-123",
+                    "bytes": 3,
+                    "created_at": 1,
+                    "filename": "hello.txt",
+                    "status": "uploaded"
+                }))
+                .expect("serialize response body"),
+            })
+        }
+    }
+
     #[derive(Clone)]
     struct SseResponseTransport {
         body: Arc<Vec<u8>>,
@@ -274,6 +319,44 @@ mod tests {
                 body: HttpTransportStreamBody::from_bytes(self.body.as_ref().clone()),
             })
         }
+    }
+
+    #[tokio::test]
+    async fn file_upload_merges_default_provider_options_map() {
+        let transport = Arc::new(MultipartResponseTransport::default());
+        let mut provider_options = ProviderOptionsMap::default();
+        provider_options.insert(
+            "xai",
+            serde_json::json!({
+                "teamId": "team-default",
+                "filePath": "/defaults/hello.txt"
+            }),
+        );
+        let config = super::super::XaiConfig::new("test-api-key")
+            .with_model("grok-2")
+            .with_http_transport(transport.clone())
+            .with_provider_options_map(provider_options);
+        let client = XaiClient::from_config(config).await.expect("xai client");
+
+        let request = FileUploadRequest {
+            content: b"hey".to_vec(),
+            filename: Some("hello.txt".to_string()),
+            mime_type: Some("text/plain".to_string()),
+            purpose: "assistants".to_string(),
+            metadata: Default::default(),
+            provider_options: Default::default(),
+            http_config: None,
+        };
+
+        let result = client.upload_file(request).await.expect("upload result");
+        assert_eq!(result.id, "file-123");
+
+        let request = transport.take().expect("multipart request");
+        let body = String::from_utf8_lossy(&request.body);
+        assert!(body.contains("name=\"team_id\""));
+        assert!(body.contains("team-default"));
+        assert!(body.contains("name=\"file_path\""));
+        assert!(body.contains("/defaults/hello.txt"));
     }
 
     #[tokio::test]
@@ -1022,7 +1105,8 @@ impl ModelListingCapability for XaiClient {
 
 #[async_trait]
 impl FileManagementCapability for XaiClient {
-    async fn upload_file(&self, request: FileUploadRequest) -> Result<FileObject, LlmError> {
+    async fn upload_file(&self, mut request: FileUploadRequest) -> Result<FileObject, LlmError> {
+        self.merge_default_provider_options_map_non_chat(&mut request.provider_options);
         self.files().upload_file(request).await
     }
 
