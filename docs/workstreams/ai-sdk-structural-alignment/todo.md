@@ -70,7 +70,9 @@ Status legend:
     approval-request parts, finish reason, usage, and response metadata. Output-side
     file/reasoning-file data now uses a generated-file-only `string | bytes` carrier instead of
     the wider prompt data-content type, and provider-facing `tool-result.result` rejects `null`
-    like upstream `NonNullable<JSONValue>`.
+    like upstream `NonNullable<JSONValue>`. AI SDK-facing `CallWarning` payloads now also use the
+    strict shared V4 warning union, with stable legacy warning variants normalized during result
+    projection.
   - `LanguageModelV4Usage` now owns provider-facing `u64` token carriers instead of aliasing the
     stable Rust `UsageInputTokens` / `UsageOutputTokens` `u32` compatibility structs, so V4
     overlays match upstream `number | undefined` usage counts while stable runtime usage remains

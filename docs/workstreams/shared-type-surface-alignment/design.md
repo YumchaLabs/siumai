@@ -99,7 +99,7 @@ runtime modules.
 
 ### 2. Use honest conversion helpers instead of fake direct aliases
 
-Some names can be direct aliases (`JSONValue`, `CallWarning`, `ProviderMetadata`), but the more
+Some names can be direct aliases (`JSONValue`, `ProviderMetadata`), but the more
 important shared carriers need explicit Rust structs:
 
 - `LanguageModelUsage` is now a projection from `Usage`, because the AI package shape is not the
@@ -111,6 +111,9 @@ important shared carriers need explicit Rust structs:
   source for every typed tool helper result
 - `EmbeddingModelUsage` stays the audited one-field shape `{ tokens }`
 - `ImageModelUsage` mirrors the AI package `ImageModelV4Usage` token totals
+- `CallWarning` mirrors the strict AI SDK shared V4 warning union rather than aliasing the wider
+  stable `Warning` compatibility enum; legacy warning variants normalize through conversion
+  helpers before reaching AI SDK result payloads
 - `Source` mirrors the AI package language-model source union with a fixed `type: "source"` marker
   and a strict `sourceType: "url" | "document"` payload
 - `ToolChoice` remains the stable Rust enum but now serializes the forced-tool case as the AI SDK

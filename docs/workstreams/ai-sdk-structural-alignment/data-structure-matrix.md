@@ -452,9 +452,11 @@ the wider prompt `LanguageModelV4DataContent` helper, because upstream output fi
 `string | Uint8Array` and do not accept URL objects. Provider-facing `tool-result.result` also
 rejects `null` at the serde boundary to match upstream `NonNullable<JSONValue>`.
 `LanguageModelV4GenerateResult` groups that content with V4 finish reason, V4 usage, provider
-metadata, request/response telemetry, and warnings; `LanguageModelV4StreamResult<STREAM>` keeps the
-same request/response envelope while leaving the Rust stream carrier generic instead of pretending
-to be JavaScript `ReadableStream`. The provider-facing `LanguageModelV4Usage` token carriers are
+metadata, request/response telemetry, and strict shared V4 `CallWarning` payloads; stable legacy
+warning variants normalize to canonical `unsupported { feature, details }` before reaching this
+AI SDK result layer. `LanguageModelV4StreamResult<STREAM>` keeps the same request/response envelope
+while leaving the Rust stream carrier generic instead of pretending to be JavaScript
+`ReadableStream`. The provider-facing `LanguageModelV4Usage` token carriers are
 now independent `u64` structs rather than aliases to the stable `Usage` layer's `u32`
 compatibility storage, so this overlay can represent upstream `number | undefined` usage counts
 without constraining provider-native accounting to the high-level Rust runtime limit.

@@ -21,7 +21,7 @@ to keep public type-surface checks mechanical and avoid false parity.
 | `Provider` | `prelude::unified::ProviderFactory` | done | `ProviderFactory` is the honest Rust provider-interface equivalent. Historical `siumai::Provider` remains a compat/top-level builder helper and is intentionally not treated as the AI SDK provider interface. |
 | `ProviderMetadata` | `siumai::types::ProviderMetadata`, `prelude::unified::ProviderMetadata` | done | Alias to provider-id keyed metadata map. |
 | `ProviderReference` | `siumai::types::ProviderReference`, `prelude::unified::ProviderReference` | done | Stable provider-reference map. |
-| `CallWarning` / `Warning` | `siumai::types::{CallWarning, Warning}`, `prelude::unified::*` | done | Includes AI SDK `deprecated` warning category. |
+| `CallWarning` / `Warning` | `siumai::types::{CallWarning, Warning}`, `prelude::unified::*` | done | `CallWarning` is the strict AI SDK shared V4 warning union; wider stable `Warning` compatibility variants are normalized when projected into AI SDK result payloads. |
 | `FinishReason` | `siumai::types::FinishReason`, `prelude::unified::FinishReason` | done | Serializes AI SDK public values and accepts provider legacy values. |
 | `ToolChoice` | `siumai::types::ToolChoice`, `prelude::unified::ToolChoice` | done | Forced-tool serde now uses `{ type: "tool", toolName: "..." }`. |
 | `LanguageModelRequestMetadata` | `siumai::types::LanguageModelRequestMetadata`, `prelude::unified::*` | done | Converts from existing request info. |

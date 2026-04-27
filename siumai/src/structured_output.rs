@@ -647,7 +647,10 @@ impl<T> GenerateObjectResult<T> {
                 .as_ref()
                 .map(LanguageModelUsage::from)
                 .unwrap_or_default(),
-            warnings: raw_response.warnings.clone(),
+            warnings: raw_response
+                .warnings
+                .clone()
+                .map(|warnings| warnings.into_iter().map(CallWarning::from).collect()),
             request,
             response,
             provider_metadata: raw_response.provider_metadata.clone(),
@@ -734,6 +737,10 @@ mod tests {
             "fake".to_string(),
             serde_json::json!({ "traceId": "trace_1" }),
         )]));
+        response.warnings = Some(vec![siumai_core::types::Warning::UnsupportedTool {
+            tool_name: "legacy-tool".to_string(),
+            details: Some("not available".to_string()),
+        }]);
 
         let model = FakeObjectModel {
             response,
@@ -767,6 +774,15 @@ mod tests {
         assert_eq!(result.finish_reason, FinishReason::Stop);
         assert_eq!(result.usage.input_tokens, Some(3));
         assert_eq!(result.response.model_id, "fake-model");
+        assert_eq!(
+            serde_json::to_value(result.warnings.as_ref().expect("warnings"))
+                .expect("serialize warnings"),
+            serde_json::json!([{
+                "type": "unsupported",
+                "feature": "legacy-tool",
+                "details": "not available"
+            }])
+        );
         assert_eq!(
             result
                 .provider_metadata

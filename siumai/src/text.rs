@@ -21,14 +21,14 @@ pub use siumai_core::text::{
 };
 pub use siumai_core::types::StreamRequestOptions;
 use siumai_core::types::{
-    AssistantContent, AssistantModelMessage, ChatMessage, ContentPart, CustomOutput, FileOutput,
-    FinishReason, GenerateTextContentPart, GenerateTextModelInfo, GenerateTextReasoningPart,
-    GenerateTextResponseMetadata, GenerateTextResult, GenerateTextStepReasoningPart,
-    GenerateTextStepResult, GeneratedFile, HttpConfig, JSONValue, LanguageModelRequestMetadata,
-    LanguageModelResponseMetadata, MessageContent, MessageMetadata, MessageRole, ModelMessage,
-    ProviderOptionsMap, ReasoningFileOutput, ReasoningOutput, RequestOptions, ResponseMessage,
-    Source, TextOutput, Tool, ToolCall as GenerateTextToolCall, ToolChoice,
-    ToolResult as GenerateTextToolResult, ToolResultOutput,
+    AssistantContent, AssistantModelMessage, CallWarning, ChatMessage, ContentPart, CustomOutput,
+    FileOutput, FinishReason, GenerateTextContentPart, GenerateTextModelInfo,
+    GenerateTextReasoningPart, GenerateTextResponseMetadata, GenerateTextResult,
+    GenerateTextStepReasoningPart, GenerateTextStepResult, GeneratedFile, HttpConfig, JSONValue,
+    LanguageModelRequestMetadata, LanguageModelResponseMetadata, MessageContent, MessageMetadata,
+    MessageRole, ModelMessage, ProviderOptionsMap, ReasoningFileOutput, ReasoningOutput,
+    RequestOptions, ResponseMessage, Source, TextOutput, Tool, ToolCall as GenerateTextToolCall,
+    ToolChoice, ToolResult as GenerateTextToolResult, ToolResultOutput,
 };
 
 /// AI SDK-style non-streaming `generateText` result returned by `text::generate_text`.
@@ -284,6 +284,11 @@ fn project_generate_text_response<M: LanguageModel + ?Sized>(
         .unwrap_or(FinishReason::Unknown);
     let request_metadata = LanguageModelRequestMetadata::default();
 
+    let warnings = response
+        .warnings
+        .clone()
+        .map(|warnings| warnings.into_iter().map(CallWarning::from).collect());
+
     let step = GenerateTextStepResult {
         call_id,
         step_number: 0,
@@ -305,7 +310,7 @@ fn project_generate_text_response<M: LanguageModel + ?Sized>(
         finish_reason: finish_reason.clone(),
         raw_finish_reason: response.raw_finish_reason.clone(),
         usage: usage.clone(),
-        warnings: response.warnings.clone(),
+        warnings: warnings.clone(),
         request: request_metadata.clone(),
         response: response_metadata.clone(),
         provider_metadata: response.provider_metadata.clone(),
@@ -328,7 +333,7 @@ fn project_generate_text_response<M: LanguageModel + ?Sized>(
         raw_finish_reason: response.raw_finish_reason,
         usage: usage.clone(),
         total_usage: usage,
-        warnings: response.warnings,
+        warnings,
         request: request_metadata,
         response: response_metadata,
         provider_metadata: response.provider_metadata,
@@ -637,7 +642,7 @@ mod tests {
     use async_trait::async_trait;
     use serde_json::json;
     use siumai_core::traits::ModelMetadata;
-    use siumai_core::types::{ChatRequest, ChatResponse, Usage};
+    use siumai_core::types::{ChatRequest, ChatResponse, Usage, Warning};
 
     struct FakeLanguageModel;
 
@@ -677,6 +682,10 @@ mod tests {
                 "test-provider".to_string(),
                 json!({ "trace": "abc" }),
             )]));
+            response.warnings = Some(vec![Warning::UnsupportedSetting {
+                setting: "topK".to_string(),
+                details: Some("not supported".to_string()),
+            }]);
             Ok(response)
         }
 
@@ -718,6 +727,16 @@ mod tests {
         assert_eq!(result.steps[0].call_id, "resp-1");
         assert_eq!(result.steps[0].model.provider, "test-provider");
         assert_eq!(result.steps[0].model.model_id, "provider-model");
+        assert_eq!(result.warnings, result.steps[0].warnings);
+        assert_eq!(
+            serde_json::to_value(result.warnings.as_ref().expect("warnings"))
+                .expect("serialize warnings"),
+            json!([{
+                "type": "unsupported",
+                "feature": "topK",
+                "details": "not supported"
+            }])
+        );
         assert_eq!(result.response.metadata.id, "resp-1");
         assert_eq!(result.response.metadata.model_id, "provider-model");
         assert_eq!(result.response.messages.len(), 1);

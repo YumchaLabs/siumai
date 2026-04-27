@@ -58,8 +58,118 @@ where
 /// AI SDK-style JSON Schema draft-07 value alias.
 pub type JSONSchema7 = serde_json::Value;
 
-/// AI SDK-style shared warning alias.
-pub type CallWarning = Warning;
+/// AI SDK-style shared call warning.
+///
+/// This mirrors `SharedV4Warning`. The wider stable `Warning` type still accepts legacy
+/// compatibility inputs, but AI SDK-facing result and callback payloads normalize those legacy
+/// variants to the canonical `unsupported { feature, details }` shape.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "kebab-case")]
+pub enum CallWarning {
+    /// A feature is not supported by the model/provider.
+    Unsupported {
+        /// Unsupported feature name.
+        feature: String,
+        /// Optional details about why it is unsupported.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+    },
+    /// A compatibility feature is used.
+    Compatibility {
+        /// Feature being used in compatibility mode.
+        feature: String,
+        /// Optional compatibility details.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+    },
+    /// A deprecated setting or feature is being used.
+    Deprecated {
+        /// Deprecated setting or feature name.
+        setting: String,
+        /// Human-readable replacement guidance.
+        message: String,
+    },
+    /// Other warning.
+    Other {
+        /// Human-readable warning message.
+        message: String,
+    },
+}
+
+impl CallWarning {
+    /// Create an unsupported warning.
+    pub fn unsupported(feature: impl Into<String>, details: Option<impl Into<String>>) -> Self {
+        Self::Unsupported {
+            feature: feature.into(),
+            details: details.map(Into::into),
+        }
+    }
+
+    /// Create a compatibility warning.
+    pub fn compatibility(feature: impl Into<String>, details: Option<impl Into<String>>) -> Self {
+        Self::Compatibility {
+            feature: feature.into(),
+            details: details.map(Into::into),
+        }
+    }
+
+    /// Create a deprecated warning.
+    pub fn deprecated(setting: impl Into<String>, message: impl Into<String>) -> Self {
+        Self::Deprecated {
+            setting: setting.into(),
+            message: message.into(),
+        }
+    }
+
+    /// Create an other warning.
+    pub fn other(message: impl Into<String>) -> Self {
+        Self::Other {
+            message: message.into(),
+        }
+    }
+}
+
+impl From<Warning> for CallWarning {
+    fn from(value: Warning) -> Self {
+        match value {
+            Warning::Unsupported { feature, details } => Self::Unsupported { feature, details },
+            Warning::UnsupportedSetting { setting, details } => Self::Unsupported {
+                feature: setting,
+                details,
+            },
+            Warning::UnsupportedTool { tool_name, details } => Self::Unsupported {
+                feature: tool_name,
+                details,
+            },
+            Warning::Compatibility { feature, details } => Self::Compatibility { feature, details },
+            Warning::Deprecated { setting, message } => Self::Deprecated { setting, message },
+            Warning::Other { message } => Self::Other { message },
+        }
+    }
+}
+
+impl From<&Warning> for CallWarning {
+    fn from(value: &Warning) -> Self {
+        Self::from(value.clone())
+    }
+}
+
+impl From<CallWarning> for Warning {
+    fn from(value: CallWarning) -> Self {
+        match value {
+            CallWarning::Unsupported { feature, details } => {
+                Warning::Unsupported { feature, details }
+            }
+            CallWarning::Compatibility { feature, details } => {
+                Warning::Compatibility { feature, details }
+            }
+            CallWarning::Deprecated { setting, message } => {
+                Warning::Deprecated { setting, message }
+            }
+            CallWarning::Other { message } => Warning::Other { message },
+        }
+    }
+}
 
 /// AI SDK-style shared provider-metadata root.
 pub type ProviderMetadata = ProviderMetadataMap;
@@ -11938,6 +12048,25 @@ mod tests {
 
         assert_eq!(json.body, Some(serde_json::json!({ "ok": true })));
         assert_eq!(text.body, Some(JSONValue::String("plain-text".to_string())));
+    }
+
+    #[test]
+    fn call_warning_uses_shared_v4_warning_shape() {
+        let warning = CallWarning::from(Warning::UnsupportedSetting {
+            setting: "topK".to_string(),
+            details: Some("not supported".to_string()),
+        });
+
+        let value = serde_json::to_value(&warning).expect("serialize call warning");
+        assert_eq!(value["type"], serde_json::json!("unsupported"));
+        assert_eq!(value["feature"], serde_json::json!("topK"));
+        assert_eq!(value["details"], serde_json::json!("not supported"));
+
+        let legacy = serde_json::json!({
+            "type": "unsupported-setting",
+            "setting": "topK"
+        });
+        assert!(serde_json::from_value::<CallWarning>(legacy).is_err());
     }
 
     #[test]
