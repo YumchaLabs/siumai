@@ -57,8 +57,8 @@ Status legend:
     projection from stable `ModelMessage`, including image-to-file conversion, direct provider
     reference data maps, filtered assistant approval requests, provider-executed approval
     responses with `providerOptions`, canonical V4 tool-result output content parts, JSON fallback
-    for stable legacy content that V4 cannot express directly, and adjacent tool-message
-    coalescing.
+    for stable legacy content that V4 cannot express directly, V4 custom kind validation, and
+    adjacent tool-message coalescing.
   - `LanguageModelV4CallOptions` / `LanguageModelV4Tool` are covered by a Rust overlay that
     groups prompt, projected model-facing tools, tool choice, headers, abort, reasoning, and
     provider options like the upstream provider-call contract while preserving the existing
@@ -72,7 +72,8 @@ Status legend:
     the wider prompt data-content type, and provider-facing `tool-result.result` rejects `null`
     like upstream `NonNullable<JSONValue>`. AI SDK-facing `CallWarning` payloads now also use the
     strict shared V4 warning union, with stable legacy warning variants normalized during result
-    projection.
+    projection. V4 custom generated content now validates the upstream `{provider}.{provider-type}`
+    `kind` boundary separately from stable custom output compatibility.
   - `LanguageModelV4Usage` now owns provider-facing `u64` token carriers instead of aliasing the
     stable Rust `UsageInputTokens` / `UsageOutputTokens` `u32` compatibility structs, so V4
     overlays match upstream `number | undefined` usage counts while stable runtime usage remains

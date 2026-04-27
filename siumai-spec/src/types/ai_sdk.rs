@@ -8093,6 +8093,7 @@ macro_rules! fixed_language_model_v4_type_marker {
 }
 
 fixed_language_model_v4_type_marker!(LanguageModelV4FileMarker, "file");
+fixed_language_model_v4_type_marker!(LanguageModelV4CustomMarker, "custom");
 fixed_language_model_v4_type_marker!(LanguageModelV4ReasoningFileMarker, "reasoning-file");
 fixed_language_model_v4_type_marker!(LanguageModelV4ToolCallMarker, "tool-call");
 fixed_language_model_v4_type_marker!(LanguageModelV4ToolResultMarker, "tool-result");
@@ -8281,6 +8282,38 @@ fn language_model_v4_data_from_media(source: &MediaSource) -> LanguageModelV4Dat
     }
 }
 
+fn is_language_model_v4_custom_kind(kind: &str) -> bool {
+    kind.split_once('.')
+        .is_some_and(|(provider, custom_type)| !provider.is_empty() && !custom_type.is_empty())
+}
+
+fn serialize_language_model_v4_custom_kind<S>(kind: &str, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    if !is_language_model_v4_custom_kind(kind) {
+        return Err(serde::ser::Error::custom(
+            "expected AI SDK V4 custom kind in `{provider}.{provider-type}` format",
+        ));
+    }
+
+    serializer.serialize_str(kind)
+}
+
+fn deserialize_language_model_v4_custom_kind<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let kind = String::deserialize(deserializer)?;
+    if !is_language_model_v4_custom_kind(&kind) {
+        return Err(serde::de::Error::custom(
+            "expected AI SDK V4 custom kind in `{provider}.{provider-type}` format",
+        ));
+    }
+
+    Ok(kind)
+}
+
 /// AI SDK V4 prompt text part.
 pub type LanguageModelV4TextPart = TextPart;
 
@@ -8288,7 +8321,65 @@ pub type LanguageModelV4TextPart = TextPart;
 pub type LanguageModelV4ReasoningPart = ReasoningPart;
 
 /// AI SDK V4 prompt custom part.
-pub type LanguageModelV4CustomPart = CustomPart;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LanguageModelV4CustomPart {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4CustomMarker,
+    /// Provider-specific custom content kind, in `{provider}.{provider-type}` format.
+    #[serde(
+        deserialize_with = "deserialize_language_model_v4_custom_kind",
+        serialize_with = "serialize_language_model_v4_custom_kind"
+    )]
+    pub kind: String,
+    /// Provider-specific request options.
+    #[serde(
+        rename = "providerOptions",
+        alias = "provider_options",
+        default,
+        skip_serializing_if = "ProviderOptionsMap::is_empty"
+    )]
+    pub provider_options: ProviderOptionsMap,
+}
+
+impl LanguageModelV4CustomPart {
+    /// Create a V4 custom prompt part.
+    ///
+    /// Use `try_new` when the kind comes from untrusted input and should be checked before
+    /// serialization.
+    pub fn new(kind: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4CustomMarker::Marker,
+            kind: kind.into(),
+            provider_options: ProviderOptionsMap::default(),
+        }
+    }
+
+    /// Create a V4 custom prompt part and validate the AI SDK kind format.
+    pub fn try_new(kind: impl Into<String>) -> Option<Self> {
+        let part = Self::new(kind);
+        is_language_model_v4_custom_kind(&part.kind).then_some(part)
+    }
+
+    /// Project a stable custom prompt part onto the V4 provider prompt shape.
+    pub fn try_from_custom_part(part: &CustomPart) -> Option<Self> {
+        Some(Self {
+            marker: LanguageModelV4CustomMarker::Marker,
+            kind: is_language_model_v4_custom_kind(&part.kind).then(|| part.kind.clone())?,
+            provider_options: part.provider_options.clone(),
+        })
+    }
+
+    /// Attach provider-specific request options.
+    pub fn with_provider_options_map(mut self, provider_options: ProviderOptionsMap) -> Self {
+        self.provider_options = provider_options;
+        self
+    }
+
+    /// Return the AI SDK V4 prompt part discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "custom"
+    }
+}
 
 /// AI SDK V4 prompt tool-call part.
 pub type LanguageModelV4ToolCallPart = ToolCallPart;
@@ -9221,7 +9312,8 @@ impl LanguageModelV4AssistantMessage {
                         Some(LanguageModelV4AssistantContentPart::Text(part.clone()))
                     }
                     AssistantContentPart::Custom(part) => {
-                        Some(LanguageModelV4AssistantContentPart::Custom(part.clone()))
+                        LanguageModelV4CustomPart::try_from_custom_part(part)
+                            .map(LanguageModelV4AssistantContentPart::Custom)
                     }
                     AssistantContentPart::File(part) => {
                         Some(LanguageModelV4AssistantContentPart::File(
@@ -9406,7 +9498,65 @@ pub type LanguageModelV4Text = TextOutput;
 pub type LanguageModelV4Reasoning = ReasoningOutput;
 
 /// AI SDK V4 provider-specific content.
-pub type LanguageModelV4CustomContent = CustomOutput;
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LanguageModelV4CustomContent {
+    #[serde(rename = "type", default)]
+    marker: LanguageModelV4CustomMarker,
+    /// Provider-specific custom content kind, in `{provider}.{provider-type}` format.
+    #[serde(
+        deserialize_with = "deserialize_language_model_v4_custom_kind",
+        serialize_with = "serialize_language_model_v4_custom_kind"
+    )]
+    pub kind: String,
+    /// Additional provider-specific metadata.
+    #[serde(
+        rename = "providerMetadata",
+        alias = "provider_metadata",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub provider_metadata: Option<ProviderMetadata>,
+}
+
+impl LanguageModelV4CustomContent {
+    /// Create a V4 generated custom content part.
+    ///
+    /// Use `try_new` when the kind comes from untrusted input and should be checked before
+    /// serialization.
+    pub fn new(kind: impl Into<String>) -> Self {
+        Self {
+            marker: LanguageModelV4CustomMarker::Marker,
+            kind: kind.into(),
+            provider_metadata: None,
+        }
+    }
+
+    /// Create a V4 generated custom content part and validate the AI SDK kind format.
+    pub fn try_new(kind: impl Into<String>) -> Option<Self> {
+        let content = Self::new(kind);
+        is_language_model_v4_custom_kind(&content.kind).then_some(content)
+    }
+
+    /// Project a stable custom output onto the V4 provider content shape.
+    pub fn try_from_custom_output(output: &CustomOutput) -> Option<Self> {
+        Some(Self {
+            marker: LanguageModelV4CustomMarker::Marker,
+            kind: is_language_model_v4_custom_kind(&output.kind).then(|| output.kind.clone())?,
+            provider_metadata: output.provider_metadata.clone(),
+        })
+    }
+
+    /// Attach provider metadata.
+    pub fn with_provider_metadata(mut self, provider_metadata: ProviderMetadata) -> Self {
+        self.provider_metadata = Some(provider_metadata);
+        self
+    }
+
+    /// Return the AI SDK V4 content discriminator.
+    pub const fn r#type(&self) -> &'static str {
+        "custom"
+    }
+}
 
 /// AI SDK V4 generated source citation.
 pub type LanguageModelV4Source = Source;
@@ -11987,11 +12137,11 @@ fn string_body_to_json_value(body: String) -> JSONValue {
 #[cfg(test)]
 mod tests {
     use super::super::{
-        AssistantContent, FilePart, FilePartSource, ImagePart, MediaSource, ProviderReference,
-        ReasoningFilePart, ReasoningPart, SystemModelMessage, TextPart, ToolApprovalRequest,
-        ToolApprovalResponse, ToolCallPart, ToolResultContentPart, ToolResultOutput,
-        ToolResultPart, UiMessagePart, UiMessageRole, UserContent, UserContentPart,
-        UserModelMessage,
+        AssistantContent, CustomPart, FilePart, FilePartSource, ImagePart, MediaSource,
+        ProviderReference, ReasoningFilePart, ReasoningPart, SystemModelMessage, TextPart,
+        ToolApprovalRequest, ToolApprovalResponse, ToolCallPart, ToolResultContentPart,
+        ToolResultOutput, ToolResultPart, UiMessagePart, UiMessageRole, UserContent,
+        UserContentPart, UserModelMessage,
     };
     use super::*;
 
@@ -15202,6 +15352,92 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn language_model_v4_custom_kind_enforces_provider_prefix_shape() {
+        let mut provider_options = ProviderOptionsMap::default();
+        provider_options.insert("openai", serde_json::json!({ "mode": "compact" }));
+
+        let prompt_part = LanguageModelV4CustomPart::try_new("openai.compaction")
+            .expect("valid custom prompt kind")
+            .with_provider_options_map(provider_options);
+        let prompt_json =
+            serde_json::to_value(&prompt_part).expect("serialize V4 custom prompt part");
+        assert_eq!(prompt_json["type"], serde_json::json!("custom"));
+        assert_eq!(prompt_json["kind"], serde_json::json!("openai.compaction"));
+        assert_eq!(
+            prompt_json["providerOptions"]["openai"]["mode"],
+            serde_json::json!("compact")
+        );
+
+        assert!(
+            serde_json::from_value::<LanguageModelV4CustomPart>(serde_json::json!({
+                "type": "custom",
+                "kind": "compaction"
+            }))
+            .is_err()
+        );
+        assert!(serde_json::to_value(LanguageModelV4CustomPart::new("compaction")).is_err());
+
+        let content = LanguageModelV4CustomContent::try_new("openai.compaction")
+            .expect("valid custom output kind")
+            .with_provider_metadata(ProviderMetadata::from([(
+                "openai".to_string(),
+                serde_json::json!({ "itemId": "cmp_1" }),
+            )]));
+        let content_json =
+            serde_json::to_value(&content).expect("serialize V4 custom content part");
+        assert_eq!(content_json["type"], serde_json::json!("custom"));
+        assert_eq!(
+            content_json["providerMetadata"]["openai"]["itemId"],
+            serde_json::json!("cmp_1")
+        );
+        assert!(
+            serde_json::from_value::<LanguageModelV4CustomContent>(serde_json::json!({
+                "type": "custom",
+                "kind": "compaction"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn language_model_v4_prompt_projection_drops_invalid_custom_kinds() {
+        let assistant = AssistantModelMessage::new(AssistantContent::parts(vec![
+            AssistantContentPart::Custom(CustomPart::new("compaction")),
+            AssistantContentPart::Custom(CustomPart::new("openai.compaction")),
+        ]));
+
+        let prompt = prepare_language_model_v4_prompt(vec![ModelMessage::Assistant(assistant)]);
+        let json = serde_json::to_value(&prompt).expect("serialize projected V4 prompt");
+
+        assert_eq!(
+            json[0]["content"],
+            serde_json::json!([
+                {
+                    "type": "custom",
+                    "kind": "openai.compaction"
+                }
+            ])
+        );
+    }
+
+    #[test]
+    fn language_model_v4_custom_content_projects_valid_stable_outputs_only() {
+        assert!(
+            LanguageModelV4CustomContent::try_from_custom_output(&CustomOutput::new("compaction"))
+                .is_none()
+        );
+
+        let projected = LanguageModelV4CustomContent::try_from_custom_output(&CustomOutput::new(
+            "openai.compaction",
+        ))
+        .expect("valid stable custom output");
+        let json = serde_json::to_value(&projected).expect("serialize projected custom output");
+
+        assert_eq!(json["type"], serde_json::json!("custom"));
+        assert_eq!(json["kind"], serde_json::json!("openai.compaction"));
     }
 
     #[test]

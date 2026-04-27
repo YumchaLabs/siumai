@@ -450,7 +450,9 @@ so provider-facing files use top-level `mediaType` + `data`, tool calls keep str
 file and reasoning-file content now uses a generated-file-only `string | bytes` carrier instead of
 the wider prompt `LanguageModelV4DataContent` helper, because upstream output files are
 `string | Uint8Array` and do not accept URL objects. Provider-facing `tool-result.result` also
-rejects `null` at the serde boundary to match upstream `NonNullable<JSONValue>`.
+rejects `null` at the serde boundary to match upstream `NonNullable<JSONValue>`. Provider-facing
+custom prompt/output overlays also validate the upstream `{provider}.{provider-type}` `kind`
+shape instead of inheriting the stable custom layer's arbitrary string compatibility.
 `LanguageModelV4GenerateResult` groups that content with V4 finish reason, V4 usage, provider
 metadata, request/response telemetry, and strict shared V4 `CallWarning` payloads; stable legacy
 warning variants normalize to canonical `unsupported { feature, details }` before reaching this
