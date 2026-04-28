@@ -16,7 +16,9 @@ use crate::providers::openai_compatible::middleware::OpenAiCompatibleStructuredO
 use crate::providers::openai_compatible::middleware::OpenAiCompatibleToolWarningsMiddleware;
 use crate::standards::openai::compat::adapter::OpenAiCompatibleRequestSettings;
 use crate::standards::openai::compat::provider_registry::ConfigurableAdapter;
-use crate::standards::openai::utils::{parse_finish_reason, parse_provider_openai_usage_value};
+use crate::standards::openai::utils::{
+    parse_provider_openai_finish_reason, parse_provider_openai_usage_value,
+};
 // use crate::providers::openai_compatible::RequestType; // no longer needed here
 use crate::retry_api::RetryOptions;
 use crate::streaming::ChatStream;
@@ -437,9 +439,9 @@ impl crate::streaming::SseEventConverter for CompletionSseConverter {
                 .and_then(|choice| choice.get("finish_reason"))
                 .and_then(|value| value.as_str())
                 .map(ToString::to_string);
-            let finish_reason = finish_reason_raw
-                .as_deref()
-                .and_then(|value| parse_finish_reason(Some(value)));
+            let finish_reason = finish_reason_raw.as_deref().and_then(|value| {
+                parse_provider_openai_finish_reason(provider_id.as_str(), Some(value))
+            });
             let usage = raw
                 .get("usage")
                 .and_then(|usage| parse_provider_openai_usage_value(provider_id.as_str(), usage));
@@ -1066,9 +1068,9 @@ impl OpenAiCompatibleClient {
             .and_then(|choice| choice.get("finish_reason"))
             .and_then(|value| value.as_str())
             .map(ToString::to_string);
-        let finish_reason = raw_finish_reason
-            .as_deref()
-            .and_then(|value| parse_finish_reason(Some(value)));
+        let finish_reason = raw_finish_reason.as_deref().and_then(|value| {
+            parse_provider_openai_finish_reason(self.config.provider_id.as_str(), Some(value))
+        });
 
         CompletionResponse {
             text,
@@ -3935,6 +3937,127 @@ mod tests {
         let _ = client.chat_request(request).await;
         let captured = transport.take().expect("captured request");
         assert_eq!(captured.body["my_custom"], serde_json::json!(1));
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_mistral_maps_model_length_finish_reason() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "mistral".to_string(),
+            name: "Mistral".to_string(),
+            base_url: "https://api.mistral.ai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "tools".to_string()],
+            default_model: None,
+            supports_reasoning: false,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl-mistral-finish",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "mistral-large-latest",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "done" },
+                "finish_reason": "model_length"
+            }],
+            "usage": { "prompt_tokens": 1, "completion_tokens": 2, "total_tokens": 3 }
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "mistral",
+            "test-key",
+            "https://api.mistral.ai/v1",
+            adapter,
+        )
+        .with_model("mistral-large-latest")
+        .with_http_transport(Arc::new(transport));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let response = client
+            .chat_request(
+                ChatRequest::builder()
+                    .model("mistral-large-latest")
+                    .messages(vec![ChatMessage::user("hi").build()])
+                    .build(),
+            )
+            .await
+            .expect("response ok");
+
+        assert_eq!(response.finish_reason, Some(FinishReason::Length));
+        assert_eq!(response.raw_finish_reason.as_deref(), Some("model_length"));
+    }
+
+    #[tokio::test]
+    async fn chat_request_runtime_qwen_maps_alibaba_cache_write_usage() {
+        let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
+            id: "qwen".to_string(),
+            name: "Qwen".to_string(),
+            base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "tools".to_string()],
+            default_model: None,
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: vec![],
+        }));
+        let transport = JsonResponseTransport::new(serde_json::json!({
+            "id": "chatcmpl-qwen-usage",
+            "object": "chat.completion",
+            "created": 1,
+            "model": "qwen-plus",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "done" },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 200,
+                "completion_tokens": 75,
+                "total_tokens": 275,
+                "prompt_tokens_details": {
+                    "cached_tokens": 120,
+                    "cache_creation_input_tokens": 50
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 25
+                }
+            }
+        }));
+
+        let cfg = OpenAiCompatibleConfig::new(
+            "qwen",
+            "test-key",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            adapter,
+        )
+        .with_model("qwen-plus")
+        .with_http_transport(Arc::new(transport));
+
+        let client = OpenAiCompatibleClient::with_http_client(cfg, reqwest::Client::new())
+            .await
+            .expect("client ok");
+
+        let response = client
+            .chat_request(
+                ChatRequest::builder()
+                    .model("qwen-plus")
+                    .messages(vec![ChatMessage::user("hi").build()])
+                    .build(),
+            )
+            .await
+            .expect("response ok");
+        let usage = response.usage.expect("usage");
+
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(30));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(120));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(50));
+        assert_eq!(usage.normalized_output_tokens().text, Some(50));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(25));
     }
 
     #[tokio::test]

@@ -726,6 +726,14 @@ pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
     siumai_core::standards::openai::utils::parse_finish_reason(reason)
 }
 
+/// Parse provider-specific OpenAI-compatible finish reasons into unified `FinishReason`.
+pub fn parse_provider_openai_finish_reason(
+    provider_id: &str,
+    reason: Option<&str>,
+) -> Option<FinishReason> {
+    siumai_core::standards::openai::utils::parse_provider_openai_finish_reason(provider_id, reason)
+}
+
 /// Parse OpenAI chat/responses/AI SDK usage payloads into unified `Usage`.
 pub fn parse_openai_usage_value(value: &serde_json::Value) -> Option<Usage> {
     siumai_core::standards::openai::utils::parse_openai_usage_value(value)

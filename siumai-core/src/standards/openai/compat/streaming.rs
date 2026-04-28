@@ -490,8 +490,11 @@ impl OpenAiCompatibleEventConverter {
                     .store(true, std::sync::atomic::Ordering::Relaxed);
             }
             let mut response = self.build_terminal_response(
-                crate::standards::openai::utils::parse_finish_reason(Some(reason))
-                    .unwrap_or_else(|| FinishReason::Other(reason.to_string())),
+                crate::standards::openai::utils::parse_provider_openai_finish_reason(
+                    self.config.provider_id.as_str(),
+                    Some(reason),
+                )
+                .unwrap_or_else(|| FinishReason::Other(reason.to_string())),
                 Some(reason.to_string()),
             );
             response.content = MessageContent::Text(text);
@@ -802,8 +805,13 @@ impl OpenAiCompatibleEventConverter {
     fn build_finish_info(&self, reason: Option<&str>) -> ChatStreamFinishInfo {
         ChatStreamFinishInfo {
             unified: match reason {
-                Some(reason) => crate::standards::openai::utils::parse_finish_reason(Some(reason))
-                    .unwrap_or_else(|| FinishReason::Other(reason.to_string())),
+                Some(reason) => {
+                    crate::standards::openai::utils::parse_provider_openai_finish_reason(
+                        self.config.provider_id.as_str(),
+                        Some(reason),
+                    )
+                    .unwrap_or_else(|| FinishReason::Other(reason.to_string()))
+                }
                 None => FinishReason::Unknown,
             },
             raw: reason.map(ToString::to_string),

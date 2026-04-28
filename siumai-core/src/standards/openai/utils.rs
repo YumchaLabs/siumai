@@ -698,6 +698,44 @@ pub fn parse_finish_reason(reason: Option<&str>) -> Option<FinishReason> {
     }
 }
 
+/// Parse provider-specific OpenAI-compatible finish reasons to unified `FinishReason`.
+pub fn parse_provider_openai_finish_reason(
+    provider_id: &str,
+    reason: Option<&str>,
+) -> Option<FinishReason> {
+    let reason = reason?;
+
+    Some(match provider_id {
+        "deepseek" => match reason {
+            "stop" => FinishReason::Stop,
+            "length" => FinishReason::Length,
+            "content_filter" => FinishReason::ContentFilter,
+            "tool_calls" => FinishReason::ToolCalls,
+            "insufficient_system_resource" => FinishReason::Error,
+            other => FinishReason::Other(other.to_string()),
+        },
+        "mistral" => match reason {
+            "stop" => FinishReason::Stop,
+            "length" | "model_length" => FinishReason::Length,
+            "tool_calls" => FinishReason::ToolCalls,
+            other => FinishReason::Other(other.to_string()),
+        },
+        "perplexity" => match reason {
+            "stop" => FinishReason::Stop,
+            "length" => FinishReason::Length,
+            other => FinishReason::Other(other.to_string()),
+        },
+        "cohere" => match reason {
+            "COMPLETE" | "STOP_SEQUENCE" => FinishReason::Stop,
+            "MAX_TOKENS" => FinishReason::Length,
+            "ERROR" => FinishReason::Error,
+            "TOOL_CALL" => FinishReason::ToolCalls,
+            other => FinishReason::Other(other.to_string()),
+        },
+        _ => parse_finish_reason(Some(reason))?,
+    })
+}
+
 fn usage_u32(value: Option<&Value>) -> Option<u32> {
     value
         .and_then(Value::as_u64)
@@ -1027,6 +1065,47 @@ fn parse_moonshotai_usage_value(value: &Value) -> Option<Usage> {
     parse_normalized_openai_usage_with_raw(normalized, raw)
 }
 
+fn parse_alibaba_usage_value(value: &Value) -> Option<Usage> {
+    let raw = value.as_object()?.clone();
+    let mut normalized = raw.clone();
+
+    let cache_write_tokens = usage_object(&raw, &["prompt_tokens_details", "input_tokens_details"])
+        .and_then(|details| {
+            usage_u32(usage_value(
+                details,
+                &["cache_creation_input_tokens", "cacheCreationInputTokens"],
+            ))
+        });
+
+    if let Some(cache_write_tokens) = cache_write_tokens {
+        let prompt_tokens =
+            usage_u32(usage_value(&raw, &["prompt_tokens", "input_tokens"])).unwrap_or(0);
+        let cache_read_tokens =
+            usage_object(&raw, &["prompt_tokens_details", "input_tokens_details"])
+                .and_then(|details| {
+                    usage_u32(usage_value(details, &["cached_tokens", "cachedTokens"]))
+                })
+                .unwrap_or(0);
+        let no_cache_tokens = prompt_tokens
+            .saturating_sub(cache_read_tokens)
+            .saturating_sub(cache_write_tokens);
+
+        let input_tokens = ensure_object_entry(&mut normalized, "inputTokens");
+        input_tokens.insert("total".to_string(), serde_json::json!(prompt_tokens));
+        input_tokens.insert("noCache".to_string(), serde_json::json!(no_cache_tokens));
+        input_tokens.insert(
+            "cacheRead".to_string(),
+            serde_json::json!(cache_read_tokens),
+        );
+        input_tokens.insert(
+            "cacheWrite".to_string(),
+            serde_json::json!(cache_write_tokens),
+        );
+    }
+
+    parse_normalized_openai_usage_with_raw(normalized, raw)
+}
+
 fn parse_xai_chat_usage_value(value: &Value) -> Option<Usage> {
     let raw = value.as_object()?.clone();
     let mut normalized = raw.clone();
@@ -1236,6 +1315,7 @@ pub fn normalize_openai_usage_value_for_provider<'a>(
 
 pub fn parse_provider_openai_usage_value(provider_id: &str, value: &Value) -> Option<Usage> {
     match provider_id {
+        "alibaba" | "qwen" => parse_alibaba_usage_value(value),
         "deepseek" => parse_deepseek_usage_value(value),
         "groq" => parse_groq_usage_value(value),
         "moonshot" | "moonshotai" => parse_moonshotai_usage_value(value),
@@ -1815,6 +1895,30 @@ mod tests {
     }
 
     #[test]
+    fn parse_provider_openai_finish_reason_matches_ai_sdk_vendor_mappings() {
+        assert_eq!(
+            parse_provider_openai_finish_reason("deepseek", Some("insufficient_system_resource")),
+            Some(FinishReason::Error)
+        );
+        assert_eq!(
+            parse_provider_openai_finish_reason("mistral", Some("model_length")),
+            Some(FinishReason::Length)
+        );
+        assert_eq!(
+            parse_provider_openai_finish_reason("perplexity", Some("content_filter")),
+            Some(FinishReason::Other("content_filter".to_string()))
+        );
+        assert_eq!(
+            parse_provider_openai_finish_reason("cohere", Some("STOP_SEQUENCE")),
+            Some(FinishReason::Stop)
+        );
+        assert_eq!(
+            parse_provider_openai_finish_reason("groq", Some("function_call")),
+            Some(FinishReason::ToolCalls)
+        );
+    }
+
+    #[test]
     fn parse_provider_openai_usage_value_fixes_deepinfra_reasoning_totals() {
         let usage = parse_provider_openai_usage_value(
             "deepinfra",
@@ -1849,6 +1953,38 @@ mod tests {
         assert_eq!(
             usage.raw_usage_value().expect("raw usage")["total_tokens"],
             serde_json::json!(1186)
+        );
+    }
+
+    #[test]
+    fn parse_provider_openai_usage_value_maps_alibaba_cache_creation_tokens() {
+        let usage = parse_provider_openai_usage_value(
+            "qwen",
+            &serde_json::json!({
+                "prompt_tokens": 200,
+                "completion_tokens": 75,
+                "total_tokens": 275,
+                "prompt_tokens_details": {
+                    "cached_tokens": 120,
+                    "cache_creation_input_tokens": 50
+                },
+                "completion_tokens_details": {
+                    "reasoning_tokens": 25
+                }
+            }),
+        )
+        .expect("parse usage");
+
+        assert_eq!(usage.normalized_input_tokens().total, Some(200));
+        assert_eq!(usage.normalized_input_tokens().no_cache, Some(30));
+        assert_eq!(usage.normalized_input_tokens().cache_read, Some(120));
+        assert_eq!(usage.normalized_input_tokens().cache_write, Some(50));
+        assert_eq!(usage.normalized_output_tokens().total, Some(75));
+        assert_eq!(usage.normalized_output_tokens().text, Some(50));
+        assert_eq!(usage.normalized_output_tokens().reasoning, Some(25));
+        assert_eq!(
+            usage.raw_usage_value().expect("raw usage")["prompt_tokens_details"]["cache_creation_input_tokens"],
+            serde_json::json!(50)
         );
     }
 

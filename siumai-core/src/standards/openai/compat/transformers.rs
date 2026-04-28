@@ -18,7 +18,7 @@ use crate::standards::openai::utils::convert_messages;
 use crate::streaming::ChatStreamEvent;
 use crate::streaming::SseEventConverter;
 use crate::types::{
-    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse, FinishReason,
+    ChatRequest, ChatResponse, ContentPart, EmbeddingRequest, EmbeddingResponse,
     ImageGenerationRequest, ImageGenerationResponse, MessageContent, SourcePart,
 };
 use eventsource_stream::Event;
@@ -433,23 +433,19 @@ impl ResponseTransformer for CompatResponseTransformer {
             MessageContent::Text(String::new())
         };
 
-        let usage = resp.usage.and_then(|u| {
-            serde_json::to_value(u).ok().and_then(|value| {
-                crate::standards::openai::utils::parse_provider_openai_usage_value(
-                    self.adapter.provider_id().as_ref(),
-                    &value,
-                )
-            })
+        let usage = raw.get("usage").and_then(|value| {
+            crate::standards::openai::utils::parse_provider_openai_usage_value(
+                self.adapter.provider_id().as_ref(),
+                value,
+            )
         });
 
         let raw_finish_reason = choice.finish_reason.clone();
-        let finish_reason = raw_finish_reason.as_deref().map(|r| match r {
-            "stop" => FinishReason::Stop,
-            "length" => FinishReason::Length,
-            "tool_calls" => FinishReason::ToolCalls,
-            "function_call" => FinishReason::ToolCalls,
-            "content_filter" => FinishReason::ContentFilter,
-            _ => FinishReason::Other(r.to_string()),
+        let finish_reason = raw_finish_reason.as_deref().and_then(|reason| {
+            crate::standards::openai::utils::parse_provider_openai_finish_reason(
+                self.adapter.provider_id().as_ref(),
+                Some(reason),
+            )
         });
 
         // Extract audio output if present (OpenAI audio modality)
@@ -573,6 +569,7 @@ mod tests {
     use super::super::types as compat_types;
     use super::super::types::RequestType;
     use super::*;
+    use crate::types::FinishReason;
 
     #[derive(Debug, Clone)]
     #[allow(dead_code)]

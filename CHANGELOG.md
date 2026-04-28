@@ -1043,8 +1043,13 @@ This file lists noteworthy changes. Sections are grouped by version to make upgr
 
 - OpenAI-compatible usage conversion now applies the audited AI SDK provider-specific semantics for
   DeepSeek prompt-cache hits, MoonshotAI top-level cache counters, Groq reasoning without prompt
-  cache normalization, and xAI chat/Responses non-inclusive cache and reasoning totals while still
-  preserving the original provider usage payload in `Usage.raw`.
+  cache normalization, Qwen/Alibaba cache-write counters, and xAI chat/Responses non-inclusive
+  cache and reasoning totals while still preserving the original provider usage payload in
+  `Usage.raw`.
+- OpenAI-compatible finish-reason conversion now applies AI SDK provider-specific mappings for
+  DeepSeek `insufficient_system_resource`, Mistral `model_length`, Perplexity's narrower
+  stop/length contract, and Cohere's uppercase stop reasons while continuing to preserve the raw
+  provider finish reason.
 - OpenAI Responses response encoding now replays `raw_finish_reason` as
   `incomplete_details.reason` for incomplete outputs and marks those responses as
   `response.incomplete`, so `max_output_tokens`, `content_filter`, and future provider-specific
