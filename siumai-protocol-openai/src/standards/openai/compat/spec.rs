@@ -720,6 +720,62 @@ fn apply_perplexity_chat_settings(
     }
 }
 
+fn apply_alibaba_chat_settings(
+    provider_id: &str,
+    req: &crate::types::ChatRequest,
+    provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    if !matches!(provider_id, "qwen" | "alibaba") {
+        return;
+    }
+
+    if let Some(top_k) = req.common_params.top_k
+        && !passthrough_provider_option_has(provider_options, "top_k")
+    {
+        body_obj.insert("top_k".to_string(), serde_json::json!(top_k));
+    }
+
+    if req.common_params.frequency_penalty.is_some()
+        && !passthrough_provider_option_has(provider_options, "frequency_penalty")
+    {
+        body_obj.remove("frequency_penalty");
+    }
+
+    let Some(response_format) = req.response_format.as_ref() else {
+        return;
+    };
+
+    let value = match response_format {
+        crate::types::chat::ResponseFormat::JsonObject { .. } => {
+            serde_json::json!({ "type": "json_object" })
+        }
+        crate::types::chat::ResponseFormat::Json {
+            schema,
+            name,
+            description,
+            ..
+        } => {
+            let mut json_schema = serde_json::Map::new();
+            json_schema.insert("schema".to_string(), schema.clone());
+            json_schema.insert(
+                "name".to_string(),
+                serde_json::json!(name.as_deref().unwrap_or("response")),
+            );
+            if let Some(description) = description.as_deref() {
+                json_schema.insert("description".to_string(), serde_json::json!(description));
+            }
+
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": json_schema,
+            })
+        }
+    };
+
+    body_obj.insert("response_format".to_string(), value);
+}
+
 fn provider_options_map_merge_hook(
     provider_id: &str,
     map: &crate::types::ProviderOptionsMap,
@@ -772,6 +828,7 @@ fn chat_request_settings_hook(
                     request_uses_structured_outputs,
                 );
                 apply_perplexity_chat_settings(&provider_id, &req, &provider_options, body_obj);
+                apply_alibaba_chat_settings(&provider_id, &req, &provider_options, body_obj);
             }
 
             if let Some(transformer) = settings.request_body_transformer.as_ref() {
@@ -2397,8 +2454,79 @@ mod tests {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "response",
-                    "schema": schema,
-                    "strict": true
+                    "schema": schema
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_qwen_chat_settings_follow_alibaba_provider_shape() {
+        use crate::core::ProviderSpec;
+        use crate::types::{CommonParams, chat::ResponseFormat};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "qwen".to_string(),
+                name: "Qwen".to_string(),
+                base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["chat".into(), "streaming".into(), "tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "qwen".to_string(),
+            "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+        let req = crate::types::ChatRequest::builder()
+            .model_params(CommonParams {
+                model: "qwen-plus".to_string(),
+                top_k: Some(20.0),
+                frequency_penalty: Some(0.2),
+                presence_penalty: Some(0.4),
+                ..CommonParams::default()
+            })
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(
+                ResponseFormat::json_schema(schema.clone())
+                    .with_name("custom")
+                    .with_description("kept")
+                    .with_strict(false),
+            )
+            .build()
+            .with_provider_option(
+                "alibaba",
+                serde_json::json!({ "strictJsonSchema": true, "structuredOutputs": false }),
+            );
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert_eq!(body.get("top_k"), Some(&serde_json::json!(20.0)));
+        assert!(body.get("frequency_penalty").is_none());
+        assert_eq!(body.get("presence_penalty"), Some(&serde_json::json!(0.4)));
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "custom",
+                    "description": "kept",
+                    "schema": schema
                 }
             }))
         );
