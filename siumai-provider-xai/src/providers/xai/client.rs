@@ -870,9 +870,11 @@ mod tests {
         let _ = client.chat_request(request).await.expect("chat ok");
         let captured = transport.take().expect("captured request");
 
-        assert_eq!(captured.body["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(captured.body["reasoning_budget"], serde_json::json!(2048));
         assert_eq!(captured.body["reasoning_effort"], serde_json::json!("high"));
+        assert!(captured.body.get("enable_reasoning").is_none());
+        assert!(captured.body.get("reasoning_budget").is_none());
+        assert!(captured.body.get("enable_thinking").is_none());
+        assert!(captured.body.get("thinking_budget").is_none());
         assert_eq!(
             captured.body["search_parameters"]["mode"],
             serde_json::json!("auto")

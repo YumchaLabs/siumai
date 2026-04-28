@@ -21,6 +21,28 @@ fn rename_field(obj: &mut serde_json::Map<String, serde_json::Value>, from: &str
     }
 }
 
+fn take_field(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    keys: &[&str],
+) -> Option<serde_json::Value> {
+    for key in keys {
+        if let Some(value) = obj.remove(*key) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn insert_xai_reasoning_effort(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    effort: &'static str,
+) {
+    obj.insert(
+        "reasoning_effort".to_string(),
+        serde_json::Value::String(effort.to_string()),
+    );
+}
+
 fn normalize_xai_search_parameters(value: &mut serde_json::Value) {
     let Some(obj) = value.as_object_mut() else {
         return;
@@ -70,6 +92,50 @@ fn normalize_xai_chat_defaults(
     rename_field(&mut obj, "searchParameters", "search_parameters");
     rename_field(&mut obj, "topLogprobs", "top_logprobs");
     rename_field(&mut obj, "previousResponseId", "previous_response_id");
+
+    let legacy_reasoning_enabled = take_field(
+        &mut obj,
+        &[
+            "enableReasoning",
+            "enable_reasoning",
+            "enableThinking",
+            "enable_thinking",
+        ],
+    )
+    .and_then(|value| value.as_bool());
+    for key in [
+        "enableReasoning",
+        "enable_reasoning",
+        "enableThinking",
+        "enable_thinking",
+    ] {
+        obj.remove(key);
+    }
+    let legacy_reasoning_budget = take_field(
+        &mut obj,
+        &[
+            "reasoningBudget",
+            "reasoning_budget",
+            "thinkingBudget",
+            "thinking_budget",
+        ],
+    );
+    for key in [
+        "reasoningBudget",
+        "reasoning_budget",
+        "thinkingBudget",
+        "thinking_budget",
+    ] {
+        obj.remove(key);
+    }
+
+    if obj.get("reasoning_effort").is_none() {
+        if legacy_reasoning_budget.is_some() {
+            insert_xai_reasoning_effort(&mut obj, "high");
+        } else if matches!(legacy_reasoning_enabled, Some(true)) {
+            insert_xai_reasoning_effort(&mut obj, "low");
+        }
+    }
 
     if let Some(value) = obj.get_mut("search_parameters") {
         normalize_xai_search_parameters(value);
@@ -311,27 +377,37 @@ impl XaiConfig {
         self.merge_non_chat_xai_provider_options(options)
     }
 
-    /// Enable provider-native reasoning mode when supported.
+    /// Set a coarse xAI reasoning default.
+    ///
+    /// xAI does not expose DeepSeek/OpenRouter-style `enable_reasoning`; AI SDK lowers
+    /// reasoning to `reasoning_effort`. This compatibility helper maps `true` to the
+    /// conservative `low` effort and removes any prior coarse default for `false`.
     pub fn with_reasoning(mut self, enable: bool) -> Self {
-        self.provider_specific_config.insert(
-            "enable_reasoning".to_string(),
-            serde_json::Value::Bool(enable),
-        );
+        self.provider_specific_config.remove("enableReasoning");
+        self.provider_specific_config.remove("enable_reasoning");
+        self.provider_specific_config.remove("enableThinking");
+        self.provider_specific_config.remove("enable_thinking");
+        self.provider_specific_config.remove("reasoningBudget");
+        self.provider_specific_config.remove("reasoning_budget");
+        self.provider_specific_config.remove("thinkingBudget");
+        self.provider_specific_config.remove("thinking_budget");
+
+        if enable {
+            self.provider_specific_config
+                .insert("reasoningEffort".to_string(), serde_json::json!("low"));
+        } else {
+            self.provider_specific_config.remove("reasoningEffort");
+            self.provider_specific_config.remove("reasoning_effort");
+        }
         self
     }
 
-    /// Set the reasoning token budget.
-    pub fn with_reasoning_budget(mut self, budget: i32) -> Self {
-        let clamped_budget = budget.clamp(128, 32768) as u32;
-        self.provider_specific_config.insert(
-            "reasoning_budget".to_string(),
-            serde_json::Value::Number(serde_json::Number::from(clamped_budget)),
-        );
-        self.provider_specific_config.insert(
-            "enable_reasoning".to_string(),
-            serde_json::Value::Bool(true),
-        );
-        self
+    /// Compatibility helper for legacy budget-shaped APIs.
+    ///
+    /// AI SDK's xAI provider has no token-budget option; the closest supported xAI
+    /// control is `reasoning_effort`, so this maps to `high`.
+    pub fn with_reasoning_budget(self, _budget: i32) -> Self {
+        self.with_reasoning_effort(XaiChatReasoningEffort::High)
     }
 
     /// Set xAI-specific reasoning effort.
@@ -546,9 +622,11 @@ mod tests {
         assert_eq!(compat.model, "grok-4");
         assert_eq!(compat.supports_structured_outputs, Some(true));
         assert_eq!(compat.http_config.timeout, Some(Duration::from_secs(9)));
-        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(params["reasoning_budget"], serde_json::json!(4096));
         assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoning_budget").is_none());
+        assert!(params.get("enable_thinking").is_none());
+        assert!(params.get("thinking_budget").is_none());
         assert_eq!(params["logprobs"], serde_json::json!(true));
         assert_eq!(params["top_logprobs"], serde_json::json!(2));
         assert_eq!(

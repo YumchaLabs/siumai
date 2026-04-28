@@ -356,11 +356,39 @@ fn normalize_provider_options(
     let mut obj = value?.as_object()?.clone();
 
     if provider_id == "xai" {
-        rename_field(&mut obj, "reasoningEffort", "reasoning_effort");
+        if let Some(value) = take_any(&mut obj, &["reasoningEffort", "reasoning_effort"]) {
+            obj.entry("reasoning_effort".to_string()).or_insert(value);
+        }
         rename_field(&mut obj, "reasoningSummary", "reasoning_summary");
         rename_field(&mut obj, "searchParameters", "search_parameters");
         rename_field(&mut obj, "topLogprobs", "top_logprobs");
         rename_field(&mut obj, "previousResponseId", "previous_response_id");
+        let legacy_reasoning_enabled = take_any(
+            &mut obj,
+            &[
+                "enableReasoning",
+                "enable_reasoning",
+                "enableThinking",
+                "enable_thinking",
+            ],
+        )
+        .and_then(|value| value.as_bool());
+        let legacy_reasoning_budget = take_any(
+            &mut obj,
+            &[
+                "reasoningBudget",
+                "reasoning_budget",
+                "thinkingBudget",
+                "thinking_budget",
+            ],
+        );
+        if obj.get("reasoning_effort").is_none() {
+            if legacy_reasoning_budget.is_some() {
+                obj.insert("reasoning_effort".to_string(), serde_json::json!("high"));
+            } else if matches!(legacy_reasoning_enabled, Some(true)) {
+                obj.insert("reasoning_effort".to_string(), serde_json::json!("low"));
+            }
+        }
         if let Some(v) = obj.get_mut("search_parameters") {
             normalize_xai_search_parameters(v);
         }
@@ -2721,7 +2749,9 @@ mod tests {
                 "xai",
                 serde_json::json!({
                     "response_format": { "type": "json_object" },
-                    "reasoningEffort": "high"
+                    "reasoningEffort": "high",
+                    "enableReasoning": true,
+                    "reasoningBudget": 2048
                 }),
             );
 
@@ -2732,6 +2762,10 @@ mod tests {
 
         assert!(body.get("stop").is_none());
         assert_eq!(body["reasoning_effort"], serde_json::json!("high"));
+        assert!(body.get("enableReasoning").is_none());
+        assert!(body.get("enable_reasoning").is_none());
+        assert!(body.get("reasoningBudget").is_none());
+        assert!(body.get("reasoning_budget").is_none());
         assert_eq!(
             body.get("response_format"),
             Some(&serde_json::json!({

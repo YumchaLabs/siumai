@@ -473,6 +473,15 @@ impl OpenAiCompatibleBuilder {
                     provider_thinking_value(enable, None),
                 );
             }
+            "xai" => {
+                if enable {
+                    self.provider_specific_config
+                        .insert("reasoning_effort".to_string(), serde_json::json!("low"));
+                } else {
+                    self.provider_specific_config.remove("reasoning_effort");
+                    self.provider_specific_config.remove("reasoningEffort");
+                }
+            }
             _ => {
                 self.provider_specific_config.insert(
                     "enable_thinking".to_string(),
@@ -519,6 +528,10 @@ impl OpenAiCompatibleBuilder {
                     "thinking".to_string(),
                     provider_thinking_value(true, Some(clamped_budget)),
                 );
+            }
+            "xai" => {
+                self.provider_specific_config
+                    .insert("reasoning_effort".to_string(), serde_json::json!("high"));
             }
             _ => {
                 self.provider_specific_config.insert(
@@ -586,6 +599,15 @@ impl OpenAiCompatibleBuilder {
                     "thinking".to_string(),
                     provider_thinking_value(enable, None),
                 );
+            }
+            "xai" => {
+                if enable {
+                    self.provider_specific_config
+                        .insert("reasoning_effort".to_string(), serde_json::json!("low"));
+                } else {
+                    self.provider_specific_config.remove("reasoning_effort");
+                    self.provider_specific_config.remove("reasoningEffort");
+                }
             }
             "openrouter" => {
                 // OpenRouter uses "enable_reasoning"
@@ -669,6 +691,10 @@ impl OpenAiCompatibleBuilder {
             "deepseek" => {
                 self.provider_specific_config
                     .insert("thinking".to_string(), provider_thinking_value(true, None));
+            }
+            "xai" => {
+                self.provider_specific_config
+                    .insert("reasoning_effort".to_string(), serde_json::json!("high"));
             }
             "openrouter" => {
                 // OpenRouter: store budget and enable reasoning
@@ -994,6 +1020,35 @@ mod tests {
         assert_eq!(params["thinking_budget"], serde_json::json!(2048));
         assert!(params.get("enable_reasoning").is_none());
         assert!(params.get("reasoning_budget").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_builder_maps_xai_reasoning_to_effort() {
+        let config = OpenAiCompatibleBuilder::new(BuilderBase::default(), "xai")
+            .api_key("test-key")
+            .model("grok-4")
+            .reasoning(true)
+            .reasoning_budget(2048)
+            .into_config()
+            .expect("into_config ok");
+
+        assert_eq!(config.provider_id, "xai");
+
+        let mut params = serde_json::json!({});
+        config
+            .adapter
+            .transform_request_params(
+                &mut params,
+                &config.model,
+                crate::providers::openai_compatible::RequestType::Chat,
+            )
+            .expect("transform request params");
+
+        assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoning_budget").is_none());
+        assert!(params.get("enable_thinking").is_none());
+        assert!(params.get("thinking_budget").is_none());
     }
 
     #[test]

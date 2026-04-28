@@ -156,23 +156,36 @@ impl XaiBuilder {
     }
 
     pub fn with_thinking(mut self, enable: bool) -> Self {
-        self.inner = self.inner.with_thinking(enable);
+        self = self.reasoning(enable);
         self
     }
 
-    pub fn with_thinking_budget(mut self, budget: u32) -> Self {
-        self.inner = self.inner.with_thinking_budget(budget);
-        self
+    pub fn with_thinking_budget(self, budget: u32) -> Self {
+        self.reasoning_budget(budget.min(i32::MAX as u32) as i32)
     }
 
     pub fn reasoning(mut self, enable: bool) -> Self {
-        self.inner = self.inner.reasoning(enable);
+        self.provider_specific_config.remove("enableReasoning");
+        self.provider_specific_config.remove("enable_reasoning");
+        self.provider_specific_config.remove("enableThinking");
+        self.provider_specific_config.remove("enable_thinking");
+        self.provider_specific_config.remove("reasoningBudget");
+        self.provider_specific_config.remove("reasoning_budget");
+        self.provider_specific_config.remove("thinkingBudget");
+        self.provider_specific_config.remove("thinking_budget");
+
+        if enable {
+            self.provider_specific_config
+                .insert("reasoningEffort".to_string(), serde_json::json!("low"));
+        } else {
+            self.provider_specific_config.remove("reasoningEffort");
+            self.provider_specific_config.remove("reasoning_effort");
+        }
         self
     }
 
-    pub fn reasoning_budget(mut self, budget: i32) -> Self {
-        self.inner = self.inner.reasoning_budget(budget);
-        self
+    pub fn reasoning_budget(self, _budget: i32) -> Self {
+        self.with_reasoning_effort(XaiChatReasoningEffort::High)
     }
 
     pub fn with_model_middlewares(
@@ -383,9 +396,11 @@ mod tests {
                 siumai_provider_openai_compatible::providers::openai_compatible::RequestType::Chat,
             )
             .expect("transform request params");
-        assert_eq!(params["enable_reasoning"], serde_json::json!(true));
-        assert_eq!(params["reasoning_budget"], serde_json::json!(2048));
         assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoning_budget").is_none());
+        assert!(params.get("enable_thinking").is_none());
+        assert!(params.get("thinking_budget").is_none());
         assert_eq!(params["logprobs"], serde_json::json!(true));
         assert_eq!(params["top_logprobs"], serde_json::json!(2));
         assert_eq!(

@@ -264,6 +264,49 @@ impl ProviderAdapter for ConfigurableAdapter {
                         obj.entry("reasoning_effort".to_string()).or_insert(v);
                     }
 
+                    let legacy_reasoning_enabled = take_any(
+                        obj,
+                        &[
+                            "enableReasoning",
+                            "enable_reasoning",
+                            "enableThinking",
+                            "enable_thinking",
+                        ],
+                    )
+                    .and_then(|value| value.as_bool());
+                    for key in [
+                        "enableReasoning",
+                        "enable_reasoning",
+                        "enableThinking",
+                        "enable_thinking",
+                    ] {
+                        obj.remove(key);
+                    }
+                    let legacy_reasoning_budget = take_any(
+                        obj,
+                        &[
+                            "reasoningBudget",
+                            "reasoning_budget",
+                            "thinkingBudget",
+                            "thinking_budget",
+                        ],
+                    );
+                    for key in [
+                        "reasoningBudget",
+                        "reasoning_budget",
+                        "thinkingBudget",
+                        "thinking_budget",
+                    ] {
+                        obj.remove(key);
+                    }
+                    if obj.get("reasoning_effort").is_none() {
+                        if legacy_reasoning_budget.is_some() {
+                            obj.insert("reasoning_effort".to_string(), serde_json::json!("high"));
+                        } else if matches!(legacy_reasoning_enabled, Some(true)) {
+                            obj.insert("reasoning_effort".to_string(), serde_json::json!("low"));
+                        }
+                    }
+
                     if let Some(mut v) = take_any(obj, &["searchParameters", "search_parameters"]) {
                         normalize_xai_search_parameters(&mut v);
                         obj.entry("search_parameters".to_string()).or_insert(v);
@@ -747,6 +790,44 @@ mod tests {
         assert!(params.get("enable_reasoning").is_none());
         assert!(params.get("reasoningBudget").is_none());
         assert!(params.get("reasoning_budget").is_none());
+    }
+
+    #[test]
+    fn configurable_adapter_transforms_xai_reasoning_compat_quirks() {
+        let cfg = ProviderConfig {
+            id: "xai".to_string(),
+            name: "xAI".to_string(),
+            base_url: "https://api.x.ai/v1".to_string(),
+            field_mappings: ProviderFieldMappings::default(),
+            capabilities: vec!["chat".to_string(), "streaming".to_string()],
+            default_model: Some("grok-4".to_string()),
+            supports_reasoning: true,
+            api_key_env: None,
+            api_key_env_aliases: Vec::new(),
+        };
+        let adapter = ConfigurableAdapter::new(cfg);
+
+        let mut params = serde_json::json!({
+            "model": "grok-4",
+            "enableReasoning": true,
+            "reasoningBudget": 2048,
+            "enable_thinking": true,
+            "thinking_budget": 1024
+        });
+
+        adapter
+            .transform_request_params(&mut params, "grok-4", RequestType::Chat)
+            .expect("transform ok");
+
+        assert_eq!(params["reasoning_effort"], serde_json::json!("high"));
+        assert!(params.get("enableReasoning").is_none());
+        assert!(params.get("enable_reasoning").is_none());
+        assert!(params.get("reasoningBudget").is_none());
+        assert!(params.get("reasoning_budget").is_none());
+        assert!(params.get("enableThinking").is_none());
+        assert!(params.get("enable_thinking").is_none());
+        assert!(params.get("thinkingBudget").is_none());
+        assert!(params.get("thinking_budget").is_none());
     }
 
     #[test]

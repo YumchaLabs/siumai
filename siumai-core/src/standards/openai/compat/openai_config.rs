@@ -441,6 +441,12 @@ impl OpenAiCompatibleConfig {
             "deepseek" | "moonshot" | "moonshotai" => {
                 self = self.with_provider_specific_param("thinking", thinking_option(enable, None));
             }
+            "xai" => {
+                if enable {
+                    self = self
+                        .with_provider_specific_param("reasoning_effort", serde_json::json!("low"));
+                }
+            }
             _ => {
                 self = self.with_provider_specific_param(
                     "enable_reasoning",
@@ -472,6 +478,10 @@ impl OpenAiCompatibleConfig {
                     thinking_option(true, Some(clamped_budget)),
                 );
             }
+            "xai" => {
+                self = self
+                    .with_provider_specific_param("reasoning_effort", serde_json::json!("high"));
+            }
             _ => {
                 self = self
                     .with_provider_specific_param(
@@ -498,6 +508,12 @@ impl OpenAiCompatibleConfig {
             }
             "deepseek" | "moonshot" | "moonshotai" => {
                 self = self.with_provider_specific_param("thinking", thinking_option(enable, None));
+            }
+            "xai" => {
+                if enable {
+                    self = self
+                        .with_provider_specific_param("reasoning_effort", serde_json::json!("low"));
+                }
             }
             _ => {
                 self = self.with_provider_specific_param(
@@ -529,6 +545,10 @@ impl OpenAiCompatibleConfig {
                     "thinking",
                     thinking_option(true, Some(clamped_budget)),
                 );
+            }
+            "xai" => {
+                self = self
+                    .with_provider_specific_param("reasoning_effort", serde_json::json!("high"));
             }
             _ => {
                 self = self

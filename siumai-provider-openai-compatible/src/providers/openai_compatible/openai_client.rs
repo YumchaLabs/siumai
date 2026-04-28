@@ -4298,7 +4298,9 @@ mod tests {
                 serde_json::json!({
                     "response_format": { "type": "json_object" },
                     "tool_choice": "auto",
-                    "reasoningEffort": "high"
+                    "reasoningEffort": "high",
+                    "enableReasoning": true,
+                    "reasoningBudget": 2048
                 }),
             );
 
@@ -4308,6 +4310,10 @@ mod tests {
         assert!(captured.body.get("stop").is_none());
         assert_eq!(captured.body["tool_choice"], serde_json::json!("none"));
         assert_eq!(captured.body["reasoning_effort"], serde_json::json!("high"));
+        assert!(captured.body.get("enableReasoning").is_none());
+        assert!(captured.body.get("enable_reasoning").is_none());
+        assert!(captured.body.get("reasoningBudget").is_none());
+        assert!(captured.body.get("reasoning_budget").is_none());
         assert_eq!(
             captured.body["response_format"],
             serde_json::json!({
