@@ -592,7 +592,7 @@ impl AnthropicResponseTransformer {
             content,
             usage,
             finish_reason,
-            raw_finish_reason: None,
+            raw_finish_reason: response.stop_reason,
             audio: None,
             system_fingerprint: None,
             service_tier: response.usage.as_ref().and_then(|u| u.service_tier.clone()),

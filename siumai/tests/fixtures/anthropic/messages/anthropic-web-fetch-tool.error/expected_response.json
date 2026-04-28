@@ -70,6 +70,7 @@
     }
   },
   "finish_reason": "stop",
+  "raw_finish_reason": "end_turn",
   "service_tier": "standard",
   "provider_metadata": {
     "anthropic": {

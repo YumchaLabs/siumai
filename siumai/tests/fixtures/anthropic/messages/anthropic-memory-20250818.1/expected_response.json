@@ -46,7 +46,8 @@
       "service_tier": "standard"
     }
   },
-  "finish_reason": "tool_calls",
+  "finish_reason": "tool-calls",
+  "raw_finish_reason": "tool_use",
   "service_tier": "standard",
   "provider_metadata": {
     "anthropic": {

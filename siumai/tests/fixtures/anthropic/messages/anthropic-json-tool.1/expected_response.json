@@ -35,6 +35,7 @@
     }
   },
   "finish_reason": "stop",
+  "raw_finish_reason": "tool_use",
   "service_tier": "standard",
   "provider_metadata": {
     "anthropic": {

@@ -638,7 +638,11 @@ impl AnthropicEventConverter {
         self.vercel_usage.lock().ok().and_then(|v| v.clone())
     }
 
-    fn build_stream_response(&self, finish_reason: FinishReason) -> ChatResponse {
+    fn build_stream_response(
+        &self,
+        finish_reason: FinishReason,
+        raw_finish_reason: Option<String>,
+    ) -> ChatResponse {
         let usage_raw = self.current_vercel_usage();
 
         ChatResponse {
@@ -647,7 +651,7 @@ impl AnthropicEventConverter {
             content: self.build_stream_content(),
             usage: super::utils::create_usage_from_json_value(usage_raw.as_ref()),
             finish_reason: Some(finish_reason),
-            raw_finish_reason: None,
+            raw_finish_reason,
             audio: None,
             system_fingerprint: None,
             service_tier: usage_raw
@@ -2100,7 +2104,8 @@ impl AnthropicEventConverter {
                             builder = builder.add_part(part);
                         }
 
-                        let response = self.build_stream_response(reason);
+                        let response =
+                            self.build_stream_response(reason, Some(stop_reason.clone()));
                         builder = builder.add_stream_end(response);
                     }
                 }
@@ -2108,7 +2113,7 @@ impl AnthropicEventConverter {
                 builder.build()
             }
             "message_stop" => {
-                let response = self.build_stream_response(FinishReason::Stop);
+                let response = self.build_stream_response(FinishReason::Stop, None);
                 if !self.state_tracker.needs_stream_end() {
                     return vec![];
                 }
@@ -2243,11 +2248,14 @@ impl SseEventConverter for AnthropicEventConverter {
             return None; // StreamEnd already emitted
         }
 
-        let response = self.build_stream_response(if self.seen_error.load(Ordering::Relaxed) {
-            FinishReason::Error
-        } else {
-            FinishReason::Unknown
-        });
+        let response = self.build_stream_response(
+            if self.seen_error.load(Ordering::Relaxed) {
+                FinishReason::Error
+            } else {
+                FinishReason::Unknown
+            },
+            None,
+        );
 
         Some(Ok(ChatStreamEvent::StreamEnd { response }))
     }
