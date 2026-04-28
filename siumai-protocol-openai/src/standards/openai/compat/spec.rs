@@ -672,6 +672,133 @@ fn passthrough_provider_option_has(
         .is_some_and(|options| options.contains_key(key))
 }
 
+fn set_json_schema_strict(body_obj: &mut serde_json::Map<String, serde_json::Value>, strict: bool) {
+    if let Some(json_schema_obj) = body_obj
+        .get_mut("response_format")
+        .and_then(|value| value.as_object_mut())
+        .filter(|obj| obj.get("type").and_then(|value| value.as_str()) == Some("json_schema"))
+        .and_then(|obj| obj.get_mut("json_schema"))
+        .and_then(|value| value.as_object_mut())
+    {
+        json_schema_obj.insert("strict".to_string(), serde_json::Value::Bool(strict));
+    }
+}
+
+fn apply_xai_chat_settings(
+    provider_id: &str,
+    req: &crate::types::ChatRequest,
+    provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    if provider_id != "xai" {
+        return;
+    }
+
+    if req.common_params.frequency_penalty.is_some()
+        && !passthrough_provider_option_has(provider_options, "frequency_penalty")
+    {
+        body_obj.remove("frequency_penalty");
+    }
+
+    if req.common_params.presence_penalty.is_some()
+        && !passthrough_provider_option_has(provider_options, "presence_penalty")
+    {
+        body_obj.remove("presence_penalty");
+    }
+
+    if req.common_params.stop_sequences.is_some()
+        && !passthrough_provider_option_has(provider_options, "stop")
+    {
+        body_obj.remove("stop");
+    }
+
+    body_obj.remove("stream_options");
+    body_obj.remove("reasoning_summary");
+    body_obj.remove("previous_response_id");
+    body_obj.remove("include");
+    body_obj.remove("store");
+    set_json_schema_strict(body_obj, true);
+}
+
+fn apply_deepseek_chat_settings(
+    provider_id: &str,
+    req: &crate::types::ChatRequest,
+    provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    if provider_id != "deepseek" {
+        return;
+    }
+
+    if req.common_params.seed.is_some()
+        && !passthrough_provider_option_has(provider_options, "seed")
+    {
+        body_obj.remove("seed");
+    }
+
+    if req.response_format.is_some() {
+        body_obj.insert(
+            "response_format".to_string(),
+            serde_json::json!({ "type": "json_object" }),
+        );
+    }
+}
+
+fn apply_mistral_chat_settings(
+    provider_id: &str,
+    req: &crate::types::ChatRequest,
+    provider_options: &Option<serde_json::Map<String, serde_json::Value>>,
+    compat_options: &CompatChatOptions,
+    body_obj: &mut serde_json::Map<String, serde_json::Value>,
+) {
+    if provider_id != "mistral" {
+        return;
+    }
+
+    if req.common_params.frequency_penalty.is_some()
+        && !passthrough_provider_option_has(provider_options, "frequency_penalty")
+    {
+        body_obj.remove("frequency_penalty");
+    }
+
+    if req.common_params.presence_penalty.is_some()
+        && !passthrough_provider_option_has(provider_options, "presence_penalty")
+    {
+        body_obj.remove("presence_penalty");
+    }
+
+    if req.common_params.stop_sequences.is_some()
+        && !passthrough_provider_option_has(provider_options, "stop")
+    {
+        body_obj.remove("stop");
+    }
+
+    if let Some(seed) = req.common_params.seed {
+        if !passthrough_provider_option_has(provider_options, "random_seed") {
+            body_obj.insert("random_seed".to_string(), serde_json::json!(seed));
+        }
+        if !passthrough_provider_option_has(provider_options, "seed") {
+            body_obj.remove("seed");
+        }
+    }
+
+    if compat_options.strict_json_schema.is_none()
+        && let Some(crate::types::chat::ResponseFormat::Json { strict, .. }) =
+            req.response_format.as_ref()
+        && strict.is_none()
+    {
+        set_json_schema_strict(body_obj, false);
+    }
+
+    let model = body_obj
+        .get("model")
+        .and_then(|value| value.as_str())
+        .unwrap_or(req.common_params.model.as_str());
+    if !matches!(model, "mistral-small-latest" | "mistral-small-2603") {
+        body_obj.remove("reasoning_effort");
+    }
+}
+
 fn apply_perplexity_chat_settings(
     provider_id: &str,
     req: &crate::types::ChatRequest,
@@ -829,6 +956,15 @@ fn chat_request_settings_hook(
                 );
                 apply_perplexity_chat_settings(&provider_id, &req, &provider_options, body_obj);
                 apply_alibaba_chat_settings(&provider_id, &req, &provider_options, body_obj);
+                apply_xai_chat_settings(&provider_id, &req, &provider_options, body_obj);
+                apply_deepseek_chat_settings(&provider_id, &req, &provider_options, body_obj);
+                apply_mistral_chat_settings(
+                    &provider_id,
+                    &req,
+                    &provider_options,
+                    &compat_options,
+                    body_obj,
+                );
             }
 
             if let Some(transformer) = settings.request_body_transformer.as_ref() {
@@ -857,7 +993,9 @@ fn default_request_settings_for_provider(provider_id: &str) -> OpenAiCompatibleR
     OpenAiCompatibleRequestSettings {
         supports_structured_outputs: match provider_id {
             // Keep this aligned with the compat config defaults used by the public client surface.
-            "openrouter" | "perplexity" | "mistral" | "groq" | "qwen" | "alibaba" => Some(true),
+            "openrouter" | "perplexity" | "mistral" | "groq" | "qwen" | "alibaba" | "xai" => {
+                Some(true)
+            }
             _ => None,
         },
         ..OpenAiCompatibleRequestSettings::default()
@@ -2022,9 +2160,9 @@ mod tests {
         use crate::types::chat::ResponseFormat;
 
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
-            id: "deepseek".to_string(),
-            name: "DeepSeek".to_string(),
-            base_url: "https://api.deepseek.com/v1".to_string(),
+            id: "openrouter".to_string(),
+            name: "OpenRouter".to_string(),
+            base_url: "https://openrouter.ai/api/v1".to_string(),
             field_mappings: Default::default(),
             capabilities: vec!["tools".into()],
             default_model: None,
@@ -2043,8 +2181,8 @@ mod tests {
         );
 
         let ctx = ProviderContext::new(
-            "deepseek".to_string(),
-            "https://api.deepseek.com/v1".to_string(),
+            "openrouter".to_string(),
+            "https://openrouter.ai/api/v1".to_string(),
             Some("k".to_string()),
             Default::default(),
         );
@@ -2057,7 +2195,7 @@ mod tests {
         });
 
         let req = crate::types::ChatRequest::builder()
-            .model("deepseek-chat")
+            .model("openai/gpt-4o")
             .messages(vec![crate::types::ChatMessage::user("hi").build()])
             .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
             .build();
@@ -2081,10 +2219,9 @@ mod tests {
     }
 
     #[test]
-    fn openai_compatible_deepseek_runtime_provider_preserves_response_format_json_schema_when_enabled()
-     {
+    fn openai_compatible_deepseek_runtime_provider_uses_json_object_response_format() {
         use crate::core::ProviderSpec;
-        use crate::types::chat::ResponseFormat;
+        use crate::types::{CommonParams, chat::ResponseFormat};
 
         let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
             Arc::new(ConfigurableAdapter::new(ProviderConfig {
@@ -2121,23 +2258,24 @@ mod tests {
         });
 
         let req = crate::types::ChatRequest::builder()
-            .model("deepseek-chat")
+            .model_params(CommonParams {
+                model: "deepseek-chat".to_string(),
+                seed: Some(1234),
+                ..CommonParams::default()
+            })
             .messages(vec![crate::types::ChatMessage::user("hi").build()])
             .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
             .build();
 
         let bundle = spec.choose_chat_transformers(&req, &ctx);
         let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert!(body.get("seed").is_none());
         assert_eq!(
             body.get("response_format"),
-            Some(&serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
-            }))
+            Some(&serde_json::json!({ "type": "json_object" }))
         );
     }
 
@@ -2311,12 +2449,73 @@ mod tests {
         assert_eq!(body.get("tool_choice"), Some(&serde_json::json!("none")));
         assert_eq!(
             body.get("response_format"),
+            Some(&serde_json::json!({ "type": "json_object" }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_mistral_chat_settings_follow_ai_sdk_body_shape() {
+        use crate::core::ProviderSpec;
+        use crate::types::{CommonParams, chat::ResponseFormat};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "mistral".to_string(),
+                name: "Mistral AI".to_string(),
+                base_url: "https://api.mistral.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: false,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "mistral".to_string(),
+            "https://api.mistral.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+        let req = crate::types::ChatRequest::builder()
+            .model_params(CommonParams {
+                model: "mistral-large-latest".to_string(),
+                frequency_penalty: Some(0.2),
+                presence_penalty: Some(0.4),
+                stop_sequences: Some(vec!["END".to_string()]),
+                seed: Some(99),
+                ..CommonParams::default()
+            })
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("custom"))
+            .build()
+            .with_provider_option("mistral", serde_json::json!({ "reasoningEffort": "high" }));
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert!(body.get("frequency_penalty").is_none());
+        assert!(body.get("presence_penalty").is_none());
+        assert!(body.get("stop").is_none());
+        assert!(body.get("seed").is_none());
+        assert_eq!(body.get("random_seed"), Some(&serde_json::json!(99)));
+        assert!(body.get("reasoning_effort").is_none());
+        assert_eq!(
+            body.get("response_format"),
             Some(&serde_json::json!({
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "response",
+                    "name": "custom",
                     "schema": schema,
-                    "strict": true
+                    "strict": false
                 }
             }))
         );
@@ -2329,9 +2528,9 @@ mod tests {
 
         let spec = OpenAiCompatibleSpecWithAdapter::with_settings(
             Arc::new(ConfigurableAdapter::new(ProviderConfig {
-                id: "deepseek".to_string(),
-                name: "DeepSeek".to_string(),
-                base_url: "https://api.deepseek.com/v1".to_string(),
+                id: "openrouter".to_string(),
+                name: "OpenRouter".to_string(),
+                base_url: "https://openrouter.ai/api/v1".to_string(),
                 field_mappings: Default::default(),
                 capabilities: vec!["tools".into()],
                 default_model: None,
@@ -2348,8 +2547,8 @@ mod tests {
         );
 
         let ctx = ProviderContext::new(
-            "deepseek".to_string(),
-            "https://api.deepseek.com/v1".to_string(),
+            "openrouter".to_string(),
+            "https://openrouter.ai/api/v1".to_string(),
             Some("k".to_string()),
             Default::default(),
         );
@@ -2362,7 +2561,7 @@ mod tests {
         });
 
         let req = crate::types::ChatRequest::builder()
-            .model("deepseek-chat")
+            .model("openai/gpt-4o")
             .messages(vec![crate::types::ChatMessage::user("hi").build()])
             .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
             .build()
@@ -2833,7 +3032,7 @@ mod tests {
                 "json_schema": {
                     "name": "response",
                     "schema": schema,
-                    "strict": true
+                    "strict": false
                 }
             }))
         );
@@ -3363,6 +3562,74 @@ mod tests {
         assert!(body.get("enable_reasoning").is_none());
         assert!(body.get("reasoningBudget").is_none());
         assert!(body.get("reasoning_budget").is_none());
+        assert_eq!(
+            body.get("response_format"),
+            Some(&serde_json::json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "response",
+                    "schema": schema,
+                    "strict": true
+                }
+            }))
+        );
+    }
+
+    #[test]
+    fn openai_compatible_xai_chat_settings_strip_unsupported_standard_fields() {
+        use crate::core::ProviderSpec;
+        use crate::types::{CommonParams, chat::ResponseFormat};
+
+        let spec = OpenAiCompatibleSpecWithAdapter::new(Arc::new(ConfigurableAdapter::new(
+            ProviderConfig {
+                id: "xai".to_string(),
+                name: "xAI".to_string(),
+                base_url: "https://api.x.ai/v1".to_string(),
+                field_mappings: Default::default(),
+                capabilities: vec!["tools".into()],
+                default_model: None,
+                supports_reasoning: true,
+                api_key_env: None,
+                api_key_env_aliases: vec![],
+            },
+        )));
+        let ctx = ProviderContext::new(
+            "xai".to_string(),
+            "https://api.x.ai/v1".to_string(),
+            Some("k".to_string()),
+            Default::default(),
+        );
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "answer": { "type": "string" } },
+            "required": ["answer"],
+            "additionalProperties": false
+        });
+        let req = crate::types::ChatRequest::builder()
+            .model_params(CommonParams {
+                model: "grok-4".to_string(),
+                frequency_penalty: Some(0.2),
+                presence_penalty: Some(0.4),
+                stop_sequences: Some(vec!["END".to_string()]),
+                seed: Some(42),
+                ..CommonParams::default()
+            })
+            .messages(vec![crate::types::ChatMessage::user("hi").build()])
+            .response_format(ResponseFormat::json_schema(schema.clone()).with_name("response"))
+            .stream(true)
+            .build()
+            .with_provider_option("xai", serde_json::json!({ "strictJsonSchema": false }));
+
+        let bundle = spec.choose_chat_transformers(&req, &ctx);
+        let body = bundle.request.transform_chat(&req).expect("transform");
+        let hook = spec.chat_before_send(&req, &ctx).expect("before_send");
+        let body = hook(&body).expect("hook body");
+
+        assert!(body.get("frequency_penalty").is_none());
+        assert!(body.get("presence_penalty").is_none());
+        assert!(body.get("stop").is_none());
+        assert!(body.get("stream_options").is_none());
+        assert_eq!(body.get("seed"), Some(&serde_json::json!(42)));
         assert_eq!(
             body.get("response_format"),
             Some(&serde_json::json!({

@@ -4289,7 +4289,12 @@ mod tests {
         });
 
         let request = ChatRequest::builder()
-            .model("grok-4")
+            .model_params(CommonParams {
+                model: "grok-4".to_string(),
+                frequency_penalty: Some(0.2),
+                presence_penalty: Some(0.4),
+                ..CommonParams::default()
+            })
             .messages(vec![ChatMessage::user("hi").build()])
             .stop_sequences(vec!["END".to_string()])
             .tools(vec![Tool::function(
@@ -4317,6 +4322,8 @@ mod tests {
         let captured = transport.take().expect("captured request");
 
         assert!(captured.body.get("stop").is_none());
+        assert!(captured.body.get("frequency_penalty").is_none());
+        assert!(captured.body.get("presence_penalty").is_none());
         assert_eq!(captured.body["tool_choice"], serde_json::json!("none"));
         assert_eq!(captured.body["reasoning_effort"], serde_json::json!("high"));
         assert!(captured.body.get("enableReasoning").is_none());
@@ -4378,6 +4385,7 @@ mod tests {
 
         let request = ChatRequest::builder()
             .model("deepseek-chat")
+            .seed(1234)
             .messages(vec![ChatMessage::user("hi").build()])
             .tools(vec![Tool::function(
                 "get_weather",
@@ -4412,26 +4420,20 @@ mod tests {
         assert!(captured.body.get("enable_reasoning").is_none());
         assert!(captured.body.get("reasoningBudget").is_none());
         assert!(captured.body.get("reasoning_budget").is_none());
+        assert!(captured.body.get("seed").is_none());
         assert_eq!(captured.body["tool_choice"], serde_json::json!("none"));
         assert_eq!(
             captured.body["response_format"],
-            serde_json::json!({
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
-                }
-            })
+            serde_json::json!({ "type": "json_object" })
         );
     }
 
     #[tokio::test]
     async fn chat_request_runtime_provider_specific_known_compat_options_map_to_ai_sdk_fields() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
-            id: "deepseek".to_string(),
-            name: "DeepSeek".to_string(),
-            base_url: "https://api.deepseek.com/v1".to_string(),
+            id: "openrouter".to_string(),
+            name: "OpenRouter".to_string(),
+            base_url: "https://openrouter.ai/api/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
             capabilities: vec![
                 "chat".to_string(),
@@ -4446,12 +4448,12 @@ mod tests {
         let transport = CaptureTransport::default();
 
         let cfg = OpenAiCompatibleConfig::new(
-            "deepseek",
+            "openrouter",
             "test-key",
-            "https://api.deepseek.com/v1",
+            "https://openrouter.ai/api/v1",
             adapter,
         )
-        .with_model("deepseek-chat")
+        .with_model("openai/gpt-4o")
         .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
@@ -4467,14 +4469,14 @@ mod tests {
         });
 
         let request = ChatRequest::builder()
-            .model("deepseek-chat")
+            .model("openai/gpt-4o")
             .messages(vec![ChatMessage::user("hi").build()])
             .response_format(crate::types::chat::ResponseFormat::json_schema(
                 schema.clone(),
             ))
             .build()
             .with_provider_option(
-                "deepseek",
+                "openrouter",
                 serde_json::json!({
                     "user": "compat-user-9",
                     "reasoningEffort": "high",
@@ -5917,9 +5919,9 @@ data: [DONE]
     #[tokio::test]
     async fn chat_request_runtime_structured_outputs_enabled_preserves_schema_without_warning() {
         let adapter = Arc::new(ConfigurableAdapter::new(ProviderConfig {
-            id: "deepseek".to_string(),
-            name: "DeepSeek".to_string(),
-            base_url: "https://api.deepseek.com/v1".to_string(),
+            id: "openrouter".to_string(),
+            name: "OpenRouter".to_string(),
+            base_url: "https://openrouter.ai/api/v1".to_string(),
             field_mappings: ProviderFieldMappings::default(),
             capabilities: vec![
                 "chat".to_string(),
@@ -5935,7 +5937,7 @@ data: [DONE]
             "id": "chatcmpl_2",
             "object": "chat.completion",
             "created": 1,
-            "model": "deepseek-chat",
+            "model": "openai/gpt-4o",
             "choices": [{
                 "index": 0,
                 "message": {
@@ -5948,12 +5950,12 @@ data: [DONE]
         }));
 
         let cfg = OpenAiCompatibleConfig::new(
-            "deepseek",
+            "openrouter",
             "test-key",
-            "https://api.deepseek.com/v1",
+            "https://openrouter.ai/api/v1",
             adapter,
         )
-        .with_model("deepseek-chat")
+        .with_model("openai/gpt-4o")
         .with_supports_structured_outputs(true)
         .with_http_transport(Arc::new(transport.clone()));
 
@@ -5969,7 +5971,7 @@ data: [DONE]
         });
 
         let request = ChatRequest::builder()
-            .model("deepseek-chat")
+            .model("openai/gpt-4o")
             .messages(vec![ChatMessage::user("hi").build()])
             .response_format(crate::types::chat::ResponseFormat::json_schema(
                 schema.clone(),
