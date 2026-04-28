@@ -5098,9 +5098,7 @@ mod tests {
             serde_json::json!({
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
+                    "schema": schema
                 }
             })
         );
@@ -5210,9 +5208,7 @@ mod tests {
             serde_json::json!({
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
+                    "schema": schema
                 }
             })
         );
@@ -5305,9 +5301,7 @@ mod tests {
             serde_json::json!({
                 "type": "json_schema",
                 "json_schema": {
-                    "name": "response",
-                    "schema": schema,
-                    "strict": true
+                    "schema": schema
                 }
             })
         );
